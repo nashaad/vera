@@ -16,6 +16,7 @@ import { useAnnexPanes } from "./pagepane/useAnnexPanes.ts";
 import { Overlays } from "./overlays/Overlays.tsx";
 import { ProviderWizard } from "./pages/settings/ProviderWizard.tsx";
 import { RouterProvider } from "./pages/router.tsx";
+import { QuitWarning } from "./session/QuitWarning.tsx";
 import { SessionEvidenceReporter } from "./session/SessionEvidence.tsx";
 import { SubagentCommands } from "./subagents/SubagentCommands.tsx";
 import { SubagentsSync } from "./subagents/SubagentsSync.tsx";
@@ -41,7 +42,7 @@ export function App() {
         }
     }), []);
     const [log] = useState(() => new OutputLog());
-    const { state, reconnect, answer, refreshSessions, dismissInstallNotice } = useHostConnection(log);
+    const { state, reconnect, answer, refreshSessions, dismissInstallNotice, listAgents } = useHostConnection(log);
     useWindowEvidence(state, log);
     const visible = useVisibility();
     const unavailable = useMemo(() => unavailableContainers(visible), [visible]);
@@ -60,7 +61,10 @@ export function App() {
     }, [commands, hidden]);
     const flagsLoaded = useDesktopFlagsLoaded();
     const loaded = layoutLoaded && flagsLoaded;
-    const environment = useMemo(() => ({ connection: state, log, refreshSessions }), [state, log, refreshSessions]);
+    const environment = useMemo(
+        () => ({ connection: state, log, refreshSessions, listAgents }),
+        [state, log, refreshSessions, listAgents],
+    );
     const platform = window.veraDesktop?.platform ?? "";
 
     const [firstRun, setFirstRun] = useState(false);
@@ -101,6 +105,7 @@ export function App() {
                     {loaded ? <SubagentsSync /> : null}
                     {loaded ? <PagePaneSync /> : null}
                     <SessionEvidenceReporter />
+                    <QuitWarning listAgents={listAgents} />
                 </div>
             </ViewEnvContext.Provider>
             </RouterProvider>

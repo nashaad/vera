@@ -33,5 +33,30 @@ jobs:
       - name: Install development dependencies
         run: bun install --frozen-lockfile
 
+      - name: Set up Linux sandbox
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends apparmor bubblewrap socat ripgrep
+          sudo tee /etc/apparmor.d/vera-ci-bwrap >/dev/null <<'EOF'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+              userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/vera-ci-bwrap
+          bwrap --unshare-user --unshare-pid --unshare-net --ro-bind / / --proc /proc --dev /dev -- /bin/true
+          bun -e '
+              import { SandboxManager } from "./src/sandbox/manager.ts";
+              const sandbox = new SandboxManager({
+                  config: () => ({ enabled: true, network: "open", allowed_domains: [] }),
+                  permissionRules: () => [],
+                  log: () => {},
+              });
+              const inspection = sandbox.inspection();
+              console.log(inspection);
+              if (inspection.status !== "active") process.exit(1);
+          '
+
       - name: Run tests tagged @core and the locked journeys
         run: bun run test:core

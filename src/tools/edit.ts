@@ -7,6 +7,10 @@ interface TextEdit {
     readonly newString: string;
 }
 
+const EDITS_PLACEMENT_MESSAGE =
+    `edit tool takes old_string and new_string inside edits:`
+    + ` { "path": ..., "edits": [{ "old_string": ..., "new_string": ... }] }`;
+
 interface MatchResult {
     readonly count: number;
     readonly index: number;
@@ -40,7 +44,7 @@ export const editTool: RegisteredTool = {
         },
     },
     execute(input, runtime): Promise<ToolExecutionResult> {
-        assertOnlyFields(input, ["path", "edits"], "edit tool");
+        assertTopLevelEditFields(input);
         const path = requiredString(input, "path");
         const edits = parseEdits(input.edits);
         return editFileInWorkspace(runtime, path, edits);
@@ -112,6 +116,25 @@ function parseEdits(value: unknown): TextEdit[] {
             newString: requiredString(item, "new_string", `edits[${index}]`),
         };
     });
+}
+
+function assertTopLevelEditFields(
+    input: Readonly<Record<string, unknown>>,
+): void {
+    const unexpectedField = Object.keys(input).find(
+        (field) => field !== "path" && field !== "edits",
+    );
+    if (unexpectedField === undefined) {
+        return;
+    }
+    if (
+        unexpectedField === "old_string"
+        || unexpectedField === "new_string"
+        || unexpectedField === "replace_all"
+    ) {
+        throw new Error(EDITS_PLACEMENT_MESSAGE);
+    }
+    throw new Error(`edit tool does not allow ${unexpectedField}`);
 }
 
 function assertOnlyFields(

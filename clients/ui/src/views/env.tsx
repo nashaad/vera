@@ -2,12 +2,14 @@ import { createContext, useContext } from "react";
 
 import type { UiState } from "../state/connection.ts";
 import type { OutputLog } from "../state/outputLog.ts";
+import type { AgentListFacts, ListAgentsOptions } from "../protocol/client.ts";
 
 export interface ViewEnvironment {
     readonly connection: UiState;
     readonly log: OutputLog;
     // Reads the session list now rather than at the next poll.
     readonly refreshSessions: () => void;
+    readonly listAgents: (options?: ListAgentsOptions) => Promise<AgentListFacts>;
 }
 
 export const ViewEnvContext = createContext<ViewEnvironment | undefined>(undefined);

@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createConsumerRegistry } from "../../src/host/consumers.ts";
+import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
+import { parseAgentUpdateFrame } from "../../src/host/agent-update-wire.ts";
 import { EXTENSION_CONFIG_NOTICE_KEY, activeExtensionConfigWatches } from "../../src/host/extension-config-watch.ts";
 import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
+import { startResidentHost } from "../../src/host/runtime.ts";
 import { startSessionHost } from "../../src/host/session-host.ts";
 import { StartupFindings } from "../../src/host/startup-findings.ts";
 import { createAuthStorage } from "../../src/providers/auth-storage.ts";
@@ -13,6 +16,7 @@ import { Inbox } from "../../src/store/inbox.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { socketTest } from "../support/socket-probe.ts";
 
 const baseConfig = {
     schema_version: 1,
@@ -93,11 +97,6 @@ test("a config edit reaches an attached session and names the host restart", asy
             expect(notice.text).toBe(
                 "Disabled vera.mcp. Use Reconnect host (Ctrl+P) to unload it.",
             );
-            expect(notice.facts).toEqual({
-                operation: "disable",
-                id: "vera.mcp",
-                needs_restart: true,
-            });
             // The running session keeps its tool list; only a host restart rebuilds it.
             expect(opened.host.registry.agents.get(agent.id)?.loopServices?.extensionTools)
                 .toBe(toolsBefore);
@@ -136,6 +135,91 @@ test("a session attaches after the edit and still sees the drift", async () => {
         await rm(home, { recursive: true, force: true });
     }
 });
+
+test("@core extension config notices from the registry pass the client parser", async () => {
+    const home = await mkdtemp(join(tmpdir(), "vera-ext-config-"));
+    let opened: Awaited<ReturnType<typeof openSessionHost>> | undefined;
+    try {
+        opened = await openSessionHost(home, () => baseConfig);
+        const agent = await opened.host.handlers.createAgent({ workspace: home });
+        const attachment = await agent.attach();
+        try {
+            await opened.host.registry.agents.get(agent.id)!.loopReady;
+            for (const operation of ["enable", "disable", "update"] as const) {
+                opened.host.registry.publishExtensionConfigChanges([{ operation, id: "acme.crow", needsRestart: true }]);
+                const notice = await waitForNotice(attachment);
+                expect(notice.key).toBe(EXTENSION_CONFIG_NOTICE_KEY);
+                expect(notice.count).toBe(1);
+                expect(notice.facts).toBeUndefined();
+                expect(notice.source).toBeUndefined();
+                expect(parseAgentUpdateFrame(notice)).toEqual({ kind: "update", update: notice });
+                expect(parseAgentUpdateFrame({ ...notice, facts: { operation } })).toEqual({ kind: "invalid_notice", seq: notice.seq });
+            }
+        } finally {
+            attachment.detach();
+        }
+    } finally {
+        await opened?.close();
+        await rm(home, { recursive: true, force: true });
+    }
+});
+
+socketTest("@core config changes leave current and newly attached socket clients connected", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ve-notice-"));
+    let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
+    let first: AttachedAgentClient | undefined;
+    let second: AttachedAgentClient | undefined;
+    try {
+        await writeFile(join(home, "config.json"), JSON.stringify(baseConfig));
+        host = await startResidentHost({
+            home,
+            config: baseConfig,
+            processWorker: false,
+            createAdapter: () => new FauxAdapter([]),
+        });
+        const agent = await host.registry.create({ id: "crow", workspace: home });
+        first = await attachAgent({ socketPath: host.server.socketPath, agentId: agent.id });
+        expect((await first.receive(AbortSignal.timeout(5_000))).type).toBe("history");
+        await host.registry.agents.get(agent.id)!.loopReady;
+        await writeFile(join(home, "config.json"), JSON.stringify({
+            ...baseConfig, disabled_included_extensions: ["vera.mcp"],
+        }));
+        const expected = "Disabled vera.mcp. Use Reconnect host (Ctrl+P) to unload it.";
+        expect((await receiveSocketNotice(first)).text).toBe(expected);
+        await checkSocketClient(first, "first");
+        second = await attachAgent({ socketPath: host.server.socketPath, agentId: agent.id });
+        expect((await receiveSocketNotice(second)).text).toBe(expected);
+        await checkSocketClient(second, "second");
+        await checkSocketClient(first, "first-again");
+    } finally {
+        first?.close();
+        second?.close();
+        const annexPid = host?.annexPid;
+        await host?.close();
+        if (annexPid !== undefined) expect(() => process.kill(annexPid, 0)).toThrow();
+        expect(activeExtensionConfigWatches()).toBe(0);
+        await rm(home, { recursive: true, force: true });
+    }
+}, 15_000);
+
+async function receiveSocketNotice(client: AttachedAgentClient): Promise<ExtensionNoticeUpdate> {
+    const signal = AbortSignal.timeout(5_000);
+    while (true) {
+        const update = await client.receive(signal);
+        if (update.type === "notice" && update.key === EXTENSION_CONFIG_NOTICE_KEY) return update;
+    }
+}
+
+async function checkSocketClient(client: AttachedAgentClient, requestId: string): Promise<void> {
+    await client.send({ type: "get_model_settings", requestId });
+    const signal = AbortSignal.timeout(5_000);
+    while (true) {
+        const update = await client.receive(signal);
+        if ((update.type === "model_settings" || update.type === "model_settings_rejected")
+            && update.requestId === requestId) break;
+    }
+    expect(client.closed).toBe(false);
+}
 
 type ExtensionNoticeUpdate = Extract<AgentUpdate, { type: "notice" }>;
 

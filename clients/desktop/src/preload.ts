@@ -44,6 +44,7 @@ const bridge: DesktopBridge = {
     platform: process.platform,
     captureFeedback: async () => (await ipcRenderer.invoke(CHANNELS.feedbackCapture)) as string | undefined,
     saveFeedback: async (request: FeedbackSaveRequest) => (await ipcRenderer.invoke(CHANNELS.feedbackSave, request)) as FeedbackSaveResult,
+    consumeWindowClose: () => ipcRenderer.sendSync(CHANNELS.windowClosing) === true,
     start: () => ipcRenderer.send(CHANNELS.start),
     reconnect: () => ipcRenderer.send(CHANNELS.reconnect),
     answer: (id: string, yes: boolean) => ipcRenderer.send(CHANNELS.answer, { id, yes }),

@@ -30,6 +30,7 @@ import type { VeraExtensionConfig } from "../../config.ts";
 
 export interface WorkerHostCapabilities {
     readonly loadAgents?: boolean;
+    readonly processObservations?: boolean;
     readonly updateApprovalMode: boolean;
     readonly reviewToolCall: boolean;
     readonly applyHostToolEffect: boolean;

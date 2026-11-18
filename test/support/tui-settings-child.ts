@@ -14,12 +14,14 @@ import {
     type AssistantMessage,
     type ModelReasoningEffort,
 } from "../../src/model/types.ts";
+import type { PooledModel } from "../../src/model/catalog-view.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
 import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export interface TuiSettingsFixtureOptions {
     readonly contextWindow?: number;
     readonly configured?: ConfiguredOverrides;
+    readonly pooled?: readonly PooledModel[];
 }
 
 export function createTuiSettingsDependencies(options: TuiSettingsFixtureOptions = {}): TuiDependencies {
@@ -64,6 +66,7 @@ export function createTuiSettingsDependencies(options: TuiSettingsFixtureOptions
                 model: "test",
                 reasoningEffort,
                 availableModels,
+                ...(options.pooled === undefined ? {} : { pooled: options.pooled }),
                 contextWindow,
                 overrides: { rows: overrideRows(configured, contextWindow) },
             }),
@@ -94,6 +97,7 @@ export function createTuiSettingsDependencies(options: TuiSettingsFixtureOptions
                         model: "test",
                         reasoningEffort,
                         availableModels,
+                        ...(options.pooled === undefined ? {} : { pooled: options.pooled }),
                         contextWindow,
                         overrides: {
                             rows: overrideRows(configured, contextWindow),

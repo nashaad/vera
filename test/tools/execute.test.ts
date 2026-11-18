@@ -516,7 +516,7 @@ test("edit rejects an empty batch and requires a prior read", async () => {
         );
         expect(unread.isError).toBe(true);
         expect(unread.content[0]?.text).toBe(
-            "Read notes.txt before editing it",
+            "Read notes.txt with the read tool through its last line before editing it.",
         );
     } finally {
         await rm(workspace, { recursive: true, force: true });
@@ -557,6 +557,39 @@ test("edit rejects empty old_string and unsupported fields", async () => {
         expect(replaceAll.content[0]?.text).toBe(
             "edits[0] does not allow replace_all",
         );
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("edit points a top-level old_string and new_string at the edits array", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-edit-"));
+    const runtime = new ToolRuntime(workspace);
+    const placement = "edit tool takes old_string and new_string inside edits:"
+        + ` { "path": ..., "edits": [{ "old_string": ..., "new_string": ... }] }`;
+
+    try {
+        const topLevel = await executeToolCall(toolCall("call_top_level", "edit", {
+            path: "notes.txt",
+            old_string: "before",
+            new_string: "after",
+        }), runtime);
+        const replaceAll = await executeToolCall(toolCall("call_top_level_replace_all", "edit", {
+            path: "notes.txt",
+            replace_all: true,
+        }), runtime);
+        // Other unexpected fields keep the plain refusal.
+        const offset = await executeToolCall(toolCall("call_offset", "edit", {
+            path: "notes.txt",
+            offset: 1,
+        }), runtime);
+
+        expect(topLevel.isError).toBe(true);
+        expect(topLevel.content[0]?.text).toBe(placement);
+        expect(replaceAll.isError).toBe(true);
+        expect(replaceAll.content[0]?.text).toBe(placement);
+        expect(offset.isError).toBe(true);
+        expect(offset.content[0]?.text).toBe("edit tool does not allow offset");
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }

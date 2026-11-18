@@ -125,6 +125,24 @@ test("a classifier timeout asks the user and keeps the turn going", async () => 
         expect(flat).toContain("Fix: open /settings, then Classifier");
         expect(pane).not.toContain("CLASSIFIER FAILED");
 
+        session.sendKey("C-r");
+        await session.waitForVisiblePane("Ctrl+R collapse");
+        session.sendKey("C-r");
+        session.sendKey("Tab");
+        const editing = await session.waitForVisiblePane("enter send");
+        expect(editing).not.toContain("Ctrl+R collapse");
+        session.sendText("try another route");
+        await session.waitForVisiblePane("try another route");
+        session.sendKey("BTab");
+        await session.settle();
+        expect(session.captureVisiblePane()).toContain("enter send");
+        expect(session.captureVisiblePane()).toContain("try another route");
+        session.sendKey("C-r");
+        await session.waitForVisiblePane("Ctrl+R collapse");
+        session.sendKey("C-r");
+        session.sendKey("Tab");
+        pane = await session.waitForVisiblePane("Tab to tell Vera what to do instead");
+        expect(pane).not.toContain("try another route");
         session.sendKey("1");
         pane = await session.waitForVisiblePane("AUTO REVIEW COMPLETED");
         expect(pane).toContain("Ran  env AUTO_REVIEW=ran");
@@ -164,6 +182,38 @@ test("approval actions stay visible above long details", async () => {
         );
         expect(pane).toContain("1 Yes, this time");
         expect(pane).not.toContain("$ grep");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("approval Tab and Ctrl+R work in the list and typed answer", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-approval-keys-"));
+    const session = await startTuiTestSession({
+        home,
+        width: 110,
+        height: 28,
+        dependencies: () => createTuiApprovalDependencies(),
+    });
+
+    try {
+        await session.waitForVisiblePane("Tab to tell Vera what to do instead");
+        session.sendKey("C-r");
+        await session.waitForVisiblePane("Ctrl+R collapse");
+        session.sendKey("C-r");
+        session.sendKey("Tab");
+        const editing = await session.waitForVisiblePane("enter send");
+        expect(editing).not.toContain("Ctrl+R collapse");
+        session.sendText("try another route");
+        await session.waitForVisiblePane("try another route");
+        session.sendKey("C-r");
+        await session.waitForVisiblePane("Ctrl+R collapse");
+        session.sendKey("C-r");
+        session.sendKey("Tab");
+        const pane = await session.waitForVisiblePane("Tab to tell Vera what to do instead");
+        expect(pane).not.toContain("try another route");
+        session.sendKey("2");
+        await session.waitForVisiblePane("RESPONSE AFTER APPROVAL");
     } finally {
         await session.close();
     }

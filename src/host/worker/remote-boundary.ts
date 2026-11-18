@@ -111,6 +111,19 @@ export function createRemoteHostBoundary(
             pipe.notify({ method: "process.started", pid, started_at: startedAt }),
         onProcessSettled: (pid) =>
             pipe.notify({ method: "process.settled", pid }),
+        ...(capabilities.processObservations === true ? {
+            onObservationStarted: async (observation) => {
+                await pipe.request({ method: "process.observationStart", observation }, AbortSignal.timeout(30_000));
+            },
+            onObservationSettled: async (settlement) => {
+                await pipe.request({ method: "process.observationSettled", settlement }, AbortSignal.timeout(30_000));
+            },
+            onObservationInterrupted: async (observation) => {
+                await pipe.request({ method: "process.observationInterrupted", observation }, AbortSignal.timeout(30_000));
+            },
+        } : {}),
+        onLiveCountChanged: (ownerId, count) =>
+            pipe.notify({ method: "process.count", ownerId, count }),
         ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
     });
 
@@ -138,6 +151,9 @@ export function createRemoteHostBoundary(
             ...(registered.agents === undefined
                 ? {}
                 : { agents: registered.agents }),
+            ...(registered.commandInput === undefined
+                ? {}
+                : { commandInput: registered.commandInput }),
             async execute(
                 input: Readonly<Record<string, unknown>>,
                 context: ToolRuntime,

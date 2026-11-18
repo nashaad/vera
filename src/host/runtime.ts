@@ -21,6 +21,7 @@ import { eventLogRoot } from "../engine/events.ts";
 import { availableModels, type ModelTurnSettings, type OverrideSettingsPatch } from "../engine/model-settings.ts";
 import type { ToolReviewerSettings } from "../engine/reviewer.ts";
 import type { ApprovalMode } from "../sdk/permissions.ts";
+import type { ManagedProcessObservationHandlers } from "../tools/process-runtime.ts";
 import {
     cachedProviderModels,
     readCachedWindowIndex,
@@ -347,8 +348,9 @@ export async function startSessionWorkerRuntime(
     workerGlobals?: WorkerGlobals,
     remoteExtensions?: WorkerExtensionServices,
     externalTurnsHeld?: () => boolean,
+    processObservations?: ManagedProcessObservationHandlers,
 ): Promise<SessionWorkerRuntime> {
-    return await startHostRuntime(options, restoringSessions, shard, workerGlobals, remoteExtensions, externalTurnsHeld) as SessionWorkerRuntime;
+    return await startHostRuntime(options, restoringSessions, shard, workerGlobals, remoteExtensions, externalTurnsHeld, undefined, processObservations) as SessionWorkerRuntime;
 }
 
 async function startHostRuntime(
@@ -357,6 +359,7 @@ async function startHostRuntime(
     remoteExtensions?: WorkerExtensionServices,
     externalTurnsHeld?: () => boolean,
     startup?: ResidentHostStartup,
+    processObservations?: ManagedProcessObservationHandlers,
 ): Promise<ResidentHost | SessionWorkerRuntime> {
     const startupStarted = performance.now();
     requireHomeForOverrides(options);
@@ -638,6 +641,7 @@ async function startHostRuntime(
         ...(workerReservations === undefined ? {} : { sessionWorker: true }),
         ...(options.processWorker === true ? { disableTurnWorker: true } : {}),
         ...(workerGlobals === undefined ? {} : { workerGlobals }),
+        ...(processObservations === undefined ? {} : { processObservations }),
         ...(credentials === undefined ? {} : { hostCredentialLease: credentials.lease }),
         ...(options.processWorker === true ? { onPreferencesChanged: () => announceGlobalChange("preferences") } : {}),
         ...(options.processWorker === true ? { poolHost: true } : {}),
@@ -1364,6 +1368,12 @@ async function startHostRuntime(
 
             }),
         );
+        if (sessionHost.processObservations !== undefined && sessionHost.observationExecutorId !== undefined) {
+            const recovery = await sessionHost.processObservations.recover(sessionHost.observationExecutorId);
+            if (recovery.failed > 0) {
+                throw new Error(`Process observation recovery failed for ${recovery.failed} item(s); they remain recorded for retry on host restart.`);
+            }
+        }
         if (workerSocket !== undefined) {
             await timed("scheduler", () => scheduler!.start());
         }
@@ -1432,6 +1442,7 @@ async function startHostRuntime(
         } catch {
         }
         if (workerSocket === undefined) {
+            try { await server?.close(); } catch {}
             await sessionHost.closeAfterStartupFailure();
             await closeInbox();
             throw error;

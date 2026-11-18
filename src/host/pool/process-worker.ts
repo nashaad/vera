@@ -28,6 +28,7 @@ import { requestHostIdentity } from "../protocol.ts";
 import { recoverPoolCrashedTurns } from "./crash-scan.ts";
 import type { CrashSessionPath } from "./worker-crash-scan.ts";
 import type { RestartLedger } from "./restart-ledger.ts";
+import type { ManagedProcessObservationSettlement, ManagedProcessObservationStart } from "../../tools/process-runtime.ts";
 
 export interface ProcessWorkerOptions extends InProcessWorkerOptions {
     readonly hostOptions: StartResidentHostOptions;
@@ -41,6 +42,10 @@ export interface ProcessWorkerOptions extends InProcessWorkerOptions {
     readonly unrecordedWorkers: readonly WorkerSocket[];
     readonly settleRecovery?: () => Promise<WorkerRecordScan>;
     readonly onGlobalChangeReady: (notify: (kind: GlobalChange) => void) => void;
+}
+
+interface ProcessRecoverySession extends WorkerRecoverySession {
+    processWake?: boolean;
 }
 
 interface WorkerSlot {
@@ -66,13 +71,17 @@ interface WorkerSlot {
     rssBytes?: number;
     eventLoopLagMs?: number;
     failures: number[];
-    recoverySessions: readonly WorkerRecoverySession[];
+    recoverySessions: readonly ProcessRecoverySession[];
     reason?: string;
     spawnPid?: number;
     spawnIdentity?: WorkerStopIdentity;
     spawnStop?: Promise<void>;
     stopping?: Promise<void>;
     restarting?: Promise<void>;
+}
+
+function workerExecutor(id: string, worker: Pick<SessionWorkerSupervisor, "pid" | "startedAt">): string {
+    return `worker:${id}:${worker.pid}:${worker.startedAt}`;
 }
 
 export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWorker {
@@ -258,6 +267,30 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                     if (event === "roster_delta") notifyChanges();
                 },
                 async handler(method, args, signal) {
+                    if (method === "process.observationStart" || method === "process.observationSettled"
+                        || method === "process.observationInterrupted") {
+                        const observation = args[0];
+                        const supervisor = slot.supervisor;
+                        const coordinator = options.host.processObservations;
+                        if (typeof observation !== "object" || observation === null || !("ownerId" in observation)
+                            || typeof observation.ownerId !== "string" || supervisor === undefined || coordinator === undefined) {
+                            throw new Error("Invalid process observation request");
+                        }
+                        const executor = workerExecutor(slot.id, supervisor);
+                        if (method === "process.observationStart") {
+                            const start = observation as ManagedProcessObservationStart;
+                            if (routed.router.inboxOwner(observation.ownerId) !== slot.id
+                                && !coordinator.acceptsPreviousStart(executor, start)) {
+                                throw new Error("Process observation owner is not assigned to this worker");
+                            }
+                            coordinator.start(executor, start);
+                        } else if (method === "process.observationInterrupted") {
+                            await coordinator.interruptObservation(executor, observation as ManagedProcessObservationStart);
+                        } else {
+                            await coordinator.settle(executor, observation as ManagedProcessObservationSettlement);
+                        }
+                        return;
+                    }
                     if (method === "recovery.owns" && typeof args[0] === "string") {
                         return routed.router.inboxOwner(args[0]) === slot.id;
                     }
@@ -328,7 +361,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             if (generation > 1 && adopted === undefined) {
                 const candidates = await Promise.all(slot.recoverySessions.map(async (session) => {
                     const heldWakes = slot.inbox.heldFor(session.id);
-                    if ("baseline" in session && heldWakes.length === 0) {
+                    if ("baseline" in session && heldWakes.length === 0 && session.processWake !== true) {
                         try {
                             const current = await recoveryFileStamp(session.path);
                             if (sameRecoveryFile(session.file ?? null, current) || current === null) return undefined;
@@ -411,6 +444,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         slot.closed = false;
     };
     const replaceSlot = async (slot: WorkerSlot, firstReason: string): Promise<void> => {
+        const processWakes = slot.recoverySessions.filter((session) => session.processWake === true);
         let reason = firstReason;
         while (!closing) {
             const now = Date.now();
@@ -428,6 +462,19 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             try {
                 await startSlot(slot);
                 notifyChanges();
+                for (const session of processWakes) {
+                    if (closing || slot.closed) break;
+                    try {
+                        await routed.router.resume(session.path);
+                    } catch (error) {
+                        slot.reason = "process_observation_wake_failed: check the host log for affected sessions and reopen them to receive saved outcomes";
+                        notifyChanges();
+                        options.sessionOptions.hostLog({
+                            type: "process_observation_wake_failed", session_id: session.id,
+                            message: error instanceof Error ? error.message : String(error),
+                        });
+                    }
+                }
                 return;
             } catch (error) {
                 reason = error instanceof Error && error.message.includes("worker_socket_busy")
@@ -473,6 +520,22 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             slot.inbox.close();
             slot.broker.close();
             routed.router.workerExited(slot.id);
+            if (supervisor !== undefined && options.host.processObservations !== undefined) {
+                const result = await options.host.processObservations.interruptExecutor(workerExecutor(slot.id, supervisor), (ownerId) => {
+                    const existing = slot.recoverySessions.find((session) => session.id === ownerId);
+                    if (existing !== undefined) {
+                        existing.processWake = true;
+                        return;
+                    }
+                    const path = routed.router.knownPath(ownerId);
+                    if (path !== undefined) slot.recoverySessions = [...slot.recoverySessions, { id: ownerId, path, processWake: true }];
+                });
+                if (result.failed > 0) {
+                    slot.reason = "process_observation_recovery_failed";
+                    notifyChanges();
+                    throw new Error(`Process observation recovery failed for ${result.failed} item(s); restart the host to retry.`);
+                }
+            }
             slot.exited.resolve();
             notifyChanges();
         })();

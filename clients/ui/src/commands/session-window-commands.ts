@@ -1,6 +1,7 @@
 import { sessionPlace, type Route, type SessionRoute } from "../pages/routes.ts";
 import { showToast } from "../overlays/toasts.ts";
 import type { DesktopBridge } from "../protocol/bridge.ts";
+import type { BackgroundCommandCountResult } from "../protocol/backgroundCommands.ts";
 import { CORE_CONTAINERS } from "../registry/core.ts";
 import { activeSession, whenSessionActive } from "../session/activeSession.ts";
 import { renameSession } from "../session/rename.ts";
@@ -15,6 +16,8 @@ export interface SessionWindowDeps {
     // The route of the session that started the given one, if the session list knows it.
     readonly parentRoute: (agentId: string) => SessionRoute | undefined;
     readonly bridge: () => DesktopBridge | undefined;
+    readonly backgroundCommandCount: (agentId: string) => Promise<BackgroundCommandCountResult>;
+    readonly warnAboutBackgroundCommands: (target: SessionTarget, count: number, confirm: () => void) => void;
 }
 
 // A session named by a sidebar row, which need not be the open one.
@@ -73,10 +76,9 @@ export function registerSessionWindowCommands(registry: CommandRegistry, deps: S
             showToast("Cloned the session", "success");
         });
     };
-    // Only closing the session on the page leaves the page.
-    const close = (bridge: DesktopBridge, agentId: string): void => {
-        const leave = activeSession()?.agentId === agentId;
-        void bridge.closeSession(agentId).then((result) => {
+    const finishClose = (bridge: DesktopBridge, target: SessionTarget): void => {
+        const leave = activeSession()?.agentId === target.agentId;
+        void bridge.closeSession(target.agentId).then((result) => {
             if (!result.ok) {
                 showToast(result.reason, "danger");
                 return;
@@ -84,6 +86,19 @@ export function registerSessionWindowCommands(registry: CommandRegistry, deps: S
             if (leave) deps.navigate({ kind: "home" });
             showToast("Session closed", "success");
         });
+    };
+    const close = (bridge: DesktopBridge, target: SessionTarget): void => {
+        void deps.backgroundCommandCount(target.agentId).then((result) => {
+            if (!result.ok) {
+                finishClose(bridge, target);
+                return;
+            }
+            if (result.count > 0) {
+                deps.warnAboutBackgroundCommands(target, result.count, () => finishClose(bridge, target));
+                return;
+            }
+            finishClose(bridge, target);
+        }).catch(() => finishClose(bridge, target));
     };
     const onActive = (run: (bridge: DesktopBridge, session: SessionTarget) => void) => () => {
         const session = activeSession();
@@ -121,7 +136,7 @@ export function registerSessionWindowCommands(registry: CommandRegistry, deps: S
         registry.register({
             id: SESSION_COMMANDS.close,
             title: "Close Session",
-            run: onActive((bridge, session) => close(bridge, session.agentId)),
+            run: onActive((bridge, session) => close(bridge, session)),
         }),
         registry.register({
             id: SESSION_COMMANDS.parent,
@@ -175,7 +190,7 @@ export function registerSessionWindowCommands(registry: CommandRegistry, deps: S
             id: SESSION_ROW_COMMANDS.close,
             title: "Close Session",
             needsArgs: true,
-            run: withBridge((bridge, target) => close(bridge, target.agentId)),
+            run: withBridge((bridge, target) => close(bridge, target)),
         }),
     ];
     return () => {

@@ -50,7 +50,14 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
     const mounted = useRef(true);
     const addImages = useCallback((paths: readonly string[]) => setImages((current) => addDraftImages(current, paths)), []);
     const { files, add: addPaths, remove: removeFile, busy: checkingFiles } = useFiles(bridge, folder, folder === undefined, images.length, addImages, setProblem);
-    const slash = useSlashMenu({ text, setText, session: undefined, notify: setNotice });
+    const slash = useSlashMenu({
+        text,
+        setText,
+        session: undefined,
+        hostBridge: bridge,
+        onNewChatExtension: (line) => void startSession(line, true),
+        notify: setNotice,
+    });
     const listing = useNewSessionAgents(bridge, folder, connection.phase === "attached");
     const choosePick = useCallback((name: string) => {
         setPick(name);
@@ -79,10 +86,8 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
         };
     }, []);
 
-    const submit = async (): Promise<void> => {
-        const content = text.trim();
-        if (content.length === 0 || busy || checkingFiles) return;
-        if (slash.runLine(content)) return;
+    async function startSession(content: string, slashCommand = false): Promise<void> {
+        if (busy || checkingFiles) return;
         setNotice(undefined);
         setBusy(true);
         setProblem(undefined);
@@ -99,6 +104,7 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
             images: images.map((image) => image.path),
             files,
             ...(draft === undefined ? {} : { model: draft }),
+            ...(slashCommand ? { slashCommand: true } : {}),
         });
         navigate({
             kind: "session",
@@ -107,6 +113,13 @@ export function NewChatComposer({ bridge, folder: startFolder }: NewChatComposer
             workspace: result.workspace,
             ...(folder === undefined ? { chat: true } : {}),
         });
+    }
+
+    const submit = async (): Promise<void> => {
+        const content = text.trim();
+        if (content.length === 0 || busy || checkingFiles) return;
+        if (slash.runLine(content)) return;
+        await startSession(content);
     };
 
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {

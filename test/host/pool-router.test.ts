@@ -178,6 +178,37 @@ test("@core overlapping roster refreshes share a trailing snapshot without delay
     }
 });
 
+test("@core a failed snapshot refresh returns the cached list and recovers", async () => {
+    const host = endpoint(new Map());
+    const worker = endpoint(new Map());
+    const session = { id: "crow", workspace: "/work", sessionPath: "/sessions/crow.jsonl" };
+    let failed = true;
+    let count = 1;
+    worker.snapshot = async () => {
+        if (failed) throw new Error("worker snapshot unavailable");
+        const summary: RegisteredAgentSummary = {
+            id: session.id, live: true, workspace: session.workspace, session_path: session.sessionPath,
+            kind: "interactive", status: "idle", background_commands: count,
+        };
+        return { residents: [session], summaries: [summary], work: [], unreadSources: [] };
+    };
+    const snapshots = new RoutedSnapshots(host, [{
+        id: "w0", endpoint: worker, socket: "/w0.sock", generation: () => 1, ready: () => true,
+    }], () => 0, () => {});
+
+    expect(await snapshots.refreshAndList()).toEqual([]);
+    failed = false;
+    const cached = await snapshots.refreshAndList();
+    expect(cached).toHaveLength(1);
+    expect(cached[0]).toMatchObject({ id: "crow", background_commands: 1 });
+    failed = true;
+    const lists = await Promise.all([snapshots.refreshAndList(), snapshots.refreshAndList()]);
+    expect(lists).toEqual([cached, cached]);
+    failed = false;
+    count = 2;
+    expect((await snapshots.refreshAndList())[0]).toMatchObject({ id: "crow", background_commands: 2 });
+});
+
 test("a roster change during a trailing pass publishes the latest state", async () => {
     const host = endpoint(new Map());
     const worker = endpoint(new Map());
@@ -261,14 +292,70 @@ test("a delayed roster from a lost worker cannot replace its successor's snapsho
     expect(observed).toEqual(["new"]);
 });
 
+test("@core worker snapshots give a process ID only to open residents", async () => {
+    const host = endpoint(new Map());
+    const worker = endpoint(new Map());
+    const crow = { id: "crow", workspace: "/work", sessionPath: "/sessions/crow.jsonl" };
+    const parrot = { id: "parrot", workspace: "/work", sessionPath: "/sessions/parrot.jsonl", closed: true };
+    const crowSummary: RegisteredAgentSummary = {
+        id: crow.id, live: true, workspace: crow.workspace, session_path: crow.sessionPath,
+        kind: "interactive", status: "idle",
+    };
+    const parrotSummary: RegisteredAgentSummary = {
+        id: parrot.id, live: false, workspace: parrot.workspace, session_path: parrot.sessionPath,
+        kind: "interactive", status: "closed",
+    };
+    const factorySummary: RegisteredAgentSummary = {
+        id: "factory", live: false, workspace: "/work", session_path: "/sessions/factory.jsonl",
+        kind: "interactive", status: "completed",
+    };
+    let residents: RoutedSession[] = [crow, parrot];
+    let summaries = [crowSummary, { ...parrotSummary, worker_pid: 222 }, factorySummary];
+    let pid: number | undefined = 123;
+    worker.snapshot = async () => ({ residents, summaries, work: [], unreadSources: [] });
+    const snapshots = new RoutedSnapshots(host, [{
+        id: "w0", endpoint: worker, socket: "/w0.sock", generation: () => 1,
+        ready: () => true, pid: () => pid,
+    }], () => 0, () => {});
+
+    snapshots.refresh();
+    await snapshots.wait();
+    expect(snapshots.list()).toEqual([
+        { ...crowSummary, worker_pid: 123 },
+        factorySummary,
+        parrotSummary,
+    ]);
+    expect(snapshots.list()[1]).not.toHaveProperty("worker_pid");
+    expect(snapshots.list()[2]).not.toHaveProperty("worker_pid");
+    expect(summaries[1]?.worker_pid).toBe(222);
+
+    residents = [];
+    summaries = [{ ...crowSummary, live: false, status: "completed" }, factorySummary];
+    snapshots.refresh();
+    await snapshots.wait();
+    expect(snapshots.list().map((summary) => [summary.id, summary.worker_pid])).toEqual([
+        ["crow", undefined],
+        ["factory", undefined],
+    ]);
+
+    residents = [crow];
+    summaries = [{ ...crowSummary, worker_pid: 456 }, { ...factorySummary, worker_pid: 789 }];
+    pid = undefined;
+    snapshots.refresh();
+    await snapshots.wait();
+    expect(snapshots.list()).toEqual([{ ...crowSummary, worker_pid: 456 }, factorySummary]);
+    expect(snapshots.list()[1]).not.toHaveProperty("worker_pid");
+});
+
 test("a lost session process keeps its last roster without restoring its lease", async () => {
     const host = endpoint(new Map());
     const worker = endpoint(new Map());
+    const session = { id: "crow", workspace: "/work", sessionPath: "/sessions/crow.jsonl" };
     const summary: RegisteredAgentSummary = {
         id: "crow", live: true, workspace: "/work", session_path: "/sessions/crow.jsonl",
         kind: "interactive", status: "working",
     };
-    worker.snapshot = async () => ({ residents: [], summaries: [summary], work: [], unreadSources: [] });
+    worker.snapshot = async () => ({ residents: [session], summaries: [summary], work: [], unreadSources: [] });
     let ready = true;
     const observed: string[] = [];
     const snapshots = new RoutedSnapshots(host, [{

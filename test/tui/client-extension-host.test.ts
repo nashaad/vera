@@ -19,7 +19,6 @@ const DISABLED_BUILTINS = [
     "vera.diff",
     "vera.web-search",
     "vera.context",
-    "vera.recap",
     "vera.feedback",
 ] as const;
 

@@ -111,8 +111,9 @@ export class HostInboxBridge {
                             if (entry.notifiedCount === notice.unreadCount) entry.notifiedCount = undefined;
                         });
                     },
-                    canStartTurn: () => entry.attached,
-                    canWake: (candidate) => !this.heldWakes.get(registration.label)?.has(candidate.seq),
+                    canStartTurn: () => true,
+                    canWake: (candidate) => !this.heldWakes.get(registration.label)?.has(candidate.seq)
+                        && (entry.attached || this.coordinator.isDurablyAdmitted(candidate.seq)),
                     startTurn: async (candidate) => {
                         wakes.add(candidate.seq);
                         await callback("start", [candidate]);
@@ -290,7 +291,9 @@ export class WorkerInboxBridge implements InboxSessionBridge {
             case "notify": entry.request.notify(value as InboxNotice); return;
             case "start": {
                 const candidate = value as InboxAdmissionCandidate;
-                if (entry.request.canStartTurn?.() !== true) throw new Error("Inbox session is not attached");
+                if (entry.request.canStartTurn?.() !== true || entry.request.canWake?.(candidate) === false) {
+                    throw new Error("Inbox session cannot start this entry");
+                }
                 entry.session.rememberRemoteWake(candidate);
                 entry.wakes.add(candidate.seq);
                 try {

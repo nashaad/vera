@@ -437,7 +437,15 @@ test("host protocol parses identity requests and encodes responses", () => {
     );
 });
 
-test("host protocol parses attached extension command requests", () => {
+test("host protocol parses extension command listing with or without an attachment", () => {
+    const listRequest = JSON.stringify({ type: "list_extension_commands", request_id: "commands-1" });
+    expect(parseHostRequest(listRequest)).toEqual({ type: "list_extension_commands", request_id: "commands-1" });
+    for (const requestId of ["", null, undefined]) {
+        expect(parseHostRequest(JSON.stringify({ type: "list_extension_commands", request_id: requestId })))
+            .toBeUndefined();
+    }
+    expect(parseHostRequest(JSON.stringify({ type: "run_extension_command", request_id: "run-1", command: "hello", arguments_text: "" })))
+        .toBeUndefined();
     expect(parseAttachedClientMessage(JSON.stringify({
         type: "list_extension_commands",
         request_id: "commands-1",
@@ -748,7 +756,10 @@ socketTest(
     async () => {
         const directory = mkdtempSync(join(tmpdir(), "vera-protocol-"));
         const socketPath = join(directory, "host.sock");
-        const server = createServer((socket) => socket.end());
+        const server = createServer((socket) => {
+            socket.resume();
+            socket.end();
+        });
         try {
             await new Promise<void>((resolve, reject) => {
                 server.once("error", reject);
@@ -772,6 +783,7 @@ socketTest(
         const directory = mkdtempSync(join(tmpdir(), "vera-protocol-"));
         const socketPath = join(directory, "host.sock");
         const server = createServer((socket) => {
+            socket.resume();
             const drip = setInterval(() => socket.write(" "), 50);
             const stop = () => clearInterval(drip);
             socket.once("close", stop);
@@ -802,7 +814,10 @@ socketTest(
 async function requestIdentityFromPeer(reply: string) {
     const directory = mkdtempSync(join(tmpdir(), "vera-protocol-"));
     const socketPath = join(directory, "host.sock");
-    const server = createServer((socket) => socket.end(reply));
+    const server = createServer((socket) => {
+        socket.resume();
+        socket.end(reply);
+    });
     try {
         await new Promise<void>((resolve, reject) => {
             server.once("error", reject);

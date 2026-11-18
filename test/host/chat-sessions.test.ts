@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+    chmod,
     mkdir,
     mkdtemp,
     readFile,
@@ -9,6 +10,7 @@ import {
     stat,
     writeFile,
 } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,6 +18,7 @@ import { includedExtensionConfigs } from "../../src/extensions/included.ts";
 import { startExtensionRegistry } from "../../src/extensions/registry.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
+import { copyChatFolder } from "../../src/host/agent-registry/chat.ts";
 import { indexStoredSession } from "../../src/host/session-host/storage.ts";
 import { trashSessionArtifacts } from "../../src/host/session-trash.ts";
 import { chatFolderPath, isChatFolder } from "../../src/store/chat-folder.ts";
@@ -234,6 +237,126 @@ test("branching a chat copies its folder and records the copy as the branch's cw
         expect(await readFile(join(source.workspace, "drafts", "one.md"), "utf8")).toBe("one\n");
         expect(row(registry, "copy").chat).toBe(true);
         expect(row(registry, "chat").chat).toBe(true);
+    });
+});
+
+test("@core branching a chat preserves nested files, file modes, and empty directories", async () => {
+    await withChats(async ({ registry, path }) => {
+        const source = await registry.create({ id: "chat", sessionPath: path("chat") });
+        const nested = join(source.workspace, "drafts", "nested");
+        await mkdir(nested, { recursive: true });
+        await mkdir(join(source.workspace, "empty"));
+        await writeFile(join(nested, "one.md"), "one\n");
+        await chmod(join(nested, "one.md"), 0o640);
+
+        const branched = await registry.branch({
+            sourceId: "chat",
+            id: "copy",
+            sessionPath: path("copy"),
+            position: "at",
+        });
+
+        const folder = branched!.agent.workspace;
+        const copiedFile = join(folder, "drafts", "nested", "one.md");
+        expect(folder).toBe(await realpath(chatFolderPath(path("copy"))));
+        expect((await SessionStore.open(path("copy"))).header.cwd).toBe(folder);
+        expect((await stat(folder)).mode & 0o777).toBe(0o700);
+        expect((await stat(copiedFile)).mode & 0o777).toBe(0o640);
+        expect(await readFile(copiedFile, "utf8")).toBe("one\n");
+        expect(await readdir(join(folder, "empty"))).toEqual([]);
+        await writeFile(copiedFile, "changed\n");
+        expect(await readFile(join(nested, "one.md"), "utf8")).toBe("one\n");
+    });
+});
+
+test("branching a chat with an empty or missing folder creates an empty copy", async () => {
+    await withChats(async ({ registry, path }) => {
+        const source = await registry.create({ id: "chat", sessionPath: path("chat") });
+
+        const branched = await registry.branch({
+            sourceId: "chat",
+            id: "copy",
+            sessionPath: path("copy"),
+            position: "at",
+        });
+
+        const folder = branched!.agent.workspace;
+        expect(folder).toBe(await realpath(chatFolderPath(path("copy"))));
+        expect((await SessionStore.open(path("copy"))).header.cwd).toBe(folder);
+        expect((await stat(folder)).mode & 0o777).toBe(0o700);
+        expect(await readdir(folder)).toEqual([]);
+
+        await rm(source.workspace, { recursive: true });
+        const missing = await registry.branch({
+            sourceId: "chat",
+            id: "missing-copy",
+            sessionPath: path("missing-copy"),
+            position: "at",
+        });
+        const missingFolder = missing!.agent.workspace;
+        expect(missingFolder).toBe(await realpath(chatFolderPath(path("missing-copy"))));
+        expect((await SessionStore.open(path("missing-copy"))).header.cwd).toBe(missingFolder);
+        expect((await stat(missingFolder)).mode & 0o777).toBe(0o700);
+        expect(await readdir(missingFolder)).toEqual([]);
+    });
+});
+
+test("copying a missing chat folder creates a private empty folder", async () => {
+    await withChats(async ({ root, path }) => {
+        const copy = await copyChatFolder(join(root, "missing"), path("copy"));
+        const folder = chatFolderPath(path("copy"));
+
+        expect(copy).toEqual({ cwd: await realpath(folder), created: true });
+        expect((await stat(folder)).mode & 0o777).toBe(0o700);
+        expect(await readdir(folder)).toEqual([]);
+    });
+});
+
+test("branching a chat does not merge into an existing destination folder", async () => {
+    await withChats(async ({ registry, path }) => {
+        await registry.create({ id: "chat", sessionPath: path("chat") });
+        const folder = chatFolderPath(path("copy"));
+        await mkdir(folder);
+        await writeFile(join(folder, "existing.md"), "keep\n");
+
+        await expect(registry.branch({
+            sourceId: "chat",
+            id: "copy",
+            sessionPath: path("copy"),
+            position: "at",
+        })).rejects.toMatchObject({ code: "EEXIST" });
+
+        expect(await readdir(folder)).toEqual(["existing.md"]);
+        expect(await readFile(join(folder, "existing.md"), "utf8")).toBe("keep\n");
+        await expect(stat(path("copy"))).rejects.toMatchObject({ code: "ENOENT" });
+    });
+});
+
+test("a chat folder copy failure removes its destination", async () => {
+    await withChats(async ({ registry, path }) => {
+        const source = await registry.create({ id: "chat", sessionPath: path("chat") });
+        await writeFile(join(source.workspace, "one.md"), "one\n");
+        const server = createServer();
+        await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(join(source.workspace, "socket"), resolve);
+        });
+        try {
+            await expect(registry.branch({
+                sourceId: "chat",
+                id: "copy",
+                sessionPath: path("copy"),
+                position: "at",
+            })).rejects.toMatchObject({ code: "ERR_FS_CP_SOCKET" });
+
+            await expect(stat(chatFolderPath(path("copy")))).rejects.toMatchObject({ code: "ENOENT" });
+            await expect(stat(path("copy"))).rejects.toMatchObject({ code: "ENOENT" });
+            expect(await readFile(join(source.workspace, "one.md"), "utf8")).toBe("one\n");
+        } finally {
+            await new Promise<void>((resolve, reject) => {
+                server.close((error) => error === undefined ? resolve() : reject(error));
+            });
+        }
     });
 });
 

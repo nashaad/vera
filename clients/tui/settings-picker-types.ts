@@ -82,6 +82,7 @@ export type TuiSettingsPickerKind =
     | "session_leave"
     | "session_preview"
     | "session_create_leave"
+    | "session_close"
     | "configure"
     | "settings"
     | "permission_settings"
@@ -332,11 +333,14 @@ export interface TuiSettingsPickerState {
     readonly queryCursor?: number;
     readonly title?: string;
     readonly subtitle?: string;
+    readonly backgroundCommandCount?: number;
+    readonly quitConfirm?: true;
     readonly manageTarget?: "model" | "list";
     readonly initialTheme?: TuiThemeName;
     readonly initialModel?: string;
     readonly providerCatalogs?: readonly ProviderCatalogState[];
     readonly modelBrowse?: "browse" | "favorites";
+    readonly browsePendingScope?: "pool" | "all";
     /** Opened from the model switcher, so closing it without a pick goes back there. */
     readonly returnToSwitcher?: true;
     readonly browseNotice?: string;
@@ -473,6 +477,10 @@ export type TuiSettingsPickerSelection =
     }
     | {
         readonly kind: "session_create_leave";
+        readonly sourceDisposition: TuiSessionLeaveDisposition;
+    }
+    | {
+        readonly kind: "session_close";
         readonly sourceDisposition: TuiSessionLeaveDisposition;
     }
     | { readonly kind: "session_import"; readonly path: string }

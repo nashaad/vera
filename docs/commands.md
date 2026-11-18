@@ -80,6 +80,11 @@ compaction controls.
 Installed skills and extensions contribute commands too. Their availability
 depends on the active definition and enabled extensions. Use `/help` for the
 commands currently loaded, or read [Included extensions](included-extensions.md).
+On the TUI Home screen and desktop New Chat, the slash list includes the
+host's available extension commands. The TUI command palette includes them on
+Home too. Running one starts a conversation and shows its result there. An
+unknown slash command does not start a conversation; Vera can suggest built-in
+and extension commands instead.
 
 ## For another tool
 

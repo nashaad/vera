@@ -36,7 +36,7 @@ function recorder(events: TuiFlightEvent[]): TuiFlightRecorder {
         logPath: "",
         record: (event) => { events.push(event); },
         sessionEntered() {},
-        close() {},
+        async close() {},
     };
 }
 

@@ -9,6 +9,7 @@ import { recordDeliveryAndNotify } from "../delivery-notifier.ts";
 import { UNCOUNTED_INBOX_KINDS, type InboxAdmissionCandidate, type InboxAdmissionDecision } from "../inbox-delivery.ts";
 import { PEER_MESSAGE_KIND, RETIRED_PEER_READ_KIND, VERA_INBOX_SOURCE, parsePeerMessage, type PeerMessagePayload } from "../local-participation.ts";
 import { EXTENSION_MESSAGE_KIND, extensionMessageFamily, parseExtensionMessage } from "../extension-messages.ts";
+import { durableNoticeText } from "../inbox-notices.ts";
 import type { WorkAgentFacts, WorkScheduleFacts } from "../work-index.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 import type { VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../../sdk/extensions.ts";
@@ -95,7 +96,7 @@ export function localPeerRoster(reg: AgentRegistry, callerId: string, workspace:
 export async function applyAgentSendEffect(reg: AgentRegistry, callerId: string, effect: AgentSendEffect): Promise<ToolOutput> {
         const caller = reg.agents.get(callerId);
         const inbox = reg.options.inboxDelivery;
-        if (caller === undefined || caller.inbox === undefined || inbox === undefined) {
+        if (caller === undefined || caller.kind !== "interactive" || caller.inbox === undefined || inbox === undefined) {
             return toolError("Native inbox participation is unavailable in this session.");
         }
         if (effect.to === callerId) {
@@ -117,6 +118,10 @@ export async function sendToPeer(reg: AgentRegistry, caller: PeerCaller, effect:
         const recipient = reg.agents.get(effect.to);
         const inbox = reg.options.inboxDelivery;
         if (inbox === undefined) return toolError("Native inbox participation is unavailable in this session.");
+        if (recipient?.kind === "background" && recipient.parentId === caller.id
+            && recipient.failure === undefined && !recipient.agent.closed && !recipient.agent.failed) {
+            return toolError(`Async subagent ${effect.to} is your child. Use message_subagent to send it more work.`);
+        }
         if (
             recipient === undefined
             || recipient.kind !== "interactive"
@@ -273,7 +278,7 @@ export async function startAdmittedInboxTurn(reg: AgentRegistry, recipient: Regi
                 if (!recorded) return;
             }
         }
-        if (candidate.kind === EXTENSION_MESSAGE_KIND) {
+        if (candidate.kind === EXTENSION_MESSAGE_KIND || reg.options.inboxDelivery?.isDurablyAdmitted(candidate.seq) === true) {
             const recorded = await recordExtensionNotice(reg, recipient, candidate.seq);
             if (!recorded) return;
         }
@@ -313,12 +318,14 @@ export async function sendExtensionMessage(reg: AgentRegistry, extensionId: stri
 // The extension's own text is the notice.
 async function recordExtensionNotice(reg: AgentRegistry, recipient: RegisteredAgentEntry, seq: number): Promise<boolean> {
         const stored = reg.options.inboxDelivery?.entry(seq);
-        const message = stored === undefined ? undefined : parseExtensionMessage(stored);
-        if (stored === undefined || message === undefined) return true;
+        const text = stored === undefined ? undefined
+            : parseExtensionMessage(stored)?.text ?? (reg.options.inboxDelivery?.isDurablyAdmitted(seq) === true
+                ? durableNoticeText(stored) : undefined);
+        if (stored === undefined || text === undefined) return true;
         const recorded = await recordDeliveryAndNotify(recipient.store, recipient.events, {
             id: `inbox:${seq}`,
             sourceAgentId: stored.source,
-            content: message.text,
+            content: text,
             kind: "attention",
             sourceKind: "extension",
         });
@@ -330,7 +337,7 @@ async function recordExtensionNotice(reg: AgentRegistry, recipient: RegisteredAg
 export async function applyAgentInboxEffect(reg: AgentRegistry, callerId: string, effect: AgentInboxEffect): Promise<AppliedToolEffectOutput> {
         const caller = reg.agents.get(callerId);
         const coordinator = reg.options.inboxDelivery;
-        if (caller === undefined || caller.inbox === undefined || coordinator === undefined) {
+        if (caller === undefined || caller.kind !== "interactive" || caller.inbox === undefined || coordinator === undefined) {
             return toolError("Native inbox participation is unavailable in this session.");
         }
         const entry = caller.inbox.consumer.read({

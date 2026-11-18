@@ -52,6 +52,15 @@ While attached, the app asks the host for its identity and session count every
 three seconds. A reply that does not arrive, or a host that closes the
 connection, ends the attachment and shows the banner.
 
+When you quit the desktop app with background commands in a conversation open
+in the main or companion pane, a confirmation counts them and offers `Cancel`,
+`Keep running`, and `Stop and quit`. Keep running quits as usual and leaves the
+conversations running; the host parks them after ten idle minutes. Stop and quit
+asks the host to close each counted conversation still open in a pane before
+quitting, with a three-second deadline.
+Cancel or Escape leaves the app open. The warning appears for menu Quit, Cmd+Q,
+and closing the last window when that closes the app.
+
 ## Pages
 
 The main area shows one page at a time. Its title is in the main header. The
@@ -359,7 +368,8 @@ Seven views ship with the app:
   - Clone Session copies the session and opens the copy.
   - Close Session stops the session, and is offered only while the host runs it.
     Closing the open session returns to New Chat; closing another leaves the page
-    as it is.
+    as it is. If the session has background commands, a confirmation counts
+    them and offers `Stop and close` or `Cancel`.
 - Review, Plan and Files, each in its own container that opens as right pane
   tabs, follow the open session; see Session tools. Each can be shown or hidden in
   Settings > Show.
@@ -511,7 +521,7 @@ them reads as its default:
 
 A session page shows that session's conversation, with a composer under it for
 your next message. The app watches the session without joining it, so closing
-the window leaves the session running. A session that is running keeps
+the window leaves the session running unless you choose to stop it. A session that is running keeps
 updating as it works. Approvals and questions show as cards under the
 conversation; see Approvals and questions.
 
@@ -750,7 +760,9 @@ Slash commands:
   `/rename Crow's nest audit` renames the open session and shows a notice in the
   window's corner; `/rename` alone opens a sheet with the current name. `/clone`
   starts a new session holding a copy of the whole conversation and opens it.
-  `/close` stops the session and keeps its file, then opens New Chat. `/parent`
+  `/close` stops the session and keeps its file, then opens New Chat. When
+  background commands are running, `/close` and Close Session in the palette
+  ask for confirmation, just like Close Session in the sidebar. `/parent`
   opens the session that started this one and says so when there is none. These
   four need a session; on New Chat they say `/name needs an open session`.
 - Skills appear as `/<skill-name>`, one row for each skill the session can run.
@@ -767,9 +779,10 @@ Slash commands:
 - The terminal commands `/animations`, `/import`, `/extension` and
   `/reload-extensions` are listed with a muted `Not implemented yet`. Running one
   shows `/name: Not implemented yet` under the box and sends nothing.
-- On New Chat the menu lists the built-in commands only, since skills and
-  extension commands are read from a session. An unknown name there adds that
-  skills and extension commands work inside a session.
+- On New Chat the menu lists built-in commands and the host's available
+  extension commands. Running an extension command starts a conversation and
+  shows its result there. An unknown command stays on New Chat and can suggest
+  built-in and extension commands. Skills are read from a session.
 - The menu is drawn above the box, outside the bar, and stays inside the window
   however narrow it is.
 
@@ -1822,7 +1835,7 @@ clears compaction and checks it falls back to eco, adds a subagent model, turns
 on the switch, and reads each change back from the home's `config.json`.
 
 The slash test serves one skill and starts a session. On New Chat it types `/`
-and checks the menu lists only the built-in group with a muted `Not implemented
+and checks the menu lists built-in and extension commands with a muted `Not implemented
 yet` beside `/import`, runs `/imp`, which names `/import`, and checks the notice and that nothing
 reached the provider, and enters a misspelt name and checks the text stays with
 a `Did you mean` line. In the session it checks the three groups, that the menu

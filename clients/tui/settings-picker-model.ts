@@ -228,6 +228,8 @@ export function pickerCardWidth(
         ? usableWidth
         : state.kind === "model" || (state.kind === "extension" && state.layout === "list-detail")
         ? Math.floor(usableWidth * 0.96)
+        : state.kind === "session_close" && state.quitConfirm === true
+        ? Math.floor(usableWidth * 0.9)
         : Math.floor(usableWidth * 0.8);
     return Math.max(0, cardWidth - DIALOG_CARD_PADDING * 2);
 }
@@ -1569,6 +1571,7 @@ export function pickerIsSearchable(state: TuiAnySettingsPickerState): boolean {
         && state.kind !== "session_leave"
         && state.kind !== "session_preview"
         && state.kind !== "session_create_leave"
+        && state.kind !== "session_close"
         && state.kind !== "model_verification"
         && state.kind !== "pool_verify_scope"
         && state.kind !== "catalog_refresh_scope";
@@ -2225,7 +2228,7 @@ export function pickerSelection(
             }),
         };
     }
-    if (kind === "model_defaults" || kind === "session_leave" || kind === "session_preview" || kind === "session_create_leave" || kind === "model_verification" || kind === "model_menu") throw new Error("This picker handles its actions directly");
+    if (kind === "model_defaults" || kind === "session_leave" || kind === "session_preview" || kind === "session_create_leave" || kind === "session_close" || kind === "model_verification" || kind === "model_menu") throw new Error("This picker handles its actions directly");
     if (kind === "provider_actions") throw new Error("Provider actions must use their action transition");
     return { kind, theme: value as TuiThemeName };
 }

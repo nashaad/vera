@@ -34,7 +34,14 @@ const SLOT_PARSER = /function extensionPickerActionKey\([^]*?\n}/;
  * deliberately absent, since those are structural input rather than bindings.
  */
 const CHORD_MATCH =
-    /key\.ctrl\s*&&\s*key\.name\s*===|key\.name\s*===\s*"(?:delete|tab)"/g;
+    /key\.ctrl\s*&&\s*[^;{})|]*?\bkey\.name\s*===|key\.name\s*===\s*"(?:delete|tab)"/g;
+
+test("chord scanner catches modifier checks between ctrl and the key name", () => {
+    expect('key.ctrl && !key.meta && !key.shift && key.name === "r"'.match(CHORD_MATCH))
+        .toHaveLength(1);
+    expect('if (key.ctrl) return false;\nif (key.name === "r") return true;'.match(CHORD_MATCH))
+        .toBeNull();
+});
 
 test("no TUI surface matches a chord outside the keymap", async () => {
     const files = new Bun.Glob("clients/tui/**/*.ts").scan({
@@ -108,6 +115,7 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "rename_session",
     "trash_session",
     "write_notes",
+    "approval_notes",
     "expand_call",
     "clear_secret",
     "next_form_field",

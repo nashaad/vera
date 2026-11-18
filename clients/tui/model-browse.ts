@@ -9,6 +9,13 @@ import type { ModelBrowseSection, ModelBrowseSort, TuiModelPickerTab, TuiSetting
 /** The three browse scopes, in the order Ctrl+G walks them. */
 const BROWSE_SCOPES: readonly TuiModelPickerTab[] = ["pool", "recommended", "all"];
 
+export function initialModelBrowseScope(
+    savedScope: "pool" | "all",
+    hasFavorites: boolean,
+): "pool" | "all" {
+    return hasFavorites ? savedScope : "all";
+}
+
 export function nextBrowseScope(
     tab: TuiModelPickerTab | undefined,
     forward = true,
@@ -183,6 +190,7 @@ export function modelBrowse(state: TuiSettingsPickerState, mode: "browse" | "fav
     const next: TuiSettingsPickerState = { ...state,
         allOptions: state.providerCatalogs === undefined ? state.allOptions : state.allOptions.filter((row) => row.description !== "current model" || row.pooledRank !== undefined),
         modelBrowse: mode,
+        ...(mode === "favorites" ? { browsePendingScope: undefined } : {}),
         browseRetainedModels: state.allOptions.filter((row) => row.pooledRank !== undefined).map((row) => row.value),
         title: mode === "browse" ? "More models" : "Favorites",
         browseView: state.browseView ?? "standard",
@@ -343,8 +351,8 @@ export function handleModelBrowseMenuKey(state: TuiSettingsPickerState, key: Tui
         if (value === "providers") return { state: parent, handled: true, openProviders: true };
         if (value?.startsWith("scope:") === true) {
             const tab = value.slice("scope:".length) as TuiModelPickerTab;
-            if (fromFilters) return stay(rebuiltBrowse({ ...parent, tab }, parent.options[parent.selectedIndex]?.value), "show");
-            return { state: rebuiltBrowse({ ...parent, modelFocus: "list", tab }, parent.options[parent.selectedIndex]?.value), handled: true };
+            if (fromFilters) return stay(rebuiltBrowse({ ...parent, tab, browsePendingScope: undefined }, parent.options[parent.selectedIndex]?.value), "show");
+            return { state: rebuiltBrowse({ ...parent, modelFocus: "list", tab, browsePendingScope: undefined }, parent.options[parent.selectedIndex]?.value), handled: true };
         }
         if (value === "sort:library" || value === "sort:az" || value === "sort:price") {
             const browseSort = value.slice("sort:".length) as ModelBrowseSort;
@@ -516,7 +524,7 @@ export function handleModelBrowseKey(state: TuiSettingsPickerState, key: TuiSett
         if (binding === "journey_reveal" || binding === "shortlist_reveal") return { state: rebuiltBrowse({ ...state, revealAll: state.revealAll !== true }, selected?.value), handled: true };
         if (binding === "journey_refresh") return { ...same, refreshAllCatalogs: true };
         if (binding === "journey_scope") {
-            return { state: rebuiltBrowse({ ...state, tab: nextBrowseScope(state.tab, key.shift !== true) }, selected?.value), handled: true };
+            return { state: rebuiltBrowse({ ...state, tab: nextBrowseScope(state.tab, key.shift !== true), browsePendingScope: undefined }, selected?.value), handled: true };
         }
         if (managing && selected?.provider && selected.model) {
             if (binding === "shortlist_rename") return { ...same, poolName: { provider: selected.provider, model: selected.model, label: selected.label } };

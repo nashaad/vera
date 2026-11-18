@@ -231,7 +231,7 @@ describe("context, compaction and background work", () => {
             { type: "compaction", phase: "started", strategy: "summary", trigger: "manual", tokens: 9000 },
             { type: "compaction", phase: "finished", strategy: "summary", outcome: "compacted", before: 9000, after: 1200 },
         ]);
-        expect(state.compaction).toEqual({ phase: "finished", outcome: "compacted", tokensBefore: 9000, tokensAfter: 1200 });
+        expect(state.compaction).toEqual({ phase: "finished", strategy: "summary", outcome: "compacted", tokensBefore: 9000, tokensAfter: 1200 });
         expect(state.live.at(-1)).toMatchObject({ kind: "notice", tone: "info", text: "Compacted the conversation from 9.0K to 1.2K tokens." });
     });
 
@@ -239,7 +239,54 @@ describe("context, compaction and background work", () => {
         const state = fold([
             { type: "compaction", phase: "started", strategy: "summary", trigger: "manual", provider: "faux", model: "crow-1", tokens: 9000 },
         ]);
-        expect(state.compaction).toEqual({ phase: "started", trigger: "manual", provider: "faux", model: "crow-1", tokensBefore: 9000 });
+        expect(state.compaction).toEqual({ phase: "started", strategy: "summary", trigger: "manual", provider: "faux", model: "crow-1", tokensBefore: 9000 });
+    });
+
+    test("a dropped context is identified after a summary failure", () => {
+        const state = fold([
+            { type: "compaction", phase: "finished", strategy: "vera/full-summary", outcome: "unavailable", reason: "Summary timed out." },
+            { type: "compaction", phase: "finished", strategy: "vera/drop-oldest", outcome: "compacted", before: 9000, after: 1200 },
+        ]);
+        expect(state.compaction?.strategy).toBe("vera/drop-oldest");
+        expect(state.live.at(-1)).toMatchObject({
+            kind: "notice",
+            tone: "warning",
+            text: "Earlier messages were dropped from the model's context. They are still shown in the conversation.",
+        });
+    });
+
+    test("an unsuccessful drop names the action and preserves its reason", () => {
+        for (const outcome of ["no_boundary", "rejected", "unavailable"] as const) {
+            for (const reason of [undefined, "There is no older history to drop."]) {
+                const state = fold([{
+                    type: "compaction",
+                    phase: "finished",
+                    strategy: "vera/drop-oldest",
+                    outcome,
+                    ...(reason === undefined ? {} : { reason }),
+                }]);
+                expect(state.live.at(-1)).toMatchObject({
+                    kind: "notice",
+                    text: reason === undefined
+                        ? "Could not drop earlier messages"
+                        : `Could not drop earlier messages: ${reason}`,
+                });
+            }
+        }
+    });
+
+    test("a started drop keeps its strategy", () => {
+        const state = fold([{
+            type: "compaction",
+            phase: "started",
+            strategy: "vera/drop-oldest",
+            trigger: "automatic",
+        }]);
+        expect(state.compaction).toMatchObject({
+            phase: "started",
+            strategy: "vera/drop-oldest",
+        });
+        expect(state.live).toEqual([]);
     });
 
     test("a compaction whose rounded counts match shows them in full", () => {

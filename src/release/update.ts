@@ -74,6 +74,7 @@ export interface UpdateOptions {
     readonly fetch?: typeof fetch;
     readonly repo?: string;
     readonly releasesApi?: string;
+    readonly downloadBase?: string;
     readonly platform?: string;
     readonly arch?: string;
     readonly timeoutMs?: number;
@@ -486,7 +487,11 @@ async function downloadAndUnpack(options: DownloadOptions): Promise<StagedReleas
     refuseUnsupportedPlatform(platform, arch);
     const repo = options.repo ?? process.env.VERA_REPO ?? "nashaad/vera";
     const asset = `vera-${platform}-${arch}.tar.gz`;
-    const base = `https://github.com/${repo}/releases/download/${target.tag}`;
+    const configuredBase = options.downloadBase ?? process.env.VERA_RELEASES_DOWNLOAD_BASE;
+    const downloadBase = configuredBase !== undefined && configuredBase.length > 0
+        ? configuredBase.replace(/\/+$/, "")
+        : `https://github.com/${repo}/releases/download`;
+    const base = `${downloadBase}/${target.tag}`;
     const tarballUrl = `${base}/${asset}`;
     const checksumUrl = `${tarballUrl}.sha256`;
 

@@ -72,8 +72,13 @@ sh install.sh ~/Downloads/vera-darwin-arm64.tar.gz
 Set `VERA_VERSION` to install a version other than the newest, and
 `VERA_INSTALL_PREFIX` to install somewhere other than `~/.local`. Without
 `VERA_VERSION`, the installer asks the GitHub API for the newest release; if
-that request fails, set `VERA_VERSION` to install a specific version. The
-release includes its own runtime, so Bun and Node are not needed. Installing
+that request fails, set `VERA_VERSION` to install a specific version.
+`VERA_RELEASES_API` overrides the release-list URL, and
+`VERA_RELEASES_DOWNLOAD_BASE` overrides the release download base used for the
+platform archive and its `.sha256` checksum. The default download base is
+`https://github.com/nashaad/vera/releases/download`; both variables can be set
+when using a release mirror. The release includes its own runtime, so Bun and
+Node are not needed. Installing
 the same release again leaves it in place, and installing a newer one keeps
 the previous release for [`vera rollback`](installed-command.md).
 
@@ -130,17 +135,16 @@ checkout or development instance is refused; update that install with
 
 From the checkout containing the version you want, run the same installation
 commands. Vera verifies the release before activating it. With no host running,
-the release becomes active at once. With a host running, the installer unpacks
-the release and leaves `current` where it is. The host then moves to the new
-release when its running turns end. From a terminal the install waits and
-prints what the host waits on. From inside a Vera session it returns at once,
-and the update happens when the session's running turns end. A failed start of
-the new host restores the previous release and starts it again. A test
-`--prefix` is refused unless `VERA_HOME` selects a private home, and the daily
-prefix is refused when `VERA_HOME` selects another home; see
+the release becomes active at once. From a terminal, an install with a host
+on another build waits for running turns, stops the host and activates the
+release; the next `vera` starts the new host if no host has been restarted. Inside a Vera session, or with `VERA_HOT_UPDATE=1`, the host
+instead hands off to the new build after running turns end. A command inside a
+session returns when the host accepts the handoff. A test `--prefix` is refused
+unless `VERA_HOME` selects a private home, and the daily prefix is refused when
+`VERA_HOME` selects another home; see
 [Activate a new release](installed-command.md#activate-a-new-release).
 
-The installer never signals the running host. When it cannot confirm the host
+The installer asks a reachable host to stop. When it cannot confirm the host
 from the lockfile, or the host does not answer, the host keeps running, current
 stays where it was, and the install says why. Run `vera host stop` once to stop
 that host, then install again. An install never starts a second host next to a

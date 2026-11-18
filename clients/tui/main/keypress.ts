@@ -33,7 +33,6 @@ import { handleTuiProviderForgetConfirmKey } from "../provider-forget-confirm.ts
 import { handleTuiOverridesResetConfirmKey } from "../overrides-reset-confirm.ts";
 import { jsonlViewKeyAction } from "../resume-overlay.ts";
 import { handleSearchOverlayKey, updateSearchOverlayText } from "../search-overlay.ts";
-import { handleTuiSessionCloseConfirmKey } from "../session-close-confirm.ts";
 import { handleTuiAnimationsPreviewKey } from "../animations-preview.ts";
 import { handleTuiSessionTrashConfirmKey } from "../session-trash-confirm.ts";
 import { handleTuiSettingsPickerKey, tuiPickerViewportRows, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
@@ -43,6 +42,7 @@ import { appendTuiNotice, toggleTuiThinking, toggleTuiToolDetails } from "../sta
 import { armQuit, disarmQuit, interruptClearsDraft, quitArmedNow, updateTranscriptScrollFollow } from "./notices.ts";
 import { resumeTuiTranscriptFollow } from "../transcript-scroll.ts";
 import { restartLostHost } from "./restart-lost-host.ts";
+import { beginQuitConfirmation } from "./quit-confirm.ts";
 import { handleTuiTimelineKey, startTuiTimelinePicker } from "../timeline-picker.ts";
 import { handleWorkTabKey } from "../work-tab.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -404,7 +404,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         key.stopPropagation();
         if (action === "quit") {
             disarmQuit(rt);
-            rt.renderer.destroy();
+            void beginQuitConfirmation(rt);
         } else if (action === "arm_quit") {
             armQuit(rt);
         } else if (action === "abort") {
@@ -467,23 +467,38 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         return;
     }
 
-    if (rt.sessionCloseConfirm) {
-        const result = handleTuiSessionCloseConfirmKey(key);
-        key.preventDefault();
-        key.stopPropagation();
-        if (result === "confirm") {
-            beginParkToJsonl(rt);
-        } else if (result === "cancel") {
-            rt.sessionCloseConfirm = false;
-            rt.state = appendTuiNotice(rt.state, "conversation kept running");
-            focusActiveSurface(rt);
-            renderState(rt);
+    if (rt.sessionCloseConfirm !== undefined) {
+        const transition = handleTuiSettingsPickerKey(rt.sessionCloseConfirm, key);
+        if (transition.handled) {
+            key.preventDefault();
+            key.stopPropagation();
+            if (transition.selection?.kind === "session_close"
+                && rt.sessionCloseConfirm.quitConfirm === true) {
+                rt.sessionCloseConfirm = undefined;
+                rt.keepRunningOnExit = transition.selection.sourceDisposition === "keep_running";
+                rt.renderer.destroy();
+            } else if (transition.selection?.kind === "session_close"
+                && transition.selection.sourceDisposition === "stop") {
+                beginParkToJsonl(rt);
+            } else if (transition.state === undefined) {
+                const cancelledQuit = rt.sessionCloseConfirm.quitConfirm === true;
+                rt.sessionCloseConfirm = undefined;
+                if (!cancelledQuit) {
+                    rt.state = appendTuiNotice(rt.state, "conversation kept running");
+                }
+                renderState(rt);
+                focusActiveSurface(rt);
+            } else {
+                rt.sessionCloseConfirm = transition.state;
+                renderState(rt);
+            }
+            return;
         }
-        return;
     }
 
-    const uiRequest = focusedUiRequest(rt)
-        ?? stopWaitCardUpdate(rt.stopWait, rt.stopWaitCard);
+    const uiRequest = rt.sessionCloseConfirm === undefined
+        ? focusedUiRequest(rt) ?? stopWaitCardUpdate(rt.stopWait, rt.stopWaitCard)
+        : undefined;
     if (
         uiRequest !== undefined
         && isUserQuestionUiRequestUpdate(uiRequest)
@@ -797,7 +812,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         }
     }
 
-    if (rt.settingsPicker !== undefined) {
+    if (rt.settingsPicker !== undefined && rt.sessionCloseConfirm === undefined) {
         const focused = focusedAgentState(rt);
         if (
             rt.settingsPicker.kind === "session"

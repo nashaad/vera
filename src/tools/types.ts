@@ -219,6 +219,7 @@ export interface RegisteredTool {
     readonly requiresUserInteraction?: boolean;
     /** Path/URL inputs to gate by permission rules. See `PermissionInputSpec`. */
     readonly permissionInputs?: readonly PermissionInputSpec[];
+    readonly commandInput?: string;
     execute(
         input: Readonly<Record<string, unknown>>,
         context: ToolRuntime,
@@ -231,4 +232,5 @@ export interface RegisteredToolDefinition {
     readonly definition: ModelTool;
     readonly invocation?: "top_level";
     readonly agents?: readonly string[];
+    readonly commandInput?: string;
 }

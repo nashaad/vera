@@ -26,6 +26,7 @@ import { parseSettingsDestination } from "../engine/settings-destination.ts";
 export type AgentUpdateFrame =
     | { readonly kind: "update"; readonly update: AgentUpdate }
     | { readonly kind: "unknown"; readonly seq: number | undefined }
+    | { readonly kind: "invalid_notice"; readonly seq: number }
     | { readonly kind: "invalid" };
 
 // Typed against AgentUpdate: a union variant missing here fails typecheck.
@@ -91,9 +92,13 @@ export function parseAgentUpdateFrame(value: unknown): AgentUpdateFrame {
         return { kind: "unknown", seq: isSequence(update.seq) ? update.seq : undefined };
     }
     const parsed = parseKnownAgentUpdate(value, update);
-    return parsed === undefined
-        ? { kind: "invalid" }
-        : { kind: "update", update: parsed };
+    if (parsed !== undefined) {
+        return { kind: "update", update: parsed };
+    }
+    if (update.type === "notice" && isSequence(update.seq)) {
+        return { kind: "invalid_notice", seq: update.seq };
+    }
+    return { kind: "invalid" };
 }
 
 export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {

@@ -3,6 +3,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { applyAgentUpdate, createTuiState } from "../../clients/tui/state.ts";
+import { initialWatch, reduceWatch } from "../../clients/ui/src/session/transcript.ts";
+import { parseSessionLine } from "../../clients/ui/src/session/wire.ts";
+import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import {
     BUNDLED_COMPACTION_STRATEGIES,
     bindCompaction,
@@ -53,7 +57,7 @@ const WINDOW = 20_000;
 
 test("a summary that stops at the length limit hands over to drop-oldest in the same pass", async () => {
     const calls = { count: 0 };
-    const { seen, sent } = await windowHandover(
+    const { seen, sent, updates } = await windowHandover(
         "window-length",
         scriptedSummarizer(truncatedSummary, calls),
     );
@@ -61,6 +65,32 @@ test("a summary that stops at the length limit hands over to drop-oldest in the 
     expect(calls.count).toBe(1);
     expect(compactionOutcomes(seen)).toEqual(["unavailable", "compacted"]);
     expect(started(seen)).toBe(2);
+    const compactions = updates.filter((update) => update.type === "compaction");
+    expect(compactions.map((update) => [update.phase, update.strategy])).toEqual([
+        ["started", FULL_SUMMARY_STRATEGY_ID],
+        ["finished", FULL_SUMMARY_STRATEGY_ID],
+        ["started", DROP_OLDEST_STRATEGY_ID],
+        ["finished", DROP_OLDEST_STRATEGY_ID],
+    ]);
+    const tui = compactions.reduce(applyAgentUpdate, createTuiState());
+    const attached = parseSessionLine(JSON.stringify({ type: "attached" }));
+    if (attached === undefined) throw new Error("attachment did not parse");
+    let desktop = reduceWatch(initialWatch("window-length"), attached);
+    for (const update of compactions) {
+        const message = parseSessionLine(JSON.stringify(update));
+        if (message === undefined) throw new Error("compaction update did not parse");
+        desktop = reduceWatch(desktop, message);
+    }
+    const tuiNotices = tui.entries.filter((entry) => entry.kind === "notice").map((entry) => entry.text);
+    const desktopNotices = desktop.live.filter((entry) => entry.kind === "notice").map((entry) => entry.text);
+    expect(tuiNotices[0]).toContain("Could not summarize");
+    expect(desktopNotices[0]).toContain("Compaction did not run.");
+    for (const notices of [tuiNotices, desktopNotices]) {
+        expect(notices).toHaveLength(2);
+        expect(notices[1]).toBe(
+            "Earlier messages were dropped from the model's context. They are still shown in the conversation.",
+        );
+    }
     const landed = landedAfter(seen);
     expect(landed).toHaveLength(1);
     expect(landed.every((size) => size <= WINDOW)).toBe(true);
@@ -398,6 +428,7 @@ async function windowHandover(
     store: SessionStore;
     seen: EngineEvent[];
     sent: ModelRequest[];
+    updates: AgentUpdate[];
 }> {
     const workspace = temporaryDirectory();
     const store = await SessionStore.create(
@@ -417,8 +448,8 @@ async function windowHandover(
     channel.client.send({ type: "prompt", content: "first" });
     await drainTurn(channel);
     channel.client.send({ type: "prompt", content: "second" });
-    await drainTurn(channel);
-    return { store, seen, sent };
+    const updates = await drainTurn(channel);
+    return { store, seen, sent, updates };
 }
 
 function recordingAgent(script: AssistantMessage[]): {
@@ -605,18 +636,21 @@ function assistantText(text: string): AssistantMessage {
 }
 
 // Reads updates until the turn finishes. A timeout ends the wait, and the assertions report what did not arrive.
-async function drainTurn(channel: InProcessChannel): Promise<void> {
+async function drainTurn(channel: InProcessChannel): Promise<AgentUpdate[]> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20_000);
+    const updates: AgentUpdate[] = [];
     try {
         for (;;) {
             const update = await channel.client.receive(controller.signal);
+            updates.push(update);
             if (update.type === "turn_finished") {
-                return;
+                return updates;
             }
         }
     } catch {
         // Aborted by the timeout.
+        return updates;
     } finally {
         clearTimeout(timer);
     }

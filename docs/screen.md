@@ -17,6 +17,10 @@ session stops its worker:
 | Switch, keep running | Leave it working and open the selected conversation. |
 | Escape | Return to the picker. |
 
+In the leave menu, press `1` to stop and switch or `2` to switch and keep
+running. Either key acts immediately. You can also move with the arrows and
+press Enter. In the conversation list, digits remain search input.
+
 Space on a highlighted conversation opens a preview and does not switch.
 Escape closes the preview. From Home or a saved-file view, Enter opens the
 selected conversation directly. Ctrl+E again, or Escape, closes the picker.
@@ -35,11 +39,22 @@ matching rows. Delegated conversations appear in their normal status group.
 Temporary BTW conversations do not appear here.
 
 Keep running stays idle for ten minutes without a viewer, then Vera closes
-that worker and keeps the saved file. Ctrl+Shift+Left and Ctrl+Shift+Right
-cycle those live conversations without opening the picker.
+that worker and keeps the saved file. If background commands are running, the
+leave menu counts them and warns that closing stops them. The later idle close
+stops them too. Ctrl+Shift+Left and Ctrl+Shift+Right cycle those live
+conversations without opening the picker.
 
 Ctrl+N from a live session asks Close this conversation or Keep running, the
 same as `/clear`. Home and file-view Ctrl+N start immediately.
 
-To park live work, use `/close` or Ctrl+W from the composer. See
-[Saved conversations](sessions.md).
+When you quit the TUI with Ctrl+C, Vera checks the background commands in
+all attached conversations that would be released on exit. If any are running,
+choose `1. Stop them and quit` to stop those conversations, or `2. Keep running` to
+leave them running and quit; Escape cancels. The message identifies whether the
+commands are in this conversation, another one, or spread across conversations.
+With no affected background commands, quitting works as before.
+
+To park live work, use `/close` or Ctrl+W from the composer. When background
+commands or work are in flight, choose Stop & close or Keep running in the
+picker; an idle conversation with no commands closes directly. A focused side
+pane closes instead of the conversation. See [Saved conversations](sessions.md).

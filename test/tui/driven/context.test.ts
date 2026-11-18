@@ -6,7 +6,29 @@ import { join } from "node:path";
 import { emptyUsage } from "../../../src/model/types.ts";
 import { SessionStore } from "../../../src/store/session-store.ts";
 import { createTuiChildDependencies } from "../../support/tui-child.ts";
-import { startTuiTestSession } from "../../support/tui-harness.ts";
+import { startTuiTestSession, type TuiTestSession } from "../../support/tui-harness.ts";
+
+function selectedExtension(pane: string): string | undefined {
+    return pane.match(/›\s+(\S+)/)?.[1];
+}
+
+async function selectContextExtension(session: TuiTestSession): Promise<string> {
+    let pane = await session.waitForVisiblePaneWhere(
+        (current) => current.includes("Extensions") && selectedExtension(current) !== undefined,
+        "extension list selection",
+    );
+    for (let index = 0; index < 100; index += 1) {
+        const selected = selectedExtension(pane);
+        if (selected === "vera.context") return pane;
+        session.sendKey("Down");
+        pane = await session.waitForVisiblePaneWhere(
+            (current) => selectedExtension(current) !== undefined
+                && selectedExtension(current) !== selected,
+            `extension selection after ${selected}`,
+        );
+    }
+    throw new Error("Context extension was not found");
+}
 
 test("/context after resume still names the stored request recipe", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-context-resume-"));
@@ -141,12 +163,9 @@ for (const enabled of [false, true]) {
             await session.waitForVisiblePane("Start a conversation");
             session.sendText("/extensions");
             session.sendKey("Enter");
-            await session.waitForVisiblePaneWhere(
-                (pane) => pane.split("\n").some((line) =>
-                    line.includes("vera.context")
-                    && line.includes(enabled ? "enabled" : "disabled")),
-                "effective Context enabled state",
-            );
+            const pane = await selectContextExtension(session);
+            expect(pane.split("\n").find((line) => line.includes("› vera.context")))
+                .toContain(enabled ? "enabled" : "disabled");
             session.sendKey("Escape");
             await session.waitForVisiblePane("Start a conversation");
         } finally {
@@ -177,7 +196,7 @@ test("closing Dashboard returns every following character to the composer", asyn
         const pane = await session.waitForVisiblePane("│ /extensions");
         expect(pane).not.toContain("│ ons");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("vera.context");
+        await selectContextExtension(session);
     } finally {
         await session.close();
     }
@@ -198,15 +217,15 @@ test("resuming a session with large instructions warns once and /context repeats
         role: "assistant",
         content: [{ type: "text", text: "hello from a heavy session" }],
         source: { provider: "faux", api: "scripted", model: "test" },
-        usage: { ...emptyUsage(), inputTokens: 9_100, outputTokens: 8, totalTokens: 9_108 },
+        usage: { ...emptyUsage(), inputTokens: 8_107, outputTokens: 8, totalTokens: 8_115 },
         stopReason: "stop",
     });
     await store.appendContextMeasurement({
-        tokens: 9_100,
+        tokens: 8_107,
         capacity: 200_000,
         estimated: true,
         projection: {
-            estimatedTokens: 9_100,
+            estimatedTokens: 8_107,
             components: [{
                 kind: "prompt_contribution",
                 id: "core.user-rules",
@@ -214,13 +233,13 @@ test("resuming a session with large instructions warns once and /context repeats
                 source: "contextual",
                 displayName: "User rules",
                 count: 1,
-                estimatedTokens: 9_000,
+                estimatedTokens: 8_007,
                 parts: [{
                     id: "rules-global",
                     displayName: "global.md",
                     scope: "user",
-                    bytes: 36_000,
-                    estimatedTokens: 9_000,
+                    bytes: 32_028,
+                    estimatedTokens: 8_007,
                 }],
             }, {
                 kind: "message",
@@ -244,15 +263,15 @@ test("resuming a session with large instructions warns once and /context repeats
     });
 
     try {
-        const pane = await session.waitForVisiblePane("Starting instructions are 9.0k tokens");
+        const pane = await session.waitForVisiblePane("Starting instructions are 8,018 tokens");
         const shown = pane.split("Starting instructions are").length - 1;
         expect(shown).toBeGreaterThanOrEqual(1);
         expect(shown).toBeLessThanOrEqual(2);
-        expect(pane).toContain("Starting instructions are 9.0k tokens, over the 8.0k budget. See /context to trim.");
+        expect(pane).toContain("Starting instructions are 8,018 tokens, over the 8,000 budget. See /context to trim.");
         session.sendText("/context");
         session.sendKey("Enter");
         const report = await session.waitForVisiblePane("INSTRUCTIONS");
-        expect(report).toContain("!  9.0k, over the 8.0k budget. Biggest: global.md (9.0k).");
+        expect(report).toContain("!  8,018, over the 8,000 budget. Biggest: global.md (8.0k).");
         expect(report).not.toContain("rides every turn");
     } finally {
         await session.close();

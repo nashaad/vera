@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { loopbackTest, socketAndLoopbackTest } from "../support/socket-probe.ts";
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -13,6 +14,7 @@ import type { ModelMessage } from "../../src/model/types.ts";
 import { startProvider } from "../../dev/load/provider.ts";
 import { buildFactory, targetSizes } from "../../dev/load/factory.ts";
 import { runScenario } from "../../dev/load/run.ts";
+import { processStart } from "../../dev/load/identity.ts";
 import { assertTrialHome } from "../../dev/load/common.ts";
 import { checkFailed, collectResult, footprintDetails, table } from "../../dev/load/results.ts";
 import { parseLoadOptions } from "../../dev/load/options.ts";
@@ -252,10 +254,19 @@ socketAndLoopbackTest("startup limits connection bursts and the smoke records me
         const timing = await Bun.file(join(result.run, "measurement-timing.json")).json();
         expect(timing.wallMs).toBeGreaterThan(0);
         expect(timing.awakeMs).toBeGreaterThan(0);
+        expect(result.run.startsWith(`${join(root, "load-runs")}/`)).toBe(true);
         expect(await Bun.file(join(result.run, "result.json")).exists()).toBe(true);
+        expect(await Bun.file(join(result.run, "result.md")).exists()).toBe(true);
+        expect(existsSync(join(result.run, "home"))).toBe(false);
+        expect(existsSync(join(result.run, "workspace"))).toBe(false);
+        const owner = await Bun.file(join(result.run, ".load-owner.json")).json();
+        expect(existsSync(owner.alias)).toBe(false);
+        expect(existsSync(join(root, "active"))).toBe(false);
+        expect(existsSync(join(root, "run.lock"))).toBe(false);
         const pids = await Bun.file(join(result.run, "pids.ndjson")).text();
         expect(pids).toContain('"type":"cleanup","survivors":[]');
         const starts = pids.trim().split("\n").map((line) => JSON.parse(line));
+        for (const entry of starts.filter((item) => item.type === "start")) expect(processStart(entry.pid)).toBeUndefined();
         const fifth = starts.find((entry) => entry.type === "start" && entry.role === "client-4-0");
         const first = (await Bun.file(join(result.run, "client-0-0.ndjson")).text()).trim().split("\n")
             .map((line) => JSON.parse(line));

@@ -172,6 +172,17 @@ export function defaultSlashIndex(suggestions: readonly SlashEntry[], text: stri
     return exact === -1 ? 0 : exact;
 }
 
+export type ExtensionListAction = "none" | "wait" | "retry";
+
+export function pendingExtensionListFailureNotice(pending: boolean, loaded: boolean, failed: boolean): string | undefined {
+    return pending && !loaded && failed ? "Extension commands could not be loaded. Press Enter to retry." : undefined;
+}
+
+export function extensionListAction(line: string, loaded: boolean, loading: boolean): ExtensionListAction {
+    if (loaded || !/^\s*\/[^\s/.]+(?:\s|$)/.test(line)) return "none";
+    return loading ? "wait" : "retry";
+}
+
 export type SlashLine =
     // Not a command; send it as a message. A path such as /tmp/a.txt lands here.
     | { readonly kind: "prompt" }

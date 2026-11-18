@@ -93,6 +93,7 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
         && typeof agent.live === "boolean"
         && isOptionalPid(agent.worker_pid)
         && isOptionalPid(agent.supervisor_pid)
+        && isOptionalPositiveSafeInteger(agent.background_commands)
         && (agent.title === undefined || typeof agent.title === "string")
         && (agent.has_user_content === undefined
             || typeof agent.has_user_content === "boolean")
@@ -142,6 +143,11 @@ function isImportedSessionSummary(value: unknown): boolean {
 }
 
 function isOptionalPid(value: unknown): boolean {
+    return value === undefined
+        || (typeof value === "number" && Number.isSafeInteger(value) && value > 0);
+}
+
+function isOptionalPositiveSafeInteger(value: unknown): boolean {
     return value === undefined
         || (typeof value === "number" && Number.isSafeInteger(value) && value > 0);
 }

@@ -213,6 +213,10 @@ export class ConsumerRegistry {
         this.nodeId = nodeId;
     }
 
+    get store(): Inbox {
+        return this.inbox;
+    }
+
     hello(request: ConsumerHelloRequest): ConsumerHandle {
         const label = this.availableLabel(request.label);
         const id: ConsumerId = { nodeId: this.nodeId, label };
@@ -258,6 +262,18 @@ export class ConsumerRegistry {
         entry: InboxEntryInput,
     ): { readonly entry: InboxEntry; readonly created: boolean } {
         return this.inbox.appendOnce(source, key, entry);
+    }
+
+    appendOnceAdmitted(
+        source: string,
+        key: string,
+        entry: InboxEntryInput,
+    ): { readonly entry: InboxEntry; readonly created: boolean } {
+        return this.inbox.appendOnceAdmitted(source, key, entry);
+    }
+
+    isDurablyAdmitted(seq: number): boolean {
+        return this.inbox.isDurablyAdmitted(seq);
     }
 
     entry(seq: number): InboxEntry | undefined {

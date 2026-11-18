@@ -333,6 +333,7 @@ export interface DialogRowContent {
     readonly headingTone?: "accent" | "text";
     readonly tint?: boolean;
     readonly wrap?: boolean;
+    readonly hangDescription?: boolean;
     readonly card?: boolean;
     readonly onSelect?: () => void;
     readonly onHover?: () => void;
@@ -478,9 +479,12 @@ export function dialogOptionRows(
         const notePart = fitted.slice(labelEnd);
         return dialogOptionRow(renderer, {
             ...content,
+            ...(content.hangDescription !== true ? {} : {
+                hangDescription: budget === undefined || budget >= DESCRIPTION_MINIMUM,
+            }),
             label: content.note === undefined ? fitted : fitted.slice(0, labelEnd),
             ...(content.note === undefined ? {} : { note: notePart }),
-            ...(budget === undefined || budget < DESCRIPTION_MINIMUM
+            ...(content.wrap === true || budget === undefined || budget < DESCRIPTION_MINIMUM
                     || content.description === undefined
                 ? {}
                 : { description: clipped(content.description, budget) }),
@@ -635,20 +639,42 @@ export function dialogOptionRow(
     if (content.note !== undefined) {
         labelChunks.push(fg(detail)(content.note));
     }
+    const hangingDescription = content.wrap === true && content.hangDescription === true
+        ? content.description
+        : undefined;
     if (content.description !== undefined) {
-        labelChunks.push(fg(detail)(`  ${content.description}`));
+        labelChunks.push(fg(detail)(hangingDescription === undefined ? `  ${content.description}` : "  "));
     }
+    const attributes = content.active || content.current === true || content.heading === true ? 1 : 0;
     row.add(new TextRenderable(renderer, {
         ...(content.labelId === undefined ? {} : { id: content.labelId }),
         content: new StyledText(labelChunks),
         bg: background,
-        attributes: content.active || content.current === true || content.heading === true ? 1 : 0,
-        flexGrow: 1,
-        flexShrink: 1,
-        ...(content.wrap
-            ? { wrapMode: "word" as const }
-            : { wrapMode: "none" as const, overflow: "hidden" as const }),
+        attributes,
+        ...(hangingDescription === undefined
+            ? {
+                flexGrow: 1,
+                flexShrink: 1,
+                ...(content.wrap
+                    ? { wrapMode: "word" as const }
+                    : { wrapMode: "none" as const, overflow: "hidden" as const }),
+            }
+            : {
+                width: Bun.stringWidth(`${content.label}${content.note ?? ""}  `),
+                flexShrink: 0,
+                wrapMode: "none" as const,
+            }),
     }));
+    if (hangingDescription !== undefined) {
+        row.add(new TextRenderable(renderer, {
+            content: new StyledText([fg(detail)(hangingDescription)]),
+            bg: background,
+            attributes,
+            flexGrow: 1,
+            flexShrink: 1,
+            wrapMode: "word",
+        }));
+    }
     if (content.meta !== undefined) {
         const positive = content.active ? TUI_SELECTION_TEXT : TUI_SUCCESS;
         row.add(new TextRenderable(renderer, {

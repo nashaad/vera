@@ -1,19 +1,22 @@
-import { useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
 
 import { runBtw, type BtwTabs } from "../../chat/btw.ts";
 import { readSidekickOffered, useSidekickOffered } from "../../chat/included.ts";
 import { closeChatTab, hasRoomForChatTab, openChatTab, showChatTab, type ChatTabHost } from "../../chat/open.ts";
 import { useWorkbench } from "../../workbench/context.tsx";
+import type { DesktopBridge } from "../../protocol/bridge.ts";
 import { useSlashCatalog, type SlashSession } from "./host.ts";
-import { BTW_SLASH_ENTRY, buildSlashEntries, defaultSlashIndex, resolveSlashLine, suggestSlash, type SlashEntry } from "./model.ts";
+import { BTW_SLASH_ENTRY, buildSlashEntries, defaultSlashIndex, extensionListAction, pendingExtensionListFailureNotice, resolveSlashLine, suggestSlash, type SlashEntry } from "./model.ts";
 import { runSlashEntry, type SlashRunContext } from "./run.ts";
 import type { SlashMenuView } from "./SlashMenu.tsx";
 
 export interface SlashMenuInput {
     readonly text: string;
     readonly setText: Dispatch<SetStateAction<string>>;
-    // Undefined on New Chat, which has no session to read skills and extension commands from.
+    // Undefined on New Chat, where extension commands come from the host and skills are unavailable.
     readonly session: SlashSession | undefined;
+    readonly hostBridge?: DesktopBridge;
+    readonly onNewChatExtension?: (line: string) => void;
     // Shows one sentence under the composer, or clears it.
     readonly notify: (text: string | undefined) => void;
 }
@@ -28,7 +31,7 @@ export interface SlashMenu {
     readonly runLine: (line: string) => boolean;
 }
 
-const NEW_CHAT_NOTE = "Skills and extension commands work inside a session.";
+const NEW_CHAT_NOTE = "Skills work inside a session.";
 
 interface Moved {
     readonly text: string;
@@ -37,13 +40,13 @@ interface Moved {
 
 // The slash menu and slash lines of one composer. The menu is open while the box holds a
 // slash and a name with no space; once a space is typed the rest is the command's arguments.
-export function useSlashMenu({ text, setText, session, notify }: SlashMenuInput): SlashMenu {
+export function useSlashMenu({ text, setText, session, hostBridge, onNewChatExtension, notify }: SlashMenuInput): SlashMenu {
     const workbench = useWorkbench();
     const { run, hidden } = workbench;
     const latest = useRef(workbench);
     latest.current = workbench;
     const slashStarted = text.trimStart().startsWith("/");
-    const catalog = useSlashCatalog(session, slashStarted);
+    const catalog = useSlashCatalog(session, slashStarted, hostBridge);
     // The sidekick opens from the main pane's composer; a Chat tab's composer has none of its own.
     const sidekick = session !== undefined && session.pane === "main" ? session : undefined;
     const offered = useSidekickOffered(sidekick?.bridge, slashStarted && sidekick !== undefined);
@@ -52,6 +55,7 @@ export function useSlashMenu({ text, setText, session, notify }: SlashMenuInput)
         [catalog, hidden, sidekick, offered],
     );
     const suggestions = useMemo(() => suggestSlash(entries, text), [entries, text]);
+    const pendingLine = useRef<string | undefined>(undefined);
     // Escape and leaving the box close the menu for this text; typing more opens it again.
     const [dismissed, setDismissed] = useState<string | undefined>(undefined);
     const [moved, setMoved] = useState<Moved | undefined>(undefined);
@@ -62,6 +66,11 @@ export function useSlashMenu({ text, setText, session, notify }: SlashMenuInput)
 
     const execute = (entry: SlashEntry, args: string, line: string): void => {
         const restore = (): void => setText((current) => (current.length === 0 ? line : current));
+        if (session === undefined && entry.action.kind === "extension" && onNewChatExtension !== undefined) {
+            notify(undefined);
+            onNewChatExtension(line);
+            return;
+        }
         const context: SlashRunContext = {
             session,
             run,
@@ -119,14 +128,41 @@ export function useSlashMenu({ text, setText, session, notify }: SlashMenuInput)
             return true;
         }
         const resolved = resolveSlashLine(entries, line);
-        if (resolved.kind === "prompt") return false;
+        if (resolved.kind === "prompt") {
+            const listAction = extensionListAction(line, catalog.extensionCommandsLoaded, catalog.extensionCommandsLoading);
+            if (listAction === "none") return false;
+            pendingLine.current = line;
+            notify(listAction === "retry" ? "Extension commands could not be loaded. Press Enter to retry." : undefined);
+            if (listAction === "retry") catalog.retryExtensionCommands();
+            return true;
+        }
         if (resolved.kind === "unknown") {
+            const listAction = extensionListAction(line, catalog.extensionCommandsLoaded, catalog.extensionCommandsLoading);
+            if (listAction !== "none") {
+                pendingLine.current = line;
+                notify(listAction === "retry" ? "Extension commands could not be loaded. Press Enter to retry." : undefined);
+                if (listAction === "retry") catalog.retryExtensionCommands();
+                return true;
+            }
             notify(session === undefined ? `${resolved.message} ${NEW_CHAT_NOTE}` : resolved.message);
             return true;
         }
         execute(resolved.entry, resolved.args, line);
         return true;
     };
+
+    useEffect(() => {
+        const line = pendingLine.current;
+        if (line === undefined) return;
+        if (!catalog.extensionCommandsLoaded) {
+            const failureNotice = pendingExtensionListFailureNotice(true, false, catalog.extensionCommandsFailed);
+            if (failureNotice !== undefined) notify(failureNotice);
+            return;
+        }
+        pendingLine.current = undefined;
+        notify(undefined);
+        runLine(line);
+    }, [catalog.extensionCommandsLoaded, catalog.extensionCommandsFailed, entries]);
 
     const view: SlashMenuView | undefined = open
         ? {

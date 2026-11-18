@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { buildWithDiagnostics } from "../src/release/build-diagnostics.ts";
 import { releaseBuildId } from "../src/release/build-id.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -91,16 +92,12 @@ export async function packWebAssets(
     mkdirSync(target, { recursive: true });
     const html = await Bun.file(join(sourceRoot, "index.html")).text();
     const css = await Bun.file(join(sourceRoot, "styles.css")).text();
-    const built = await Bun.build({
+    const built = await buildWithDiagnostics({
         entrypoints: [join(sourceRoot, "main.tsx")],
         target: "browser",
         format: "esm",
         minify: false,
-    });
-    if (!built.success) {
-        const detail = built.logs.map((log) => String(log)).join("\n");
-        throw new Error(`pack-web failed to bundle:\n${detail}`);
-    }
+    }, "pack-web failed to bundle");
     const script = built.outputs.find((output) =>
         output.path.endsWith(".js") || output.type === "entry-point"
     );

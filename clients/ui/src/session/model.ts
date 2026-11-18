@@ -201,6 +201,7 @@ export type CompactionOutcome = "compacted" | "not_needed" | "no_boundary" | "re
 
 export interface CompactionState {
     readonly phase: "started" | "finished";
+    readonly strategy?: string;
     readonly trigger?: "manual" | "automatic";
     readonly outcome?: CompactionOutcome;
     readonly reason?: string;

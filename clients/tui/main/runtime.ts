@@ -67,7 +67,6 @@ import type { TuiRequestOptionsEditorState, TuiRequestOptionsEditorView } from "
 import { createTuiResumeOverlayView } from "../resume-overlay.ts";
 import type { SearchOverlayState } from "../search-overlay.ts";
 import type { TuiSecretPromptState, TuiSecretPromptView } from "../secret-prompt.ts";
-import type { TuiSessionCloseConfirmView } from "../session-close-confirm.ts";
 import type { TuiAnimationsPreviewView } from "../animations-preview.ts";
 import type { TuiTurnMeter } from "../turn-meter.ts";
 import type { TuiSessionTrashConfirmView } from "../session-trash-confirm.ts";
@@ -306,6 +305,9 @@ export interface TuiRuntime {
     hostExtensionCommands: readonly ExtensionCommandDescriptor[];
     disposeHostExtensionCommands: () => void;
     extensionCommandsGeneration: number;
+    extensionCommandsLoaded: boolean;
+    extensionCommandsLoadClient: TuiAgentClient | undefined;
+    extensionCommandsLoadPromise: Promise<boolean> | undefined;
     disposeSkillCommands: () => void;
     skillCatalogRequestId: string | undefined;
     announcedSkillCommandNotices: Set<string>;
@@ -346,7 +348,7 @@ export interface TuiRuntime {
         readonly label: string;
     } | undefined;
     sessionTrashPending: boolean;
-    sessionCloseConfirm: boolean;
+    sessionCloseConfirm: TuiSettingsPickerState | undefined;
     animationsPreviewOpen: boolean;
     providerForgetCandidate: {
         readonly providerId: string;
@@ -392,6 +394,8 @@ export interface TuiRuntime {
     extensionCommandsLoading: boolean;
     skillCommandsLoading: boolean;
     runningBackgroundAgents: number;
+    // Host-wide, unlike runningBackgroundAgents, which counts this conversation's children.
+    hostRunningBackgroundAgents: number;
     runningBackgroundAgentNames: readonly string[];
     currentAgentHasParent: boolean;
     stopWatchingBackgroundAgents: (() => void) | undefined;
@@ -516,7 +520,6 @@ export interface TuiRuntime {
     permissionsConfirmView: TuiPermissionsConfirmView;
     admissionDialogView: TuiAdmissionDialogView;
     sessionTrashConfirmView: TuiSessionTrashConfirmView;
-    sessionCloseConfirmView: TuiSessionCloseConfirmView;
     animationsPreviewView: TuiAnimationsPreviewView;
     providerForgetConfirmView: TuiProviderForgetConfirmView;
     overridesResetConfirmView: TuiOverridesResetConfirmView;

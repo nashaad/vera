@@ -6,9 +6,9 @@ import type { ModelOperationResult, ModelOperationStep } from "../model/model-op
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import { sessionScratchDir } from "../engine/run-turn.ts";
 import { createServer, type Server, type Socket } from "node:net";
-import { chmod, lstat, mkdir, stat, unlink } from "node:fs/promises";
+import { chmod, link, lstat, mkdir, mkdtemp, rmdir, stat, unlink } from "node:fs/promises";
 import type { Stats } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
     createHostLockfile,
@@ -182,6 +182,7 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "extension_load_failures":
         case "new_session_agents":
         case "folder_customizations":
+        case "list_extension_commands":
         case "checkpoint_stores":
         case "search_sessions":
         case "schedule_operation":
@@ -637,13 +638,11 @@ async function startListener(
     let ownedSocketStat: Stats | undefined;
     try {
         await prepareSocketDirectory(socketPath);
-        await listenAfterRemovingStaleSocket(
+        ownedSocketStat = await listenAfterRemovingStaleSocket(
             server,
             socketPath,
             options.lockPath ?? defaultHostLockPath(),
         );
-        ownedSocketStat = await lstat(socketPath);
-        await chmod(socketPath, 0o600);
         const publish = () => worker === undefined ? createHostLockfile({
             path: options.lockPath ?? defaultHostLockPath(),
             socketPath,
@@ -1209,31 +1208,7 @@ function receiveConnection(
                 return;
             }
             extensionRequestIds.add(message.request_id);
-            let commands: readonly ExtensionCommandDescriptor[];
-            try {
-                commands = listExtensionCommands();
-            } catch {
-                void send({
-                    type: "extension_command_failed",
-                    request_id: message.request_id,
-                    failure: {
-                        source: "vera.extensions",
-                        reason: "unavailable",
-                        message: "Extension commands are unavailable",
-                    },
-                }, () =>
-                    !finished
-                    && extensionRequestIds.has(message.request_id)
-                ).catch(() => socket.destroy()).finally(() => {
-                    extensionRequestIds.delete(message.request_id);
-                });
-                return;
-            }
-            void send({
-                type: "extension_command_list",
-                request_id: message.request_id,
-                commands,
-            }, () =>
+            void send(extensionCommandListResponse(listExtensionCommands, message.request_id), () =>
                 !finished
                 && extensionRequestIds.has(message.request_id)
             ).catch(() => socket.destroy()).finally(() => {
@@ -1643,6 +1618,13 @@ function receiveConnection(
                     await send({ type: "model_operation_complete", error: error instanceof Error ? error.message : String(error) }).catch(() => {});
                 } finally { operationClosed(); socket.end(); }
             })();
+            return;
+        }
+        if (request?.type === "list_extension_commands") {
+            clearDeadline();
+            finished = true;
+            void send(extensionCommandListResponse(listExtensionCommands, request.request_id))
+                .then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (request?.type === "model_settings") {
@@ -2700,6 +2682,25 @@ function writeSocketMessage(socket: Socket, message: object): Promise<void> {
     });
 }
 
+function extensionCommandListResponse(
+    list: () => readonly ExtensionCommandDescriptor[],
+    requestId: string,
+): import("./protocol.ts").ExtensionCommandListResponse | import("./protocol.ts").ExtensionCommandFailedResponse {
+    try {
+        return { type: "extension_command_list", request_id: requestId, commands: list() };
+    } catch {
+        return {
+            type: "extension_command_failed",
+            request_id: requestId,
+            failure: {
+                source: "vera.extensions",
+                reason: "unavailable",
+                message: "Extension commands are unavailable",
+            },
+        };
+    }
+}
+
 function extensionCommandFailure(
     command: string,
     error: unknown,
@@ -2767,22 +2768,44 @@ export class HostSocketHeldError extends Error {
     }
 }
 
+// Bun unlinks the path a listener bound when it closes, even after another host replaced it.
+// The public path is a hard link to a socket bound at a private name, so that unlink misses it.
 async function listenAfterRemovingStaleSocket(
     server: Server,
     socketPath: string,
     lockPath: string,
-): Promise<void> {
+): Promise<Stats> {
     await clearSocketPathOrRefuse(socketPath, lockPath);
+    const privateDirectory = await mkdtemp(join(dirname(socketPath), ".v-"));
+    const privateSocketPath = join(privateDirectory, "s");
+    let owned: Stats | undefined;
+    let published = false;
     try {
-        await listen(server, socketPath);
-        return;
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") {
-            throw error;
+        await listen(server, privateSocketPath);
+        owned = await lstat(privateSocketPath);
+        await chmod(privateSocketPath, 0o600);
+        try {
+            await link(privateSocketPath, socketPath);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+            await clearSocketPathOrRefuse(socketPath, lockPath);
+            await link(privateSocketPath, socketPath);
         }
+        published = true;
+        await unlink(privateSocketPath);
+        await rmdir(privateDirectory);
+        return owned;
+    } catch (error) {
+        await closeServer(server);
+        if (published) await removeOwnedSocket(socketPath, owned);
+        await removeOwnedSocket(privateSocketPath, owned);
+        try {
+            await rmdir(privateDirectory);
+        } catch (cleanupError) {
+            if ((cleanupError as NodeJS.ErrnoException).code !== "ENOENT") throw cleanupError;
+        }
+        throw error;
     }
-    await clearSocketPathOrRefuse(socketPath, lockPath);
-    await listen(server, socketPath);
 }
 
 async function clearSocketPathOrRefuse(

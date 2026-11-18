@@ -21,6 +21,7 @@ import {
 } from "../../src/host/attached-client.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
+import { listExtensionCommandsThroughHost } from "../../src/host/extension-command-list-client.ts";
 import { closeAgentThroughHost } from "../../src/host/agent-close-client.ts";
 import {
     AgentStartError,
@@ -826,7 +827,7 @@ socketTest(
 );
 
 socketTest(
-    "resident host loads and routes a configured extension command",
+    "@core resident host lists extension commands before any session and routes them after attach",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-extension-"));
         const workspace = await realpath(root);
@@ -873,46 +874,63 @@ socketTest(
             sessionDirectory: join(root, "sessions"),
             eventLogDirectory: join(root, "logs"),
         });
-        const agent = await host.registry.create({
-            id: "agent-1",
-            workspace,
-            sessionPath: join(root, "agent.jsonl"),
-            eventLogPath: join(root, "events.jsonl"),
-        });
-        const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
-            await connection.receive();
-            await connection.receive();
-            await connection.send({
-                type: "list_extension_commands",
-                request_id: "list-1",
-            });
-            expect(await connection.receive()).toMatchObject({
-                type: "extension_command_list",
-                commands: expect.arrayContaining([
-                    { name: "where", source: "test.extension", description: "Show workspace", usage: "/where" },
+            expect(await listExtensionCommandsThroughHost(socketPath)).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ name: "where", source: "test.extension" }),
                     expect.objectContaining({ name: "budget", source: "vera.budget" }),
                 ]),
-            });
-            await connection.send({
-                type: "run_extension_command",
-                request_id: "run-1",
-                command: "where",
-                arguments_text: "",
-            });
-            expect(await connection.receive()).toEqual({
-                type: "extension_command_result",
-                request_id: "run-1",
-                result: {
-                    version: 1,
-                    source: "test.extension/where",
-                    extensionState: { "vera.budget": { dollars: -1 } },
-                    body: { kind: "text", text: workspace },
-                },
-            });
+            );
+            const listing = await connectHost({ socketPath });
+            try {
+                expect(host.registry.list()).toEqual([]);
+                await listing.send({
+                    type: "list_extension_commands",
+                    request_id: "list-1",
+                });
+                expect(await listing.receive()).toMatchObject({
+                    type: "extension_command_list",
+                    request_id: "list-1",
+                    commands: expect.arrayContaining([
+                        { name: "where", source: "test.extension", description: "Show workspace", usage: "/where" },
+                        expect.objectContaining({ name: "budget", source: "vera.budget" }),
+                    ]),
+                });
+                expect(host.registry.list()).toEqual([]);
+            } finally {
+                listing.close();
+            }
+            const connection = await connectHost({ socketPath });
+            try {
+                const agent = await host.registry.create({
+                    id: "agent-1",
+                    workspace,
+                    sessionPath: join(root, "agent.jsonl"),
+                    eventLogPath: join(root, "events.jsonl"),
+                });
+                await connection.send({ type: "attach", agent_id: agent.id, requested_capabilities: [HOST_CAPABILITY_AGENT_HISTORY_PAGING] });
+                await connection.receive();
+                await connection.receive();
+                await connection.send({
+                    type: "run_extension_command",
+                    request_id: "run-1",
+                    command: "where",
+                    arguments_text: "",
+                });
+                expect(await connection.receive()).toEqual({
+                    type: "extension_command_result",
+                    request_id: "run-1",
+                    result: {
+                        version: 1,
+                        source: "test.extension/where",
+                        extensionState: { "vera.budget": { dollars: -1 } },
+                        body: { kind: "text", text: workspace },
+                    },
+                });
+            } finally {
+                connection.close();
+            }
         } finally {
-            connection.close();
             await host.close();
             await rm(root, { recursive: true, force: true });
         }

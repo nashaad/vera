@@ -101,9 +101,10 @@ export function forgetProviderCredential(rt: TuiRuntime, candidate: {
 export async function defaultLoginProvider(rt: TuiRuntime, 
     providerId: string,
     onBrowserUnavailable: (url: string) => void,
+    onAuthorizationUrl?: (url: string) => void,
 ): Promise<void> {
     if (rt.dependencies.loginProvider === undefined) throw new Error("This host does not support provider sign-in.");
-    await rt.dependencies.loginProvider(providerId, onBrowserUnavailable);
+    await rt.dependencies.loginProvider(providerId, onBrowserUnavailable, onAuthorizationUrl);
 }
 
 export function openProviderEndpointForm(rt: TuiRuntime, 

@@ -110,6 +110,7 @@ function toolMetadata(tool: RegisteredTool): Omit<RegisteredTool, "execute"> {
         ...(tool.permissionOperation === undefined ? {} : { permissionOperation: tool.permissionOperation }),
         ...(tool.requiresUserInteraction === undefined ? {} : { requiresUserInteraction: tool.requiresUserInteraction }),
         ...(tool.permissionInputs === undefined ? {} : { permissionInputs: tool.permissionInputs }),
+        ...(tool.commandInput === undefined ? {} : { commandInput: tool.commandInput }),
     };
 }
 

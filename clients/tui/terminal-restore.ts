@@ -25,6 +25,17 @@ function leaveRawMode(stdin: NodeJS.ReadStream): void {
     }
 }
 
+export function restoreRawInput(stdin: NodeJS.ReadStream): void {
+    try {
+        if (stdin.isTTY) {
+            // Another process can change the tty while Bun still considers it raw.
+            stdin.setRawMode(false);
+            stdin.setRawMode(true);
+        }
+    } catch {
+    }
+}
+
 export function restoreTerminalNow(
     tty: { readonly fd: number } = process.stdout,
     stdin: NodeJS.ReadStream = process.stdin,

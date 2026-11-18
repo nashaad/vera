@@ -82,7 +82,13 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
         // The estimate stands while the request is in flight, so the
         // provider's own count only replaces it once the turn ends.
         pane = await session.waitForVisiblePane("ctx ~");
-        expect(pane).toContain("100%");
+        const context = /ctx ~(\d+(?:\.\d+)?)k\/200k\s+[▰▱]+\s+(\d+)%/.exec(pane);
+        expect(context).not.toBeNull();
+        if (context === null) throw new Error("missing estimated context usage");
+        const percent = Number(context[2]);
+        expect(percent).toBeGreaterThan(0);
+        expect(percent).toBeLessThan(100);
+        expect(Math.abs(percent - Number(context[1]) / 200 * 100)).toBeLessThanOrEqual(1);
 
         // The second turn reasons, so its summary carries a fold that
         // Ctrl+O opens over a row already drawn. It starts in the same

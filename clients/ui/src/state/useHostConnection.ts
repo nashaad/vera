@@ -2,7 +2,7 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import type { DesktopEvent } from "../protocol/bridge.ts";
 import { SESSIONS_PAGE_SIZE, sessionRows } from "../protocol/sessions.ts";
-import { HostProtocolClient, sessionCount } from "../protocol/client.ts";
+import { HostProtocolClient, sessionCount, type AgentListFacts, type ListAgentsOptions } from "../protocol/client.ts";
 import { INITIAL_STATE, reduceConnection, type UiState } from "./connection.ts";
 import { HOST_POLL_MS } from "./frameBudget.ts";
 import { describeEvent, type OutputLog } from "./outputLog.ts";
@@ -14,6 +14,7 @@ export interface HostConnection {
     // Reads the session list now rather than at the next poll.
     refreshSessions(): void;
     dismissInstallNotice(): void;
+    listAgents(options?: ListAgentsOptions): Promise<AgentListFacts>;
 }
 
 export function useHostConnection(log: OutputLog): HostConnection {
@@ -117,6 +118,11 @@ export function useHostConnection(log: OutputLog): HostConnection {
             dispatch({ type: "answered" });
         },
         dismissInstallNotice: () => dispatch({ type: "dismiss_install_notice" }),
+        listAgents: (options) => {
+            const client = clientRef.current;
+            if (client === undefined) return Promise.reject(new Error("The host is not connected."));
+            return client.listAgents(options);
+        },
     };
 }
 

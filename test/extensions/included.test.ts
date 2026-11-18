@@ -204,8 +204,14 @@ test("core and shipped extensions load from their own folders", () => {
     expect(core).toContain("vera.customize");
     expect(core).toContain("vera.help");
     expect(core).toContain("vera.session-identity");
-    expect(shipped).toContain("vera.btw");
-    expect(shipped).toContain("vera.mcp");
-    expect(shipped).toContain("vera.titles");
+    expect(shipped).toEqual([
+        "vera.artifacts",
+        "vera.btw",
+        "vera.budget",
+        "vera.cache",
+        "vera.diff",
+        "vera.mcp",
+        "vera.titles",
+    ]);
     expect(core.filter((id) => shipped.includes(id))).toEqual([]);
 });

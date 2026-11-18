@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { signalVerifiedProcess, signalVerifiedProcessGroup } from "../process-group.ts";
 import { captureMarker } from "./bounded-capture.ts";
+import { MAX_LIVE_PROCESSES_PER_OWNER } from "./process-limits.ts";
+export { MAX_LIVE_PROCESSES_PER_OWNER } from "./process-limits.ts";
 import type {
     CommandSandbox,
     SandboxPreparation,
@@ -11,7 +13,6 @@ import type {
 
 export const DEFAULT_BASH_YIELD_MS = 10_000;
 export const MAX_BASH_YIELD_MS = 60_000;
-export const MAX_LIVE_PROCESSES_PER_OWNER = 8;
 export const MAX_RETAINED_PROCESSES_PER_OWNER = 32;
 export const PROCESS_EXIT_RETENTION_MS = 10 * 60_000;
 export const PROCESS_OUTPUT_HEAD_BYTES = 4 * 1024;
@@ -19,6 +20,26 @@ export const PROCESS_OUTPUT_TAIL_BYTES = 64 * 1024;
 const PROCESS_STOP_DRAIN_GRACE_MS = 500;
 const PROCESS_TERMINATION_WAIT_MS = 2_000;
 const PROCESS_GROUP_POLL_MS = 50;
+const PROCESS_OBSERVATION_TAIL_BYTES = 8 * 1024;
+
+export interface ManagedProcessObservation {
+    readonly extensionId: string;
+    readonly description: string;
+}
+
+export interface ManagedProcessObservationStart extends ManagedProcessObservation {
+    readonly ownerId: string;
+    readonly processId: string;
+    readonly pid: number;
+    readonly startedAt: string;
+}
+
+export interface ManagedProcessObservationSettlement extends ManagedProcessObservationStart {
+    readonly elapsedMs: number;
+    readonly exitCode?: number;
+    readonly outputTail: string;
+    readonly outputTruncated: boolean;
+}
 
 export interface ManagedProcessSnapshot {
     readonly processId: string;
@@ -66,6 +87,14 @@ export interface ManagedProcessRunOptions {
     readonly yieldAfterMs?: number;
     readonly interactive: boolean;
     readonly sandbox?: SandboxCommandIdentity;
+    readonly observation?: ManagedProcessObservation;
+}
+
+/** Host-owned callbacks, including the loss of one child executor. */
+export interface ManagedProcessObservationHandlers {
+    readonly onObservationStarted?: (start: ManagedProcessObservationStart) => Promise<void>;
+    readonly onObservationSettled?: (settlement: ManagedProcessObservationSettlement) => Promise<void>;
+    readonly onObservationInterrupted?: (start: ManagedProcessObservationStart) => Promise<void>;
 }
 
 export interface ManagedProcessRegistryOptions {
@@ -79,8 +108,12 @@ export interface ManagedProcessRegistryOptions {
     readonly groupPollMs?: number;
     readonly signalProcessTree?: (pid: number) => string | undefined;
     readonly processGroupAlive?: (pid: number) => boolean;
-    readonly onProcessStarted?: (pid: number, startedAt: string) => void;
-    readonly onProcessSettled?: (pid: number) => void;
+    readonly onProcessStarted?: (pid: number, startedAt: string, ownerId: string) => void;
+    readonly onProcessSettled?: (pid: number, ownerId: string) => void;
+    readonly onLiveCountChanged?: (ownerId: string, count: number) => void;
+    readonly onObservationStarted?: (start: ManagedProcessObservationStart) => Promise<void>;
+    readonly onObservationSettled?: (settlement: ManagedProcessObservationSettlement) => Promise<void>;
+    readonly onObservationInterrupted?: (start: ManagedProcessObservationStart) => Promise<void>;
     readonly sandbox?: CommandSandbox;
 }
 
@@ -111,7 +144,11 @@ interface ManagedProcessRecord {
     sandboxReported: boolean;
     readonly completion: Promise<void>;
     readonly resolveCompletion: () => void;
+    observation?: ManagedProcessObservationStart;
+    observationStarted?: Promise<void>;
+    observationSettled?: Promise<void>;
     visible: boolean;
+    background: boolean;
     leaderExited: boolean;
     groupExited: boolean;
     capturesDrained: boolean;
@@ -142,6 +179,7 @@ function applySandboxSuffix(
 
 export class ManagedProcessRegistry {
     private readonly records = new Map<string, ManagedProcessRecord>();
+    private readonly unsettledObservations = new Map<string, number>();
     private readonly maxLivePerOwner: number;
     private readonly maxRetainedPerOwner: number;
     private readonly exitRetentionMs: number;
@@ -151,8 +189,12 @@ export class ManagedProcessRegistry {
     private readonly groupPollMs: number;
     private readonly signalTree: ((pid: number) => string | undefined) | undefined;
     private readonly groupAlive: (pid: number) => boolean;
-    private readonly onProcessStarted: (pid: number, startedAt: string) => void;
-    private readonly onProcessSettled: (pid: number) => void;
+    private readonly onProcessStarted: (pid: number, startedAt: string, ownerId: string) => void;
+    private readonly onProcessSettled: (pid: number, ownerId: string) => void;
+    private readonly onLiveCountChanged: (ownerId: string, count: number) => void;
+    private onObservationStarted: ManagedProcessRegistryOptions["onObservationStarted"];
+    private onObservationSettled: ManagedProcessRegistryOptions["onObservationSettled"];
+    private onObservationInterrupted: ManagedProcessRegistryOptions["onObservationInterrupted"];
     readonly sandbox: CommandSandbox | undefined;
     private idSequence = 0;
     private closed = false;
@@ -192,7 +234,20 @@ export class ManagedProcessRegistry {
         this.groupAlive = options.processGroupAlive ?? processGroupAlive;
         this.onProcessStarted = options.onProcessStarted ?? (() => {});
         this.onProcessSettled = options.onProcessSettled ?? (() => {});
+        this.onObservationStarted = options.onObservationStarted;
+        this.onObservationSettled = options.onObservationSettled;
+        this.onObservationInterrupted = options.onObservationInterrupted;
+        this.onLiveCountChanged = options.onLiveCountChanged ?? (() => {});
         this.sandbox = options.sandbox;
+    }
+
+    bindObservationHandlers(handlers: ManagedProcessObservationHandlers): void {
+        if (this.records.size > 0 || this.onObservationStarted !== undefined || this.onObservationSettled !== undefined) {
+            throw new Error("Process observation handlers are already in use");
+        }
+        this.onObservationStarted = handlers.onObservationStarted;
+        this.onObservationSettled = handlers.onObservationSettled;
+        this.onObservationInterrupted = handlers.onObservationInterrupted;
     }
 
     /** The wrapper this registry hands every command, when it has one. */
@@ -212,11 +267,21 @@ export class ManagedProcessRegistry {
             .some((record) => record.finishedAt === undefined);
     }
 
+    hasUnsettledObservedProcess(ownerId: string): boolean {
+        return (this.unsettledObservations.get(ownerId) ?? 0) > 0;
+    }
+
+    liveCount(ownerId: string): number {
+        return this.ownerRecords(ownerId)
+            .filter((record) => record.background && record.finishedAt === undefined).length;
+    }
+
     async close(): Promise<void> {
         if (this.closed) return;
         this.closed = true;
         const records = [...this.records.values()];
         const stopped = await Promise.all(records.map((record) => this.stopAndWait(record)));
+        await Promise.allSettled(records.map((record) => record.observationSettled));
         for (const [index, record] of records.entries()) {
             if (!stopped[index] && record.terminationError !== undefined) process.stderr.write(`${record.terminationError}\n`);
         }
@@ -237,6 +302,11 @@ export class ManagedProcessRegistry {
                 reason: "Interactive process input is not available in this build.",
             };
         }
+        if (options.observation !== undefined && (
+            this.onObservationStarted === undefined || this.onObservationSettled === undefined
+        )) {
+            return { kind: "rejected", reason: "Process observation is unavailable in this session." };
+        }
         this.pruneOwner(ownerId);
         const live = this.ownerRecords(ownerId)
             .filter((record) => record.finishedAt === undefined).length;
@@ -250,12 +320,21 @@ export class ManagedProcessRegistry {
 
         // Allocate before spawn: an allocator failure must not leave an unregistered child that no caller can address.
         const processId = this.uniqueId();
-        const identityStartedAt = new Date().toISOString();
         const preparation = await this.prepareSandbox(options, processId);
         if (preparation.refusal !== undefined) {
             return { kind: "rejected", reason: preparation.refusal };
         }
         const prepared = preparation.prepared;
+        if (options.observation !== undefined
+            && (this.unsettledObservations.get(ownerId) ?? 0) >= this.maxRetainedPerOwner) {
+            if (prepared !== undefined) this.sandbox?.commandEnded(prepared);
+            return {
+                kind: "rejected",
+                reason: `Process observation limit reached (${this.maxRetainedPerOwner} awaiting settlement for this session).`,
+            };
+        }
+        // Record the spawn identity after potentially slow sandbox preparation.
+        const identityStartedAt = new Date().toISOString();
         const subprocess = (() => {
             try {
                 return Bun.spawn(
@@ -278,7 +357,7 @@ export class ManagedProcessRegistry {
                 throw error;
             }
         })();
-        const output = new ProcessOutputBuffer();
+        const output = new ProcessOutputBuffer(options.observation !== undefined);
         const captures = [
             capture(subprocess.stdout, "stdout", output),
             capture(subprocess.stderr, "stderr", output),
@@ -304,12 +383,26 @@ export class ManagedProcessRegistry {
             completion: lifecycle.promise,
             resolveCompletion: lifecycle.resolve,
             visible: false,
+            background: false,
             leaderExited: false,
             groupExited: false,
             capturesDrained: false,
         };
         this.records.set(record.processId, record);
-        this.onProcessStarted(record.subprocess.pid, record.identityStartedAt);
+        this.onProcessStarted(record.subprocess.pid, record.identityStartedAt, ownerId);
+        if (options.observation !== undefined) {
+            this.unsettledObservations.set(ownerId, (this.unsettledObservations.get(ownerId) ?? 0) + 1);
+            record.observation = {
+                ...options.observation,
+                ownerId,
+                processId,
+                pid: subprocess.pid,
+                startedAt: identityStartedAt,
+            };
+            record.observationStarted = Promise.resolve().then(() =>
+                this.onObservationStarted!(record.observation!)
+            );
+        }
         void Promise.all(captures.map((stream) => stream.completion)).then(() => {
             record.capturesDrained = true;
             this.finishIfSettled(record);
@@ -337,12 +430,39 @@ export class ManagedProcessRegistry {
         };
         options.signal?.addEventListener("abort", onAbort, { once: true });
         if (options.signal?.aborted === true) onAbort();
+        let abortedWhileRegistering = false;
+        if (record.observationStarted !== undefined) {
+            try {
+                abortedWhileRegistering = await Promise.race([
+                    record.observationStarted.then(() => false),
+                    abort.then(() => true),
+                ]);
+            } catch (error) {
+                options.signal?.removeEventListener("abort", onAbort);
+                const stopped = await this.stopAndWait(record);
+                let cleanupError: string | undefined;
+                if (stopped) {
+                    try {
+                        await record.observationSettled;
+                    } catch (cleanup) {
+                        cleanupError = errorMessage(cleanup);
+                    }
+                    this.remove(record);
+                } else this.setVisible(record, true);
+                return {
+                    kind: "rejected",
+                    reason: `Could not register process observation: ${errorMessage(error)}`
+                        + (stopped ? "" : ` Process remains managed as ${processId}.`)
+                        + (cleanupError === undefined ? "" : ` Observation cleanup failed: ${cleanupError}`),
+                };
+            }
+        }
         const yieldWait = options.yieldAfterMs === undefined
             ? undefined
             : wait(options.yieldAfterMs);
         let outcome: "exited" | "yielded" | "aborted";
         try {
-            outcome = yieldWait === undefined
+            outcome = abortedWhileRegistering ? "aborted" : yieldWait === undefined
                 ? await Promise.race([
                     record.completion.then(() => "exited" as const),
                     abort.then(() => "aborted" as const),
@@ -359,7 +479,10 @@ export class ManagedProcessRegistry {
 
         if (outcome === "aborted") {
             const terminated = await this.stopAndWait(record);
-            if (!terminated) record.visible = true;
+            if (!terminated) this.setVisible(record, true);
+            if (terminated && !abortedWhileRegistering && record.observationSettled !== undefined) {
+                await record.observationSettled;
+            }
             const snapshot = terminated
                 ? await this.withSandboxOutcome(record)
                 : this.snapshot(record);
@@ -371,14 +494,16 @@ export class ManagedProcessRegistry {
             };
         }
         if (outcome === "exited") {
+            if (record.observationSettled !== undefined) await record.observationSettled;
             const snapshot = await this.withSandboxOutcome(record);
             this.remove(record);
             return { kind: "exited", snapshot };
         }
 
         // Ownership has moved out of the foreground turn. A later abort of that turn must not kill a process whose ID was already returned.
-        record.visible = true;
+        this.setVisible(record, true);
         if (record.finishedAt !== undefined) {
+            if (record.observationSettled !== undefined) await record.observationSettled;
             const snapshot = await this.withSandboxOutcome(record);
             this.remove(record);
             return { kind: "exited", snapshot };
@@ -434,8 +559,9 @@ export class ManagedProcessRegistry {
 
     async closeOwner(ownerId: string): Promise<void> {
         const records = this.ownerRecords(ownerId);
-        for (const record of records) record.visible = true;
+        for (const record of records) this.setVisible(record);
         const stopped = await Promise.all(records.map((record) => this.stopAndWait(record)));
+        await Promise.allSettled(records.map((record) => record.observationSettled));
         for (const [index, record] of records.entries()) {
             if (!stopped[index] && record.terminationError !== undefined) process.stderr.write(`${record.terminationError}\n`);
         }
@@ -557,6 +683,15 @@ export class ManagedProcessRegistry {
     private ownerRecords(ownerId: string): ManagedProcessRecord[] {
         return [...this.records.values()]
             .filter((record) => record.ownerId === ownerId);
+    }
+
+    private setVisible(record: ManagedProcessRecord, background = false): void {
+        record.visible = true;
+        if (!background || record.background) return;
+        record.background = true;
+        if (record.finishedAt === undefined) {
+            this.onLiveCountChanged(record.ownerId, this.liveCount(record.ownerId));
+        }
     }
 
     private makeRetainedRoom(ownerId: string): void {
@@ -739,9 +874,44 @@ export class ManagedProcessRegistry {
         record.exitDrainTimer = undefined;
         record.terminationError = undefined;
         record.finishedAt = this.clock();
-        this.onProcessSettled(record.subprocess.pid);
+        this.onProcessSettled(record.subprocess.pid, record.ownerId);
+        if (record.observation !== undefined && record.observationStarted !== undefined) {
+            const output = record.output.observationTail();
+            const settlement: ManagedProcessObservationSettlement = {
+                ...record.observation,
+                elapsedMs: record.finishedAt - record.startedAt,
+                ...(record.exitCode === undefined ? {} : { exitCode: record.exitCode }),
+                outputTail: output.text,
+                outputTruncated: output.truncated,
+            };
+            record.observationSettled = record.observationStarted.then(
+                () => this.onObservationSettled!(settlement),
+                () => {
+                    if (this.onObservationInterrupted === undefined) {
+                        throw new Error("Uncertain observation cleanup is unavailable");
+                    }
+                    return this.onObservationInterrupted(record.observation!);
+                },
+            );
+            void record.observationSettled.then(
+                () => this.releaseObservation(record.ownerId),
+                (error: unknown) => {
+                    this.releaseObservation(record.ownerId);
+                    process.stderr.write(`Process observation failed: ${errorMessage(error)}\n`);
+                },
+            );
+        }
+        if (record.background) {
+            this.onLiveCountChanged(record.ownerId, this.liveCount(record.ownerId));
+        }
         record.resolveCompletion();
         if (record.visible) this.retainExited(record);
+    }
+
+    private releaseObservation(ownerId: string): void {
+        const count = this.unsettledObservations.get(ownerId) ?? 0;
+        if (count <= 1) this.unsettledObservations.delete(ownerId);
+        else this.unsettledObservations.set(ownerId, count - 1);
     }
 
     private uniqueId(): string {
@@ -801,12 +971,18 @@ export class ManagedProcessScope {
 class ProcessOutputBuffer {
     private readonly head: OutputChunk[] = [];
     private readonly tail: OutputChunk[] = [];
+    private readonly observation: ObservationOutput | undefined;
     private headBytes = 0;
     private tailBytes = 0;
     private totalBytes = 0;
 
+    constructor(observe: boolean) {
+        this.observation = observe ? new ObservationOutput() : undefined;
+    }
+
     append(channel: OutputChunk["channel"], value: Uint8Array): void {
         if (value.length === 0) return;
+        this.observation?.append(channel, value);
         this.totalBytes += value.length;
         let offset = 0;
         if (this.headBytes < PROCESS_OUTPUT_HEAD_BYTES) {
@@ -814,12 +990,12 @@ class ProcessOutputBuffer {
                 value.length,
                 PROCESS_OUTPUT_HEAD_BYTES - this.headBytes,
             );
-            this.head.push({ channel, bytes: value.subarray(0, wanted) });
+            this.head.push({ channel, bytes: value.slice(0, wanted) });
             this.headBytes += wanted;
             offset = wanted;
         }
         if (offset < value.length) {
-            const bytes = value.subarray(offset);
+            const bytes = value.slice(Math.max(offset, value.length - PROCESS_OUTPUT_TAIL_BYTES));
             this.tail.push({ channel, bytes });
             this.tailBytes += bytes.length;
             this.trimTail();
@@ -841,6 +1017,14 @@ class ProcessOutputBuffer {
         ].filter((part) => part.length > 0).join("\n");
     }
 
+    finishChannel(channel: OutputChunk["channel"]): void {
+        this.observation?.finishChannel(channel);
+    }
+
+    observationTail(): { readonly text: string; readonly truncated: boolean } {
+        return this.observation?.tail() ?? { text: "", truncated: false };
+    }
+
     private trimTail(): void {
         while (this.tailBytes > PROCESS_OUTPUT_TAIL_BYTES && this.tail.length > 0) {
             const first = this.tail[0] as OutputChunk;
@@ -848,7 +1032,7 @@ class ProcessOutputBuffer {
             if (overflow < first.bytes.length) {
                 this.tail[0] = {
                     channel: first.channel,
-                    bytes: first.bytes.subarray(overflow),
+                    bytes: first.bytes.slice(overflow),
                 };
                 this.tailBytes -= overflow;
                 return;
@@ -859,6 +1043,59 @@ class ProcessOutputBuffer {
     }
 }
 
+class ObservationOutput {
+    private readonly decoders = { stdout: new TextDecoder(), stderr: new TextDecoder() };
+    private readonly encoder = new TextEncoder();
+    private readonly bytes = new Uint8Array(PROCESS_OBSERVATION_TAIL_BYTES);
+    private start = 0;
+    private size = 0;
+    private truncated = false;
+
+    append(channel: OutputChunk["channel"], value: Uint8Array): void {
+        this.appendText(this.decoders[channel].decode(value, { stream: true }));
+    }
+
+    finishChannel(channel: OutputChunk["channel"]): void {
+        this.appendText(this.decoders[channel].decode());
+    }
+
+    tail(): { readonly text: string; readonly truncated: boolean } {
+        const bytes = new Uint8Array(this.size);
+        const first = Math.min(this.size, this.bytes.length - this.start);
+        bytes.set(this.bytes.subarray(this.start, this.start + first));
+        bytes.set(this.bytes.subarray(0, this.size - first), first);
+        let offset = 0;
+        while (offset < bytes.length && (bytes[offset]! & 0xc0) === 0x80) offset += 1;
+        return {
+            text: new TextDecoder().decode(bytes.subarray(offset)),
+            truncated: this.truncated || offset > 0,
+        };
+    }
+
+    private appendText(text: string): void {
+        if (text.length === 0) return;
+        const bytes = this.encoder.encode(text);
+        if (bytes.length >= this.bytes.length) {
+            this.truncated ||= this.size > 0 || bytes.length > this.bytes.length;
+            this.bytes.set(bytes.subarray(bytes.length - this.bytes.length));
+            this.start = 0;
+            this.size = this.bytes.length;
+            return;
+        }
+        const overflow = Math.max(0, this.size + bytes.length - this.bytes.length);
+        if (overflow > 0) {
+            this.start = (this.start + overflow) % this.bytes.length;
+            this.size -= overflow;
+            this.truncated = true;
+        }
+        const end = (this.start + this.size) % this.bytes.length;
+        const first = Math.min(bytes.length, this.bytes.length - end);
+        this.bytes.set(bytes.subarray(0, first), end);
+        this.bytes.set(bytes.subarray(first), 0);
+        this.size += bytes.length;
+    }
+}
+
 function capture(
     stream: ReadableStream<Uint8Array>,
     channel: OutputChunk["channel"],
@@ -866,11 +1103,17 @@ function capture(
 ): StreamCapture {
     const reader = stream.getReader();
     let cancelled = false;
+    let finished = false;
+    const finish = (): void => {
+        if (finished) return;
+        finished = true;
+        output.finishChannel(channel);
+    };
     const completion = (async () => {
         try {
             while (true) {
                 const { done, value } = await reader.read();
-                if (done) return;
+                if (done || cancelled) return;
                 if (value !== undefined) output.append(channel, value);
             }
         } catch (error) {
@@ -882,6 +1125,7 @@ function capture(
                 ),
             );
         } finally {
+            finish();
             try {
                 reader.releaseLock();
             } catch {
@@ -892,6 +1136,7 @@ function capture(
         completion,
         cancel(): void {
             cancelled = true;
+            finish();
             void reader.cancel().catch(() => {});
         },
     };

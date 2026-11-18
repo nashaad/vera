@@ -128,7 +128,7 @@ export async function parkExpiredIdle(reg: AgentRegistry, now = Date.now()): Pro
             expiredRoots.push(id);
         }
         for (const id of expiredRoots) {
-            if (reg.isClosed || !reg.agents.has(id)) continue;
+            if (reg.isClosed || !reg.agents.has(id) || !treeIdleForPark(reg, id)) continue;
             try {
                 closed.push(...(await closeAgentTree(reg, id, "idle")).closed);
             } catch {
@@ -138,10 +138,16 @@ export async function parkExpiredIdle(reg: AgentRegistry, now = Date.now()): Pro
         return closed;
     }
 
+export function entryIdleForPark(reg: AgentRegistry, entry: RegisteredAgentEntry): boolean {
+        return entry.agent.idleForShutdown()
+            && !reg.processRegistry.hasUnsettledObservedProcess(entry.agent.id)
+            && entry.worker?.hasUnsettledObservations !== true;
+    }
+
 function treeIdleForPark(reg: AgentRegistry, id: string): boolean {
         return [id, ...reg.liveDescendantsOf(id)].every((memberId) => {
             const entry = reg.agents.get(memberId);
-            return entry !== undefined && entry.agent.idleForShutdown();
+            return entry !== undefined && entryIdleForPark(reg, entry);
         });
     }
 
@@ -971,9 +977,7 @@ export function idleForShutdown(reg: AgentRegistry): boolean {
             && reg.trashingIds.size === 0
             && reg.deliveryTasks.size === 0
             && !reg.processRegistry.hasLiveProcesses()
-            && [...reg.agents.values()].every(
-                (entry) => entry.agent.idleForShutdown(),
-            );
+            && [...reg.agents.values()].every((entry) => entryIdleForPark(reg, entry));
     }
 
 export function idleForReplacement(reg: AgentRegistry): boolean {
@@ -981,8 +985,10 @@ export function idleForReplacement(reg: AgentRegistry): boolean {
             && reg.trashingIds.size === 0
             && reg.deliveryTasks.size === 0
             && !reg.processRegistry.hasLiveProcesses()
-            && [...reg.agents.values()].every(
-                (entry) => entry.agent.idleForReplacement(),
+            && [...reg.agents.values()].every((entry) =>
+                entry.agent.idleForReplacement()
+                && !reg.processRegistry.hasUnsettledObservedProcess(entry.agent.id)
+                && entry.worker?.hasUnsettledObservations !== true
             );
     }
 

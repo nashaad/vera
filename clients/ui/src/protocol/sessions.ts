@@ -18,6 +18,7 @@ export interface SessionRow {
     readonly chat: boolean;
     readonly archived?: boolean;
     readonly parentId?: string;
+    readonly backgroundCommands?: number;
 }
 
 const KNOWN_STATUSES: readonly SessionStatus[] = ["idle", "working", "waiting", "completed"];
@@ -46,6 +47,9 @@ export function sessionRows(list: AgentListFacts): readonly SessionRow[] {
             archived: fields.archived === true,
             chat: fields.chat === true,
             ...(typeof fields.parent_id === "string" && fields.parent_id.length > 0 ? { parentId: fields.parent_id } : {}),
+            ...(Number.isSafeInteger(fields.background_commands) && typeof fields.background_commands === "number" && fields.background_commands > 0
+                ? { backgroundCommands: fields.background_commands }
+                : {}),
         });
     }
     return rows;

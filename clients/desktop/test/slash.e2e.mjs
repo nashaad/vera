@@ -70,25 +70,45 @@ try {
     const notice = page.locator(".composer-notice");
     const option = (name) => page.locator(`.slash-item:has(.slash-name:text-is("/${name}"))`);
 
-    // New Chat lists the built-in commands, marks the ones the window cannot run, and runs none of them as a message.
     await input.fill("/");
     await menu.waitFor();
-    const groups = await page.locator(".slash-group").allInnerTexts();
-    if (groups.join() !== "Built in") throw new Error(`New Chat showed the groups ${groups.join(", ")}.`);
+    await until("the New Chat extension group", async () => {
+        const groups = await page.locator(".slash-group").allInnerTexts();
+        return groups.join() === "Built in,Extensions";
+    });
+    await option("budget").waitFor();
     await option("import").locator(".slash-tag:text-is(\"Not implemented yet\")").waitFor();
+    await input.fill("/budget 5");
+    await input.press("Enter");
+    await page.waitForSelector("[data-session][data-phase=\"attached\"]", { timeout: 45_000 });
+    await notice.filter({ hasText: "$5.00" }).waitFor({ timeout: 15_000 });
+    await input.fill("/close");
+    await input.press("Enter");
+    await page.waitForSelector("main[data-page=\"home\"]", { timeout: 30_000 });
+
+    await input.fill("/budget 5");
+    await input.press("Enter");
+    await page.waitForSelector("[data-session][data-phase=\"attached\"]", { timeout: 45_000 });
+    await notice.filter({ hasText: "$5.00" }).waitFor({ timeout: 15_000 });
+    await input.fill("/close");
+    await input.press("Enter");
+    await page.waitForSelector("main[data-page=\"home\"]", { timeout: 30_000 });
+
+    await input.fill("/");
     await input.fill("/imp");
     await until("the menu to narrow", async () => (await page.locator(".slash-item").count()) === 1);
     await input.press("Enter");
     await notice.filter({ hasText: "/import: Not implemented yet" }).waitFor();
     if ((await input.inputValue()) !== "") throw new Error("A not implemented command left its text in the box.");
-    await input.fill("/modle");
+    await input.fill("/budegt");
     await input.press("Space");
     await input.press("Enter");
-    await notice.filter({ hasText: "Unknown command: /modle. Did you mean /model?" }).waitFor();
-    if ((await input.inputValue()) !== "/modle ") throw new Error("An unknown command did not keep its text.");
-    if (requests.length > 0 || (await page.locator("[data-session]").count()) > 0) throw new Error("A slash line was sent as a message.");
+    await notice.filter({ hasText: "Unknown command: /budegt. Did you mean /budget?" }).waitFor();
+    if ((await input.inputValue()) !== "/budegt ") throw new Error("An unknown command did not keep its text.");
+    if (requests.length > 0 || (await page.locator("[data-session]").count()) > 0) throw new Error("An unknown slash line created or sent a conversation.");
 
-    // Start a session so the host can answer for skills.
+    await page.locator(".nav-row[data-page=\"home\"]").click();
+    await page.waitForSelector("main[data-page=\"home\"]");
     await input.fill("Hello crow");
     await page.getByRole("button", { name: /No folder/ }).click();
     await page.getByRole("menuitem", { name: /Open folder/ }).click();
@@ -206,7 +226,9 @@ try {
         return current !== opened;
     });
     await page.waitForSelector(".transcript-scroll[data-phase=\"attached\"]", { timeout: 30_000 });
-    await page.waitForSelector(".app[data-sessions=\"2\"]", { timeout: 30_000 });
+    await page.getByText("Clone of Hello crow", { exact: true }).waitFor({ timeout: 30_000 });
+    const cloned = await page.locator(".transcript-scroll").getAttribute("data-session");
+    if (cloned === opened) throw new Error("Cloning retained the original session id.");
     await page.getByText("Cloned the session").waitFor();
 
     // Close stops the session and goes to New Chat.

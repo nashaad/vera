@@ -112,7 +112,7 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
                 if (entry === undefined || entry.ephemeral || entry.pendingPublication
                     || entry.pendingAsyncTurns > 0 || entry.pendingCompletionDeliveries > 0
                     || host.registry.startingIds.has(member) || host.registry.trashingIds.has(member)
-                    || !entry.agent.idleForShutdown()) {
+                    || !lifecycle.entryIdleForPark(host.registry, entry)) {
                     return undefined;
                 }
                 stores.push(entry.store);
@@ -232,7 +232,7 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
         parkFacts: async () => [...host.registry.agents.values()].map((entry) => ({
             id: entry.agent.id,
             ...(entry.parentId === undefined ? {} : { parentId: entry.parentId }),
-            idle: entry.agent.idleForShutdown(),
+            idle: lifecycle.entryIdleForPark(host.registry, entry),
             starting: host.registry.startingIds.has(entry.agent.id),
             updatedAt: entryUpdatedAt(entry),
         })),

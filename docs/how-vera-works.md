@@ -48,7 +48,8 @@ If a conversation's working folder is deleted or moved while it is open, the
 `bash`, `read`, `list`, `grep`, `write`, and `edit` tools fail with
 `The working folder <path> does not exist.` None of them recreates the folder.
 A missing file or subfolder inside a folder that still exists keeps its own
-error. A chat's own folder is the one exception: Vera recreates it empty when
+error for `read`, `list`, `grep`, and `edit`; `write` creates the missing
+folders. A chat's own folder is the one exception: Vera recreates it empty when
 you resume the chat.
 
 ### Models and definitions

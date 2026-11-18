@@ -7,6 +7,12 @@ import { createTuiCatalogRefreshDependencies } from "../../support/tui-catalog-r
 import { litDialValue } from "../../support/tui-dial-lit.ts";
 import type { ModelOperation } from "../../../src/model/model-operations.ts";
 
+async function enterEmptyFavorites(session: Awaited<ReturnType<typeof startTuiTestSession>>): Promise<string> {
+    await session.waitForVisiblePane("All connected");
+    session.sendKey("C-g");
+    return await session.waitForVisiblePane("models land here");
+}
+
 test("a favorite keeps through the host operation and verification can be left running", async () => {
     const operations: ModelOperation[] = [];
     let finish!: () => void;
@@ -222,7 +228,7 @@ test("Home stages access without creating a session, then the switcher applies t
         expect(created).toBe(0);
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("models land here");
+        session.sendKey("Enter"); await enterEmptyFavorites(session);
         session.sendText("one"); await session.waitForVisiblePane("⏎ switch");
         session.sendKey("Enter"); await session.waitForVisiblePane("Start a conversation");
         await session.settle();
@@ -253,7 +259,7 @@ test("the switcher asks for effort whenever the model has levels", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("models land here");
+        session.sendKey("Enter"); await enterEmptyFavorites(session);
         session.sendText("two"); await session.waitForVisiblePane("Two");
         session.sendKey("Enter"); await session.waitForVisiblePane("High effort");
         // The cursor opens on the model's own default, so the switch is not
@@ -284,7 +290,7 @@ test("the switcher favorites with Ctrl+F and ignores the legacy Ctrl+S", async (
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("models land here");
+        session.sendKey("Enter"); await enterEmptyFavorites(session);
         session.sendText("one"); await session.waitForVisiblePane("Ctrl+F favorite");
         session.sendKey("C-s"); await session.settle();
         session.sendKey("C-s"); await session.settle();
@@ -306,7 +312,7 @@ test("the pinned browse row opens the browse page", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("models land here");
+        session.sendKey("Enter"); await enterEmptyFavorites(session);
         expect(session.captureVisiblePane()).toContain("More models");
         // The pinned row is the last thing the cursor reaches, and it opens the page.
         session.sendKey("NPage"); session.sendKey("Enter");
@@ -323,7 +329,7 @@ test("clicking the pinned browse row opens the browse page", async () => {
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
         session.sendKey("Enter");
-        const pane = await session.waitForVisiblePane("models land here");
+        const pane = await enterEmptyFavorites(session);
         const lines = pane.split("\n");
         const row = lines.findIndex((line) => line.includes("More models"));
         // The hit grid lags the dialog by a frame, so settle before clicking.
@@ -341,7 +347,7 @@ test("tab and the arrows walk search, the list and the browse row", async () => 
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("models land here");
+        session.sendKey("Enter"); await enterEmptyFavorites(session);
         session.sendText("one"); await session.waitForVisiblePane("↓ list");
         session.sendKey("Tab"); await session.waitForVisiblePane("↑↓ move");
         session.sendKey("Left"); await session.waitForVisiblePane("↓ list");
@@ -358,7 +364,7 @@ test("ctrl+k leaves the switcher for the browse page", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("models land here");
+        session.sendKey("Enter"); await enterEmptyFavorites(session);
         session.sendKey("C-k");
         const browse = await session.waitForVisiblePane("Filter and sort");
         expect(browse).not.toContain("⏎ switch");
@@ -372,10 +378,10 @@ test("ctrl+g opens the whole list without leaving the switcher", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("models land here");
+        session.sendKey("Enter"); await enterEmptyFavorites(session);
         session.sendKey("C-g");
         // Ctrl+G is the pane key everywhere else; inside the switcher it fills the list.
-        const all = await session.waitForVisiblePane("● All connected");
+        const all = await session.waitForVisiblePane("All connected");
         expect(all).toContain("Switch model");
         expect(all).toContain("One");
         session.sendKey("C-g"); await session.waitForVisiblePane("models land here");
@@ -389,8 +395,9 @@ test("escape from a browse page the switcher opened goes back to the switcher, e
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("models land here");
-        session.sendKey("C-k"); await session.waitForVisiblePane("Filter and sort");
+        session.sendKey("Enter"); await enterEmptyFavorites(session);
+        session.sendKey("C-k"); await session.waitForVisiblePane("● All connected");
+        session.sendKey("C-g"); await session.waitForVisiblePane("● Favorites");
         session.sendKey("C-g"); await session.waitForVisiblePane("● Recommended");
         session.sendKey("C-g"); await session.waitForVisiblePane("● All connected");
         session.sendKey("Down"); await session.waitForVisiblePane("⏎ favorite");
@@ -448,6 +455,8 @@ test("Ctrl+K opens the manage menu and Escape restores the browse page untouched
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/models"); session.sendKey("Enter");
+        await session.waitForVisiblePane("● All connected");
+        session.sendKey("C-g");
         await session.waitForVisiblePane("No favorites yet");
         session.sendKey("C-k"); await session.waitForVisiblePane("Refresh model catalog");
         // With no row highlighted the menu offers nothing model specific.

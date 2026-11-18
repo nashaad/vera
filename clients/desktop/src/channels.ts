@@ -10,6 +10,7 @@ export const CHANNELS = {
     sessionUnwatch: "vera:session-unwatch",
     titleBar: "vera:title-bar",
     windowBackground: "vera:window-background",
+    windowClosing: "vera:window-closing",
     theme: "vera:theme",
     themesLoad: "vera:themes-load",
     extensionCommand: "vera:extension-command",

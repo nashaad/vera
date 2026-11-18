@@ -32,10 +32,10 @@ The core and optional extensions are:
 
 ```text
 core       vera.chat, vera.command-hooks, vera.context, vera.customize,
-           vera.explorer, vera.help, vera.reasoning-cycle,
+           vera.explorer, vera.help, vera.monitor, vera.reasoning-cycle,
            vera.session-identity, vera.web-search
 included   vera.artifacts, vera.btw, vera.budget, vera.cache, vera.diff,
-           vera.mcp, vera.recap, vera.titles
+           vera.mcp, vera.titles
 ```
 
 ## BTW and Pair
@@ -69,34 +69,27 @@ Use `/diff` to [review workspace changes](workspace-diff.md). Use `/context`
 to [inspect context usage](context-usage.md). The Context extension also
 provides `/dashboard`; disabling it removes both commands.
 
-## Recap a conversation
+## Monitor a background command
 
-`/recap` opens a full-screen list of the conversation's phases, newest first.
-Each row starts with the time the phase began, followed by its title, how long
-Vera worked on it, and whether its last test run passed. `/timeline` does the
-same. Commits, questions Vera asked you, long steps, side questions and
-interruptions sit under the phase they happened in, each with its own time.
-The right pane shows the selected row's details, including the files it
-edited.
+The included `vera.monitor` extension lets Vera start a shell command with a
+short description and continue the conversation while it runs. It uses the same
+permission checks, destructive-command guard, automatic review and sandbox as
+`bash`. Ask, for example, "Run the crow tests in the background and tell me
+when they finish."
 
-Before it lists phases, `/recap` loads every older part of the conversation, so
-the list covers all of it. A long conversation takes a moment to open. If an
-older part cannot load, `/recap` shows `History page request failed: <reason>`
-in place of the list.
+When the command and its output finish, its owning conversation receives a
+notice with the description, process ID, exit status and the last output. It can
+start a new turn even when no client is attached; a child command wakes the
+child's conversation, not its parent. Work already in progress finishes before
+the notice starts its turn. If the executor is lost or an outcome cannot be
+confirmed, the notice reports an interruption rather than inventing an exit
+code. Vera does not rerun the command. If formatting or saving a notice fails,
+Vera shows an error in the live owning conversation; any saved outcome is
+retried when the host restarts.
 
-Phases are built from the conversation itself. Their titles come from the
-snappy model (see [Assign defaults](models.md#assign-defaults)): when you open
-`/recap`, Vera sends each finished phase that has no title yet (your
-requests, the checklist items it ticked, the files it edited, its commits and
-test result, and the start of its last reply) and asks for a one-line title.
-Titles are kept until the client exits. With no snappy model, or if it does
-not answer, a phase is titled with the checklist item it ticked, or else the
-first words of your request. A phase still running keeps that title too.
-
-Type to filter. Enter scrolls the transcript to that point, and the next
-`/recap` starts on the row you jumped to. Otherwise it starts on the newest
-phase. Time between turns, while Vera was
-waiting on you, does not count toward a phase.
+The `process` tool can still read or stop a running command. Disable this
+extension with `/extension disable vera.monitor` to remove `monitor` and
+prevent new monitor notices; ordinary `bash` and `process` remain available.
 
 ## Run command hooks
 

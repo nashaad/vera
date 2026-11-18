@@ -34,6 +34,8 @@ import type {
     VeraExtensionToolHandler,
     VeraExtensionAgentSpec,
     VeraExtensionToolSpec,
+    VeraExtensionProcessOutcome,
+    VeraExtensionProcessOutcomeHandler,
     SessionIdentityProvider,
     VeraSearchProvider,
     VeraExtensionRequestHandler,
@@ -69,6 +71,7 @@ import type {
 import { commandHookPhase, createCommandHook, type CommandHookSpec } from "./command-hook.ts";
 import { hookBlockReason, hookFailure, isHookJson, rejectModelFailurePolicy, validateHookFailureOptions } from "./hook-failure.ts";
 import type { RegisteredTool } from "../tools/types.ts";
+import type { ManagedProcessRunResult } from "../tools/process-runtime.ts";
 import { isBuiltInToolName } from "../tools/execute.ts";
 import { runExtensionOperation } from "./operation.ts";
 import { checkToolOperation, isShippedDirectory, UNREVIEWED_OPERATIONS } from "./tool-operations.ts";
@@ -109,6 +112,7 @@ const DEFAULT_DISPOSE_TIMEOUT_MS = 2_000;
 const MAX_EXTENSION_PRESENTATION_BYTES = 64 * 1024;
 const MAX_EXTENSION_HOOK_BYTES = 64 * 1024;
 const MAX_EXTENSION_DIFF_LINES = 400;
+const MAX_PROCESS_DESCRIPTION_BYTES = 1024;
 const PRE_TOOL_HOOK_CAPABILITY = "hooks.pre_tool_use";
 const POST_TOOL_HOOK_CAPABILITY = "hooks.post_tool_use";
 const SESSION_START_HOOK_CAPABILITY = "hooks.session_start";
@@ -211,6 +215,11 @@ export interface ExtensionRegistry {
         payload: JsonValue,
         signal: AbortSignal,
     ): Promise<JsonValue>;
+    formatProcessOutcome(
+        extensionId: string,
+        outcome: VeraExtensionProcessOutcome,
+        signal?: AbortSignal,
+    ): Promise<string | undefined>;
     close(): Promise<void>;
 }
 
@@ -252,6 +261,7 @@ interface LoadedRegistryExtension {
     readonly modelRequestHooks: readonly RegisteredModelRequestHook[];
     readonly identityProvider?: SessionIdentityProvider;
     readonly requestHandlers: ReadonlyMap<string, VeraExtensionRequestHandler>;
+    readonly processOutcomeHandler?: VeraExtensionProcessOutcomeHandler;
     readonly disposers: readonly VeraExtensionDisposer[];
     readonly activeInvocations: Set<ActiveExtensionInvocation>;
     disposing: boolean;
@@ -623,6 +633,38 @@ export async function startExtensionRegistry(
                 }
             }
         },
+        async formatProcessOutcome(extensionId, outcome, signal) {
+            if (closing !== undefined) throw new Error("Extension registry is closing");
+            const owner = owners.get(extensionId);
+            const handler = owner?.disposing === false ? owner.processOutcomeHandler : undefined;
+            if (owner === undefined || handler === undefined) return undefined;
+            const controller = new AbortController();
+            let active: ActiveExtensionInvocation | undefined;
+            try {
+                const notice = await runExtensionOperation(
+                    (operationSignal) => handler(structuredClone(outcome), operationSignal),
+                    {
+                        timeoutMs: handlerTimeoutMs,
+                        timeoutMessage: `Extension ${extensionId} process outcome timed out after ${handlerTimeoutMs}ms`,
+                        abortMessage: `Extension ${extensionId} process outcome was cancelled`,
+                        signal: signal === undefined ? controller.signal : AbortSignal.any([signal, controller.signal]),
+                        onExecutionStart(execution) {
+                            active = { controller, completion: execution.then(() => undefined, () => undefined) };
+                            owner.activeInvocations.add(active);
+                        },
+                    },
+                );
+                if (typeof notice !== "string" || notice.trim().length === 0
+                    || Buffer.byteLength(notice) > MAX_EXTENSION_HOOK_BYTES) {
+                    throw new Error(`Extension ${extensionId} returned an invalid process notice`);
+                }
+                return notice;
+            } finally {
+                if (active !== undefined) {
+                    void active.completion.finally(() => owner.activeInvocations.delete(active!));
+                }
+            }
+        },
         close(): Promise<void> {
             closing ??= close();
             return closing;
@@ -684,6 +726,7 @@ async function activateExtension(
     const sessionState: ((sessionId: string) => ExtensionSessionState)[] = [];
     const modelMiddleware: ModelMiddleware[] = [];
     let identityProvider: SessionIdentityProvider | undefined;
+    let processOutcomeHandler: VeraExtensionProcessOutcomeHandler | undefined;
     const requestHandlers = new Map<string, VeraExtensionRequestHandler>();
     const toolNames = new Set<string>();
     const disposers: VeraExtensionDisposer[] = [];
@@ -740,6 +783,15 @@ async function activateExtension(
                     handlerTimeoutMs,
                     activeInvocations,
                 );
+            },
+            onProcessOutcome(handler: VeraExtensionProcessOutcomeHandler): void {
+                if (phase !== "activating" || !loaded.manifest.capabilities.includes("processes.observe")) {
+                    throw new Error("Process outcomes require processes.observe during activation");
+                }
+                if (typeof handler !== "function" || processOutcomeHandler !== undefined) {
+                    throw new Error("Invalid or duplicate process outcome handler");
+                }
+                processOutcomeHandler = handler;
             },
         }),
         agents: Object.freeze({
@@ -1244,6 +1296,7 @@ async function activateExtension(
                 ? {}
                 : { identityProvider }),
             requestHandlers,
+            ...(processOutcomeHandler === undefined ? {} : { processOutcomeHandler }),
             disposers,
             activeInvocations,
             disposing: false,
@@ -1289,6 +1342,7 @@ function registerTool(
         parallel,
         permissionOperation,
         permissionInputs,
+        commandInput,
         invocation,
         agents,
         timeoutMs,
@@ -1308,6 +1362,13 @@ function registerTool(
                 || permissionOperation.trim().length === 0
             ))
         || !validPermissionInputs(permissionInputs)
+        || (commandInput !== undefined && (
+            typeof commandInput !== "string"
+            || commandInput.length === 0
+            || permissionOperation !== undefined
+            || permissionInputs !== undefined
+            || parallel === true
+        ))
         || (invocation !== undefined && invocation !== "top_level")
         || !validToolAgents(agents)
         || !validHandlerTimeout(timeoutMs)
@@ -1322,9 +1383,25 @@ function registerTool(
         throw new Error(`Extension tool ${name} collides with a built-in tool`);
     }
     checkToolOperation(loaded, name, permissionOperation?.trim());
+    if (commandInput !== undefined && !isShippedDirectory(loaded.directory)) {
+        throw new Error(`Extension tool ${name} declares a reserved command input`);
+    }
     const properties = isPlainObject(inputSchema.properties)
         ? inputSchema.properties
         : undefined;
+    if (commandInput !== undefined) {
+        const property = properties?.[commandInput];
+        if (
+            !isPlainObject(property)
+            || property.type !== "string"
+            || !Array.isArray(inputSchema.required)
+            || !inputSchema.required.includes(commandInput)
+        ) {
+            throw new Error(
+                `Extension tool ${name} declares a command input that is not a required string field`,
+            );
+        }
+    }
     for (const permissionInput of permissionInputs ?? []) {
         const property = properties?.[permissionInput.field];
         if (!isPlainObject(property) || property.type !== "string") {
@@ -1350,6 +1427,7 @@ function registerTool(
         ...(permissionInputs === undefined
             ? {}
             : { permissionInputs: structuredClone(permissionInputs) }),
+        ...(commandInput === undefined ? {} : { commandInput }),
         async execute(input, context, signal) {
             if (invocation === "top_level" && context.invocation !== "top_level") {
                 return {
@@ -1364,18 +1442,74 @@ function registerTool(
             if (signal.aborted) {
                 abort();
             }
+            const command = commandInput === undefined ? undefined : input[commandInput];
+            if (commandInput !== undefined && typeof command !== "string") {
+                throw new Error(`Extension tool ${name} requires a string command`);
+            }
+            const workspace = context.workspace;
+            const env = { ...process.env, ...context.env };
+            const sandbox = context.sandboxIdentity();
+            const processes = context.processes;
             let active: ActiveExtensionInvocation | undefined;
             let result: unknown;
             try {
                 result = await runExtensionOperation(
-                    (operationSignal) => handler({
-                        input: structuredClone(input),
-                        workspace: context.workspace,
-                        ...(context.sessionId === undefined
-                            ? {}
-                            : { sessionId: context.sessionId }),
-                        signal: operationSignal,
-                    }),
+                    async (operationSignal) => {
+                        let open = true;
+                        let used = false;
+                        let launch: Promise<ManagedProcessRunResult> | undefined;
+                        const revoke = (): void => { open = false; };
+                        operationSignal.addEventListener("abort", revoke, { once: true });
+                        if (operationSignal.aborted) revoke();
+                        try {
+                            const output = await handler({
+                                input: structuredClone(input),
+                                workspace,
+                                ...(context.sessionId === undefined
+                                    ? {}
+                                    : { sessionId: context.sessionId }),
+                                signal: operationSignal,
+                                ...(commandInput === undefined ? {} : {
+                                    async startProcess(description: string) {
+                                        if (!open || used) throw new Error("Process launch is no longer available.");
+                                        used = true;
+                                        operationSignal.throwIfAborted();
+                                        if (
+                                            typeof description !== "string"
+                                            || description.trim().length === 0
+                                            || Buffer.byteLength(description, "utf8") > MAX_PROCESS_DESCRIPTION_BYTES
+                                        ) throw new Error("Invalid process description.");
+                                        launch = processes.run({
+                                            command: command as string,
+                                            cwd: workspace,
+                                            env,
+                                            signal: operationSignal,
+                                            yieldAfterMs: 0,
+                                            interactive: false,
+                                            ...(sandbox === undefined ? {} : { sandbox }),
+                                            observation: { extensionId: loaded.manifest.id, description },
+                                        });
+                                        return await launch;
+                                    },
+                                }),
+                            });
+                            open = false;
+                            if (launch !== undefined) {
+                                const started = await launch;
+                                if (started.kind === "rejected") {
+                                    return { output: started.reason, isError: true };
+                                }
+                                if (started.kind === "aborted") {
+                                    return { output: started.snapshot.output, isError: true };
+                                }
+                            }
+                            return output;
+                        } finally {
+                            open = false;
+                            operationSignal.removeEventListener("abort", revoke);
+                            if (launch !== undefined) await launch.catch(() => undefined);
+                        }
+                    },
                     {
                         timeoutMs: timeoutMs ?? handlerTimeoutMs,
                         timeoutMessage:

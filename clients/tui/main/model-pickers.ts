@@ -5,7 +5,7 @@ import { providerCatalogsOf } from "../../../src/host/model-catalog-settings.ts"
 import { connectedProviderCatalogs } from "../../../src/providers/catalog-state.ts";
 import { createAuthStorage } from "../../../src/providers/auth-storage.ts";
 import { readProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
-import { modelBrowse } from "../model-browse.ts";
+import { initialModelBrowseScope, modelBrowse } from "../model-browse.ts";
 import { updateTuiSettingsPickerSearch } from "../settings-picker.ts";
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { lastGoodConfigNotice, readLastGoodConfig } from "./last-good-config.ts";
@@ -156,8 +156,14 @@ export function openModelPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState)
         };
     }
     const preferences = loadModelPickerPreferences();
-    rt.settingsPicker = modelBrowse({ ...rt.settingsPicker, tab: preferences.scope,
-        browseView: preferences.view, browseSort: preferences.sort }, "browse");
+    const favorites = targetState.modelSettings?.pooled;
+    rt.settingsPicker = modelBrowse({
+        ...rt.settingsPicker,
+        tab: initialModelBrowseScope(preferences.scope, (favorites?.length ?? 0) > 0),
+        ...(favorites === undefined ? { browsePendingScope: preferences.scope } : {}),
+        browseView: preferences.view,
+        browseSort: preferences.sort,
+    }, "browse");
     requestAgentSettings(rt, focusedAgentClient(rt));
     renderState(rt);
     focusActiveSurface(rt);
@@ -847,16 +853,21 @@ export function connectProvider(rt: TuiRuntime,
         refreshProviderPicker(rt);
     }
     showModeToast(rt, `Signing in to ${provider.label} in your browser…`);
-    void (rt.dependencies.loginProvider ?? ((providerId: string, onBrowserUnavailable: (url: string) => void) => defaultLoginProvider(rt, providerId, onBrowserUnavailable)))(
+    let linkShown = false;
+    const showSignInLink = (url: string): void => {
+        if (linkShown) return;
+        linkShown = true;
+        rt.state = appendTuiNotice(
+            rt.state,
+            `Sign in to ${provider.label} here: ${url}`,
+            "soft",
+        );
+        renderState(rt);
+    };
+    void (rt.dependencies.loginProvider ?? ((providerId: string, onBrowserUnavailable: (url: string) => void, onAuthorizationUrl: (url: string) => void) => defaultLoginProvider(rt, providerId, onBrowserUnavailable, onAuthorizationUrl)))(
         provider.id,
-        (url) => {
-            rt.state = appendTuiNotice(
-                rt.state,
-                `Could not open a browser. Sign in to ${provider.label} here: ${url}`,
-                "soft",
-            );
-            renderState(rt);
-        },
+        showSignInLink,
+        showSignInLink,
     ).then(() => {
         rt.connectingProviders.delete(provider.id);
         refreshProviderPicker(rt);

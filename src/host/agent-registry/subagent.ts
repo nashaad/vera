@@ -138,6 +138,7 @@ export async function runInWorker(reg: AgentRegistry, options: {
             adapter: options.adapter,
             data: options.data,
             services,
+            ...(reg.options.processObservations === undefined ? {} : { processObservations: reg.options.processObservations }),
             ...(reg.options.sessionBlockDirectory === undefined
                 ? {}
                 : { blockedDirectory: reg.options.sessionBlockDirectory }),
@@ -159,6 +160,12 @@ export async function runInWorker(reg: AgentRegistry, options: {
                     extensionTools: options.extensionTools,
                     toolRuntime: hostToolRuntime(store, options.data),
                 }),
+            onProcessCountChanged: (ownerId, count) => {
+                if (ownerId !== store.header.id) return;
+                if (count === 0) delete options.entry.backgroundCommands;
+                else options.entry.backgroundCommands = count;
+                reg.notifyRosterChanged();
+            },
             onUpdate: (update, ownerId) => {
                 if (agent.closed && ownerId === undefined && update.type === "turn_finished") {
                     closedTurnFinished = true;
@@ -762,8 +769,10 @@ export async function localMessageSubagent(reg: AgentRegistry, parentId: string,
             };
         }
 
+        const releaseHeld = child.resumeAsyncQueueOnMessage === true
+            && child.agent.status === "idle" && child.agent.hasPendingTurn();
         try {
-            child.agent.sendPrompt(effect.message);
+            child.agent.sendPrompt(effect.message, releaseHeld);
         } catch (error) {
             if (error instanceof SessionBlockedError) {
                 return {
@@ -774,6 +783,7 @@ export async function localMessageSubagent(reg: AgentRegistry, parentId: string,
             }
             throw error;
         }
+        child.resumeAsyncQueueOnMessage = false;
         reg.trackAsyncSubagentTurn(effect.subagentId);
         return {
             kind: "output",
@@ -816,7 +826,6 @@ export function trackAsyncSubagentTurn(reg: AgentRegistry, childId: string): voi
             return;
         }
         if (child.pendingAsyncTurns > 0) {
-            child.pendingAsyncTurns += 1;
             return;
         }
 
@@ -936,14 +945,14 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parent: Subage
                     if (entry === undefined) {
                         break;
                     }
-                    entry.pendingAsyncTurns = Math.max(
-                        0,
-                        entry.pendingAsyncTurns - 1,
-                    );
-                    if (entry.pendingAsyncTurns === 0) {
-                        entry.pendingCompletionDeliveries += 1;
-                        break;
+                    const pendingTurn = entry.agent.hasPendingTurn();
+                    if (!failed && pendingTurn) {
+                        continue;
                     }
+                    entry.resumeAsyncQueueOnMessage = failed && pendingTurn;
+                    entry.pendingAsyncTurns = 0;
+                    entry.pendingCompletionDeliveries += 1;
+                    break;
                 }
             }
             const childStore = reg.agents.get(childId)?.store;
@@ -956,6 +965,10 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parent: Subage
 
         } catch {
             failed = true;
+            if (reg.agents.get(childId) === childEntry && childEntry.pendingAsyncTurns > 0) {
+                childEntry.pendingAsyncTurns = 0;
+                childEntry.pendingCompletionDeliveries += 1;
+            }
         } finally {
             attachment.detach();
         }

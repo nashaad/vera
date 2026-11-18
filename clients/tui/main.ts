@@ -1,5 +1,5 @@
 import { listProvidersThroughHost, loginProviderThroughHost, saveKnownProviderKeyThroughHost, saveProviderThroughHost } from "../../src/host/provider-sign-in-client.ts";
-import { openBrowser } from "../../src/providers/openai-codex-oauth.ts";
+import { openUrl } from "../../src/url-opener.ts";
 import type { SaveProviderInput } from "../../src/providers/save-provider.ts";
 import type { ProviderSignInStatus } from "../../src/providers/provider-sign-in.ts";
 import { cutStopWaitThroughHost, type CutStopWaitOutcome } from "../../src/host/stop-wait-cut-client.ts";
@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
-import { currentReleaseBuildId } from "../../src/release/layout.ts";
+import { assertInstalledBuild, installedBuildId } from "./installed-build.ts";
 import {
     launcherKeyFromEnv,
     RELAUNCH_LAUNCHER_ENV,
@@ -110,6 +110,7 @@ import {
     type RenameSessionResult,
 } from "../../src/host/session-rename-client.ts";
 import { importSessionThroughHost, listImportableSessionsThroughHost } from "../../src/host/session-import-client.ts";
+import { listExtensionCommandsThroughHost } from "../../src/host/extension-command-list-client.ts";
 import type { ImportableSessionListing } from "../../src/host/session-import-service.ts";
 import type { SessionImportOutcome } from "../../src/host/session-import-service.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
@@ -133,6 +134,7 @@ import {
     createConfiguredTuiAgentClients,
     pairedHostSocket,
     refuseOtherHostBuild,
+    refuseOtherRunningHostBuild,
 } from "./configured-agent-client.ts";
 import {
     configuredTuiClientExtensions,
@@ -203,7 +205,6 @@ import {
 import { TuiBodyFocusController } from "./body-focus.ts";
 import { createTuiPermissionsConfirmView } from "./permissions-confirm.ts";
 import { createTuiSessionTrashConfirmView } from "./session-trash-confirm.ts";
-import { createTuiSessionCloseConfirmView } from "./session-close-confirm.ts";
 import { createTuiAnimationsPreviewView } from "./animations-preview.ts";
 import { createTuiProviderForgetConfirmView } from "./provider-forget-confirm.ts";
 import { createTuiOverridesResetConfirmView } from "./overrides-reset-confirm.ts";
@@ -215,6 +216,7 @@ import { wheelCursor } from "./list-window.ts";
 import { workTabAction } from "./work-tab.ts";
 import { isWorkerFreeClient } from "./jsonl-view-client.ts";
 import { createHomeClient, isHomeClient } from "./home-client.ts";
+import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.ts";
 import { refreshHomeRestarts } from "./main/home-restarts.ts";
 import {
     readModelSettingsThroughHost,
@@ -566,10 +568,9 @@ export interface TuiDependencies {
     readonly cutStopWait?: () => Promise<CutStopWaitOutcome>;
     /** Set only under a relaunch-capable launcher; leaves the TUI for the launcher to restart. */
     readonly relaunchTui?: (request: TuiRelaunchRequest) => Promise<void>;
-    /** This TUI's build id. Compared with the installed build only when a relaunch is possible. */
     readonly clientBuildId?: string;
-    /** Reads the `current` link. Called only when relaunchTui is set. */
     readonly installedBuildId?: () => string | undefined;
+    readonly refuseOtherHostBuild?: () => Promise<void>;
     readonly operateModels?: (operation: ModelOperation, onResult: (result: ModelOperationResult) => void, workspace?: string, onStep?: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readHostModelSettings?: (
         workspace: string,
@@ -578,6 +579,8 @@ export interface TuiDependencies {
         provider: string,
         workspace: string,
     ) => Promise<ModelTurnSettings | undefined>;
+    readonly listHostExtensionCommands?: () =>
+        Promise<readonly ExtensionCommandDescriptor[]>;
     readonly homeHasSessions?: boolean;
     readonly listSessionPage?: (
         options: ListAgentsOptions,
@@ -625,6 +628,7 @@ export interface TuiDependencies {
         options?: {
             readonly replaceExisting?: boolean;
             readonly confirmWedge?: boolean;
+            readonly attachOnly?: boolean;
         },
     ) => Promise<TuiAgentClient>;
     readonly onSessionEntered?: (agentId: string) => void;
@@ -662,6 +666,7 @@ export interface TuiDependencies {
     readonly loginProvider?: (
         providerId: string,
         onBrowserUnavailable: (url: string) => void,
+        onAuthorizationUrl?: (url: string) => void,
     ) => Promise<void>;
     readonly flightRecorder?: TuiFlightRecorder;
     readonly createRenderer?: () => Promise<CliRenderer>;
@@ -739,6 +744,17 @@ async function hostHasSessions(socketPath: string): Promise<boolean> {
 
 const HOME_SESSION_PROBE_PAGES = 4;
 
+export function relaunchAfterRecorderShutdown(
+    recorder: Pick<TuiFlightRecorder, "close">,
+    relaunch: TuiDependencies["relaunchTui"],
+): TuiDependencies["relaunchTui"] {
+    if (relaunch === undefined) return undefined;
+    return async (request) => {
+        await recorder.close("relaunch");
+        await relaunch(request);
+    };
+}
+
 export async function startConfiguredTui(
     requestedTarget: TuiStartTarget,
     options: TuiStartOptions = {},
@@ -794,12 +810,15 @@ export async function startConfiguredTui(
     const homeHasSessions = resolvedTarget.type !== "home"
         ? undefined
         : await hostHasSessions(await pairedSocket());
+    const listExtensionCommands = async () =>
+        listExtensionCommandsThroughHost(await pairedSocket());
     const client = agentId === undefined
         ? createHomeClient(process.cwd(), {
             readModelSettings: async (workspace) =>
                 readModelSettingsThroughHost(await pairedSocket(), workspace),
             refreshCatalog: async (provider, workspace) =>
                 refreshCatalogThroughHost(await pairedSocket(), provider, workspace),
+            listExtensionCommands,
         })
         : await agentClients.attachPaged(agentId);
     const flightRecorder = createTuiFlightRecorder();
@@ -827,19 +846,21 @@ export async function startConfiguredTui(
         const exit = await startTui({
             client,
             initialDraft: restored?.draft,
-            relaunchTui: launcherRelaunch(launcherKey, {
+            relaunchTui: relaunchAfterRecorderShutdown(flightRecorder, launcherRelaunch(launcherKey, {
                 writeRecord: writeRelaunchRecord,
                 markTerminalRestored,
                 exit: (code) => process.exit(code),
-            }),
+            })),
             clientBuildId,
-            installedBuildId: () => currentReleaseBuildId(),
+            installedBuildId,
+            refuseOtherHostBuild: () => refuseOtherRunningHostBuild(clientBuildId),
             listProviders: async () => (await listProvidersThroughHost(await pairedSocket())).providers,
             saveProvider: async (input) => saveProviderThroughHost(await pairedSocket(), input),
             saveProviderKey: async (provider, key) => saveKnownProviderKeyThroughHost(await pairedSocket(), provider, key),
-            loginProvider: async (provider, onBrowserUnavailable) => {
+            loginProvider: async (provider, onBrowserUnavailable, onAuthorizationUrl) => {
                 await loginProviderThroughHost(await pairedSocket(), provider, (url) => {
-                    void openBrowser(url).then((opened) => { if (!opened) onBrowserUnavailable(url); });
+                    onAuthorizationUrl?.(url);
+                    void openUrl(url).then((opened) => { if (!opened) onBrowserUnavailable(url); });
                 });
             },
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
@@ -849,6 +870,7 @@ export async function startConfiguredTui(
                 readModelSettingsThroughHost(await pairedSocket(), workspace),
             refreshHostCatalog: async (provider, workspace) =>
                 refreshCatalogThroughHost(await pairedSocket(), provider, workspace),
+            listHostExtensionCommands: listExtensionCommands,
             requestExtension: async (extensionId, name, payload, signal) =>
                 requestExtensionThroughHost(await pairedSocket(), extensionId, name, payload, signal),
             ...(homeHasSessions === undefined ? {} : { homeHasSessions }),
@@ -896,6 +918,8 @@ export async function startConfiguredTui(
                 const replaceExisting = options?.replaceExisting === true;
                 const confirmWedge = options?.confirmWedge === true;
                 await refuseOtherHostBuild(clientBuildId);
+                if (options?.attachOnly === true) return attach(currentAgentId);
+                assertInstalledBuild(clientBuildId, installedBuildId());
                 host = await findOrStartResidentHost({
                     confirmBusyUpgrade: confirmWedge
                         ? confirmManualReconnectUpgrade
@@ -954,8 +978,11 @@ export async function startConfiguredTui(
         client.close();
         throw error;
     } finally {
-        flightRecorder.close("tui_returned");
-        removeLiveProcess();
+        try {
+            await flightRecorder.close("tui_returned");
+        } finally {
+            removeLiveProcess();
+        }
     }
 }
 
@@ -972,6 +999,9 @@ export async function startTui(
         ...(rt.dependencies.refreshHostCatalog === undefined
             ? {}
             : { refreshCatalog: rt.dependencies.refreshHostCatalog }),
+        ...(rt.dependencies.listHostExtensionCommands === undefined
+            ? {}
+            : { listExtensionCommands: rt.dependencies.listHostExtensionCommands }),
     };
     rt.flightRecorder = rt.dependencies.flightRecorder;
     rt.flightRecorder?.sessionEntered(rt.client.agentId ?? "unknown");
@@ -1134,6 +1164,9 @@ export async function startTui(
     rt.hostExtensionCommands = [];
     rt.disposeHostExtensionCommands = (): void => {};
     rt.extensionCommandsGeneration = 0;
+    rt.extensionCommandsLoaded = false;
+    rt.extensionCommandsLoadClient = undefined;
+    rt.extensionCommandsLoadPromise = undefined;
     rt.disposeSkillCommands = (): void => {};
     rt.announcedSkillCommandNotices = new Set<string>();
     rt.confirmingFullAccess = false;
@@ -1145,7 +1178,7 @@ export async function startTui(
     rt.catalogRefreshes = new Map<string, string>();
     /** The settings change each in-flight admission was meant to end in, applied when its "added" verdict lands. */
     rt.sessionTrashPending = false;
-    rt.sessionCloseConfirm = false;
+    rt.sessionCloseConfirm = undefined;
     rt.animationsPreviewOpen = false;
     rt.footerEditor = undefined;
     rt.footerEditorParent = undefined;
@@ -1180,9 +1213,11 @@ export async function startTui(
     rt.extensionCommandsLoading =
         rt.dependencies.client.listExtensionCommands !== undefined
         && rt.dependencies.client.failed !== true
-        && rt.dependencies.client.viewOnly !== true;
+        && (rt.dependencies.client.viewOnly !== true
+            || isHomeClient(rt.dependencies.client));
     rt.skillCommandsLoading = supportsSkillCommands(rt, rt.dependencies.client);
     rt.runningBackgroundAgents = 0;
+    rt.hostRunningBackgroundAgents = 0;
     rt.runningBackgroundAgentNames = [];
     rt.currentAgentHasParent = false;
     rt.pendingOneshots = new Map<string, {
@@ -1943,8 +1978,6 @@ export async function startTui(
     rt.admissionDialogView = createTuiAdmissionDialogView(rt.renderer);
     rt.sessionTrashConfirmView =
         createTuiSessionTrashConfirmView(rt.renderer);
-    rt.sessionCloseConfirmView =
-        createTuiSessionCloseConfirmView(rt.renderer);
     rt.animationsPreviewView = createTuiAnimationsPreviewView(rt.renderer);
     rt.footerEditorView = createFooterEditorView(rt.renderer);
     rt.providerForgetConfirmView =
@@ -1973,7 +2006,6 @@ export async function startTui(
         rt.permissionsConfirmView,
         rt.admissionDialogView,
         rt.sessionTrashConfirmView,
-        rt.sessionCloseConfirmView,
         rt.providerForgetConfirmView,
         rt.overridesResetConfirmView,
         rt.approvalView,
@@ -2295,6 +2327,10 @@ export async function startTui(
         rt.timelinePicker = { ...rt.timelinePicker, selectedIndex: index };
     });
     rt.settingsPickerView.pointer = rowPointer(rt, (index) => {
+        if (rt.sessionCloseConfirm !== undefined) {
+            rt.sessionCloseConfirm = { ...rt.sessionCloseConfirm, selectedIndex: index };
+            return;
+        }
         if (rt.settingsPicker === undefined) return;
         rt.settingsPicker = moveTuiSettingsPickerPointer(rt.settingsPicker, index);
     });
@@ -2547,7 +2583,6 @@ export async function startTui(
     rt.app.add(rt.permissionsConfirmView.box);
     rt.app.add(rt.admissionDialogView.surface);
     rt.app.add(rt.sessionTrashConfirmView.surface);
-    rt.app.add(rt.sessionCloseConfirmView.surface);
     rt.app.add(rt.animationsPreviewView.surface);
     rt.app.add(rt.footerEditorView.surface);
     rt.app.add(rt.providerForgetConfirmView.surface);
@@ -2994,8 +3029,10 @@ export async function startTui(
     rt.MAX_SETTINGS_SNAPSHOT_RETRIES = 5;
 
     void receiveAgentUpdates(rt);
-    if (rt.client.failed !== true && rt.client.viewOnly !== true) {
+    if (rt.client.failed !== true && (rt.client.viewOnly !== true || isHomeClient(rt.client))) {
         void loadExtensionCommands(rt);
+    }
+    if (rt.client.failed !== true && rt.client.viewOnly !== true) {
         requestSkillCommands(rt);
         requestSessionSettings(rt);
     } else if (isHomeClient(rt.client)) {
@@ -3191,7 +3228,6 @@ export async function startTui(
         () => rt.documentDialogView.repaint(),
         ...rt.admissionDialogView.themeBindings,
         ...rt.sessionTrashConfirmView.themeBindings,
-        ...rt.sessionCloseConfirmView.themeBindings,
         ...rt.animationsPreviewView.themeBindings,
         ...rt.footerEditorView.themeBindings,
         ...rt.providerForgetConfirmView.themeBindings,

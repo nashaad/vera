@@ -16,9 +16,15 @@ description.
 Vera's delegation guidance defaults to direct work, including small changes
 that span several files. When delegation is justified, it prefers `subagent`,
 which waits for the result. Independent calls can run in parallel.
-`async_subagent` returns a child ID immediately and delivers its summary on
-a later turn. The guidance reserves it for substantial independent work the
-parent can continue without the child's answer.
+`async_subagent` returns a child ID immediately. When the child finishes, its
+summary joins the parent's next model request after the current tool step, or
+starts a new turn if the parent is idle. It does not interrupt a running model
+request or tool. The guidance reserves it for substantial independent work the
+parent can continue without the child's answer. To send more work to your
+child, use `message_subagent`; `agent_send` is for peer conversations. When a
+child starts a monitored command, its exit notice belongs to that child's
+conversation and can wake it while detached; the parent does not receive that
+notice as its own.
 
 Definitions can restrict the conversation's permissions. They cannot grant
 access beyond what the conversation allows.

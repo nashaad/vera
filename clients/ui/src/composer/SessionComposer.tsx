@@ -147,12 +147,12 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
     }, [watch.withdrawn]);
 
     const startPending = useCallback((pending: PendingPrompt): void => {
-        if (pending.images.length === 0 && (pending.files?.length ?? 0) === 0) {
+        if (pending.slashCommand !== true && pending.images.length === 0 && (pending.files?.length ?? 0) === 0) {
             lastSent.current = sendPrompt(send, pending.text);
             return;
         }
         setText(pending.text);
-        add(pending.images);
+        if (pending.images.length > 0) add(pending.images);
         selected.replace(pending.files ?? []);
         setAutoSend(true);
     }, [send, add, selected.replace]);

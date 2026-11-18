@@ -1064,6 +1064,7 @@ export type HostRequest =
     | ExtensionRequest
     | RefreshCatalogsRequest
     | ListAgentsRequest
+    | ListExtensionCommandsRequest
     | SearchSessionsRequest
     | ScheduleOperationRequest
     | ShutdownIfIdleRequest
@@ -1338,6 +1339,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         return value.type === "new_session_agents"
             ? { type: "new_session_agents", ...folder }
             : { type: "folder_customizations", ...folder };
+    }
+    if (value?.type === "list_extension_commands" && isRequestId(value.request_id)) {
+        return { type: "list_extension_commands", request_id: value.request_id };
     }
     if (
         value?.type === "checkpoint_stores"

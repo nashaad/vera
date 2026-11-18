@@ -29,7 +29,7 @@ export const JOB_IDS: readonly JobId[] = ["reviewer", "compaction"];
 export const JOB_TIER: Record<JobId, TierId> = { reviewer: "extra", compaction: "eco" };
 
 export const SLOT_COPY: Record<SingleSlot, SlotCopy> = {
-    snappy: { name: "Snappy", about: "Dirt cheap and fast, for work nothing depends on.", usedBy: "titles and recaps" },
+    snappy: { name: "Snappy", about: "Dirt cheap and fast, for work nothing depends on.", usedBy: "titles" },
     eco: { name: "Eco", about: "Smart but fast, for work a turn waits on.", usedBy: "the explorer agent" },
     extra: { name: "Extra", about: "The most capable model, for work worth waiting for." },
     reviewer: { name: "Classifier", about: "Decides whether an action may run in Approve for me." },

@@ -656,7 +656,7 @@ function createAttachedClient(
                         `Host sent an invalid agent update: ${describeMessage(value)}`,
                     );
                 }
-                if (frame.kind === "unknown") {
+                if (frame.kind === "unknown" || frame.kind === "invalid_notice") {
                     if (frame.seq !== undefined) {
                         acceptSequence(frame.seq, "update");
                         if (pendingUpdateCount === 0) {
@@ -1173,7 +1173,7 @@ function isExtensionResponseType(
         || value === "extension_command_failed";
 }
 
-function parseExtensionCommandList(
+export function parseExtensionCommandList(
     value: Record<string, unknown>,
 ): readonly ExtensionCommandDescriptor[] | undefined {
     if (
@@ -1213,7 +1213,7 @@ function parseExtensionCommandList(
     return commands;
 }
 
-function parseExtensionFailure(
+export function parseExtensionFailure(
     value: Record<string, unknown>,
 ): {
     readonly source: string;

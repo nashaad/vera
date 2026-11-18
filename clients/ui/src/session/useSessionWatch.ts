@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { getModelSettingsCommand } from "../models/commands.ts";
 import type { DesktopBridge, SessionPane } from "../protocol/bridge.ts";
+import { unwatchDesktopSession, watchDesktopSession } from "../protocol/watchedSessions.ts";
 import { STREAM_BACKGROUND_FLUSH_MS, STREAM_FLUSH_MS } from "../state/frameBudget.ts";
 import type { NoticeLink, SessionWatch } from "./model.ts";
 import { getPermissionsCommand } from "./permissions.ts";
@@ -95,13 +96,13 @@ export function useSessionWatch(
         };
         document.addEventListener("visibilitychange", onVisible);
         window.addEventListener("focus", batcher.flush);
-        bridge.watchSession(pane, agentId);
+        watchDesktopSession(bridge, pane, agentId);
         return () => {
             off();
             document.removeEventListener("visibilitychange", onVisible);
             window.removeEventListener("focus", batcher.flush);
             batcher.dispose();
-            bridge.unwatchSession(pane);
+            unwatchDesktopSession(bridge, pane);
         };
     }, [bridge, agentId, connected, pane, attempt]);
     // The approval mode and the model are not part of history, so both are asked for on every attach.

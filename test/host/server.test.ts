@@ -1,22 +1,28 @@
 import { afterEach, expect, spyOn } from "bun:test";
 import {
+    existsSync,
+    mkdirSync,
     mkdtempSync,
+    readdirSync,
     rmSync,
     statSync,
     unlinkSync,
     writeFileSync,
 } from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import { createConnection, createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createHostLockfile } from "../../src/host/lockfile.ts";
 import { connectHost } from "../../src/host/connection.ts";
+import { listExtensionCommandsThroughHost } from "../../src/host/extension-command-list-client.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { HOST_CAPABILITY_AGENT_HISTORY_PAGING } from "../../src/host/capabilities.ts";
 import { historyPageFromEntries } from "../../src/host/history-page.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { UNIX_SOCKET_PATH_LIMIT } from "../../src/host/startup-failure.ts";
 import { sessionScratchDir } from "../../src/engine/run-turn.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
@@ -126,6 +132,7 @@ socketTest(
         const socketPath = join(directory, "host.sock");
         let idle = false;
         let shutdownAccepted = false;
+        const shutdownNotified = Promise.withResolvers<void>();
         const server = await startHostServer({
             socketPath,
             lockPath: join(directory, "host.json"),
@@ -134,6 +141,7 @@ socketTest(
             canShutdown: () => idle,
             onShutdownAccepted: () => {
                 shutdownAccepted = true;
+                shutdownNotified.resolve();
             },
         });
         try {
@@ -178,7 +186,7 @@ socketTest(
                 pid: 101,
                 started_at: server.identity.started_at,
             });
-            await Bun.sleep(0);
+            await shutdownNotified.promise;
             expect(shutdownAccepted).toBeTrue();
 
             const blocked = await connectHost({ socketPath });
@@ -248,6 +256,7 @@ socketTest(
         const agent = new ResidentAgent("agent-1", "/work/one");
         let replaceable = false;
         let accepted = false;
+        const shutdownNotified = Promise.withResolvers<void>();
         const server = await startHostServer({
             socketPath,
             lockPath: join(directory, "host.json"),
@@ -255,6 +264,7 @@ socketTest(
             canReplace: () => replaceable,
             onShutdownAccepted: () => {
                 accepted = true;
+                shutdownNotified.resolve();
             },
         });
         const attached = await connectHost({ socketPath });
@@ -280,7 +290,7 @@ socketTest(
                 type: "shutdown_for_replacement_accepted",
                 pid: server.identity.pid,
             });
-            await Bun.sleep(0);
+            await shutdownNotified.promise;
             expect(accepted).toBeTrue();
             await attached.send({ type: "prompt", content: "too late" });
             await expect(attached.receive()).rejects.toThrow();
@@ -974,6 +984,107 @@ socketTest(
 );
 
 socketTest(
+    "a pooled worker forwards unattached extension discovery to the host",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const forwarded: unknown[] = [];
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            listExtensionCommands: () => {
+                throw new Error("worker must not list commands");
+            },
+            forwardHostRequest: async (request, send) => {
+                forwarded.push(request);
+                await send({
+                    type: "extension_command_list",
+                    request_id: "list-1",
+                    commands: [{ name: "budget", description: "Budget", usage: "/budget", source: "vera.budget" }],
+                });
+            },
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "list_extension_commands", request_id: "list-1" });
+            expect(await connection.receive()).toMatchObject({
+                type: "extension_command_list",
+                request_id: "list-1",
+                commands: [{ name: "budget", source: "vera.budget" }],
+            });
+            expect(forwarded).toEqual([{ type: "list_extension_commands", request_id: "list-1" }]);
+            await expect(connection.receive()).rejects.toThrow();
+        } finally {
+            connection.close();
+            await server.close();
+        }
+    },
+);
+
+socketTest(
+    "unattached extension discovery rejects a response for another request",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            forwardHostRequest: async (_request, send) => {
+                await send({
+                    type: "extension_command_list",
+                    request_id: "another-request",
+                    commands: [],
+                });
+            },
+        });
+        try {
+            await expect(listExtensionCommandsThroughHost(socketPath))
+                .rejects.toThrow("Host sent an invalid extension response");
+        } finally {
+            await server.close();
+        }
+    },
+);
+
+socketTest(
+    "host reports extension discovery failure without an attachment",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            listExtensionCommands: () => {
+                throw new Error("broken registry");
+            },
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await expect(listExtensionCommandsThroughHost(socketPath)).rejects.toMatchObject({
+                name: "ExtensionCommandError",
+                source: "vera.extensions",
+                reason: "unavailable",
+                message: "Extension commands are unavailable",
+            });
+            await connection.send({ type: "list_extension_commands", request_id: "list-1" });
+            expect(await connection.receive()).toEqual({
+                type: "extension_command_failed",
+                request_id: "list-1",
+                failure: {
+                    source: "vera.extensions",
+                    reason: "unavailable",
+                    message: "Extension commands are unavailable",
+                },
+            });
+            await expect(connection.receive()).rejects.toThrow();
+        } finally {
+            connection.close();
+            await server.close();
+        }
+    },
+);
+
+socketTest(
     "host keeps an attachment usable when extension discovery fails",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1263,6 +1374,149 @@ socketTest(
                     ? resolve()
                     : reject(error));
             });
+        }
+    },
+);
+
+socketTest(
+    "@core host removes its own socket and private bind path on close",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({ socketPath, lockPath: join(directory, "host.json") });
+        try {
+            expect(readdirSync(directory).sort()).toEqual(["host.json", "host.sock"]);
+            expect(statSync(socketPath).mode & 0o777).toBe(0o600);
+        } finally {
+            await server.close();
+        }
+        expect(existsSync(socketPath)).toBeFalse();
+        expect(readdirSync(directory)).toEqual(["host.json"]);
+    },
+);
+
+socketTest(
+    "host removes its socket and private bind path when startup fails",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        await expect(startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            onListening: async () => { throw new Error("startup failed"); },
+        })).rejects.toThrow("startup failed");
+        expect(readdirSync(directory)).toEqual([]);
+    },
+);
+
+socketTest(
+    "host cleans up when socket publication fails",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const originalLink = fsPromises.link;
+        const linkSpy = spyOn(fsPromises, "link").mockImplementation(async (existingPath, newPath) => {
+            if (newPath === socketPath) throw new Error("publication failed");
+            await originalLink(existingPath, newPath);
+        });
+        try {
+            await expect(startHostServer({ socketPath, lockPath: join(directory, "host.json") }))
+                .rejects.toThrow("publication failed");
+            expect(readdirSync(directory)).toEqual([]);
+        } finally {
+            linkSpy.mockRestore();
+        }
+    },
+);
+
+socketTest(
+    "host accepts a socket path at the platform limit",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const padding = UNIX_SOCKET_PATH_LIMIT - 1 - Buffer.byteLength(join(directory, "host.sock")) - 1;
+        const socketDirectory = join(directory, "x".repeat(padding));
+        mkdirSync(socketDirectory);
+        const socketPath = join(socketDirectory, "host.sock");
+        expect(Buffer.byteLength(socketPath)).toBe(UNIX_SOCKET_PATH_LIMIT - 1);
+        const server = await startHostServer({ socketPath, lockPath: join(directory, "host.json") });
+        try {
+            const connection = await connectHost({ socketPath });
+            try {
+                await connection.send({ type: "host_identity" });
+                expect(await connection.receive()).toMatchObject({ type: "host_identity", pid: process.pid });
+            } finally {
+                connection.close();
+            }
+            expect(readdirSync(socketDirectory)).toEqual(["host.sock"]);
+        } finally {
+            await server.close();
+        }
+        expect(readdirSync(socketDirectory)).toEqual([]);
+    },
+);
+
+socketTest(
+    "host accepts a short socket name at the platform limit",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const padding = UNIX_SOCKET_PATH_LIMIT - 1 - Buffer.byteLength(join(directory, "s")) - 1;
+        const socketDirectory = join(directory, "x".repeat(padding));
+        mkdirSync(socketDirectory);
+        const socketPath = join(socketDirectory, "s");
+        expect(Buffer.byteLength(socketPath)).toBe(UNIX_SOCKET_PATH_LIMIT - 1);
+        const server = await startHostServer({ socketPath, lockPath: join(directory, "host.json") });
+        try {
+            const connection = await connectHost({ socketPath });
+            try {
+                await connection.send({ type: "host_identity" });
+                expect(await connection.receive()).toMatchObject({ type: "host_identity", pid: process.pid });
+            } finally {
+                connection.close();
+            }
+        } finally {
+            await server.close();
+        }
+        expect(readdirSync(socketDirectory)).toEqual([]);
+    },
+);
+
+socketTest(
+    "host recovers a crashed listener without private bind leftovers",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const lockPath = join(directory, "host.json");
+        const moduleUrl = new URL("../../src/host/server.ts", import.meta.url).href;
+        const script = `import { startHostServer } from ${JSON.stringify(moduleUrl)};
+            await startHostServer({ socketPath: ${JSON.stringify(socketPath)}, lockPath: ${JSON.stringify(lockPath)}, buildId: "test" });
+            process.kill(process.pid, "SIGKILL");`;
+        const home = temporaryHostDirectory();
+        const child = Bun.spawn([process.execPath, "-e", script], {
+            env: { ...process.env, HOME: home, VERA_HOME: home },
+            stdout: "ignore",
+            stderr: "pipe",
+        });
+        try {
+            await child.exited;
+            const stderr = await new Response(child.stderr).text();
+            expect({ signal: child.signalCode, stderr }).toEqual({ signal: "SIGKILL", stderr: "" });
+            expect(readdirSync(directory).sort()).toEqual(["host.json", "host.sock"]);
+            const server = await startHostServer({ socketPath, lockPath });
+            try {
+                const connection = await connectHost({ socketPath });
+                try {
+                    await connection.send({ type: "host_identity" });
+                    expect(await connection.receive()).toMatchObject({ type: "host_identity", pid: process.pid });
+                } finally {
+                    connection.close();
+                }
+            } finally {
+                await server.close();
+            }
+            expect(readdirSync(directory)).toEqual(["host.json"]);
+        } finally {
+            if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+            await child.exited;
         }
     },
 );

@@ -161,6 +161,7 @@ import {
 import { createSubagentEffectApplier } from "./subagent.ts";
 import {
     bashTargetPaths,
+    canonicalPermissionToolCall,
     decideToolPermission,
     stricterToolPermission,
     inspectPermissions,
@@ -2144,6 +2145,11 @@ export async function runTurn(
                 );
                 state.toolRuntime.allowedTools = applied.allowedTools;
             }
+            await drainPendingDeliveries(state, {
+                select: (delivery) => (delivery.kind ?? "completion") === "completion"
+                    && delivery.sourceKind === undefined,
+                canContinue: () => !turn.signal.aborted && state.haltCheck?.() === undefined,
+            });
             const capacity = capacityForModel(activeModel);
             await compactDuringTurn(state, turn.signal, [], {
                 model: activeModel,
@@ -2345,6 +2351,7 @@ function haltedToolResult(toolCall: ToolCallContent, reason: string): CompletedT
         toolName: toolCall.name,
         content: [{ type: "text", text: `Not run: ${reason}` }],
         isError: true,
+        withheld: true,
     };
 }
 
@@ -2535,12 +2542,20 @@ function replyText(message: AssistantMessage): string {
         .join("");
 }
 
-async function drainPendingDeliveries(state: RunTurnState): Promise<void> {
+async function drainPendingDeliveries(
+    state: RunTurnState,
+    options?: {
+        readonly select: (delivery: SessionDeliveryEntry) => boolean;
+        readonly canContinue: () => boolean;
+    },
+): Promise<void> {
     const inbox = state.deliveryInbox;
     if (inbox === undefined) {
         return;
     }
     for (const delivery of inbox.pendingDeliveries()) {
+        if (options?.canContinue() === false) return;
+        if (options !== undefined && !options.select(delivery)) continue;
         const message = deliveryMessage(delivery);
         const entry = await inbox.appendDeliveryMessage(
             delivery.id,
@@ -2829,9 +2844,10 @@ async function executePreparedTool(
         return finishExecutedTool(state, toolCall, hookCall, replacement, 0);
     }
 
+    const reviewToolCall = canonicalPermissionToolCall(hookCall, state.extensionTools);
     const permissionContext = await resolvePermissionToolCall(
         state.toolRuntime.workspace,
-        hookCall,
+        reviewToolCall,
     );
     const realShellTargets = await resolveRealTargets(bashTargetPaths(
         permissionContext.toolCall,
@@ -2899,7 +2915,7 @@ async function executePreparedTool(
                 try {
                     pathFacts = await collectReviewerPathFacts(
                         permissionContext.workspace,
-                        hookCall,
+                        reviewToolCall,
                         permission.actions,
                         signal,
                     );
@@ -2913,7 +2929,7 @@ async function executePreparedTool(
                     ? reviewCancelled()
                     : await reviewCall(
                         {
-                            toolCall: hookCall,
+                            toolCall: reviewToolCall,
                             workspace: state.toolRuntime.workspace,
                             reason: permission.reason,
                             pathFacts,

@@ -30,6 +30,11 @@ read earlier text, the row containing that text stays at the top. Returning to
 the original width restores the original row until you scroll or the transcript
 changes. At the bottom, the transcript continues to follow new text.
 
+A `write` or `edit` that ran and returned an error is headed **Failed**, also
+when you reopen the conversation. A call denied by the classifier or skipped
+by a halt is headed **Did not run**. Other tools that return errors keep their
+usual headings, such as **Ran** or **Explored**.
+
 Older parts of a long conversation load as you scroll up, in the main transcript
 and in a side pane.
 
@@ -41,17 +46,29 @@ show the newer history. Recovered unsent prompts remain available.
 | Action | Result |
 | --- | --- |
 | Ctrl+C while working | Stop the active turn. |
-| Ctrl+C while a stop is in progress | Exit the TUI. |
+| Ctrl+C while a stop is in progress | Quit the TUI, with a warning if attached conversations have background commands. |
 | Ctrl+C while idle with a draft | Clear the draft. |
-| Ctrl+C twice while idle with an empty composer | Exit the TUI. |
+| Ctrl+C twice while idle with an empty composer | Quit, with a warning if attached conversations have background commands. |
 | Ctrl+X then D | Detach: exit the TUI and leave this conversation running, including a turn in progress. |
 | `/close` or Ctrl+W from the composer | Park the live conversation and keep its saved history. |
+
+When the TUI is idle with an empty composer, Ctrl+C once asks for a second
+press; Escape cancels. On the second press, if any distinct attached
+conversation that the TUI would release has background commands, a confirmation
+summarizes the command count and the number and location of affected
+conversations. Choose `1. Stop them and quit` to ask Vera to stop those
+conversations and exit, or `2. Keep running` to leave them running and exit.
+Escape cancels and returns to the conversation. With no affected background
+commands, Ctrl+C exits as before. The warning covers attached conversations,
+not every conversation visible in another client.
 
 When a side pane such as `/btw`'s sidekick is focused, `/close` or Ctrl+W
 closes that pane instead and leaves the live conversation running.
 
 Detach matches Keep running: nothing is stopped or sent, and the host closes
 the conversation after ten idle minutes. `vera resume <id>` returns to it.
+Commands Vera starts in the background stop when their conversation closes,
+including ten minutes after you leave it running.
 
 Closing the terminal counts as exiting, not detaching. The same holds when a
 tmux pane is killed, an SSH connection drops or the terminal app crashes: a
@@ -60,13 +77,23 @@ running, detach with Ctrl+X then D first.
 
 `/clear` starts a new conversation and asks Close this conversation or Keep
 running. Keep running stays idle for ten minutes, then closes. `/clear stop`
-and `/clear keep` make that choice without asking. `/new` is the same command
-as `/clear`.
+closes without asking unless the conversation has background commands, when it
+asks with the same menu. `/clear keep` keeps running without asking. `/new` is
+the same command as `/clear`.
 
 In the New conversation picker, `1. Close this conversation` closes the source
 and starts fresh, while `2. Keep running` keeps the source running and starts
 fresh. Either number acts immediately without Enter. Arrow navigation, Enter,
 and Escape keep their usual picker behavior.
+
+When this conversation has background shell commands, the switch and New
+conversation leave menus count them and warn that closing stops them. `/close`
+and Ctrl+W open a picker when background commands or work are in flight. Press
+`1` for Stop & close or `2` for Keep running; either acts immediately. You can
+also use the arrows and Enter. Escape cancels and leaves the conversation open.
+An idle conversation with no background commands closes directly. A focused side
+pane handles `/close` or Ctrl+W by closing the pane and leaving the conversation
+running.
 
 Other conversations can remain running after the TUI exits.
 

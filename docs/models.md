@@ -62,8 +62,9 @@ model for your next request.
 
 ### Filter and sort
 
-Browse starts with Favorites unless you saved another collection. To see every
-connected model, open **Filter and sort** and choose **All connected**.
+In the TUI, Browse opens on All connected when there are no favorites. Once
+favorites exist, it opens on your saved collection, or Favorites if you have
+not chosen one.
 The header lists Favorites, Recommended, and All connected, with a filled dot
 on the one you are looking at. Ctrl+G moves to the next and Shift+Ctrl+G to
 the previous. The header only shows where you are; it is not a set of tabs.
@@ -101,7 +102,10 @@ comparisons of responses.
 every output token, with unknown prices last. Other orders are A to Z and,
 within Favorites, your saved favorite order.
 
-Vera saves the collection, view, and sort for the next time you open the picker.
+Vera saves All connected or Favorites as your opening collection. Choosing
+Recommended saves Favorites as the opening collection. View and sort persist
+as well. Opening on All connected with no favorites does not change your saved
+collection.
 
 ## Save favorites
 
@@ -395,6 +399,7 @@ reports each one. No TUI restart is needed.
 
 The older `vera shortlist` spelling remains an alias for `vera library`.
 
-The model picker's scope, view, and sort persist under `model_picker` in the
-home's `tui.json`. When favorites exist, Switch model opens on the saved scope;
-without favorites, it opens on All connected.
+The TUI model picker's scope, view, and sort persist under `model_picker` in
+the home's `tui.json`. When favorites exist, Models and Switch model open on the
+saved scope. Without favorites, they open on All connected without changing
+the saved scope.

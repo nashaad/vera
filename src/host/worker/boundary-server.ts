@@ -9,6 +9,7 @@ import type { ReviewLogEntry } from "../../engine/review-log.ts";
 import type { SessionStore } from "../../store/session-store.ts";
 import type { SubagentFinishedHookPayload } from "../../sdk/hooks.ts";
 import type { RegisteredTool } from "../../tools/types.ts";
+import type { ManagedProcessObservationHandlers, ManagedProcessObservationStart, ManagedProcessObservationSettlement } from "../../tools/process-runtime.ts";
 import { ToolRuntime, type SkillFileCheck } from "../../tools/runtime.ts";
 import { skillScriptTool } from "../../skills/script.ts";
 import type { JsonPipe } from "./pipe.ts";
@@ -25,6 +26,8 @@ export interface WorkerBoundaryServerOptions {
     readonly onWorkerFinished?: (error?: string) => void;
     readonly onProcessStarted?: (pid: number, startedAt: string) => void;
     readonly onProcessSettled?: (pid: number) => void;
+    readonly processObservations?: ManagedProcessObservationHandlers;
+    readonly onProcessCountChanged?: (ownerId: string, count: number) => void;
     readonly onBlockAck?: (ack: SessionBlockAck) => void;
 }
 
@@ -69,6 +72,33 @@ export function createWorkerBoundaryServer(
         async handleRequest(body: unknown): Promise<unknown> {
             const message = body as { readonly method: string };
             switch (message.method) {
+                case "process.observationStart": {
+                    const { observation } = body as { readonly observation: ManagedProcessObservationStart };
+                    if (options.processObservations?.onObservationStarted === undefined
+                        || observation?.ownerId !== options.store.header.id) {
+                        throw new Error("Process observation owner is not this worker's session");
+                    }
+                    await options.processObservations.onObservationStarted(observation);
+                    return null;
+                }
+                case "process.observationInterrupted": {
+                    const { observation } = body as { readonly observation: ManagedProcessObservationStart };
+                    if (options.processObservations?.onObservationInterrupted === undefined
+                        || observation?.ownerId !== options.store.header.id) {
+                        throw new Error("Process observation owner is not this worker's session");
+                    }
+                    await options.processObservations.onObservationInterrupted(observation);
+                    return null;
+                }
+                case "process.observationSettled": {
+                    const { settlement } = body as { readonly settlement: ManagedProcessObservationSettlement };
+                    if (options.processObservations?.onObservationSettled === undefined
+                        || settlement?.ownerId !== options.store.header.id) {
+                        throw new Error("Process observation owner is not this worker's session");
+                    }
+                    await options.processObservations.onObservationSettled(settlement);
+                    return null;
+                }
                 case "session.append": {
                     const request = body as {
                         readonly record: Record<string, unknown>;
@@ -481,6 +511,13 @@ export function createWorkerBoundaryServer(
             if (message.method === "process.settled") {
                 const { pid } = body as { readonly pid: number };
                 options.onProcessSettled?.(pid);
+                return;
+            }
+            if (message.method === "process.count") {
+                const { ownerId, count } = body as { readonly ownerId?: unknown; readonly count?: unknown };
+                if (typeof ownerId !== "string" || ownerId.trim().length === 0
+                    || typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return;
+                options.onProcessCountChanged?.(ownerId, count);
                 return;
             }
         },

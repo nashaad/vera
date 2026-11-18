@@ -34,6 +34,12 @@ import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts
 import { socketTest } from "../support/socket-probe.ts";
 
 const temporaryDirectories: string[] = [];
+const malformedNotice = {
+    type: "notice" as const,
+    key: "extensions_config",
+    count: 1,
+    facts: { enabled: true },
+};
 
 afterEach(() => {
     for (const directory of temporaryDirectories.splice(0)) {
@@ -1054,6 +1060,202 @@ socketTest(
                 client.close();
                 await closeServer(server);
             }
+        }
+    },
+);
+
+socketTest(
+    "@core a malformed notice is skipped between live updates",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+        });
+        const client = await attachAgent({ socketPath, agentId: agent.id });
+        try {
+            expect(await client.receive()).toMatchObject({ type: "history", seq: 0 });
+            agent.engine.send({ type: "status", state: "working", seq: 1 });
+            expect(await client.receive()).toEqual({ type: "status", state: "working", seq: 1 });
+            agent.engine.send({ ...malformedNotice, seq: 2 });
+            const deadline = Date.now() + 1_000;
+            while (!client.closed && client.lastSequence !== 2 && Date.now() < deadline) {
+                await Bun.sleep(1);
+            }
+            expect(client.closed).toBe(false);
+            expect(client.lastSequence).toBe(2);
+            agent.engine.send({ type: "assistant_delta", text: "after", seq: 3 });
+            expect(await client.receive()).toEqual({ type: "assistant_delta", text: "after", seq: 3 });
+            expect(client.lastSequence).toBe(3);
+            expect(client.closed).toBe(false);
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+socketTest(
+    "@core a malformed notice replayed after a history checkpoint does not disconnect",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+        });
+        const first = await attachAgent({ socketPath, agentId: agent.id });
+        try {
+            expect(await first.receive()).toMatchObject({ type: "history", seq: 0 });
+            agent.engine.send({ ...malformedNotice, seq: 1 });
+            agent.engine.send({ type: "assistant_delta", text: "kept", seq: 2 });
+            expect(await first.receive()).toEqual({ type: "assistant_delta", text: "kept", seq: 2 });
+            first.close();
+
+            const replay = await attachAgent({ socketPath, agentId: agent.id });
+            try {
+                expect(await replay.receive()).toMatchObject({ type: "history", seq: 0 });
+                expect(await replay.receive()).toEqual({ type: "assistant_delta", text: "kept", seq: 2 });
+                expect(replay.lastSequence).toBe(2);
+                expect(replay.closed).toBe(false);
+                agent.engine.send({ type: "status", state: "idle", seq: 3 });
+                expect(await replay.receive()).toEqual({ type: "status", state: "idle", seq: 3 });
+            } finally {
+                replay.close();
+            }
+        } finally {
+            first.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+socketTest(
+    "@core malformed notices without a valid sequence still fail the client",
+    async () => {
+        for (const seq of [undefined, null, "2", -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+            const directory = temporaryDirectory();
+            const socketPath = join(directory, "host.sock");
+            const server = await scriptedHost(socketPath, [
+                { type: "history", entries: [], seq: 1 },
+                { ...malformedNotice, seq },
+            ]);
+            const client = await attachAgent({ socketPath, agentId: "agent-1" });
+            try {
+                expect(await client.receive()).toMatchObject({ type: "history", seq: 1 });
+                await expect(client.receive()).rejects.toThrow(
+                    "Host sent an invalid agent update: type=notice",
+                );
+                expect(client.closed).toBe(true);
+            } finally {
+                client.close();
+                await closeServer(server);
+            }
+        }
+    },
+);
+
+socketTest(
+    "@core a malformed state update still fails the client",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await scriptedHost(socketPath, [
+            { type: "history", entries: [], seq: 1 },
+            { type: "status", state: "unknown", seq: 2 },
+        ]);
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            expect(await client.receive()).toMatchObject({ type: "history", seq: 1 });
+            await expect(client.receive()).rejects.toThrow(
+                "Host sent an invalid agent update: type=status",
+            );
+            expect(client.closed).toBe(true);
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+socketTest(
+    "@core a malformed notice cannot hide a sequence gap or arrive before history",
+    async () => {
+        const cases = [
+            { updates: [{ ...malformedNotice, seq: 1 }], error: "Host sent an agent update before its history checkpoint" },
+            ...[3, 4, 6].map((seq) => ({
+                updates: [{ type: "history", entries: [], seq: 4 }, { ...malformedNotice, seq }],
+                error: "Host sent a non-contiguous agent update sequence",
+            })),
+        ];
+        for (const { updates, error } of cases) {
+            const directory = temporaryDirectory();
+            const socketPath = join(directory, "host.sock");
+            const server = await scriptedHost(socketPath, updates);
+            const client = await attachAgent({ socketPath, agentId: "agent-1" });
+            try {
+                if (updates[0]?.type === "history") {
+                    expect(await client.receive()).toMatchObject({ type: "history", seq: 4 });
+                }
+                await expect(client.receive()).rejects.toThrow(error);
+                expect(client.closed).toBe(true);
+            } finally {
+                client.close();
+                await closeServer(server);
+            }
+        }
+    },
+);
+
+socketTest(
+    "a skipped malformed notice does not move lastSequence past buffered updates",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = createServer((socket) => {
+            let buffered = "";
+            socket.on("data", (chunk: Buffer) => {
+                buffered += chunk.toString("utf8");
+                while (buffered.includes("\n")) {
+                    const newline = buffered.indexOf("\n");
+                    const command = JSON.parse(buffered.slice(0, newline)) as { type: string; request_id?: string };
+                    buffered = buffered.slice(newline + 1);
+                    if (command.type === "attach") {
+                        for (const value of [
+                            { type: "attached", agent_id: "agent-1", workspace: "/work/one", background_agents: NO_BACKGROUND_AGENTS },
+                            { type: "history", entries: [], seq: 4 },
+                            { type: "assistant_delta", text: "buffered", seq: 5 },
+                            { ...malformedNotice, seq: 6 },
+                        ]) socket.write(`${JSON.stringify(value)}\n`);
+                    } else if (command.type === "list_extension_commands") {
+                        socket.write(`${JSON.stringify({ type: "extension_command_list", request_id: command.request_id, commands: [] })}\n`);
+                    }
+                }
+            });
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(socketPath, resolve);
+        });
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            expect(await client.listExtensionCommands()).toEqual([]);
+            expect(client.lastSequence).toBeUndefined();
+            expect(await client.receive()).toMatchObject({ type: "history", seq: 4 });
+            expect(client.lastSequence).toBe(4);
+            expect(await client.receive()).toMatchObject({ type: "assistant_delta", seq: 5 });
+            expect(client.lastSequence).toBe(5);
+            expect(client.closed).toBe(false);
+        } finally {
+            client.close();
+            await closeServer(server);
         }
     },
 );

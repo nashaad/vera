@@ -29,17 +29,20 @@ socketTest("a forwarded shutdown reply is delivered before the worker stops", as
         return originalRequest.call(this, method, args, signal) as Promise<T>;
     });
     const originalStart = hostServer.startHostServer;
-    const serverSpy = spyOn(hostServer, "startHostServer").mockImplementation(async (options = {}) =>
-        await originalStart({
+    let startShutdown: (() => void | Promise<void>) | undefined;
+    const serverSpy = spyOn(hostServer, "startHostServer").mockImplementation(async (options = {}) => {
+        startShutdown = options.onShutdownAccepted;
+        return await originalStart({
             ...options,
             onShutdownAccepted: () => {
                 shutdownNotified.resolve();
                 return options.onShutdownAccepted?.();
             },
-        })
-    );
+        });
+    });
     let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
     let response: Promise<unknown> | undefined;
+    let shutdownAttempt: Promise<void> | undefined;
     let workerPid: number | undefined;
     try {
         host = await startResidentHost({
@@ -59,19 +62,25 @@ socketTest("a forwarded shutdown reply is delivered before the worker stops", as
         void response.catch(() => {});
         let stopping = false;
         void host.shutdownRequested.then(() => { stopping = true; });
-        await within(Promise.all([frameHeld.promise, shutdownNotified.promise]));
-        await Promise.resolve();
+        await within(frameHeld.promise);
+        expect(startShutdown).toBeDefined();
+        shutdownAttempt = Promise.resolve(startShutdown!());
+        void shutdownAttempt.catch(() => {});
+        await new Promise<void>((resolve) => setImmediate(resolve));
         expect(stopping).toBe(false);
         expect(() => process.kill(workerPid!, 0)).not.toThrow();
         releaseFrame.resolve();
         expect(await within(response)).toMatchObject({ type: "shutdown_if_idle_accepted" });
         expect(() => process.kill(workerPid!, 0)).not.toThrow();
+        await within(shutdownNotified.promise);
         await within(host.shutdownRequested);
+        await within(shutdownAttempt);
     } finally {
         releaseFrame.resolve();
         await response?.catch(() => {});
         const annexPid = host?.annexPid;
         await host?.close();
+        await shutdownAttempt?.catch(() => {});
         frameSpy.mockRestore();
         serverSpy.mockRestore();
         try {

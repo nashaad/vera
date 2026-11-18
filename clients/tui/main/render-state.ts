@@ -21,7 +21,6 @@ import { tuiTranscriptReusablePrefix, tuiTranscriptReusableTail } from "../trans
 import { transcriptEntryHasId } from "../transcript-entry-id.ts";
 import { workTabViewState } from "../work-tab.ts";
 import { workspaceSidebarViewState } from "../workspace-sidebar.ts";
-import { subagentTitle } from "../subagent-title.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { StyledText, fg, type BoxRenderable, type MarkdownRenderable, type TextRenderable } from "@opentui/core";
 
@@ -64,10 +63,10 @@ export function renderState(rt: TuiRuntime): void {
         ? ""
         : `${" ".repeat(rt.appearance.composerMarginHorizontal)}${queuedPrompt}`);
     rt.queuedPromptText.visible = focusedState.queuedPrompts.length > 0;
-    rt.approvalView.box.visible = uiRequest?.request.type
-        === "tool_approval";
-    rt.questionView.box.visible = uiRequest?.request.type
-        === "user_question";
+    rt.approvalView.box.visible = rt.sessionCloseConfirm === undefined
+        && uiRequest?.request.type === "tool_approval";
+    rt.questionView.box.visible = rt.sessionCloseConfirm === undefined
+        && uiRequest?.request.type === "user_question";
     rt.statusBand.visible = !(rt.approvalView.box.visible
         || rt.questionView.box.visible);
     rt.timelinePickerView.box.visible = uiRequest === undefined
@@ -102,8 +101,9 @@ export function renderState(rt: TuiRuntime): void {
         && rt.requestOptionsEditor === undefined
         && rt.providerForm === undefined
         && rt.secretPrompt !== undefined;
-    rt.settingsPickerView.surface.visible = (uiRequest === undefined
-            || configurationRequired)
+    rt.settingsPickerView.surface.visible = rt.sessionCloseConfirm !== undefined
+        ? rt.timelinePicker === undefined
+        : (uiRequest === undefined || configurationRequired)
         && rt.timelinePicker === undefined
         && !rt.confirmingFullAccess
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
@@ -309,8 +309,6 @@ export function renderState(rt: TuiRuntime): void {
         && rt.timelinePicker === undefined
         && rt.sessionTrashCandidate !== undefined
         && !rt.sessionCloseConfirm;
-    rt.sessionCloseConfirmView.surface.visible = rt.timelinePicker === undefined
-        && rt.sessionCloseConfirm;
     rt.providerForgetConfirmView.surface.visible = uiRequest === undefined
         && rt.timelinePicker === undefined
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
@@ -344,7 +342,6 @@ export function renderState(rt: TuiRuntime): void {
         || rt.permissionsConfirmView.box.visible
         || rt.admissionDialogView.surface.visible
         || rt.sessionTrashConfirmView.surface.visible
-        || rt.sessionCloseConfirmView.surface.visible
         || rt.providerForgetConfirmView.surface.visible
         || rt.overridesResetConfirmView.surface.visible
         || rt.namePromptView.surface.visible
@@ -414,7 +411,10 @@ export function renderState(rt: TuiRuntime): void {
         rt.pickerTipKind = rt.settingsPicker.kind;
         rt.settingsPickerView.tip = takeTip(rt, rt.settingsPicker.kind === "model");
     }
-    if (rt.settingsPicker !== undefined) {
+    if (rt.sessionCloseConfirm !== undefined) {
+        rt.settingsPickerView.verification = undefined;
+        rt.settingsPickerView.update(rt.sessionCloseConfirm);
+    } else if (rt.settingsPicker !== undefined) {
         rt.settingsPickerView.verification = rt.settingsPicker.kind === "model"
             ? liveVerificationConsole(rt)
             : undefined;
@@ -492,12 +492,6 @@ export function renderState(rt: TuiRuntime): void {
     }
     if (rt.sessionTrashCandidate !== undefined) {
         rt.sessionTrashConfirmView.update(rt.sessionTrashCandidate.label);
-    }
-    if (rt.sessionCloseConfirm) {
-        rt.sessionCloseConfirmView.update(subagentTitle(
-            rt.sessionTitle ?? "untitled",
-            rt.sessionParentId,
-        ));
     }
     if (rt.providerForgetCandidate !== undefined) {
         rt.providerForgetConfirmView.update(rt.providerForgetCandidate.label, (rt.state.modelSettings?.pooled ?? []).filter((row) => row.provider === rt.providerForgetCandidate?.providerId).length);
@@ -677,7 +671,7 @@ export function anyOverlayOpen(rt: TuiRuntime): boolean {
         || rt.confirmingFullAccess
         || rt.admissionDialog !== undefined
         || rt.sessionTrashCandidate !== undefined
-        || rt.sessionCloseConfirm
+        || rt.sessionCloseConfirm !== undefined
         || rt.providerForgetCandidate !== undefined
         || rt.jumpMenu !== undefined;
 }

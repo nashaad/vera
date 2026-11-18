@@ -138,7 +138,7 @@ import type {
     ToolEffectContext,
     ToolOutput,
 } from "../../tools/types.ts";
-import { ManagedProcessRegistry } from "../../tools/process-runtime.ts";
+import { ManagedProcessRegistry, type ManagedProcessObservationHandlers } from "../../tools/process-runtime.ts";
 import { ToolRuntime } from "../../tools/runtime.ts";
 import {
     defaultSessionPath,
@@ -283,6 +283,7 @@ export interface RegisteredAgentSummary {
     readonly parent_id?: string;
     readonly forked_from?: string;
     readonly size_bytes?: number;
+    readonly background_commands?: number;
     readonly created_at?: string;
     readonly facts?: SessionFacts;
     readonly imported_from?: ImportedSessionSummary;
@@ -315,6 +316,7 @@ export function importedSessionSummary(
 export interface AgentRegistryOptions {
     readonly hostLog?: HostLog;
     readonly sandbox?: CommandSandbox & SandboxInspector;
+    readonly processObservations?: ManagedProcessObservationHandlers;
     // Flag directory read on every turn start; see src/host/session-block.ts.
     readonly sessionBlockDirectory?: string;
     /** True while a host stop holds new turns. */
@@ -844,6 +846,7 @@ export interface RegisteredAgentEntry {
     peerWakes: number[];
     run: Promise<void>;
     worker?: WorkerHandle;
+    backgroundCommands?: number;
     /** Block confirmation for a session that runs in the host process; a worker uses its handle. */
     blockControl?: SessionBlockControl;
     /** True while a block file holds an in-process session. */
@@ -852,6 +855,7 @@ export interface RegisteredAgentEntry {
     cutReason?: string;
     completed: boolean;
     pendingAsyncTurns: number;
+    resumeAsyncQueueOnMessage?: boolean;
     pendingCompletionDeliveries: number;
     completionSequence: number;
     failure?: unknown;

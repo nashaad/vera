@@ -40,6 +40,7 @@ import {
     replaceReleaseDirectory,
 } from "../../scripts/pack-release.ts";
 import { packWebAssets } from "../../scripts/pack-web.ts";
+import { expectDevTuiPacksBeforeLaunch } from "../support/dev-tui-pack.ts";
 
 const packer = resolve(import.meta.dir, "..", "..", "scripts", "pack-release.ts");
 const repoRoot = resolve(import.meta.dir, "..", "..");
@@ -173,8 +174,8 @@ test("dev scripts pack the release before tui and host", () => {
     );
     expect(pkg.scripts.host?.startsWith("bun run pack:release &&")).toBe(true);
     expect(pkg.scripts.tui?.startsWith("bun run pack:release &&")).toBe(true);
-    expect(pkg.scripts["dev:tui"]?.startsWith("bun run pack:release &&"))
-        .toBe(true);
+    expect(pkg.scripts["dev:tui"]).toBe("bun run scripts/dev-tui.ts");
+    expectDevTuiPacksBeforeLaunch();
 });
 
 // A source tree with the files a release needs, minus node_modules.

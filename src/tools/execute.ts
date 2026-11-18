@@ -110,6 +110,13 @@ export function toolPermissionOperation(
     return toolFor(name, extensionTools)?.permissionOperation;
 }
 
+export function toolCommandInput(
+    name: string,
+    extensionTools: readonly RegisteredTool[] = [],
+): string | undefined {
+    return toolFor(name, extensionTools)?.commandInput;
+}
+
 function assertValidPermissionInputs(tool: RegisteredTool): void {
     const properties = inputSchemaProperties(tool.definition.inputSchema);
     for (const spec of tool.permissionInputs ?? []) {

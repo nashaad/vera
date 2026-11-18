@@ -5,6 +5,7 @@ import type {
     HistoryUpdate,
 } from "../../src/engine/protocol.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
+import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.ts";
 import type { TuiAgentClient } from "./agent-client.ts";
 
 export interface HomeClient extends TuiAgentClient {
@@ -24,6 +25,8 @@ export interface HomeClientOptions {
         provider: string,
         workspace: string,
     ) => Promise<ModelTurnSettings | undefined>;
+    readonly listExtensionCommands?: () =>
+        Promise<readonly ExtensionCommandDescriptor[]>;
 }
 
 export function createHomeClient(
@@ -37,6 +40,9 @@ export function createHomeClient(
         workspace,
         viewOnly: true,
         home: true,
+        ...(options.listExtensionCommands === undefined
+            ? {}
+            : { listExtensionCommands: options.listExtensionCommands }),
         async send(command: ClientCommand): Promise<void> {
             if (command.type === "get_model_settings") {
                 await answerModelSettings(command.requestId);

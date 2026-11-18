@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import { isToolApprovalUiRequestUpdate, type AgentUpdate } from "../../src/engine/protocol.ts";
 import {
     AgentRegistry,
     defaultConcurrentWorkerCap,
@@ -19,10 +19,15 @@ const ADAPTER = fileURLToPath(
     new URL("./fixtures/worker-scripted-adapter.ts", import.meta.url),
 );
 
-function toolCall(id: string, command: string): AssistantMessage {
+function toolCall(id: string, command: string, yieldAfter?: number): AssistantMessage {
     return {
         role: "assistant",
-        content: [{ type: "tool_call", id, name: "bash", input: { command } }],
+        content: [{
+            type: "tool_call",
+            id,
+            name: "bash",
+            input: { command, ...(yieldAfter === undefined ? {} : { yield_after: yieldAfter }) },
+        }],
         source: { provider: "faux", api: "scripted", model: "test" },
         usage: emptyUsage(),
         stopReason: "tool_use",
@@ -42,6 +47,7 @@ function text(body: string): AssistantMessage {
 async function receiveUntil(
     attachment: AgentAttachment,
     predicate: (update: AgentUpdate) => boolean,
+    approveToolRequests = false,
 ): Promise<AgentUpdate> {
     const deadline = Date.now() + 20_000;
     while (true) {
@@ -53,6 +59,13 @@ async function receiveUntil(
                 throw new Error("Timed out waiting for agent update");
             }),
         ]);
+        if (approveToolRequests && update.type === "ui_request" && isToolApprovalUiRequestUpdate(update)) {
+            attachment.send({
+                type: "ui_response",
+                requestId: update.requestId,
+                response: { type: "tool_approval", decision: "allow_once" },
+            });
+        }
         if (predicate(update)) return update;
     }
 }
@@ -87,6 +100,94 @@ async function waitForProcessExit(pid: number): Promise<void> {
         await Bun.sleep(20);
     }
 }
+
+test("@core a worker publishes background command counts on yield and kill", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-background-count-"));
+    const processPidPath = join(root, "process.pid");
+    const scripts = new Map<string, readonly AssistantMessage[]>([["counted", [
+        toolCall("start-background", `sleep 60 & echo $! > '${processPidPath}'; wait`, 0),
+        text("background command started"),
+        toolCall("kill-background", `kill "$(cat '${processPidPath}')"`),
+        text("background command stopped"),
+    ]]]);
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        workerAdapterSpec: ({ sessionId }) => ({
+            module: ADAPTER,
+            options: { script: scripts.get(sessionId) ?? [], pidPath: join(root, `${sessionId}.worker.pid`) },
+        }),
+        model: "faux/test",
+        approvalMode: "ask",
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "counted",
+            workspace: root,
+            sessionPath: join(root, "counted.jsonl"),
+        });
+        const client = agent.attach();
+        expect((await client.receive()).type).toBe("history");
+        client.send({ type: "prompt", content: "start the worker background command" });
+        await receiveUntil(client, (update) => update.type === "tool_finished", true);
+        const processPid = await waitForFile(processPidPath);
+        expect(registry.list().find((entry) => entry.id === "counted"))
+            .toMatchObject({ background_commands: 1 });
+        await receiveUntil(client, (update) => update.type === "turn_finished");
+
+        client.send({ type: "prompt", content: "kill the worker background command" });
+        await receiveUntil(client, (update) => update.type === "tool_finished", true);
+        await receiveUntil(client, (update) => update.type === "turn_finished");
+        await waitForProcessExit(processPid);
+        expect(registry.list().find((entry) => entry.id === "counted"))
+            .not.toHaveProperty("background_commands");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("host execution publishes background command counts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-host-background-count-"));
+    const processPidPath = join(root, "process.pid");
+    const script = [
+        toolCall("start-background", `sleep 60 & echo $! > '${processPidPath}'; wait`, 0),
+        text("background command started"),
+        toolCall("kill-background", `kill "$(cat '${processPidPath}')"`),
+        text("background command stopped"),
+    ];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(script),
+        model: "faux/test",
+        approvalMode: "ask",
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "host-counted",
+            workspace: root,
+            sessionPath: join(root, "host-counted.jsonl"),
+        });
+        const client = agent.attach();
+        expect((await client.receive()).type).toBe("history");
+        client.send({ type: "prompt", content: "start a background command" });
+        await receiveUntil(client, (update) => update.type === "tool_finished", true);
+        const processPid = await waitForFile(processPidPath);
+        expect(registry.list().find((entry) => entry.id === "host-counted"))
+            .toMatchObject({ background_commands: 1 });
+        await receiveUntil(client, (update) => update.type === "turn_finished");
+
+        client.send({ type: "prompt", content: "kill the background command" });
+        await receiveUntil(client, (update) => update.type === "tool_finished", true);
+        await receiveUntil(client, (update) => update.type === "turn_finished");
+        await waitForProcessExit(processPid);
+        expect(registry.list().find((entry) => entry.id === "host-counted"))
+            .not.toHaveProperty("background_commands");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);
 
 test("the registry contains a killed worker and keeps its sibling usable", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-worker-registry-"));

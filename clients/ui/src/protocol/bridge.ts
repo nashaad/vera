@@ -284,6 +284,7 @@ export interface DesktopBridge {
     captureFeedback(): Promise<string | undefined>;
     saveFeedback(request: FeedbackSaveRequest): Promise<FeedbackSaveResult>;
     readonly platform: string;
+    consumeWindowClose(): boolean;
     start(): void;
     reconnect(): void;
     answer(id: string, yes: boolean): void;
