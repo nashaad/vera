@@ -644,7 +644,7 @@ function createAttachedClient(
                         `Host sent an invalid agent update: ${describeMessage(value)}`,
                     );
                 }
-                if (frame.kind === "unknown") {
+                if (frame.kind === "unknown" || frame.kind === "invalid_notice") {
                     if (frame.seq !== undefined) {
                         acceptSequence(frame.seq, "update");
                         if (pendingUpdateCount === 0) {
