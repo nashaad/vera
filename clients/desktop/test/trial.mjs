@@ -5,7 +5,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join, relative } from "node:path";
+
+import { sourceTestHome } from "../../../test/support/source-test-home.mjs";
 
 const root = new URL("../../..", import.meta.url).pathname;
 const require = createRequire(join(root, "clients", "desktop", "package.json"));
@@ -17,6 +19,7 @@ export const OUT_OF_SIGHT = ["-r", join(root, "clients", "desktop", "test", "out
 export function startTrial() {
     const trialRoot = mkdtempSync(join(tmpdir(), "vera-desktop-e2e-"));
     const home = join(trialRoot, ".vera");
+    const userHome = sourceTestHome(join(trialRoot, "user"));
     const bun = process.env.VERA_DESKTOP_BUN
         || execFileSync("which", ["bun"], { encoding: "utf8" }).trim();
     const apps = [];
@@ -24,12 +27,17 @@ export function startTrial() {
     // The tour and the bench pass visible: true; every other run stays out of sight.
     // `env` adds to the app's environment, such as a HOME that holds a fixture of VS Code extensions.
     async function launch({ visible = false, cwd = root, env = {} } = {}) {
+        const launchHome = env.HOME ?? userHome;
+        const homeRelative = relative(trialRoot, launchHome);
+        if (homeRelative.startsWith("..") || isAbsolute(homeRelative)) throw new Error("Trial HOME must be inside the trial root.");
+        sourceTestHome(launchHome);
         const app = await electron.launch({
             executablePath: electronPath,
             args: [...(visible ? [] : OUT_OF_SIGHT), join(root, "clients", "desktop")],
             cwd,
             env: {
                 ...process.env,
+                HOME: launchHome,
                 VERA_HOME: home,
                 // Without it the CLI boots the installed release host, not this checkout's source.
                 VERA_DEV_INSTANCE: `${basename(root)} e2e`,
@@ -80,7 +88,7 @@ export function startTrial() {
         rmSync(trialRoot, { recursive: true, force: true });
     }
 
-    return { root, trialRoot, home, launch, hostPid, waitForHost, cleanup };
+    return { root, trialRoot, home, userHome, launch, hostPid, waitForHost, cleanup };
 }
 
 // Goes through the same path as a key typed on the keyboard: the main process's

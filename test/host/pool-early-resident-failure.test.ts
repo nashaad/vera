@@ -17,6 +17,7 @@ import { readRecordedWorkers, type RecordedWorker } from "../../src/host/pool/wo
 import { processIsAlive } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 
 socketAndLoopbackTest("a pooled resident failure reaches stdio and records its original stack", async () => {
     mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
@@ -35,7 +36,7 @@ socketAndLoopbackTest("a pooled resident failure reaches stdio and records its o
     }));
     const child = spawn(process.execPath, [join(import.meta.dir, "fixtures", "pool-stop-host.ts")], {
         cwd: process.cwd(),
-        env: { ...process.env, VERA_HOME: home, VERA_DEV_INSTANCE: "stopfix dev", HS9_STOP_MODE: "pool", STOPFIX_FAIL_SESSION: "1" },
+        env: { ...process.env, HOME: sourceTestHome(home), VERA_HOME: home, VERA_DEV_INSTANCE: "stopfix dev", HS9_STOP_MODE: "pool", STOPFIX_FAIL_SESSION: "1" },
         stdio: "ignore",
     });
     const exited = new Promise<number | null>((resolve) => child.once("close", resolve));

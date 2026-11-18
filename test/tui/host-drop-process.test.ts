@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { connectHost } from "../../src/host/connection.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 
 interface HostLock {
     readonly pid: number;
@@ -84,7 +85,7 @@ realProcessTest(
         const toolPidPath = join(root, "tool.pid");
         const env = {
             PATH: process.env.PATH ?? "/usr/bin:/bin",
-            HOME: root,
+            HOME: sourceTestHome(root),
             VERA_HOME: trialHome,
             VERA_DEV_INSTANCE: `${basename(process.cwd())} dev`,
             TMPDIR: root,
@@ -243,7 +244,7 @@ realProcessTest(
         const trialHome = join(root, "h");
         const socket = join(root, "tmux.sock");
         const env = {
-            PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: root, VERA_HOME: trialHome,
+            PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: sourceTestHome(root), VERA_HOME: trialHome,
             VERA_DEV_INSTANCE: `${basename(process.cwd())} dev`, TMPDIR: root, TERM: "xterm-256color",
         };
         mkdirSync(trialHome, { recursive: true });

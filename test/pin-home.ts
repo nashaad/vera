@@ -17,5 +17,6 @@ if (
 }
 
 process.env.HOME = TEST_USER_HOME;
+delete process.env.VERA_DEV_INSTANCE;
 
 export { TEST_USER_HOME };
