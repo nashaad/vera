@@ -22,6 +22,7 @@ import { targetPidIsAncestor } from "../host/process-ancestry.ts";
 import type { HostLockRecord } from "../host/lockfile.ts";
 import { stopResidentHostWhenIdle, type StopWhenIdleOptions, type StopWhenIdleOutcome } from "../host/force-stop.ts";
 import { processIsAlive } from "../host/process-identity.ts";
+import { cliHostRequester } from "../host/requester.ts";
 
 export interface PackedInstallRelease {
     readonly releaseRoot: string;
@@ -103,7 +104,7 @@ export async function installRelease(options: InstallReleaseOptions): Promise<In
         };
     }
     const handOff = options.handOff ?? handOffUpdate;
-    return handOff({ buildId, insideSession, prefix, report, readLiveHost });
+    return handOff({ buildId, insideSession, prefix, report, readLiveHost, requester: cliHostRequester("install") });
 }
 
 // Waits for running turns, then stops the host. Returns an outcome only when current must not move.
@@ -114,6 +115,7 @@ async function stopForColdUpdate(
 ): Promise<HandOffOutcome | undefined> {
     let announced = false;
     const outcome = await (options.stopHost ?? stopResidentHostWhenIdle)({
+        requester: cliHostRequester("install"),
         onWaiting: (waiting) => {
             if (!announced) {
                 announced = true;

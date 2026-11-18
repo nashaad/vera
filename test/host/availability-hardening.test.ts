@@ -117,8 +117,31 @@ test("the crash guard stops absorbing once faults stop being occasional", () => 
     }
 
     expect(exits).toEqual([1]);
-    expect(entries.at(-1)?.type).toBe("host_fault_limit_reached");
+    expect(entries.at(-2)?.type).toBe("host_fault_limit_reached");
+    expect(entries.at(-1)).toMatchObject({
+        type: "host_stopping", reason: "fault_limit", fault_type: "host_uncaught_exception", error: "fault 49",
+    });
     expect(entries[0]?.fault_count).toBe(1);
+});
+
+test("the crash guard records a fatal unhandled rejection", () => {
+    const entries: Record<string, unknown>[] = [];
+    const exits: number[] = [];
+    const uninstall = installHostCrashGuard(
+        (entry) => entries.push(entry),
+        (code) => exits.push(code),
+    );
+    try {
+        for (let index = 0; index < 50; index += 1) {
+            process.emit("unhandledRejection", new Error(`failure ${index}`), Promise.resolve());
+        }
+    } finally {
+        uninstall();
+    }
+    expect(exits).toEqual([1]);
+    expect(entries.at(-1)).toMatchObject({
+        type: "host_stopping", reason: "fault_limit", fault_type: "host_unhandled_rejection", error: "failure 49",
+    });
 });
 
 test("a host that cannot close exits rather than staying half alive", async () => {

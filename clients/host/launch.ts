@@ -54,6 +54,8 @@ import { homeFilesystemProblem } from "../../src/host/home-filesystem.ts";
 import { targetPidIsAncestor } from "../../src/host/process-ancestry.ts";
 import { acquireHostStartupClaim, HostStartupInProgressError } from "../../src/host/startup-claim.ts";
 import { hostEnvironmentProblem, hostLaunchEnvironment } from "../../src/host/host-environment.ts";
+import { cliHostRequester } from "../../src/host/requester.ts";
+import type { HostRequester } from "../../src/host/protocol.ts";
 
 export { sessionWorkerSpawnSpec } from "../../src/host/pool/worker-launch.ts";
 
@@ -79,6 +81,7 @@ export async function findOrStartResidentHost(
     findOptions: FindOrStartHostOptions = {},
 ): Promise<HostLockRecord> {
     const { boot, ...options } = findOptions;
+    const requester = options.requester ?? cliHostRequester("startup");
     const home = selectedVeraHome();
     // No host can exist at either fault, and every step below would fail on it with a bare errno.
     const unusable = hostHomeProblem(home) ?? hostSocketPathProblem(home);
@@ -116,9 +119,10 @@ export async function findOrStartResidentHost(
     const host = await bootResidentHost({
         hostPublished: async () => (await lockfile.read()) !== undefined,
         inspect: () => inspectHome(),
-        recover: () => recoverHome(),
+        recover: () => recoverHome(requester),
         start: (mode) => startNamingCause(() => ensureResidentHost({
             ...options,
+            requester,
             lockfile,
             startHost: () => spawnDetachedResidentHost(pool, mode, releaseRoot),
         })),
@@ -217,7 +221,7 @@ export class HostStartFailedError extends Error {
 }
 
 // Same steps as 'vera host reset --yes': back up, stop this home's processes by pid and start time, clear runtime files.
-async function recoverHome(): Promise<{ ok: boolean; changed: boolean; lines: string[] }> {
+async function recoverHome(requester: HostRequester): Promise<{ ok: boolean; changed: boolean; lines: string[] }> {
     // Stopping a host this command runs under would end the command and its session.
     const discovery = await discoverResetProcesses(realResetSystem());
     const own = discovery.candidates.find((candidate) => candidate.role !== "client" && targetPidIsAncestor(candidate.pid) === true);
@@ -229,7 +233,7 @@ async function recoverHome(): Promise<{ ok: boolean; changed: boolean; lines: st
         };
     }
     const lines: string[] = [];
-    const code = await runHostReset({ assumeYes: true }, {
+    const code = await runHostReset({ assumeYes: true, requester }, {
         system: realResetSystem(),
         confirm: async () => true,
         output: (text) => { lines.push(...text.split("\n").filter((line) => line.trim().length > 0)); },

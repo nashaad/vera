@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
 import { checkpointOpenStores } from "./store-checkpoint.ts";
+import { hostLifecyclePathIn } from "../profile-paths.ts";
 
 const LIVE_RUNTIME_NAMES = ["host.sock", "host.json"] as const;
 
@@ -111,6 +112,7 @@ export function scrubLiveIdentity(home: string): void {
     for (const name of LIVE_RUNTIME_NAMES) {
         rmSync(join(runtime, name), { force: true });
     }
+    rmSync(hostLifecyclePathIn(home), { force: true });
 }
 
 function preserveSecretModes(source: string, staging: string): void {

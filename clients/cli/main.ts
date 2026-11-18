@@ -55,6 +55,8 @@ import {
     type StopWhenIdleOutcome,
 } from "../../src/host/force-stop.ts";
 import { runHostReset as runResidentHostReset, type ResetSystem } from "../../src/host/reset.ts";
+import { cliHostRequester } from "../../src/host/requester.ts";
+import type { HostRequester } from "../../src/host/requester.ts";
 import { realResetSystem } from "../../src/host/reset-system.ts";
 import type { StopWaitTarget } from "../../src/host/stop-when-idle.ts";
 import { forceStopPool, ForcePoolStartupInProgressError } from "../../src/host/pool/force-stop-pool.ts";
@@ -300,7 +302,7 @@ export interface CliDependencies {
     readonly configRecoveryInteractive?: boolean;
     readonly confirmConfigSetAside?: (question: string) => Promise<boolean>;
     readonly hostReset?: (
-        options: { readonly assumeYes: boolean },
+        options: { readonly assumeYes: boolean; readonly requester?: HostRequester },
         environment: {
             readonly system: ResetSystem;
             readonly confirm: (question: string) => Promise<boolean>;
@@ -329,6 +331,7 @@ export interface CliDependencies {
     readonly stopHost?: (options: {
         readonly onWaiting: (waiting: readonly StopWaitTarget[]) => void;
         readonly force?: boolean;
+        readonly requester?: HostRequester;
     }) => Promise<StopWhenIdleOutcome | undefined>;
     readonly forceStopHost?: () => Promise<ForceStopOutcome | undefined>;
     readonly doctor?: () => Promise<VeraDoctorReport>;
@@ -1005,7 +1008,9 @@ export async function runCli(
                 };
                 let cut;
                 try {
-                    cut = await (dependencies.stopHost ?? stopResidentHostWhenIdle)({ onWaiting, force: true });
+                    cut = await (dependencies.stopHost ?? stopResidentHostWhenIdle)({
+                        onWaiting, force: true, requester: cliHostRequester("host stop --force"),
+                    });
                 } catch (error) {
                     if (await stopPool()) return 0;
                     throw error;
@@ -1039,7 +1044,7 @@ export async function runCli(
             }
             const outcome = await (
                 dependencies.stopHost ?? stopResidentHostWhenIdle
-            )({ onWaiting });
+            )({ onWaiting, requester: cliHostRequester("host stop") });
             if (outcome === undefined) {
                 output.write("No resident Vera host is running.\n");
                 return 0;
@@ -1079,7 +1084,9 @@ export async function runCli(
             errorOutput.write("vera host reset asks before it stops anything. Run it in a terminal, or pass --yes.\n");
             return 1;
         }
-        return (dependencies.hostReset ?? runResidentHostReset)({ assumeYes: resetAssumeYes }, {
+        return (dependencies.hostReset ?? runResidentHostReset)({
+            assumeYes: resetAssumeYes, requester: cliHostRequester("host reset"),
+        }, {
             system: realResetSystem(),
             confirm: confirmHostReset,
             output: (text) => output.write(text),
@@ -2208,6 +2215,7 @@ async function runBoot(
     };
     try {
         const host = await findOrStartResidentHost({
+            requester: cliHostRequester("boot"),
             boot: json
                 ? {
                     full: true,

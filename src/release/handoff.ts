@@ -22,6 +22,8 @@ import {
     type StopWhenIdleOutcome,
 } from "../host/force-stop.ts";
 import type { StopWaitTarget } from "../host/stop-when-idle.ts";
+import { cliHostRequester } from "../host/requester.ts";
+import type { HostRequester } from "../host/protocol.ts";
 import { checkRecordIdentity, processIsAlive } from "../host/process-identity.ts";
 
 // Long enough for a cold start of the target host, or for the restore after a failed one.
@@ -193,6 +195,7 @@ export interface HandOffOptions {
     readonly stopHost?: (options: StopWhenIdleOptions) => Promise<StopWhenIdleOutcome | undefined>;
     readonly readLiveHost?: () => Promise<HostLockRecord | undefined>;
     readonly timeoutMs?: number;
+    readonly requester?: HostRequester;
 }
 
 // Asks the running host to move to buildId once it is idle. Never signals it.
@@ -200,6 +203,7 @@ export async function handOffUpdate(options: HandOffOptions): Promise<HandOffOut
     const stop = options.stopHost ?? stopResidentHostWhenIdle;
     let announced = false;
     const outcome = await stop({
+        requester: options.requester ?? cliHostRequester("update handoff"),
         targetBuildId: options.buildId,
         detach: options.insideSession,
         onWaiting: (waiting: readonly StopWaitTarget[]) => {

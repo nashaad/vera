@@ -10,6 +10,22 @@ import {
 const working: StopWaitTarget = { session_id: "s1", name: "build", status: "working" };
 const queued: StopWaitTarget = { session_id: "s2", name: null, status: "queued" };
 
+test("a later cut records both the original requester and who forced the stop", async () => {
+    let waiting: StopWaitTarget[] = [working];
+    const stopped = Promise.withResolvers<unknown>();
+    const first = { pid: 12, client_kind: "cli", command: "host stop" };
+    const cutter = { pid: 34, client_kind: "tui", command: "cut stop wait", session_id: "s1" };
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => waiting,
+        cutSession: async () => { waiting = []; return true; },
+        onStopped: (cause) => { stopped.resolve(cause); },
+        pollIntervalMs: 5,
+    });
+    coordinator.request(() => {}, null, { requester: first });
+    expect((await coordinator.cutWait(cutter)).status).toBe("done");
+    expect(await stopped.promise).toEqual({ reason: "host_stop_force", requester: first, forced_by: cutter });
+});
+
 function settle(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, 20));
 }

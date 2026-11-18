@@ -165,7 +165,7 @@ import {
     type SidecarRuntime,
 } from "./sidecar-runtime.ts";
 import { StartupFindings } from "./startup-findings.ts";
-import { StopWhenIdle, type StopWaitTarget } from "./stop-when-idle.ts";
+import { StopWhenIdle, type CompletedHostStop, type StopWaitTarget } from "./stop-when-idle.ts";
 import { subagentPoolPolicy } from "./subagent-policy.ts";
 
 import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "./session-host.ts";
@@ -188,6 +188,7 @@ const MAX_SCHEDULE_WORK_ROWS = 50;
 
 export interface StartResidentHostOptions {
     readonly config: VeraConfig;
+    readonly onHostClaimed?: () => void | Promise<void>;
     readonly inProcessWorker?: boolean;
     readonly processWorker?: boolean;
     readonly processWorkerCount?: number;
@@ -246,11 +247,19 @@ export interface ResidentHost {
     readonly extensions: ExtensionRegistry;
     readonly server: HostServer;
     readonly shutdownRequested: Promise<void>;
+    readonly shutdownCause?: () => HostShutdownCause;
     readonly health: HostHealth;
     readonly annexPid?: number;
     readonly buildId: string;
     readonly workerStopPids?: () => readonly number[];
     close(): Promise<void>;
+}
+
+export interface HostShutdownCause {
+    readonly reason: CompletedHostStop["reason"] | "shutdown_if_idle" | "shutdown_for_replacement" | "shutdown_requested";
+    readonly target_build_id?: string;
+    readonly requester?: CompletedHostStop["requester"];
+    readonly forced_by?: CompletedHostStop["forced_by"];
 }
 
 const activeResidentHostSockets = new Set<string>();
@@ -291,6 +300,7 @@ export async function startResidentHost(
         if (!Number.isFinite(heartbeatDeadline) || heartbeatDeadline <= 0) throw new Error("Invalid worker heartbeat deadline");
         const startupLog = options.startupLog ?? createHostLogger({ path: defaultHostLogPath(home) });
         const buildId = options.buildId ?? thisProcessBuildId();
+        await options.onHostClaimed?.();
         const workers = await inspectWorkerRecords(home, buildId);
         const configuredCount = options.processWorkerCount ?? DEFAULT_SESSION_WORKERS;
         if (!Number.isSafeInteger(configuredCount) || configuredCount < 1) throw new Error("Invalid session worker count");
@@ -605,10 +615,10 @@ async function startHostRuntime(
         ...(workerSocket === undefined ? {} : {
             waitingOnAsync: () => inProcessWorker?.waitingOn() ?? Promise.resolve(registry.stopWaitTargets()),
         }),
-        onStopped: async () => {
+        onStopped: async (cause) => {
             if (!await hostStarted.promise) return;
             if (options.processWorker === true) await stopWaitNotifications;
-            await closeHost();
+            await closeHost(cause);
         },
         targetProblem: updateTargetProblem,
         prepare: prepareStopForTarget,
@@ -1076,12 +1086,13 @@ async function startHostRuntime(
         delete annexHealth.annexReason;
     };
     let closing: Promise<void> | undefined;
+    let shutdownCause: HostShutdownCause = { reason: "shutdown_requested" };
     let logPruneTimer: ReturnType<typeof setInterval> | undefined;
     let announceShutdown: () => void = () => {};
     const shutdownRequested = new Promise<void>((resolve) => {
         announceShutdown = resolve;
     });
-    const closeHost = (): Promise<void> => {
+    const closeHost = (cause?: HostShutdownCause): Promise<void> => {
         // A worker lost while the host closes must not be replaced.
         inProcessWorker?.stopSupervising?.();
         sessionHost.stopMaintenance();
@@ -1091,6 +1102,7 @@ async function startHostRuntime(
             logPruneTimer = undefined;
         }
         if (closing === undefined) {
+            if (cause !== undefined) shutdownCause = cause;
             announceShutdown();
             closing = (async () => {
                 try {
@@ -1321,10 +1333,12 @@ async function startHostRuntime(
                     return checkpointOpenStores({ destination, inbox, schedules: scheduleStore });
                 },
 
-                onShutdownAccepted: async () => {
+                onShutdownAccepted: async (reason, requester) => {
                     if (!await hostStarted.promise) return;
                     await inProcessWorker?.waitForForwardedShutdowns();
-                    await closeHost();
+                    await closeHost(reason === undefined ? undefined : {
+                        reason, ...(requester === undefined ? {} : { requester }),
+                    });
                 },
 
             }),
@@ -1446,6 +1460,7 @@ async function startHostRuntime(
         extensions,
         server,
         shutdownRequested,
+        shutdownCause: () => shutdownCause,
         health: options.processWorker === true ? {
             get annex() { return annexHealth.annex; },
             get annexReason() { return annexHealth.annexReason; },

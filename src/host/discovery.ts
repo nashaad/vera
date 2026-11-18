@@ -17,6 +17,7 @@ import {
     requestHostShutdownForReplacement,
     requestHostShutdownIfIdle,
     type HostIdentity,
+    type HostRequester,
     type ShutdownIfIdleResponse,
     type ShutdownForReplacementResponse,
 } from "./protocol.ts";
@@ -40,6 +41,7 @@ export class HostReplacementBusyError extends Error {
 
 export interface EnsureResidentHostOptions {
     readonly startHost: () => void | Promise<void>;
+    readonly requester?: HostRequester;
     readonly lockfile?: HostLockfile;
     readonly startupTimeoutMs?: number;
     readonly pollIntervalMs?: number;
@@ -48,11 +50,14 @@ export interface EnsureResidentHostOptions {
     readonly shutdownIfIdle?: (
         socketPath: string,
         identity: HostIdentity,
+        requesterProtocolVersion?: number,
+        requester?: HostRequester,
     ) => Promise<ShutdownIfIdleResponse | undefined>;
     readonly shutdownForReplacement?: (
         socketPath: string,
         identity: HostIdentity,
         requesterProtocolVersion: number,
+        requester?: HostRequester,
     ) => Promise<ShutdownForReplacementResponse | undefined>;
     /** Replace a healthy answering host. Manual reconnect sets this. */
     readonly replaceExisting?: boolean;
@@ -227,6 +232,7 @@ export async function ensureResidentHost(
                 socketPath,
                 identity,
                 HOST_PROTOCOL_VERSION,
+                options.requester,
             ),
             "Resident host replacement exceeded its deadline",
         );
@@ -251,7 +257,7 @@ export async function ensureResidentHost(
                 === "shutdown_for_replacement_accepted"
             ? replacement
             : await beforeDeadline(
-                () => shutdownIfIdle(socketPath, identity),
+                () => shutdownIfIdle(socketPath, identity, HOST_PROTOCOL_VERSION, options.requester),
                 "Resident host replacement exceeded its deadline",
             );
         if (
@@ -314,6 +320,7 @@ export async function ensureResidentHost(
                 running.socket_path,
                 identity,
                 HOST_PROTOCOL_VERSION,
+                options.requester,
             ),
             "Resident host replacement exceeded its deadline",
         );
@@ -327,7 +334,7 @@ export async function ensureResidentHost(
                 === "shutdown_for_replacement_accepted"
             ? replacement
             : await beforeDeadline(
-                () => shutdownIfIdle(running.socket_path, identity),
+                () => shutdownIfIdle(running.socket_path, identity, HOST_PROTOCOL_VERSION, options.requester),
                 "Resident host replacement exceeded its deadline",
             );
         if (

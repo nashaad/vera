@@ -34,9 +34,9 @@ socketTest("a forwarded shutdown reply is delivered before the worker stops", as
         startShutdown = options.onShutdownAccepted;
         return await originalStart({
             ...options,
-            onShutdownAccepted: () => {
+            onShutdownAccepted: (reason, requester) => {
                 shutdownNotified.resolve();
-                return options.onShutdownAccepted?.();
+                return options.onShutdownAccepted?.(reason, requester);
             },
         });
     });

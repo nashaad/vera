@@ -144,12 +144,14 @@ socketTest("an update reports stopped at once and forwards the target to the hos
         startedAt: "2026-07-17T12:00:00.123Z",
     });
     const seen: unknown[] = [];
+    const requester = { pid: 123, client_kind: "cli", command: "update handoff" };
     try {
         expect(await stopResidentHostWhenIdle({
             lockPath: join(directory, "host.json"),
             isProcessAlive: () => true,
             matchesRecord: () => true,
             targetBuildId: "vera-new",
+            requester,
             detach: true,
             kill: () => {
                 throw new Error("an update must not signal a host");
@@ -159,7 +161,7 @@ socketTest("an update reports stopped at once and forwards the target to the hos
                 return { type: "accepted" };
             },
         })).toEqual({ pid: 106, endedBy: "accepted" });
-        expect(seen).toEqual([{ targetBuildId: "vera-new", detach: true }]);
+        expect(seen).toEqual([{ targetBuildId: "vera-new", detach: true, requester }]);
     } finally {
         await server.close();
     }

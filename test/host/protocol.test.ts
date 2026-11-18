@@ -948,3 +948,19 @@ test("host protocol parses cut_stop_wait and the forced stop_host flag", () => {
     expect(parseHostRequest(JSON.stringify({ type: "stop_host", ...identity, force: "yes" })))
         .toBeUndefined();
 });
+
+test("host stop requests accept bounded requester identity and preserve legacy requests", () => {
+    const identity = { pid: 123, started_at: "2026-11-10T00:00:00.000Z" };
+    const requester = { pid: 456, client_kind: "tui", command: "reconnect host", session_id: "a", session_name: "work" };
+    for (const request of [
+        { type: "stop_host", ...identity, force: true },
+        { type: "shutdown_if_idle", ...identity, requester_protocol_version: HOST_PROTOCOL_VERSION },
+        { type: "shutdown_for_replacement", ...identity, requester_protocol_version: HOST_PROTOCOL_VERSION },
+        { type: "cut_stop_wait" },
+    ] as const) {
+        expect(parseHostRequest(JSON.stringify(request))).toEqual(request);
+        expect(parseHostRequest(JSON.stringify({ ...request, requester }))).toEqual({ ...request, requester });
+        expect(parseHostRequest(JSON.stringify({ ...request, requester: { ...requester, pid: 0 } }))).toBeUndefined();
+        expect(parseHostRequest(JSON.stringify({ ...request, requester: { ...requester, session_name: "x".repeat(257) } }))).toBeUndefined();
+    }
+});

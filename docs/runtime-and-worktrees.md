@@ -317,6 +317,23 @@ anyway after a short deadline, and quitting the TUI does not wait on it.
 
 Stopping and reconnecting do not install checkout changes.
 
+### Host stop request fields
+
+The resident host socket accepts newline-delimited JSON requests. `stop_host`,
+`shutdown_if_idle`, `shutdown_for_replacement`, and `cut_stop_wait` may carry
+an optional `requester` object. It contains a positive integer `pid`, a
+`client_kind` string, and optional `command`, `session_id`, and `session_name`
+strings. Each string is nonempty, at most 256 characters, and contains no NUL.
+The stop and shutdown requests retain their existing target PID and start time;
+the two shutdown requests also retain `requester_protocol_version`.
+
+Requests without `requester` remain valid. An invalid requester is refused as
+an invalid request. The host records the supplied requester on `host_stopping`;
+when another client cuts a pending stop it records that client as `forced_by`.
+These fields are diagnostic claims from the sender, not authentication.
+After installing a build with this field, restart the host and relaunch clients
+to send and record requester details.
+
 ## What prune can see
 
 Prune reads process registrations in `~/.vera/machine/live/`. Registered

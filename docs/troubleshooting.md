@@ -311,6 +311,20 @@ shows the failure's message and takes no further messages. The host log at
 in the session file when possible, so resuming starts it in the failed state.
 Everything saved before the failure is kept.
 
+## Find why a host stopped
+
+The home log at `runtime/logs/host.jsonl` records why a host or session
+process stopped. A `previous_host_unclean` entry means the next host found
+the previous host gone without a stop record. It names the previous PID,
+build, start time and last known state. A process killed without a chance to
+write cannot record the signal that killed it.
+
+For a stop or replacement request, `host_stopping` includes the requester PID,
+client kind and command when sent, and the session ID or name when known. If
+another client cuts a pending stop, `forced_by` identifies that client. These
+fields are supplied by the requester and are not authenticated. An older
+client can omit them, and an OS signal does not carry this request metadata.
+
 ## Capture a model failure
 
 Use `/failure-report` for a shareable report of recorded model failures.

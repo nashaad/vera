@@ -214,6 +214,7 @@ test("host discovery replaces an incompatible host only after idle shutdown", as
 });
 
 test("host discovery prefers graceful replacement over attachment-free shutdown", async () => {
+    const origin = { pid: 456, client_kind: "tui", command: "reconnect host", session_id: "s1" };
     const mismatch = new HostProtocolMismatchError(
         101,
         31,
@@ -224,6 +225,7 @@ test("host discovery prefers graceful replacement over attachment-free shutdown"
     let idleRequests = 0;
     let starts = 0;
     const host = await ensureResidentHost({
+        requester: origin,
         lockfile: {
             publish(): Promise<HostLockRecord> {
                 throw new Error("not used");
@@ -237,10 +239,11 @@ test("host discovery prefers graceful replacement over attachment-free shutdown"
         startHost: () => {
             starts += 1;
         },
-        shutdownForReplacement: async (socketPath, identity, requester) => {
+        shutdownForReplacement: async (socketPath, identity, requester, sentOrigin) => {
             expect(socketPath).toBe(runningHost.socket_path);
             expect(identity).toMatchObject({ pid: 101 });
             expect(requester).toBe(HOST_PROTOCOL_VERSION);
+            expect(sentOrigin).toEqual(origin);
             return {
                 type: "shutdown_for_replacement_accepted",
                 pid: 101,

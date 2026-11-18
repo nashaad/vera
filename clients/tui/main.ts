@@ -1,4 +1,5 @@
 import { cutStopWaitThroughHost, type CutStopWaitOutcome } from "../../src/host/stop-wait-cut-client.ts";
+import { hostRequester } from "../../src/host/requester.ts";
 import { forgetProviderThroughHost } from "../../src/host/provider-forget-client.ts";
 import { operateModelsThroughHost } from "../../src/host/model-operation-client.ts";
 import type { ModelOperation, ModelOperationResult, ModelOperationStep } from "../../src/model/model-operations.ts";
@@ -557,7 +558,7 @@ export interface TuiDependencies {
     readonly requestExtension?: ClientExtensionHostRequest;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     /** Ends one session's turn through the host. Used by the stop-now action. */
-    readonly cutStopWait?: () => Promise<CutStopWaitOutcome>;
+    readonly cutStopWait?: (sessionId?: string) => Promise<CutStopWaitOutcome>;
     /** Set only under a relaunch-capable launcher; leaves the TUI for the launcher to restart. */
     readonly relaunchTui?: (request: TuiRelaunchRequest) => Promise<void>;
     readonly clientBuildId?: string;
@@ -765,6 +766,7 @@ export async function startConfiguredTui(
     // Optional: requiring config made attach fail against an already-running host.
     const config = loadOptionalVeraConfig();
     let host = await findOrStartResidentHost({
+        requester: hostRequester("tui", "startup", target.type === "attach" ? { id: target.agentId } : undefined),
         ...(options.confirmBusyUpgrade === undefined
             ? {}
             : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
@@ -846,7 +848,9 @@ export async function startConfiguredTui(
             installedBuildId,
             refuseOtherHostBuild: () => refuseOtherRunningHostBuild(clientBuildId),
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
-            cutStopWait: async () => cutStopWaitThroughHost(await pairedSocket()),
+            cutStopWait: async (sessionId) => cutStopWaitThroughHost(
+                await pairedSocket(), hostRequester("tui", "cut stop wait", { id: sessionId }),
+            ),
             operateModels: async (operation, onResult, workspace, onStep) => operateModelsThroughHost(await pairedSocket(), operation, onResult, workspace, onStep),
             readHostModelSettings: async (workspace) =>
                 readModelSettingsThroughHost(await pairedSocket(), workspace),
@@ -903,6 +907,7 @@ export async function startConfiguredTui(
                 if (options?.attachOnly === true) return attach(currentAgentId);
                 assertInstalledBuild(clientBuildId, installedBuildId());
                 host = await findOrStartResidentHost({
+                    requester: hostRequester("tui", replaceExisting ? "reconnect host" : "automatic reconnect", { id: currentAgentId }),
                     confirmBusyUpgrade: confirmWedge
                         ? confirmManualReconnectUpgrade
                         : () => false,

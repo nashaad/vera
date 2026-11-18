@@ -28,6 +28,9 @@ import type {
     SessionSearchResults,
 } from "../store/session-search.ts";
 import { isStartupProfile, type StartupProfile } from "../startup-profile.ts";
+import type { HostRequester } from "./requester.ts";
+
+export type { HostRequester } from "./requester.ts";
 
 // Bump this only when the base wire contract changes. Additive operations use
 // negotiated capabilities and keep the compatibility floor unchanged. Host
@@ -239,6 +242,7 @@ export interface ShutdownIfIdleRequest {
     readonly pid: number;
     readonly started_at: string;
     readonly requester_protocol_version: number;
+    readonly requester?: HostRequester;
 }
 
 export interface ShutdownForReplacementRequest {
@@ -246,6 +250,7 @@ export interface ShutdownForReplacementRequest {
     readonly pid: number;
     readonly started_at: string;
     readonly requester_protocol_version: number;
+    readonly requester?: HostRequester;
 }
 
 export interface RestartRecordsRequest {
@@ -265,11 +270,13 @@ export interface StopHostRequest {
     readonly target_build_id?: string;
     // Cuts the waited sessions as soon as the wait opens.
     readonly force?: boolean;
+    readonly requester?: HostRequester;
 }
 
 // Halts every session the open stop wait names. Replies with the cut list, or refuses when no wait is open.
 export interface CutStopWaitRequest {
     readonly type: "cut_stop_wait";
+    readonly requester?: HostRequester;
 }
 
 export interface CreateAgentRequest {
@@ -1041,6 +1048,24 @@ function parseSessionFactNames(
     return names.length === 0 ? undefined : [...new Set(names)];
 }
 
+function parseHostRequester(value: unknown): HostRequester | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const record = value as Record<string, unknown>;
+    const text = (item: unknown): item is string =>
+        typeof item === "string" && item.length > 0 && item.length <= 256 && !item.includes("\0");
+    if (!Number.isSafeInteger(record.pid) || (record.pid as number) <= 0 || !text(record.client_kind)
+        || (record.command !== undefined && !text(record.command))
+        || (record.session_id !== undefined && !text(record.session_id))
+        || (record.session_name !== undefined && !text(record.session_name))) return undefined;
+    return {
+        pid: record.pid as number,
+        client_kind: record.client_kind,
+        ...(typeof record.command === "string" ? { command: record.command } : {}),
+        ...(typeof record.session_id === "string" ? { session_id: record.session_id } : {}),
+        ...(typeof record.session_name === "string" ? { session_name: record.session_name } : {}),
+    };
+}
+
 export function parseHostRequest(source: string): HostRequest | undefined {
     const value = parseJsonObject(source);
     if (value?.type === "restart_records") {
@@ -1167,8 +1192,11 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             return { type: "schedule_operation", operation };
         }
     }
+    const requester = parseHostRequester(value?.requester);
+    const validRequester = value?.requester === undefined || requester !== undefined;
     if (
         value?.type === "stop_host"
+        && validRequester
         && Number.isInteger(value.pid)
         && (value.pid as number) > 0
         && typeof value.started_at === "string"
@@ -1184,14 +1212,16 @@ export function parseHostRequest(source: string): HostRequest | undefined {
                 ? { target_build_id: value.target_build_id }
                 : {}),
             ...(value.force === true ? { force: true } : {}),
+            ...(requester === undefined ? {} : { requester }),
         };
     }
-    if (value?.type === "cut_stop_wait") {
-        return { type: "cut_stop_wait" };
+    if (value?.type === "cut_stop_wait" && validRequester) {
+        return { type: "cut_stop_wait", ...(requester === undefined ? {} : { requester }) };
     }
     if (
         (value?.type === "shutdown_if_idle"
             || value?.type === "shutdown_for_replacement")
+        && validRequester
         && Number.isInteger(value.pid)
         && (value.pid as number) > 0
         && typeof value.started_at === "string"
@@ -1205,6 +1235,7 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             started_at: value.started_at,
             requester_protocol_version:
                 value.requester_protocol_version as number,
+            ...(requester === undefined ? {} : { requester }),
         };
     }
     if (
@@ -1702,6 +1733,7 @@ export function requestHostShutdownIfIdle(
     socketPath: string,
     identity: HostIdentity,
     requesterProtocolVersion: number = HOST_PROTOCOL_VERSION,
+    requester?: HostRequester,
 ): Promise<ShutdownIfIdleResponse | undefined> {
     return new Promise((resolve) => {
         let socket: Socket;
@@ -1730,6 +1762,7 @@ export function requestHostShutdownIfIdle(
                 pid: identity.pid,
                 started_at: identity.started_at,
                 requester_protocol_version: requesterProtocolVersion,
+                ...(requester === undefined ? {} : { requester }),
             })}\n`);
         });
         socket.on("data", (chunk: string) => {
@@ -1753,12 +1786,14 @@ export function requestHostShutdownForReplacement(
     socketPath: string,
     identity: HostIdentity,
     requesterProtocolVersion: number = HOST_PROTOCOL_VERSION,
+    requester?: HostRequester,
 ): Promise<ShutdownForReplacementResponse | undefined> {
     return requestHostShutdown(socketPath, {
         type: "shutdown_for_replacement",
         pid: identity.pid,
         started_at: identity.started_at,
         requester_protocol_version: requesterProtocolVersion,
+        ...(requester === undefined ? {} : { requester }),
     }, parseShutdownForReplacementResponse);
 }
 
@@ -1772,6 +1807,7 @@ export type HostStopResult =
     | { readonly type: "no_answer" };
 
 export interface HostStopOptions {
+    readonly requester?: HostRequester;
     readonly targetBuildId?: string;
     // Resolve at the first answer instead of waiting for the stop to finish.
     readonly detach?: boolean;
@@ -1821,6 +1857,7 @@ export function requestHostStop(
                     ? {}
                     : { target_build_id: options.targetBuildId }),
                 ...(options.force === true ? { force: true } : {}),
+                ...(options.requester === undefined ? {} : { requester: options.requester }),
             })}\n`);
         });
         socket.on("data", (chunk: string) => {
