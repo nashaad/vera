@@ -55,7 +55,7 @@ const server = createServer((request, response) => {
         response.writeHead(200, { "content-type": "text/event-stream" });
         if (input === undefined) response.write(streamChunk(body.model, { role: "assistant", content: "Browser turn finished." }, "stop"));
         else {
-            const call = { index: 0, id: `browser-${++calls}`, type: "function", function: { name: "desktop_browser", arguments: JSON.stringify(input) } };
+            const call = { index: 0, id: `browser-${++calls}`, type: "function", function: { name: "builtin_browser", arguments: JSON.stringify(input) } };
             response.write(streamChunk(body.model, { role: "assistant", tool_calls: [call] }, "tool_calls"));
         }
         response.end("data: [DONE]\n\n");

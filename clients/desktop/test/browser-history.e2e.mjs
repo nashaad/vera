@@ -25,7 +25,7 @@ const provider = createServer((request, response) => {
             : undefined;
         response.writeHead(200, { "content-type": "text/event-stream" });
         if (input === undefined) response.write(streamChunk(body.model, { role: "assistant", content: "Browser history check complete." }, "stop"));
-        else response.write(streamChunk(body.model, { role: "assistant", tool_calls: [{ index: 0, id: "history-open", type: "function", function: { name: "desktop_browser", arguments: JSON.stringify(input) } }] }, "tool_calls"));
+        else response.write(streamChunk(body.model, { role: "assistant", tool_calls: [{ index: 0, id: "history-open", type: "function", function: { name: "builtin_browser", arguments: JSON.stringify(input) } }] }, "tool_calls"));
         response.end("data: [DONE]\n\n");
     });
 });

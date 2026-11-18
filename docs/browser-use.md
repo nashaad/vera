@@ -1,6 +1,6 @@
 ---
 title: "Browser use"
-description: "Browse and let Vera work in the desktop Browser pane."
+description: "Browse and let Vera work in the Browser pane."
 ---
 
 # Browser use
@@ -22,7 +22,7 @@ in the home, and downloaded files remain where you save them. Data left in
 `machine/desktop/chromium/browser` by earlier versions is not opened or deleted.
 
 Browser history lists web pages shown in the pane, whether opened by you or by
-`desktop_browser`. Search the history or browse it by day; opening an entry loads
+`builtin_browser`. Search the history or browse it by day; opening an entry loads
 it in the current tab. Clear removes history and recent site pages immediately,
 while preserving Vera page recents. Cmd+Shift+Delete
 (Ctrl+Shift+Delete on other platforms) opens history with Clear focused; press
@@ -40,7 +40,7 @@ pages in the Browser." Choose Turn off there or turn the switch off in the pane
 to stop further browser tool calls. If the Browser tools connection is
 unavailable, the notice stays visible and both controls are disabled until it
 is available again. A desktop window must be open for the tools to work.
-Vera's own pages, such as Usage, cannot be controlled by `desktop_browser`.
-When the desktop Browser and the Chrome extension's `browser` tool are both
+Vera's own pages, such as Usage, cannot be controlled by `builtin_browser`.
+When the built-in browser and the Chrome extension's `browser` tool are both
 loaded, Vera asks which to use before its first browser call and keeps the
 answer for the conversation.

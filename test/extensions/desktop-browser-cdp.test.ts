@@ -10,7 +10,7 @@ import { activate } from "../../extensions/desktop-browser/extension.ts";
 import type { VeraExtensionApi, VeraExtensionToolSpec } from "../../src/sdk/extensions.ts";
 import type { JsonValue } from "../../src/sdk/hooks.ts";
 
-describe("desktop browser without a web page", () => {
+describe("built-in browser without a web page", () => {
     test("returns the CDP error through the tool call", async () => {
         const root = mkdtempSync(join(tmpdir(), "vera-browser-cdp-"));
         const controller = new AbortController();

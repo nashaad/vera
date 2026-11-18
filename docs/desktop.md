@@ -1156,7 +1156,7 @@ home, and downloaded files remain where you save them. Data left in
 `machine/desktop/chromium/browser` by earlier versions is not opened or deleted.
 
 Browser history records web pages shown in the pane, whether opened by you or by
-`desktop_browser`. It is searchable and grouped by day. Opening an entry loads it
+`builtin_browser`. It is searchable and grouped by day. Opening an entry loads it
 in the current tab. Clear removes the history and recent site pages
 immediately, while keeping Vera page recents. Cmd+Shift+Delete
 (Ctrl+Shift+Delete on other platforms) opens Browser history with Clear focused;

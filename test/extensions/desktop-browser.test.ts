@@ -8,7 +8,22 @@ import { activate } from "../../extensions/desktop-browser/extension.ts";
 import type { VeraExtensionApi, VeraExtensionToolSpec } from "../../src/sdk/extensions.ts";
 import type { JsonValue } from "../../src/sdk/hooks.ts";
 
-describe("desktop browser requests", () => {
+describe("built-in browser requests", () => {
+    test("registers only the built-in browser tool name", () => {
+        const tools: VeraExtensionToolSpec[] = [];
+        const api = {
+            storage: { profile: "" },
+            requests: { handle() { return () => {}; } },
+            tools: { register(spec: VeraExtensionToolSpec) { tools.push(spec); } },
+        } as unknown as VeraExtensionApi;
+
+        activate(api);
+
+        const names = tools.map((tool) => tool.name);
+        expect(names).toEqual(["builtin_browser"]);
+        expect(names).not.toContain("desktop_browser");
+    });
+
     test("validates actions and bounds", () => {
         expect(parseBrowserRequest({ action: "read" })).toEqual({ action: "read" });
         expect(parseBrowserRequest({ action: "open", url: "file:///etc/passwd" })).toBeUndefined();
@@ -31,6 +46,7 @@ describe("desktop browser requests", () => {
                 tools: { register: (spec: VeraExtensionToolSpec) => { tool = spec; } },
             } as unknown as VeraExtensionApi;
             activate(api);
+            expect(tool!.description.startsWith("Use the built-in browser, the Browser pane in the Vera desktop window.")).toBe(true);
             expect(tool!.description).toContain("It cannot control Vera's own pages such as Usage.");
             expect(tool!.description).toContain("If a tool named browser is also available, ask the user once which browser to use before the first call, and keep the answer for this conversation.");
             const signal = new AbortController().signal;
