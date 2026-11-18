@@ -736,6 +736,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                     || error instanceof HostConnectionClosedError
                     ? new Error("Lost the connection to the host.")
                     : error,
+                true,
             );
         }
     }

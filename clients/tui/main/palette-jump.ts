@@ -101,7 +101,7 @@ export function runPaletteAction(rt: TuiRuntime, entry: TuiPaletteEntry): void {
         || entry.action.type === "prefill_composer"
         || entry.slashName === undefined
     ) {
-        rt.composer.clearComposer();
+        if (entry.action.type !== "reconnect") rt.composer.clearComposer();
         runStandalonePaletteAction(rt, entry.action);
         return;
     }
