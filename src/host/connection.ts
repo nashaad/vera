@@ -114,6 +114,7 @@ function createConnection_(
     let chunksReceived = 0;
     let closed = false;
     let remoteEnded = false;
+    let drainBufferedLines = false;
     let peerCloseExpected = false;
     let frameObserver: (() => void) | undefined;
     let failure: Error | undefined;
@@ -166,14 +167,16 @@ function createConnection_(
         socket.destroy();
     }
 
-    function teardown(error: Error): void {
+    function teardown(error: Error, drainPending = false): void {
         if (closed) {
             return;
         }
         closed = true;
+        remoteEnded = drainPending;
+        drainBufferedLines = drainPending;
         failure = error;
         resolveClosed?.(error);
-        pendingValues.length = 0;
+        if (!drainPending) pendingValues.length = 0;
         for (const receiver of pendingReceivers.splice(0)) {
             receiver.reject(error);
         }
@@ -244,7 +247,7 @@ function createConnection_(
         lines.push(chunk);
         processBufferedLines();
     });
-    socket.once("error", (error: Error) => fail(error));
+    socket.once("error", (error: Error) => teardown(error, true));
     socket.once("end", finishRemote);
     socket.once("close", () => {
         if (remoteEnded) {
@@ -314,7 +317,26 @@ function createConnection_(
     function receive(): Promise<unknown> {
         if (remoteEnded) {
             const value = pendingValues.shift();
-            if (value === undefined) return Promise.reject(failure);
+            if (value === undefined) {
+                if (!drainBufferedLines) return Promise.reject(failure);
+                const result = lines.next();
+                if (result.kind === "need-more") {
+                    drainBufferedLines = false;
+                    return Promise.reject(failure);
+                }
+                if (result.kind === "oversized") {
+                    return Promise.reject(oversizedFrameError(new OversizedFrame(result.byteLength)));
+                }
+                try {
+                    const parsed: unknown = JSON.parse(decoder.decode(result.bytes));
+                    try { frameObserver?.(); } catch {}
+                    return Promise.resolve(parsed);
+                } catch {
+                    drainBufferedLines = false;
+                    failure = new Error("host connection received malformed JSON");
+                    return Promise.reject(failure);
+                }
+            }
             return value instanceof OversizedFrame
                 ? Promise.reject(oversizedFrameError(value))
                 : Promise.resolve(value);

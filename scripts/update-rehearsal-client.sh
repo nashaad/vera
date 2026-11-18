@@ -2,7 +2,7 @@
 set -eu
 
 if [ "${VERA_REHEARSAL_CLEAN:-}" != 1 ]; then
-    exec env -i HOME="${HOME:?}" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" TERM="${TERM:-xterm-256color}" VERA_REHEARSAL_CLEAN=1 VERA_REHEARSAL_LEG="${VERA_REHEARSAL_LEG:-}" sh "$0" "$@"
+    exec env -i HOME="${HOME:?}" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" TERM=xterm-256color VERA_REHEARSAL_CLEAN=1 VERA_REHEARSAL_LEG="${VERA_REHEARSAL_LEG:-}" sh "$0" "$@"
 fi
 
 fail() { echo "FAIL: $*"; exit 1; }
@@ -99,7 +99,7 @@ detach_stdio() {
 
 if [ -z "${VERA_REHEARSAL_LEG:-}" ]; then
     result=0
-    for leg in cold hot wrong-checksum truncated-tarball; do
+    for leg in cold cold-palette hot wrong-checksum truncated-tarball; do
         echo "== leg: $leg =="
         VERA_REHEARSAL_LEG="$leg" sh "$0" "$feed" "$prefix/$leg" "$home/$leg" "$older" "$newer" || result=1
     done
@@ -144,9 +144,13 @@ if command -v tmux >/dev/null 2>&1; then
     agent=$(sed -n 's/.*"agent_id":"\([^"]*\)".*/\1/p' "$work/stdio.log" | head -1)
     tmux -L "$tmux_name" -f /dev/null new-session -d -s crow -x 120 -y 40 "'$vera' attach '$agent'" || fail "attach TUI"
     tui=1
-    sleep 3
-    tmux -L "$tmux_name" capture-pane -p -t crow >"$work/tui-start.log" || fail "capture attached TUI"
-    grep -q 'Message Vera' "$work/tui-start.log" || { cat "$work/tui-start.log"; fail "attached TUI did not start"; }
+    tries=0
+    while :; do
+        tmux -L "$tmux_name" capture-pane -p -t crow >"$work/tui-start.log" || fail "capture attached TUI"
+        grep -q 'Message Vera' "$work/tui-start.log" && break
+        tries=$((tries + 1)); [ "$tries" -lt 30 ] || { cat "$work/tui-start.log"; fail "attached TUI did not start"; }
+        sleep 1
+    done
     ok "attached TUI in private tmux server"
 else
     echo "skip: tmux absent, TUI reattachment not tested"
@@ -159,6 +163,9 @@ while :; do
     tries=$((tries + 1)); [ "$tries" -lt 60 ] || fail "faux turn did not start"
     sleep 1
 done
+if [ "$tui" = 1 ] && [ "$leg" != hot ]; then
+    tmux -L "$tmux_name" send-keys -t crow -l 'Reply with exactly: crow sails again'
+fi
 "$vera" update >"$work/update.log" 2>&1 &
 update=$!
 tries=0
@@ -177,27 +184,39 @@ until_file "$work/stdio.log" '"type":"turn_finished"'
 grep -q '"type":"assistant_delta".*container faux passed' "$work/stdio.log" || fail "running turn did not finish with faux reply"
 new_build=$(basename "$(readlink "$share/current")")
 [ "$new_build" != "$old_build" ] || fail "build did not change"
-if [ "$leg" = cold ]; then
+if [ "$leg" = cold ] || [ "$leg" = cold-palette ]; then
     kill -0 "$old_pid" 2>/dev/null && fail "cold update left the old host running"
     grep -q "The next 'vera' starts it" "$work/update.log" || fail "cold update start notice missing"
     ok "default cold update drained the turn, stopped PID $old_pid and activated $new_build"
     if [ "$tui" = 1 ]; then
-        echo 'observation: old TUI after default cold update:'
-        tmux -L "$tmux_name" capture-pane -p -t crow | sed '/^[[:space:]]*$/d' || true
-        tmux -L "$tmux_name" send-keys -t crow C-x d
-        sleep 1
-        tmux -L "$tmux_name" kill-server 2>/dev/null || true
-        tui=0
+        tries=0
+        while :; do
+            tmux -L "$tmux_name" capture-pane -p -t crow >"$work/tui-stop.log" || fail "capture stopped TUI"
+            grep -q 'The host stopped' "$work/tui-stop.log" && break
+            tries=$((tries + 1)); [ "$tries" -lt 30 ] || { cat "$work/tui-stop.log"; fail "planned-stop screen missing"; }
+            sleep 1
+        done
+        ok "$leg TUI displayed the planned stop"
+        if [ "$leg" = cold ]; then
+            tmux -L "$tmux_name" send-keys -t crow C-l
+        else
+            tmux -L "$tmux_name" send-keys -t crow C-p
+            sleep 1
+            tmux -L "$tmux_name" send-keys -t crow -l 'reconnect host'
+            sleep 1
+            tmux -L "$tmux_name" send-keys -t crow Enter
+        fi
+    else
+        printf '%s\n' '{"type":"detach"}' >&3 || true
+        wait "$stdio" 2>/dev/null || true
+        stdio=
+        exec 3>&-
+        start_host
+        ok "next vera stdio command invoked after cold activation"
     fi
-    printf '%s\n' '{"type":"detach"}' >&3 || true
-    wait "$stdio" 2>/dev/null || true
-    stdio=
-    exec 3>&-
-    start_host
-    ok "next vera stdio command invoked after cold activation"
-    [ "$(field "$lock" build_id)" = "$new_build" ] || fail "next command attached to $(field "$lock" build_id) (PID $(pid_of_host)), expected $new_build"
 fi
 until_file "$lock" "$new_build"
+[ "$(field "$lock" build_id)" = "$new_build" ] || fail "host build does not match $new_build"
 new_pid=$(pid_of_host)
 [ "$new_pid" != "$old_pid" ] || fail "host PID did not change"
 [ "$(basename "$(readlink "$share/rollback")")" = "$old_build" ] && [ -d "$share/releases/$old_build" ] || fail "rollback not retained"
@@ -214,7 +233,14 @@ if [ "$tui" = 1 ]; then
     counts
     before=$(field "$work/counts" requests)
     before_completed=$(field "$work/counts" completed)
-    tmux -L "$tmux_name" send-keys -t crow -l 'Reply with exactly: container faux passed'
+    if [ "$leg" = hot ]; then
+        tmux -L "$tmux_name" send-keys -t crow -l 'Reply with exactly: container faux passed'
+    else
+        tmux -L "$tmux_name" capture-pane -p -t crow >"$work/tui-restored.log"
+        grep -q 'Reply with exactly: crow sails again' "$work/tui-restored.log" || fail "unsent draft was not restored"
+        grep -q 'container faux passed' "$work/tui-restored.log" || fail "session transcript was not restored"
+        ok "$leg TUI restored the session and unsent draft"
+    fi
     sleep 1
     tmux -L "$tmux_name" send-keys -t crow Enter
     tries=0

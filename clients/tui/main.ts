@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
-import { currentReleaseBuildId } from "../../src/release/layout.ts";
+import { assertInstalledBuild, installedBuildId } from "./installed-build.ts";
 import {
     launcherKeyFromEnv,
     RELAUNCH_LAUNCHER_ENV,
@@ -130,6 +130,7 @@ import {
     createConfiguredTuiAgentClients,
     pairedHostSocket,
     refuseOtherHostBuild,
+    refuseOtherRunningHostBuild,
 } from "./configured-agent-client.ts";
 import {
     configuredTuiClientExtensions,
@@ -559,10 +560,9 @@ export interface TuiDependencies {
     readonly cutStopWait?: () => Promise<CutStopWaitOutcome>;
     /** Set only under a relaunch-capable launcher; leaves the TUI for the launcher to restart. */
     readonly relaunchTui?: (request: TuiRelaunchRequest) => Promise<void>;
-    /** This TUI's build id. Compared with the installed build only when a relaunch is possible. */
     readonly clientBuildId?: string;
-    /** Reads the `current` link. Called only when relaunchTui is set. */
     readonly installedBuildId?: () => string | undefined;
+    readonly refuseOtherHostBuild?: () => Promise<void>;
     readonly operateModels?: (operation: ModelOperation, onResult: (result: ModelOperationResult) => void, workspace?: string, onStep?: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readHostModelSettings?: (
         workspace: string,
@@ -843,7 +843,8 @@ export async function startConfiguredTui(
                 exit: (code) => process.exit(code),
             })),
             clientBuildId,
-            installedBuildId: () => currentReleaseBuildId(),
+            installedBuildId,
+            refuseOtherHostBuild: () => refuseOtherRunningHostBuild(clientBuildId),
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
             cutStopWait: async () => cutStopWaitThroughHost(await pairedSocket()),
             operateModels: async (operation, onResult, workspace, onStep) => operateModelsThroughHost(await pairedSocket(), operation, onResult, workspace, onStep),
@@ -900,6 +901,7 @@ export async function startConfiguredTui(
                 const confirmWedge = options?.confirmWedge === true;
                 await refuseOtherHostBuild(clientBuildId);
                 if (options?.attachOnly === true) return attach(currentAgentId);
+                assertInstalledBuild(clientBuildId, installedBuildId());
                 host = await findOrStartResidentHost({
                     confirmBusyUpgrade: confirmWedge
                         ? confirmManualReconnectUpgrade
