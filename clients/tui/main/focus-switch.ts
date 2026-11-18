@@ -9,11 +9,13 @@ import { HostConnectionClosedError } from "../../../src/host/connection.ts";
 import { InstalledBuildChangedError } from "../installed-build.ts";
 import { restoreRawInput } from "../terminal-restore.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
-import { isHomeClient } from "../home-client.ts";
+import { createHomeClient, isHomeClient } from "../home-client.ts";
 import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { SESSION_SWITCH_TIMEOUT_MS, closeSessionFailure, currentDraft, disconnectedRecoveryHint, reconnectBusyMessage, renderState, switchToClient } from "../main.ts";
 import { focusedUiRequest } from "../main/agents-dials.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
+import { requestSessionSettings } from "./diagnostics-ops.ts";
+import { refreshHomeSessions } from "./session-ops.ts";
 import type { TuiSessionLeaveDisposition, TuiSessionLeaveResult } from "../session-lifecycle.ts";
 import { appendTuiDiagnostic, appendTuiError, failTuiConnection, type TuiState } from "../state.ts";
 import type { TuiTimelinePickerTransition } from "../timeline-picker.ts";
@@ -464,10 +466,12 @@ export function beginHostReconnect(rt: TuiRuntime,
     },
 ): void {
     const currentAgentId = rt.client.agentId;
+    const home = isHomeClient(rt.client);
     if (
         rt.sessionSwitchPending
-        || rt.dependencies.reconnectSession === undefined
-        || currentAgentId === undefined
+        || (home
+            ? rt.dependencies.reconnectHome === undefined
+            : rt.dependencies.reconnectSession === undefined || currentAgentId === undefined)
     ) {
         return;
     }
@@ -496,22 +500,31 @@ export function beginHostReconnect(rt: TuiRuntime,
         settleLostHost(rt, "Host connection closed");
     }
     const draft = options.clearComposer ? undefined : reconnectDraft;
+    const reconnectOptions = {
+        ...(replaceExisting ? { replaceExisting: true } : {}),
+        ...(confirmWedge ? { confirmWedge: true } : {}),
+        ...(rt.relaunching === true && rt.dependencies.relaunchTui !== undefined
+            ? { attachOnly: true }
+            : {}),
+    };
+    const reconnect = home
+        ? rt.dependencies.reconnectHome!(reconnectOptions).then(() =>
+            createHomeClient(rt.client.workspace ?? process.cwd(), rt.homeClientOptions))
+        : rt.dependencies.reconnectSession!(currentAgentId!, reconnectOptions);
     renderState(rt);
     void withSessionSwitchDeadline(rt, 
-        rt.dependencies.reconnectSession(currentAgentId, {
-            ...(replaceExisting ? { replaceExisting: true } : {}),
-            ...(confirmWedge ? { confirmWedge: true } : {}),
-            ...(rt.relaunching === true && rt.dependencies.relaunchTui !== undefined
-                ? { attachOnly: true }
-                : {}),
-        }),
+        reconnect,
         ((next: TuiAgentClient) => discardSwitchTarget(rt, next)),
     ).then((next) => {
         if (rt.shuttingDown) {
             discardSwitchTarget(rt, next);
             return;
         }
-        switchToClient(rt, next, draft, { preserveReconnectTranscript: true });
+        switchToClient(rt, next, draft, { preserveReconnectTranscript: !home });
+        if (home) {
+            requestSessionSettings(rt);
+            void refreshHomeSessions(rt);
+        }
         if (options.manual !== true) {
             rt.flightRecorder?.record({ type: "host_restart_outcome", outcome: "completed" });
         }
@@ -530,6 +543,13 @@ export function beginHostReconnect(rt: TuiRuntime,
             return;
         }
         if (error instanceof HostReplacementBusyError) {
+            if (home) {
+                rt.openInspectDocument({
+                    title: "Reconnect host",
+                    markdown: "Could not restart the host: other work is still using it. Choose Reconnect host again once that work finishes.",
+                });
+                return;
+            }
             if (options.lossMessage !== undefined) {
                 rt.connectionFailed = true;
                 rt.connectionFailure = options.lossMessage;
@@ -548,6 +568,10 @@ export function beginHostReconnect(rt: TuiRuntime,
             return;
         }
         const message = error instanceof Error ? error.message : String(error);
+        if (home) {
+            rt.openInspectDocument({ title: "Reconnect host", markdown: `Could not reconnect: ${message}` });
+            return;
+        }
         if (options.lossMessage !== undefined && !rt.connectionFailed) {
             rt.connectionFailed = true;
             rt.connectionFailure = options.lossMessage;
@@ -590,7 +614,7 @@ export function beginHostReconnect(rt: TuiRuntime,
 
 function handleInstalledBuildChange(
     rt: TuiRuntime,
-    sessionId: string,
+    sessionId: string | undefined,
     clientBuildId: string,
     installedBuildId: string,
     draft: ReturnType<typeof currentDraft>,
@@ -601,11 +625,16 @@ function handleInstalledBuildChange(
         refuseInstalledBuildChange(rt, clientBuildId, installedBuildId, failureText);
         return;
     }
-    void relaunch({ sessionId, ...(draft === undefined ? {} : { draft }) })
+    void relaunch({ ...(sessionId === undefined ? {} : { sessionId }), ...(draft === undefined ? {} : { draft }) })
         .catch((error: unknown) => {
             if (rt.shuttingDown) return;
             const message = error instanceof Error ? error.message : String(error);
-            rt.state = appendTuiError(rt.state, failureText?.(message) ?? `Could not reconnect: ${message}`);
+            const text = failureText?.(message) ?? `Could not reconnect: ${message}`;
+            if (isHomeClient(rt.client)) {
+                rt.openInspectDocument({ title: "Reconnect host", markdown: text });
+                return;
+            }
+            rt.state = appendTuiError(rt.state, text);
             renderState(rt);
             rt.composer.focus();
         });
@@ -629,6 +658,10 @@ function refuseInstalledBuildChange(
         rt.hostBuildRefusal = { hostBuildId: undefined };
         rt.activity = "disconnected";
         settleLostHost(rt, message);
+        if (isHomeClient(rt.client)) {
+            rt.openInspectDocument({ title: "Reconnect host", markdown: message });
+            return;
+        }
         rt.state = appendTuiError(rt.state, message);
         renderState(rt);
         rt.composer.focus();
@@ -640,7 +673,12 @@ function refuseInstalledBuildChange(
             return;
         }
         const message = error instanceof Error ? error.message : String(error);
-        rt.state = appendTuiError(rt.state, failureText?.(message) ?? `Could not reconnect: ${message}`);
+        const text = failureText?.(message) ?? `Could not reconnect: ${message}`;
+        if (isHomeClient(rt.client)) {
+            rt.openInspectDocument({ title: "Reconnect host", markdown: text });
+            return;
+        }
+        rt.state = appendTuiError(rt.state, text);
         renderState(rt);
         rt.composer.focus();
     });
@@ -827,6 +865,10 @@ function refuseChangedHostBuild(
     rt.activity = "disconnected";
     settleLostHost(rt, error.message);
     const message = hostBuildChangedMessage(error);
+    if (isHomeClient(rt.client)) {
+        rt.openInspectDocument({ title: "Reconnect host", markdown: message });
+        return;
+    }
     rt.state = appendTuiError(rt.state, failureText === undefined ? message : failureText(message));
     renderState(rt);
     rt.composer.focus();
