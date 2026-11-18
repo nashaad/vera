@@ -24,6 +24,25 @@ test("a known update type with an invalid shape stays invalid", () => {
         .toBe("update");
 });
 
+test("@core malformed notices are skippable only with a valid sequence", () => {
+    const notice = {
+        type: "notice",
+        key: "extensions_config",
+        count: 1,
+        facts: { enabled: true },
+    };
+    expect(parseAgentUpdateFrame({ ...notice, seq: 8 }))
+        .toEqual({ kind: "invalid_notice", seq: 8 });
+    expect(parseAgentUpdate({ ...notice, seq: 8 })).toBeUndefined();
+    expect(parseAgentUpdateFrame({ ...notice, source: "vera.example", seq: 8 }).kind)
+        .toBe("update");
+    for (const seq of [undefined, null, "8", -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+        expect(parseAgentUpdateFrame({ ...notice, seq })).toEqual({ kind: "invalid" });
+    }
+    expect(parseAgentUpdateFrame({ type: "status", state: "unknown", seq: 8 }))
+        .toEqual({ kind: "invalid" });
+});
+
 test("a value without an object shape or a string type is invalid", () => {
     for (const value of [null, "history", 3, [], {}, { type: 7, seq: 1 }]) {
         expect(parseAgentUpdateFrame(value)).toEqual({ kind: "invalid" });
