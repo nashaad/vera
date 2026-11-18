@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
+import { cleanDesktopPackages } from "./desktop-package-gc.ts";
 import {
     defaultInstallPrefix,
     currentSymlinkPath,
@@ -68,10 +69,21 @@ function linkTarget(path: string, root: string): string | undefined {
     }
 }
 
+// Removing host builds also leaves their desktop packages without a host.
 export function gcReleases(
     prefix = defaultInstallPrefix(),
     options: GcOptions = {},
 ): readonly string[] {
+    const removed = sweepReleases(prefix, options);
+    try {
+        cleanDesktopPackages(prefix, { onHeld: options.onHeld });
+    } catch (error) {
+        options.onHeld?.(`Desktop package cleanup failed: ${String(error)}`);
+    }
+    return removed;
+}
+
+function sweepReleases(prefix: string, options: GcOptions): readonly string[] {
     const root = resolve(releasesDirectory(prefix));
     if (!existsSync(root)) {
         return [];
