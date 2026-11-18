@@ -149,7 +149,7 @@ function AnnexMenu({ page, onHome }: AnnexChromeProps) {
                                                 onHome();
                                             }}
                                         >
-                                            › {entry.label}
+                                            {entry.label}
                                         </button>
                                     )
                                     : (
@@ -158,7 +158,7 @@ function AnnexMenu({ page, onHome }: AnnexChromeProps) {
                                             role="menuitem"
                                             href={entry.href}
                                         >
-                                            › {entry.label}
+                                            {entry.label}
                                         </a>
                                     )
                             ))}
