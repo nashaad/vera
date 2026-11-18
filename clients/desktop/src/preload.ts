@@ -52,6 +52,7 @@ const bridge: DesktopBridge = {
     watchSession: (pane: SessionPane, agentId: string) => ipcRenderer.send(CHANNELS.sessionWatch, pane, agentId),
     sendSession: (pane: SessionPane, text: string) => ipcRenderer.send(CHANNELS.sessionSend, pane, text),
     unwatchSession: (pane: SessionPane) => ipcRenderer.send(CHANNELS.sessionUnwatch, pane),
+    reportSessionShown: (agentId: string | undefined) => ipcRenderer.send(CHANNELS.sessionShown, agentId),
     setTitleBarHeight: (height: number) => ipcRenderer.send(CHANNELS.titleBar, height),
     setWindowBackground: (color: string) => ipcRenderer.send(CHANNELS.windowBackground, color),
     setTheme: (choice: ThemeChoice) => ipcRenderer.send(CHANNELS.theme, choice),

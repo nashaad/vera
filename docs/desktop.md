@@ -47,12 +47,14 @@ full-width title bar and no status bar.
   stays in every view until the tools are turned off.
 - When the host announces a restart for an update, the banner says `Vera is
   restarting`. The window reconnects by itself once the host closes and the new
-  host answers, and the draft in the composer stays. The host sends the notice
+  host answers, and the draft in the composer stays unless the window relaunches
+  into a newer build, which does not keep it. The host sends the notice
   on an open conversation's connection, so a window with no conversation open
   sees the connection drop and offers Reconnect.
-- When the installed Vera is another build than the app, the banner says `Vera
-  was updated` and shows the build of each. It offers no button: quit and reopen
-  Vera.
+- When the installed Vera is another build than the app, the app relaunches
+  itself into the matching desktop package and reopens the conversation it
+  showed. When it cannot, the banner says `Vera was updated` and shows the build
+  of each. It offers no button: quit and reopen Vera.
 
 While attached, the app asks the host for its identity and session count every
 three seconds. A reply that does not arrive, or a host that closes the
@@ -1227,12 +1229,22 @@ A checkout run uses its own CLI.
 Before it runs that command, on first start and on Reconnect, the app compares
 its own build with the installed release's. The build stamped into the app is
 the id a release packed from the same commit carries. When the two differ, the
-app starts no host and the banner says `The installed Vera is now build
+app starts no host. When the app runs under the app shell and a desktop package
+is installed for the installed build, that the shell can load, the app closes its
+connections, drops its hold on the package it was using and starts itself again
+through the shell, which opens that package. The new window reopens the
+conversation the old one showed, if the session list carries it. It does not
+carry the composer draft, because the app keeps none on disk, and it does not ask
+about background commands in open conversations, which keep running on the host.
+When there is no such package, when the package needs a newer app shell, or when
+the app runs from a checkout, the banner says `The installed Vera is now build
 <installed-build>, and this desktop app is build <app-build>. Quit and reopen
 Vera to continue.` The same rule decides this for the terminal UI, which words
-it for the terminal. The check is skipped when the app has no stamped build, when
-no release is installed, and when `VERA_DESKTOP_DEV_CLI` is set, because that
-run starts the host from the checkout and not from the installed release.
+it for the terminal. The check is skipped when the app has no stamped build and
+when no release is installed. It is also skipped when `VERA_DESKTOP_DEV_CLI` is
+set and the app is not under the shell, because that run starts the host from the
+checkout and not from the installed release. Under the shell the installed build
+is read from the shell's own prefix.
 
 `VERA_HOME` is inherited unchanged, so a trial home attaches to that home's
 host and writes nothing outside it. The app's own Chromium user data, including
@@ -1247,7 +1259,8 @@ the desktop package installed for that host build, the newest one when several
 are installed. The package holds the window, its preload and the task workers
 and sits under `~/.local/share/vera/desktop/<host build id>/<desktop version>/`.
 While the app runs it records that it uses the package, so a cleanup does not
-remove it.
+remove it. A relaunch into a newer build goes through the shell, so the shell
+opens the package for the build `current` names then.
 
 A package names the shell API it needs in `desktop-package.json` as
 `shell_api`, and a package without one needs API 1. This shell offers API 1 and
@@ -1723,6 +1736,7 @@ node clients/desktop/test/browser.e2e.mjs
 node clients/desktop/test/artifact-pane.e2e.mjs
 node clients/desktop/test/pages.e2e.mjs
 node clients/desktop/test/themes.e2e.mjs
+node clients/desktop/test/relaunch.e2e.mjs
 ```
 
 `bun run test:desktop` builds the app once and runs every
@@ -1812,6 +1826,13 @@ installed list, filters it and chooses a theme from it (checking the list holds 
 file path), closes the list with Escape, counts the Vera Theme Import processes
 at each step, relaunches to check the imported theme is remembered, and
 removes the saved file to check the window falls back to Dark.
+
+The relaunch test builds two desktop packages for two build ids into a throwaway
+install prefix and starts the app shell on the first. It switches the prefix's
+`current` link to the second, chooses Reconnect, and checks the first process
+exits and drops its hold, the new process loads the second package, the same
+conversation is open and attached, and the banner does not appear. It stops the
+processes and the host it started.
 
 The compose test runs a local provider that streams fixed replies and points a
 throwaway home's only model at it. It starts a session from New Chat in a folder

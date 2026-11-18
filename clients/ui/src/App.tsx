@@ -17,7 +17,9 @@ import { Overlays } from "./overlays/Overlays.tsx";
 import { ProviderWizard } from "./pages/settings/ProviderWizard.tsx";
 import { RouterProvider } from "./pages/router.tsx";
 import { QuitWarning } from "./session/QuitWarning.tsx";
+import { ReopenSession } from "./session/ReopenSession.tsx";
 import { SessionEvidenceReporter } from "./session/SessionEvidence.tsx";
+import { SessionShownReporter } from "./session/SessionShownReporter.tsx";
 import { SubagentCommands } from "./subagents/SubagentCommands.tsx";
 import { SubagentsSync } from "./subagents/SubagentsSync.tsx";
 import { bannerFor } from "./state/connection.ts";
@@ -105,6 +107,8 @@ export function App() {
                     {loaded ? <SubagentsSync /> : null}
                     {loaded ? <PagePaneSync /> : null}
                     <SessionEvidenceReporter />
+                    <SessionShownReporter />
+                    <ReopenSession />
                     <QuitWarning listAgents={listAgents} />
                 </div>
             </ViewEnvContext.Provider>

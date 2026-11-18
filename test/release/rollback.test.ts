@@ -337,6 +337,7 @@ function placeDesktopPackage(prefix: string, hostBuildId: string, version: strin
         desktop_version: version,
         host_build_id: hostBuildId,
         entry: "main.js",
+        shell_api: 1,
     }));
 }
 

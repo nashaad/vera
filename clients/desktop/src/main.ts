@@ -10,6 +10,9 @@ import { setSessionArchivedThroughHost } from "../../../src/host/session-archive
 import { checkFile, prepareFiles } from "../../../src/attachments/files.ts";
 import { FILE_COUNT_LIMIT } from "../../../src/attachments/file-limits.ts";
 import { selectedVeraHome } from "../../../src/profile-paths.ts";
+import { findDesktopPackage } from "../../../src/release/desktop-packages.ts";
+import { runningDesktopShell } from "../../../src/release/desktop-shell.ts";
+import { takeRelaunchRecord, writeRelaunchRecord } from "../../../src/release/relaunch.ts";
 import type {
     BranchSessionResult,
     CloseSessionResult,
@@ -35,6 +38,7 @@ import { AssignmentService } from "./assignments.ts";
 import { BootSession } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
 import { DEFAULT_DESKTOP_FLAGS, FlagsStore, flagsPath } from "./desktop-flags.ts";
+import { DESKTOP_RELAUNCH_KEY, DesktopRelaunch } from "./relaunch.ts";
 import { CATALOG_TASK_FILE, CATALOG_TASK_SERVICE, parseCatalogReply, type CatalogTask } from "./extension-catalog/task-protocol.ts";
 import { EXTENSION_TASK_FILE, EXTENSION_TASK_SERVICE, parseInstallReply, type InstallTask } from "./extension-install/task-protocol.ts";
 import { catalogAddress } from "./extensions/catalog-address.ts";
@@ -111,6 +115,20 @@ let annexReadVersion = 0;
 let browserPane: BrowserPane | undefined;
 let browserGateway: BrowserGateway | undefined;
 
+const relaunch = new DesktopRelaunch({
+    shell: runningDesktopShell,
+    findPackage: findDesktopPackage,
+    writeRecord: (record) => writeRelaunchRecord(DESKTOP_RELAUNCH_KEY, record, selectedVeraHome()),
+    takeRecord: () => takeRelaunchRecord(DESKTOP_RELAUNCH_KEY, Date.now(), selectedVeraHome()),
+    stop: () => shutdown(),
+    release: () => runningDesktopShell()?.release(),
+    restart: () => {
+        app.relaunch();
+        app.exit(0);
+    },
+});
+// The session the window before this one had open; the page is told once the host is attached.
+let sessionToReopen = relaunch.takeSession();
 const pipe = new HostPipe(sendEvent);
 const flagsStore = new FlagsStore(flagsPath(selectedVeraHome()), app.isPackaged);
 // With Reasoning off the window asks the host for a character count in place of the reasoning text.
@@ -164,12 +182,17 @@ function sendEvent(event: DesktopEvent): void {
 }
 
 function receiveEvent(event: DesktopEvent): void {
+    if (event.type === "build_changed" && relaunch.buildChanged(event)) return;
     sendEvent(event);
     if (event.type === "ready") {
         hostSocketPath = event.socketPath;
         pipe.connect(event.socketPath);
         browserGateway?.start(event.socketPath);
         sessionPanes.connect(event.socketPath);
+        if (sessionToReopen !== undefined) {
+            sendEvent({ type: "reopen_session", agentId: sessionToReopen });
+            sessionToReopen = undefined;
+        }
     } else if (event.type === "disconnected" || event.type === "failed" || event.type === "build_changed") {
         hostSocketPath = undefined;
         annexReadVersion += 1;
@@ -341,6 +364,10 @@ ipcMain.on(CHANNELS.sessionSend, (event, pane: unknown, text: unknown) => {
 });
 ipcMain.on(CHANNELS.sessionUnwatch, (event, pane: unknown) => {
     if (fromWindow(event)) sessionPanes.get(pane)?.unwatch();
+});
+ipcMain.on(CHANNELS.sessionShown, (event, agentId: unknown) => {
+    if (!fromWindow(event)) return;
+    relaunch.sessionShown(typeof agentId === "string" && agentId.length > 0 && agentId.length <= MAX_AGENT_ID_CHARS ? agentId : undefined);
 });
 ipcMain.handle(CHANNELS.sessionBranch, async (event, agentId: unknown, boundaryId: unknown): Promise<BranchSessionResult> => {
     const source = idArgument(agentId);

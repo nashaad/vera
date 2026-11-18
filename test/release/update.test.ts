@@ -854,6 +854,7 @@ function desktopTarball(work: string, hostBuildId: string, desktopVersion: strin
             desktop_version: desktopVersion,
             host_build_id: hostBuildId,
             entry: "main.js",
+            shell_api: 1,
         }),
     );
     writeFileSync(join(source, "main.js"), "// entry\n");

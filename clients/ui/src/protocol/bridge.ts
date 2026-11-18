@@ -57,7 +57,9 @@ export type DesktopEvent =
         readonly message: string;
         readonly clientBuildId: string;
         readonly installedBuildId: string;
-    };
+    }
+    // The window was relaunched into the installed build; the page opens the session the last window showed.
+    | { readonly type: "reopen_session"; readonly agentId: string };
 
 // The most folder paths one existence check accepts.
 export const MAX_FOLDER_CHECKS = 64;
@@ -298,6 +300,8 @@ export interface DesktopBridge {
     // Sends one request line on the pane's watch connection, such as a history page request.
     sendSession(pane: SessionPane, text: string): void;
     unwatchSession(pane: SessionPane): void;
+    // Tells the shell which session the page shows, so a relaunch can reopen it. Undefined on any other page.
+    reportSessionShown(agentId: string | undefined): void;
     // Starts a new session holding the conversation before one of the source session's prompts.
     branchSession(agentId: string, boundaryId: string): Promise<BranchSessionResult>;
     // Starts a new session holding a copy of the whole conversation. The result's prompt is empty.
