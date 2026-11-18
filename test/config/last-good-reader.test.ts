@@ -68,7 +68,7 @@ test("a config remembered under one home is not served under another", () => {
         expect(other.config).toBeUndefined();
         expect(other.error).toBeInstanceOf(VeraConfigError);
     } finally {
-        if (previous === undefined) delete process.env[VERA_HOME_ENV];
+        if (previous === undefined) process.env[VERA_HOME_ENV] = process.env.VERA_TEST_HOME!;
         else process.env[VERA_HOME_ENV] = previous;
     }
 });

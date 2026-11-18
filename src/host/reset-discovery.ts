@@ -2,9 +2,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { basename, join, resolve, sep } from "node:path";
 
-import { defaultVeraHomeDirectory, selectedVeraHome, veraRuntimeDirectoryIn } from "../profile-paths.ts";
+import { selectedVeraHome, veraHomeDirectory, veraRuntimeDirectoryIn } from "../profile-paths.ts";
 import { liveProcessDirectoryIn } from "../live-process.ts";
 import { type LaunchVeraHome } from "./launch-environment.ts";
+import { targetPidIsAncestor, type ProcessAncestryOptions } from "./process-ancestry.ts";
 import { classifyVeraProcess, START_TIME_TOLERANCE_MS } from "./process-identity.ts";
 import { defaultHostLockPath, inspectHostLockFile, type HostLockInspection } from "./lockfile.ts";
 import { readRecordedWorkers, type RecordedWorker } from "./pool/worker-records.ts";
@@ -36,6 +37,24 @@ export interface ResetCandidate {
     readonly proof: ResetProof;
     readonly recorded: boolean;
     readonly build?: string;
+}
+
+export function clientOwnedWatchdog(
+    candidate: ResetCandidate,
+    clientPids: readonly number[],
+    isAncestor: (pid: number, options: ProcessAncestryOptions) => boolean | undefined = targetPidIsAncestor,
+): boolean {
+    return candidate.role === "watchdog"
+        && clientPids.some((pid) => isAncestor(pid, { currentPid: candidate.pid }) !== false);
+}
+
+export function stoppableResetCandidates(
+    candidates: readonly ResetCandidate[],
+    isAncestor?: Parameters<typeof clientOwnedWatchdog>[2],
+): ResetCandidate[] {
+    const clientPids = [process.pid, ...candidates.filter((candidate) => candidate.role === "client").map((candidate) => candidate.pid)];
+    return candidates.filter((candidate) => candidate.role !== "client"
+        && !clientOwnedWatchdog(candidate, clientPids, isAncestor));
 }
 
 export interface ResetRecordedProcess {
@@ -110,10 +129,9 @@ export function startsMatch(osStartedAt: number, recorded: string): boolean {
 
 export async function discoverResetProcesses(
     system: ResetProcessSystem,
-    options: { readonly home?: string; readonly defaultHome?: string; readonly selfPid?: number } = {},
+    options: { readonly home?: string; readonly selfPid?: number } = {},
 ): Promise<ResetDiscovery> {
     const home = normalizeResetHome(selectedVeraHome(options.home));
-    const defaultHome = normalizeResetHome(options.defaultHome ?? defaultVeraHomeDirectory());
     const runtime = veraRuntimeDirectoryIn(home);
     const socketPath = join(runtime, "host.sock");
     const lock = await inspectHostLockFile(defaultHostLockPath(home));
@@ -141,7 +159,8 @@ export async function discoverResetProcesses(
         if (launch.state === "set") {
             if (normalizeResetHome(launch.home) !== home) continue;
             proof = "launch_home";
-        } else if (launch.state === "unset" && home === defaultHome) {
+        } else if (launch.state === "unset" && launch.userHome !== undefined && launch.userHome.length > 0
+            && normalizeResetHome(veraHomeDirectory(launch.userHome)) === home) {
             proof = "default_home";
         } else if (hostAnswer !== undefined && hostAnswer.pid === sample.pid) {
             proof = "host_socket";

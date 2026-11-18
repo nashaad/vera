@@ -139,7 +139,7 @@ test("force stop reaches verified workers during startup but leaves a reused pid
         expect(processIsAlive(children[1]!.pid)).toBe(true);
         expect(existsSync(`${markers[1]}.term`)).toBe(false);
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         await claim.release();
         await clean(children);
@@ -229,7 +229,7 @@ test("a stale plain host lock cannot hide a live recorded session process", asyn
         expect(error).toContain(`Session process PID ${worker.pid} is still running.`);
         expect(processIsAlive(worker.pid)).toBe(true);
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         await clean([worker]);
         await rm(home, { recursive: true, force: true });

@@ -108,7 +108,7 @@ async function withPrintHome(
         await run({ workspace, requests: () => requests });
     } finally {
         server.stop(true);
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         await rm(root, { recursive: true, force: true });
     }

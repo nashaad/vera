@@ -30,6 +30,10 @@ export interface HostLoggerOptions {
 }
 
 export function createHostLogger(options: HostLoggerOptions = {}): HostLog {
+    return createHostLogWriter(options);
+}
+
+export function createHostLogWriter(options: HostLoggerOptions = {}): (entry: HostLogEntry) => boolean {
     const path = options.path ?? defaultHostLogPath();
     const now = options.now ?? (() => new Date());
     let prepared = false;
@@ -48,7 +52,9 @@ export function createHostLogger(options: HostLoggerOptions = {}): HostLog {
                 })}\n`,
                 { encoding: "utf8", mode: 0o600 },
             );
+            return true;
         } catch {
+            return false;
         }
     };
 }

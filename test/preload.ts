@@ -1,7 +1,7 @@
 import "./pin-home.ts";
 
 import { afterAll } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,35 +22,23 @@ import {
     releaseSourceEntries,
     writeExternalWrappers,
 } from "../src/release/wrappers.ts";
-import { TEST_USER_HOME } from "./pin-home.ts";
-import {
-    enterTestTempRoot,
-    sweepStaleTestRoots,
-    testTempBase,
-} from "./support/temp-root.ts";
+import { TEST_TEMP_BASE, TEST_TEMP_ROOT, TEST_USER_HOME, TEST_VERA_HOME } from "./pin-home.ts";
+import { sweepStaleTestRoots } from "./support/temp-root.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-// .env.test points VERA_HOME at a throwaway tree so no test reads or writes the
-// real one. Bun does not override a parent-shell HOME from .env.test, so
-// pin-home.ts sets HOME before layout code runs. Spawned children still need
-// HOME in the env object they are given.
-if ((process.env[VERA_HOME_ENV] ?? "").trim().length === 0) {
-    throw new Error("tests need VERA_HOME set, normally from .env.test");
+if (process.env[VERA_HOME_ENV] !== TEST_VERA_HOME) {
+    throw new Error("tests need VERA_HOME pinned to their temporary home");
 }
 
 const home = veraHomeDirectory();
-if (home.endsWith(".vera-test-home")) {
-    rmSync(home, { recursive: true, force: true });
-}
 mkdirSync(home, { recursive: true });
 
 // Bun runs no `process.on("exit")` handlers at the end of a test run, but a
 // preload `afterAll` does fire, once per process.
-sweepStaleTestRoots(testTempBase());
-const tempRoot = enterTestTempRoot();
+sweepStaleTestRoots(TEST_TEMP_BASE);
 afterAll(() => {
-    tempRoot.remove();
+    TEST_TEMP_ROOT.remove();
 });
 
 if (process.env.HOME !== TEST_USER_HOME) {

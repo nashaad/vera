@@ -229,7 +229,7 @@ function withTempEnvironment<T>(home: string, run: () => Promise<T>): Promise<T>
     const saved = process.env.VERA_HOME;
     process.env.VERA_HOME = home;
     return run().finally(() => {
-        if (saved === undefined) delete process.env.VERA_HOME;
+        if (saved === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = saved;
     });
 }
@@ -248,7 +248,7 @@ function prefixWithOldRelease(root: string): {
     try {
         activateRelease(oldRoot, prefix);
     } finally {
-        if (saved === undefined) delete process.env.VERA_HOME;
+        if (saved === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = saved;
     }
     return { prefix, oldRoot };
@@ -745,7 +745,7 @@ test("update installs a fake newer release end to end from an installed temp pre
         expect(text).toContain("- end to end");
         expect(text).toContain("Vera 0.1.0-alpha.3 is installed.");
     } finally {
-        if (savedHome === undefined) delete process.env.VERA_HOME;
+        if (savedHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = savedHome;
         if (savedPrefix === undefined) delete process.env.VERA_INSTALL_PREFIX;
         else process.env.VERA_INSTALL_PREFIX = savedPrefix;

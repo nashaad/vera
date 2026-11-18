@@ -9,7 +9,7 @@ import { includedExtensionIds } from "../../src/extensions/included.ts";
 const originalHome = process.env.VERA_HOME;
 const roots: string[] = [];
 afterEach(async () => {
-    if (originalHome === undefined) delete process.env.VERA_HOME;
+    if (originalHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
     else process.env.VERA_HOME = originalHome;
     for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });

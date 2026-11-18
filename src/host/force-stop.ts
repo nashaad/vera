@@ -16,6 +16,7 @@ import {
     requestHostStop,
     type HostStopOptions,
     type HostStopResult,
+    type HostRequester,
 } from "./protocol.ts";
 import type { StopRefusalReason, StopWaitTarget } from "./stop-when-idle.ts";
 
@@ -85,6 +86,7 @@ export interface WaitStopOutcome {
 export type StopWhenIdleOutcome = WaitStopOutcome | ForceStopOutcome;
 
 export interface StopWhenIdleOptions extends ForceStopOptions {
+    readonly requester?: HostRequester;
     readonly onWaiting?: (waiting: readonly StopWaitTarget[]) => void;
     readonly requestStop?: (
         socketPath: string,
@@ -340,7 +342,10 @@ export async function stopResidentHostWhenIdle(
         (waiting) => {
             if (!pool || waiting.length > 0) options.onWaiting?.(waiting);
         },
-        { targetBuildId: options.targetBuildId, detach: options.detach === true },
+        {
+            targetBuildId: options.targetBuildId, detach: options.detach === true,
+            ...(options.requester === undefined ? {} : { requester: options.requester }),
+        },
     );
     if (result.type === "no_answer") return { pid: record.pid, endedBy: "no_answer" };
     if (result.type === "unsupported") return { pid: record.pid, endedBy: "unsupported" };
@@ -414,6 +419,7 @@ async function cutResidentHostForStop(
         options.onWaiting ?? (() => undefined),
         {
             force: true,
+            ...(options.requester === undefined ? {} : { requester: options.requester }),
             deadlineMs: options.cutDeadlineMs ?? DEFAULT_CUT_DEADLINE_MS,
         },
     );

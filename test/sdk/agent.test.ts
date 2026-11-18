@@ -220,7 +220,7 @@ test("an SDK instance reads later request options from its home", async () => {
             { provider: { only: ["second-longer"] } },
         ]);
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         rmSync(home, { recursive: true, force: true });
     }
@@ -707,7 +707,7 @@ test("Vera.run completes a bounded turn without a host socket", async () => {
         expect(existsSync(join(home, "runtime", "host.sock"))).toBe(false);
         expect(existsSync(join(home, "runtime", "host.json"))).toBe(false);
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         rmSync(home, { recursive: true, force: true });
     }
@@ -737,7 +737,7 @@ test("Vera.create without a home runs the agent's own provider and model", async
             .toEqual([["faux", "reviewer"]]);
         expect(existsSync(home)).toBe(false);
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         rmSync(root, { recursive: true, force: true });
     }
@@ -757,7 +757,7 @@ test("Vera.create without a home refuses an agent with no model", async () => {
             .rejects.toThrow("pass provider and model to the agent");
         expect(existsSync(home)).toBe(false);
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         rmSync(root, { recursive: true, force: true });
     }
@@ -786,7 +786,7 @@ test("Vera.run without a home runs the named provider and model", async () => {
             .toEqual([["faux", "readonly"]]);
         expect(existsSync(home)).toBe(false);
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         rmSync(root, { recursive: true, force: true });
     }
@@ -843,7 +843,7 @@ test("Vera.run leaves auth.json untouched when the credential is unusable", asyn
         expect(result.error?.message).toContain("vera login");
         expect(readFileSync(authPath, "utf8")).toBe(authBody);
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         rmSync(home, { recursive: true, force: true });
     }

@@ -5,6 +5,7 @@ import { installedBuildChangedMessage, type InstalledBuildMismatch } from "../..
 import type { DesktopEvent } from "../../ui/src/protocol/bridge.ts";
 import { desktopBuildMismatch } from "./build-check.ts";
 import { resolveBootCommand } from "./vera-command.ts";
+import { HOST_REQUESTER_KIND_ENV } from "../../../src/host/requester.ts";
 
 const IDLE_TIMEOUT_MS = 60_000;
 const KILL_GRACE_MS = 2_000;
@@ -60,7 +61,7 @@ export class BootSession {
         let child: ChildProcessWithoutNullStreams;
         try {
             child = spawn(command, [...args], {
-                env: process.env,
+                env: { ...process.env, [HOST_REQUESTER_KIND_ENV]: "desktop" },
                 stdio: ["pipe", "pipe", "pipe"],
                 windowsHide: true,
             });

@@ -65,10 +65,10 @@ test("@core built-in pages and extension pages with panes become separate page k
     const kinds = pageKinds(ANNEX.pages);
     expect(kinds).toEqual([
         { id: pageKindId("/usage"), title: "Usage", icon: "page", maxTabs: PAGE_TAB_LIMIT },
-        { id: pageKindId("/runs"), title: "Runs", icon: "page", maxTabs: PAGE_TAB_LIMIT },
+        { id: pageKindId("/runs"), title: "Workflow runs", icon: "page", maxTabs: PAGE_TAB_LIMIT },
         { id: NEST_KIND, title: "Nests", icon: "page", maxTabs: PAGE_TAB_LIMIT },
     ]);
-    expect(pageKinds([]).map((kind) => kind.title)).toEqual(["Usage", "Runs"]);
+    expect(pageKinds([]).map((kind) => kind.title)).toEqual(["Usage", "Workflow runs"]);
     expect(pagePathOfKind(NEST_KIND)).toBe(NEST.path);
     expect(pagePathOfKind(CORE_CONTAINERS.browser)).toBeUndefined();
     expect(pageKinds([{ label: "Other", path: "/other", pane: true }])).toHaveLength(2);

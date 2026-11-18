@@ -173,7 +173,9 @@ already running, and prints the result.
 The check looks at the home folder, the active release, the host lock, Vera
 processes left without a working host, and recent host start failures. When
 something fails, Vera repairs it in this order and stops at the first step that
-starts a host:
+starts a host. If verified same-build session processes are waiting after a host
+crash, Vera first starts a host to adopt them. If adoption cannot complete,
+the check continues with these steps:
 
 1. Back up the runtime records under `runtime/backups/`, stop this home's
    leftover Vera processes, and clear stale sockets and the host lock. These are
@@ -224,11 +226,13 @@ counts as this home's when its command line has a Vera role and one of these
 holds:
 
 - its launch environment sets `VERA_HOME` to this home;
-- its launch environment has no `VERA_HOME` and this home is the default home;
+- its launch environment has no `VERA_HOME` (or it is blank), and its own
+  `HOME` makes this home the default;
 - it answers on this home's host socket;
 - it holds a socket in this home's runtime directory.
 
-Attached clients are listed and left running.
+Attached clients and any watchdogs belonging to older attached TUIs are listed
+and left running.
 
 If the command finds a process it cannot prove belongs to this home, it changes
 nothing, prints the process and the reason, and exits 1. A process whose start
@@ -263,16 +267,22 @@ sockets in place. Run `vera host reset` again after the named process exits.
 
 ## Recover a host connection
 
-**Reconnect host** in the Ctrl+P palette starts a missing host, force-stops one
-that is not answering, and reattaches the conversation. A healthy host is
-restarted while this client is still connected, unless other work is using
-it. Once this client is disconnected, Reconnect host attaches to a healthy
-host instead. See [Troubleshooting](troubleshooting.md#the-client-lost-its-host).
+Choose **Reconnect host** from Ctrl+P on Home or in a conversation. It starts a
+missing host or force-stops one that is not answering. A connected conversation
+reattaches after a healthy host restarts, unless other work is using it. A
+disconnected conversation attaches to an answering host instead. On Home, the
+last host Home reached is restarted when idle; if a different healthy host now
+answers, Home attaches to it instead. Home refreshes its sessions and settings
+without starting a conversation. If the host is busy, a dialog asks you to let
+the work finish and retry. See [Troubleshooting](troubleshooting.md#the-client-lost-its-host).
 
 Ordinary `vera host stop` asks the host to stop once its running turns end.
 It lists the sessions it waits on and refuses new turns until the host stops.
 An attached TUI names a waiting session in a dialog and above its composer,
 updates it as the wait changes, and removes the notice when the wait ends.
+Choose **Keep waiting** to let the turns finish, or **Stop it now** to cut the
+waited turns and drop their queued prompts. The same choices appear during an
+update that waits for turns.
 It prints Stopped only after the process exits. If the host does not answer,
 the command leaves it running and exits with status 1. `vera host stop --force`
 asks the host to cut the running turns and drop their queued prompts, then stop.
@@ -317,13 +327,37 @@ anyway after a short deadline, and quitting the TUI does not wait on it.
 
 Stopping and reconnecting do not install checkout changes.
 
+### Host stop request fields
+
+The resident host socket accepts newline-delimited JSON requests. `stop_host`,
+`shutdown_if_idle`, `shutdown_for_replacement`, and `cut_stop_wait` may carry
+an optional `requester` object. It contains a positive integer `pid`, a
+`client_kind` string, and optional `command`, `session_id`, and `session_name`
+strings. Each string is nonempty, at most 256 characters, and contains no NUL.
+The stop and shutdown requests retain their existing target PID and start time;
+the two shutdown requests also retain `requester_protocol_version`.
+
+Requests without `requester` remain valid. An invalid requester is refused as
+an invalid request. The host records the supplied requester on `host_stopping`;
+when another client cuts a pending stop it records that client as `forced_by`.
+These fields are diagnostic claims from the sender, not authentication.
+After installing a build with this field, restart the host and relaunch clients
+to send and record requester details.
+
 ## What prune can see
 
 Prune reads process registrations in `~/.vera/machine/live/`. Registered
-hosts, clients, workers, watchdogs, supervisors, and the local helper can
-appear there. Shell commands, tool subprocesses, launch wrappers, and
-in-process SDK instances do not. A registered process whose start time the
-system cannot report is not listed, and its registration is kept.
+hosts, clients, workers, supervisors, and the local helper can appear there.
+An older TUI's watchdog can also appear while that TUI is running. Shell
+commands, tool subprocesses, launch wrappers, and in-process SDK instances do
+not. A registered process whose start time the system cannot report is not
+listed, and its registration is kept.
+
+Each TUI writes a heartbeat and a diagnostic log under `runtime/logs/clients/`.
+The resident host watches up to 64 TUIs, oldest first, and records detected
+stalls, recovery and unexpected exits in their logs. It records a limit being
+reached in the host log. Detection is best effort across host restarts. Older
+TUIs continue to use their own watchdog until they exit.
 
 Before each signal, `vera prune`, `bun run dev:sweep` and the stray-process
 cleanup in `vera doctor` check again that the PID still belongs to the process

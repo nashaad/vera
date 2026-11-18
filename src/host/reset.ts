@@ -4,13 +4,15 @@ import { join } from "node:path";
 
 import { dropLiveProcessIn } from "../live-process.ts";
 import { inspectHostLockFile, defaultHostLockPath } from "./lockfile.ts";
-import { requestHostStop, type HostIdentity, type HostStopResult } from "./protocol.ts";
+import { requestHostStop, type HostIdentity, type HostRequester, type HostStopResult } from "./protocol.ts";
+import { cliHostRequester } from "./requester.ts";
 import { listAgentsThroughHost } from "./agent-list-client.ts";
 import { removeUnusedSocketFile, socketFileIdentity } from "./socket-file.ts";
 import { backUpResetRecords } from "./reset-backup.ts";
 import {
     discoverResetProcesses,
     startsMatch,
+    stoppableResetCandidates,
     veraRoleOf,
     type ResetCandidate,
     type ResetDiscovery,
@@ -28,8 +30,8 @@ export interface ResetSystem extends ResetProcessSystem {
 
 export interface ResetOptions {
     readonly home?: string;
-    readonly defaultHome?: string;
     readonly assumeYes: boolean;
+    readonly requester?: HostRequester;
 }
 
 export interface ResetDependencies {
@@ -42,12 +44,14 @@ export interface ResetDependencies {
         socketPath: string,
         identity: Pick<HostIdentity, "pid" | "started_at">,
         onWaiting: (waiting: readonly StopWaitTarget[]) => void,
+        requester?: HostRequester,
     ) => Promise<HostStopResult>;
     readonly listTurns?: (socketPath: string) => Promise<readonly { readonly name: string; readonly status: string }[]>;
     readonly termPolls?: number;
     readonly killPolls?: number;
     readonly gracefulDeadlineMs?: number;
     readonly pollMs?: number;
+    readonly isAncestor?: Parameters<typeof stoppableResetCandidates>[1];
 }
 
 export const GRACEFUL_STOP_DEADLINE_MS = 30_000;
@@ -73,14 +77,14 @@ const PROOF_LABEL: Record<ResetCandidate["proof"], string> = {
 
 export async function runHostReset(options: ResetOptions, dependencies: ResetDependencies): Promise<number> {
     const { system, output, errorOutput } = dependencies;
-    const discovery = await discoverResetProcesses(system, { home: options.home, defaultHome: options.defaultHome });
-    const stoppable = discovery.candidates.filter((candidate) => candidate.role !== "client");
+    const discovery = await discoverResetProcesses(system, { home: options.home });
+    const stoppable = stoppableResetCandidates(discovery.candidates, dependencies.isAncestor);
     if (stoppable.length === 0 && discovery.candidates.length === 0 && discovery.records.length === 0
         && discovery.lock.state === "absent" && discovery.unproven.length === 0 && !hasStaleRuntimeFiles(discovery)) {
         output(`Nothing to reset: no Vera process or record belongs to ${discovery.home}.\n`);
         return 0;
     }
-    output(renderPlan(discovery));
+    output(renderPlan(discovery, stoppable));
     if (discovery.unproven.length > 0) {
         for (const item of discovery.unproven) {
             errorOutput(`PID ${item.pid} could not be proven to belong to this home (${item.reason}).\n`);
@@ -96,7 +100,7 @@ export async function runHostReset(options: ResetOptions, dependencies: ResetDep
     const backup = await backUpResetRecords(discovery, discovery.candidates, (dependencies.now ?? (() => new Date()))());
     output(`Backup: ${backup}\n`);
     const failures: string[] = [];
-    const stopped = await stopProcesses(discovery, stoppable, dependencies, failures);
+    const stopped = await stopProcesses(discovery, stoppable, dependencies, failures, options.requester ?? cliHostRequester("host reset"));
     if (failures.length > 0) {
         for (const failure of failures) errorOutput(`${failure}\n`);
         errorOutput("Stopped records and sockets were left in place. Run 'vera host reset' again after the process above exits.\n");
@@ -112,7 +116,7 @@ function hasStaleRuntimeFiles(discovery: ResetDiscovery): boolean {
     return existsSync(discovery.socketPath) || existsSync(join(discovery.runtime, "control.sock"));
 }
 
-function renderPlan(discovery: ResetDiscovery): string {
+function renderPlan(discovery: ResetDiscovery, stoppable: readonly ResetCandidate[]): string {
     const lines = [`Vera home: ${discovery.home}`];
     if (discovery.candidates.length === 0) {
         lines.push("No running Vera process belongs to this home.");
@@ -120,7 +124,12 @@ function renderPlan(discovery: ResetDiscovery): string {
         lines.push(`Found ${discovery.candidates.length} Vera process${discovery.candidates.length === 1 ? "" : "es"} for this home:`);
         for (const candidate of discovery.candidates) {
             const build = candidate.build === undefined ? "" : `, build ${candidate.build}`;
-            const note = candidate.role === "client" ? " (attached client, left running)" : "";
+            let note = "";
+            if (!stoppable.includes(candidate)) {
+                note = candidate.role === "watchdog"
+                    ? " (watchdog of an attached TUI, left running)"
+                    : " (attached client, left running)";
+            }
             lines.push(`  ${ROLE_LABEL[candidate.role]} PID ${candidate.pid}, started ${new Date(candidate.startedAt).toISOString()}${build}${note}`);
             lines.push(`    proof: ${PROOF_LABEL[candidate.proof]}`);
         }
@@ -163,13 +172,14 @@ async function stopProcesses(
     stoppable: readonly ResetCandidate[],
     dependencies: ResetDependencies,
     failures: string[],
+    requester: HostRequester,
 ): Promise<ResetCandidate[]> {
     const { system } = dependencies;
     const ended: ResetCandidate[] = [];
     const host = stoppable.find((candidate) => candidate.role === "host");
     if (host !== undefined && discovery.hostAnswer !== undefined && stillVerified(system, host)) {
         const deadlineMs = dependencies.gracefulDeadlineMs ?? GRACEFUL_STOP_DEADLINE_MS;
-        const outcome = await gracefulHostStop(discovery, host, dependencies, deadlineMs);
+        const outcome = await gracefulHostStop(discovery, host, dependencies, deadlineMs, requester);
         if (outcome.type === "exited") {
             ended.push(host);
         } else {
@@ -198,6 +208,7 @@ async function gracefulHostStop(
     host: ResetCandidate,
     dependencies: ResetDependencies,
     deadlineMs: number,
+    requester: HostRequester,
 ): Promise<GracefulOutcome> {
     const { system } = dependencies;
     const pollMs = dependencies.pollMs ?? DEFAULT_POLL_MS;
@@ -207,6 +218,7 @@ async function gracefulHostStop(
         discovery.socketPath,
         { pid: host.pid, started_at: discovery.hostAnswer?.started_at ?? new Date(host.startedAt).toISOString() },
         renderWaiting(dependencies),
+        requester,
     ).then((result) => { settled = result; }, (error: unknown) => {
         settled = error instanceof Error ? error : new Error(String(error));
     });
@@ -261,8 +273,9 @@ function defaultRequestStop(
     socketPath: string,
     identity: Pick<HostIdentity, "pid" | "started_at">,
     onWaiting: (waiting: readonly StopWaitTarget[]) => void,
+    requester?: HostRequester,
 ): Promise<HostStopResult> {
-    return requestHostStop(socketPath, identity, onWaiting, {});
+    return requestHostStop(socketPath, identity, onWaiting, { requester });
 }
 
 // A record stays while its process is still alive, so a reused pid keeps its own record.

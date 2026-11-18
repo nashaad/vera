@@ -44,6 +44,7 @@ import type { TuiOnboardingView } from "../onboarding-screen.ts";
 import type { WizardSession } from "../onboarding-wizard.ts";
 import type { HistoryPaging } from "../history-paging-state.ts";
 import type { PendingExtensionReveal } from "./extension-reveal.ts";
+import type { ReconnectBudget } from "./reconnect-budget.ts";
 import type { RuntimeCommand } from "./outrider-ops.ts";
 import type { TuiHostedAgentSurface } from "../hosted-agent-surface.ts";
 import type { TuiHostedPanePersistence } from "../hosted-pane-persistence.ts";
@@ -185,6 +186,7 @@ export interface TuiRuntime {
     connectionFailure: string | undefined;
     hostBuildRefusal: { readonly hostBuildId: string | undefined } | undefined;
     hostReconnectAttempted: boolean;
+    hostReconnectBudget?: ReconnectBudget;
     hostReconnectProbeId?: string;
     hostReconnectProbe?: { readonly client: TuiAgentClient };
     agentFailedThisAttachment: boolean;

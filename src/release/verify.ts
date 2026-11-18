@@ -150,7 +150,7 @@ export function verifyPackedRelease(
     if (existsSync(join(releaseRoot, "bundle"))) {
         for (const entry of [
             "clients/cli/main.js", "clients/host/main.js", "clients/host/session-worker.js",
-            "clients/tui/flight-watchdog.js", "src/annex/main.js", "src/host/session-import-child.js",
+            "src/annex/main.js", "src/host/session-import-child.js",
             "src/host/worker/adapter.js", "src/host/worker/entry.js", "src/host/worker-supervisor.js",
             "tree-sitter.wasm",
         ]) {

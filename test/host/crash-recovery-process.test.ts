@@ -8,6 +8,7 @@ import { createAgentThroughHost, resumeAgentThroughHost } from "../../src/host/a
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { CRASHED_TOOL_RESULT, CRASH_CUT_MESSAGE, SessionStore, readSessionTurnState } from "../../src/store/session-store.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 
 interface StartedHost {
     readonly process: ReturnType<typeof Bun.spawn>;
@@ -38,7 +39,7 @@ async function startHost(root: string, home: string, batch = false): Promise<Sta
     const child = Bun.spawn([process.execPath, "test/host/fixtures/crash-host.ts"], {
         cwd: process.cwd(),
         env: {
-            ...process.env, HOME: home, VERA_HOME: home,
+            ...process.env, HOME: sourceTestHome(home), VERA_HOME: home,
             VERA_DEV_INSTANCE: `${basename(process.cwd())} dev`, VERA_WORKER_EXTENSIONS: "1",
             VERA_CRASH_TEST_ROOT: root, ...(batch ? { VERA_CRASH_TEST_BATCH: "1" } : {}),
         },

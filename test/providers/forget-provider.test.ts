@@ -30,7 +30,7 @@ test("forget removes the provider catalog, shortlist rows and bound slots from r
         expect(auth.getCredential("gateway")).toBeUndefined();
         expect(readProviderCatalogSnapshot("gateway").fetched_at).toBeUndefined();
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previousHome;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previousHome;
         if (previousPool === undefined) delete process.env.VERA_POOL_FILE; else process.env.VERA_POOL_FILE = previousPool;
         rmSync(root, { recursive: true, force: true });
     }

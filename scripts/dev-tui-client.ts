@@ -95,6 +95,11 @@ export async function trackClient(
     }
 }
 
+export function shouldRestoreAfterClientSignal(signalCode: string | null, stdoutIsTty: boolean): boolean {
+    return stdoutIsTty && signalCode !== null
+        && signalCode !== "SIGHUP" && signalCode !== "SIGQUIT" && signalCode !== "SIGTERM";
+}
+
 const processInfo: DevClientProcessInfo = {
     isAlive: processIsAlive,
     startTime: clientStartTime,

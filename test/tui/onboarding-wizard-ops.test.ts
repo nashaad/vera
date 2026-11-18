@@ -36,7 +36,7 @@ test("@core onboarding adopts a configured provider from its focused unused star
 
         expect(wizardAdopts(rt, "deepseek")).toBe(true);
     } finally {
-        if (previousHome === undefined) delete process.env[VERA_HOME_ENV];
+        if (previousHome === undefined) process.env[VERA_HOME_ENV] = process.env.VERA_TEST_HOME!;
         else process.env[VERA_HOME_ENV] = previousHome;
         rmSync(home, { recursive: true, force: true });
     }

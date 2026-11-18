@@ -27,6 +27,7 @@ test("cloneVeraHome copies the home and scrubs live host identity", async () => 
     mkdirSync(join(source, "machine"), { recursive: true });
     writeFileSync(join(source, "config.json"), "{\"schema_version\":1}\n");
     writeFileSync(join(source, "runtime", "host.sock"), "socket");
+    writeFileSync(join(source, "runtime", "host-lifecycle.json"), "lifecycle");
     writeFileSync(
         join(source, "runtime", "host.json"),
         JSON.stringify({ pid: 1, socket_path: join(source, "runtime", "host.sock") }),
@@ -47,6 +48,8 @@ test("cloneVeraHome copies the home and scrubs live host identity", async () => 
             .toBe("session\n");
         expect(existsSync(join(destination, "runtime", "host.sock"))).toBe(false);
         expect(existsSync(join(destination, "runtime", "host.json"))).toBe(false);
+        expect(existsSync(join(destination, "runtime", "host-lifecycle.json"))).toBe(false);
+        expect(existsSync(join(source, "runtime", "host-lifecycle.json"))).toBe(true);
         expect(existsSync(join(source, "runtime", "host.sock"))).toBe(true);
         expect(statSync(join(destination, "machine", "auth.json")).mode & 0o777)
             .toBe(0o600);

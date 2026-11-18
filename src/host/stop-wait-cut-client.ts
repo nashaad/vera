@@ -1,15 +1,15 @@
 import { connectHost } from "./connection.ts";
-import type { CutStopWaitResponse } from "./protocol.ts";
+import type { CutStopWaitResponse, HostRequester } from "./protocol.ts";
 
 export type CutStopWaitOutcome =
     | CutStopWaitResponse
     | { readonly type: "unsupported" };
 
-export async function cutStopWaitThroughHost(socketPath: string): Promise<CutStopWaitOutcome> {
+export async function cutStopWaitThroughHost(socketPath: string, requester?: HostRequester): Promise<CutStopWaitOutcome> {
     try {
         const connection = await connectHost({ socketPath });
         try {
-            await connection.send({ type: "cut_stop_wait" });
+            await connection.send({ type: "cut_stop_wait", ...(requester === undefined ? {} : { requester }) });
             return parseCutStopWaitResponse(await connection.receive());
         } finally {
             connection.close();

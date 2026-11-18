@@ -34,9 +34,6 @@ switch (role) {
     case "import":
         await import("../src/host/session-import-child.ts");
         break;
-    case "watchdog":
-        (await import("../clients/tui/flight-watchdog.ts")).runWatchdogEntrypoint();
-        break;
     default:
         process.stderr.write(`Unknown Vera role: ${role}\n`);
         process.exitCode = 2;

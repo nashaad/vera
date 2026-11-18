@@ -8,7 +8,7 @@ import { closePicker, openedPicker } from "../../clients/ui/src/overlays/store.t
 import type { AnnexPage } from "../../clients/ui/src/protocol/bridge.ts";
 
 const USAGE: AnnexPage = { label: "Usage", path: "/usage" };
-const RUNS: AnnexPage = { label: "Runs", path: "/runs" };
+const RUNS: AnnexPage = { label: "Workflow runs", path: "/runs" };
 const EXTENSION: AnnexPage = { label: "Artifacts", path: "/x/vera.artifacts/artifacts", extensionId: "vera.artifacts", pane: true };
 
 test("@core each available annex page has a Pages command routed through the opener", () => {
@@ -21,9 +21,9 @@ test("@core each available annex page has a Pages command routed through the ope
     const items = buildCommandItems(registry.list(), "darwin");
     expect(items.map((item) => [item.group, item.label])).toEqual([
         ["Pages", "Artifacts"],
-        ["Pages", "Runs"],
         ["Pages", "Usage"],
         ["Pages", "Vera's Pages"],
+        ["Pages", "Workflow runs"],
     ]);
     dispose();
     expect(registry.list()).toEqual([]);

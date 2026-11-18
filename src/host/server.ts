@@ -32,6 +32,7 @@ import {
     parseHostRequest,
     requestHostIdentity,
     type HostIdentity,
+    type HostRequester,
     type HostRequest,
     type AgentLocationFailedResponse,
     type AgentLocationResponse,
@@ -345,7 +346,10 @@ export interface StartHostServerOptions {
     ) => Promise<unknown>;
     readonly canShutdown?: () => boolean | Promise<boolean>;
     readonly canReplace?: () => boolean | Promise<boolean>;
-    readonly onShutdownAccepted?: () => void | Promise<void>;
+    readonly onShutdownAccepted?: (
+        reason?: "shutdown_if_idle" | "shutdown_for_replacement",
+        requester?: HostRequester,
+    ) => void | Promise<void>;
     readonly onAgentStartFailure?: (
         operation: "create" | "resume",
         error: unknown,
@@ -537,12 +541,12 @@ async function startListener(
             started_at: identity.started_at,
         };
     };
-    const notifyShutdownAccepted = (): void => {
+    const notifyShutdownAccepted = (reason: "shutdown_if_idle" | "shutdown_for_replacement", requester?: HostRequester): void => {
         if (shutdownNotified) {
             return;
         }
         shutdownNotified = true;
-        void options.onShutdownAccepted?.();
+        void options.onShutdownAccepted?.(reason, requester);
     };
     const server = createServer((socket) => {
         sockets.add(socket);
@@ -835,7 +839,7 @@ function receiveConnection(
     ) => Promise<ShutdownForReplacementResponse>,
     attachmentOpened: () => () => void,
     operationOpened: () => () => void,
-    notifyShutdownAccepted: () => void,
+    notifyShutdownAccepted: (reason: "shutdown_if_idle" | "shutdown_for_replacement", requester?: HostRequester) => void,
     onRosterChanged: (listener: () => void) => () => void,
     onAgentStartFailure: (
         operation: "create" | "resume",
@@ -1459,7 +1463,7 @@ function receiveConnection(
                     () => { if (event.type !== "waiting") socket.end(); },
                     () => { socket.destroy(); },
                 );
-            }, request.target_build_id ?? null, { cutFirst: request.force === true });
+            }, request.target_build_id ?? null, { cutFirst: request.force === true, requester: request.requester });
             if (!result.accepted) {
                 void send({
                     type: "stop_host_refused",
@@ -1480,7 +1484,7 @@ function receiveConnection(
                     reason: "no_wait" as const,
                     message: "No stop is waiting, so there is nothing to cut.",
                 })
-                : stopWhenIdle.cutWait()
+                : stopWhenIdle.cutWait(request.requester)
             ).then((result) => result.status === "done"
                 ? send({ type: "cut_stop_wait_done", cut: result.cut, failed: result.failed })
                 : send({ type: "cut_stop_wait_refused", reason: result.reason, message: result.message })
@@ -1499,7 +1503,7 @@ function receiveConnection(
             }).then(async (response) => {
                 await send(response);
                 if (response.type === "shutdown_if_idle_accepted") {
-                    socket.once("close", notifyShutdownAccepted);
+                    socket.once("close", () => notifyShutdownAccepted("shutdown_if_idle", request.requester));
                 }
                 socket.end();
             }).catch(() => socket.destroy());
@@ -1517,7 +1521,7 @@ function receiveConnection(
             }).then(async (response) => {
                 await send(response);
                 if (response.type === "shutdown_for_replacement_accepted") {
-                    socket.once("close", notifyShutdownAccepted);
+                    socket.once("close", () => notifyShutdownAccepted("shutdown_for_replacement", request.requester));
                 }
                 socket.end();
             }).catch(() => socket.destroy());

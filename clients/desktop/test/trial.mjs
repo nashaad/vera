@@ -5,7 +5,9 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join, relative } from "node:path";
+
+import { sourceTestHome } from "../../../test/support/source-test-home.mjs";
 
 const root = new URL("../../..", import.meta.url).pathname;
 const require = createRequire(join(root, "clients", "desktop", "package.json"));
@@ -19,6 +21,7 @@ export const COUNT_PROCESSES = ["-r", join(root, "clients", "desktop", "test", "
 export function startTrial() {
     const trialRoot = mkdtempSync(join(tmpdir(), "vera-desktop-e2e-"));
     const home = join(trialRoot, ".vera");
+    const userHome = sourceTestHome(join(trialRoot, "user"));
     const bun = process.env.VERA_DESKTOP_BUN
         || execFileSync("which", ["bun"], { encoding: "utf8" }).trim();
     const apps = [];
@@ -28,12 +31,17 @@ export function startTrial() {
     // `appDir` launches another build of the app, such as one built with a catalog address.
     // `args` are more node options placed ahead of the app, such as COUNT_PROCESSES.
     async function launch({ visible = false, cwd = root, env = {}, appDir = join(root, "clients", "desktop"), args = [] } = {}) {
+        const launchHome = env.HOME ?? userHome;
+        const homeRelative = relative(trialRoot, launchHome);
+        if (homeRelative.startsWith("..") || isAbsolute(homeRelative)) throw new Error("Trial HOME must be inside the trial root.");
+        sourceTestHome(launchHome);
         const app = await electron.launch({
             executablePath: electronPath,
             args: [...(visible ? [] : OUT_OF_SIGHT), ...args, appDir],
             cwd,
             env: {
                 ...process.env,
+                HOME: launchHome,
                 VERA_HOME: home,
                 // Without it the CLI boots the installed release host, not this checkout's source.
                 VERA_DEV_INSTANCE: `${basename(root)} e2e`,
@@ -96,7 +104,7 @@ export function startTrial() {
         rmSync(trialRoot, { recursive: true, force: true });
     }
 
-    return { root, trialRoot, home, launch, hostPid, waitForHost, writeFlags, cleanup };
+    return { root, trialRoot, home, userHome, launch, hostPid, waitForHost, writeFlags, cleanup };
 }
 
 // Goes through the same path as a key typed on the keyboard: the main process's

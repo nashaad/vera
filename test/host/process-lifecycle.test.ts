@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,6 +22,7 @@ test("an internal host shutdown closes and exits the dedicated process", async (
     let closeCalls = 0;
     let disposed = false;
     const exits: number[] = [];
+    const logged: HostLogEntry[] = [];
     const running = runResidentHostProcess({
         shutdownRequested: shutdown.promise,
         close: async () => {
@@ -34,6 +36,7 @@ test("an internal host shutdown closes and exits the dedicated process", async (
             },
         }),
         exit: (code) => exits.push(code),
+        log: (entry) => logged.push(entry),
     });
 
     shutdown.resolve();
@@ -42,11 +45,13 @@ test("an internal host shutdown closes and exits the dedicated process", async (
     expect(closeCalls).toBe(1);
     expect(disposed).toBe(true);
     expect(exits).toEqual([0]);
+    expect(logged).toEqual([{ type: "host_stopping", pid: process.pid, reason: "shutdown_requested" }]);
 });
 
 test("an OS shutdown signal closes before exiting the dedicated process", async () => {
     const signal = Promise.withResolvers<void>();
     const order: string[] = [];
+    const logged: HostLogEntry[] = [];
     const running = runResidentHostProcess({
         shutdownRequested: new Promise<void>(() => {}),
         close: async () => {
@@ -58,17 +63,101 @@ test("an OS shutdown signal closes before exiting the dedicated process", async 
             dispose: () => order.push("disposed"),
         }),
         exit: () => order.push("exited"),
+        log: (entry) => logged.push(entry),
     });
 
     signal.resolve();
     await running;
 
     expect(order).toEqual(["disposed", "closed", "exited"]);
+    expect(logged).toEqual([{ type: "host_stopping", pid: process.pid, reason: "signal" }]);
 });
+
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    test(`a starting host records ${signal} before its signal exit`, async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-start-signal-"));
+        const ready = join(root, "ready");
+        const child = Bun.spawn([process.execPath, "-e", `
+            import { writeFileSync } from "node:fs";
+            import { installStartupSignalLogging } from "./clients/host/process-lifecycle.ts";
+            import { createHostLogger } from "./src/host/host-log.ts";
+            installStartupSignalLogging(createHostLogger(), {
+                pid: process.pid, started_at: new Date().toISOString(), build_id: "vera-test",
+            });
+            writeFileSync(${JSON.stringify(ready)}, "ready");
+            setInterval(() => {}, 1000);
+        `], {
+            cwd: process.cwd(),
+            env: { ...process.env, VERA_HOME: root },
+            stdout: "ignore", stderr: "pipe",
+        });
+        try {
+            const deadline = Date.now() + 5_000;
+            while (!existsSync(ready) && child.exitCode === null && Date.now() < deadline) await Bun.sleep(10);
+            expect(existsSync(ready)).toBe(true);
+            child.kill(signal);
+            await child.exited;
+            expect(child.signalCode).toBe(signal);
+            const entries = (await readFile(join(root, "runtime", "logs", "host.jsonl"), "utf8"))
+                .trim().split("\n").map((line) => JSON.parse(line));
+            expect(entries).toEqual([expect.objectContaining({
+                type: "host_stopping", role: "host", pid: child.pid, reason: "signal", signal,
+            })]);
+        } finally {
+            if (child.exitCode === null && child.signalCode === null) {
+                child.kill("SIGKILL");
+                await child.exited;
+            }
+            await rm(root, { recursive: true, force: true });
+        }
+    }, 10_000);
+
+    test(`a host records ${signal} before exiting`, async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-signal-"));
+        const ready = join(root, "ready");
+        const child = Bun.spawn([process.execPath, "-e", `
+            import { writeFileSync } from "node:fs";
+            import { runResidentHostProcess } from "./clients/host/process-lifecycle.ts";
+            const running = runResidentHostProcess({
+                shutdownRequested: new Promise(() => {}),
+                close: async () => {},
+            });
+            writeFileSync(${JSON.stringify(ready)}, "ready");
+            await running;
+        `], {
+            cwd: process.cwd(),
+            env: { ...process.env, VERA_HOME: root },
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        try {
+            const deadline = Date.now() + 5_000;
+            while (!existsSync(ready) && child.exitCode === null && Date.now() < deadline) {
+                await Bun.sleep(10);
+            }
+            expect(existsSync(ready)).toBe(true);
+            child.kill(signal);
+            const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+            expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+            const entries = (await readFile(join(root, "runtime", "logs", "host.jsonl"), "utf8"))
+                .trim().split("\n").map((line) => JSON.parse(line));
+            expect(entries).toContainEqual(expect.objectContaining({
+                type: "host_stopping", pid: child.pid, reason: "signal", signal,
+            }));
+        } finally {
+            if (child.exitCode === null && child.signalCode === null) {
+                child.kill("SIGKILL");
+                await child.exited;
+            }
+            await rm(root, { recursive: true, force: true });
+        }
+    }, 10_000);
+}
 
 test("a removed checkout closes and exits a development host", async () => {
     const removed = Promise.withResolvers<void>();
     const order: string[] = [];
+    const logged: HostLogEntry[] = [];
     const running = runResidentHostProcess({
         shutdownRequested: new Promise<void>(() => {}),
         close: async () => {
@@ -84,6 +173,7 @@ test("a removed checkout closes and exits a development host", async () => {
             dispose: () => order.push("watch disposed"),
         }),
         exit: (code) => order.push(`exited ${code}`),
+        log: (entry) => logged.push(entry),
     });
 
     removed.resolve();
@@ -95,11 +185,13 @@ test("a removed checkout closes and exits a development host", async () => {
         "closed",
         "exited 0",
     ]);
+    expect(logged).toEqual([{ type: "host_stopping", pid: process.pid, reason: "checkout_removed" }]);
 });
 
 test("a lost socket closes and exits the host", async () => {
     const lost = Promise.withResolvers<void>();
     const order: string[] = [];
+    const logged: HostLogEntry[] = [];
     const running = runResidentHostProcess({
         shutdownRequested: new Promise<void>(() => {}),
         close: async () => {
@@ -115,6 +207,7 @@ test("a lost socket closes and exits the host", async () => {
             dispose: () => order.push("socket watch disposed"),
         }),
         exit: (code) => order.push(`exited ${code}`),
+        log: (entry) => logged.push(entry),
     });
 
     lost.resolve();
@@ -126,6 +219,7 @@ test("a lost socket closes and exits the host", async () => {
         "closed",
         "exited 0",
     ]);
+    expect(logged).toEqual([{ type: "host_stopping", pid: process.pid, reason: "socket_lost" }]);
 });
 
 test("a host whose close never finishes still exits after its deadline", async () => {
@@ -146,9 +240,7 @@ test("a host whose close never finishes still exits after its deadline", async (
     await running;
 
     expect(exits).toEqual([0]);
-    expect(logged).toMatchObject([
-        { type: "host_close_timed_out", deadline_ms: 20 },
-    ]);
+    expect(logged).toContainEqual(expect.objectContaining({ type: "host_close_timed_out", deadline_ms: 20 }));
 });
 
 test("a pool that cannot finish closing exits unsuccessfully and names its workers", async () => {
@@ -173,10 +265,10 @@ test("a pool that cannot finish closing exits unsuccessfully and names its worke
 
     expect(exits).toEqual([1]);
     expect(handedOff).toBe(false);
-    expect(logged).toMatchObject([{
+    expect(logged).toContainEqual(expect.objectContaining({
         type: "host_close_timed_out",
         error: "Could not confirm session process PID 177 stopped. Could not confirm session process PID 178 stopped.",
-    }]);
+    }));
 });
 
 test("a failed pool close does not start the pending hand-off", async () => {

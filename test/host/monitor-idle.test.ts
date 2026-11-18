@@ -247,7 +247,7 @@ test("@core a real headless child pins only its owner through command and outcom
             await extensions.close();
             delivery.close();
             inbox.close();
-            if (previousHome === undefined) delete process.env.VERA_HOME;
+            if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = previousHome;
             if (previousExtensions === undefined) delete process.env.VERA_WORKER_EXTENSIONS;
             else process.env.VERA_WORKER_EXTENSIONS = previousExtensions;
@@ -340,7 +340,7 @@ test("@core a lost headless executor stops its command and replays the interrupt
             await extensions.close();
             delivery.close();
             inbox.close();
-            if (previousHome === undefined) delete process.env.VERA_HOME;
+            if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = previousHome;
             if (previousExtensions === undefined) delete process.env.VERA_WORKER_EXTENSIONS;
             else process.env.VERA_WORKER_EXTENSIONS = previousExtensions;

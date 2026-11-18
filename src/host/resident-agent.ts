@@ -867,6 +867,11 @@ export class ResidentAgent {
         return this.attachments.size > 0;
     }
 
+    hasReplayNotice(key: string, text: string): boolean {
+        return this.updatesAfterCheckpoint.some((update) =>
+            update.type === "notice" && update.key === key && update.text === text);
+    }
+
     onAttachmentChanged(listener: (attached: boolean) => void): () => void {
         this.attachmentListeners.add(listener);
         return () => this.attachmentListeners.delete(listener);

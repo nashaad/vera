@@ -53,7 +53,8 @@ import { forceStopPool, ForcePoolStartupInProgressError } from "../src/host/pool
 import { HostStartupInProgressError } from "../src/host/startup-claim.ts";
 import { hostLaunchEnvironment } from "../src/host/host-environment.ts";
 import { defaultFactoryHomePath } from "./synthesize-factory-home.ts";
-import { clientLaunchHome, stopRecordedClient, trackClient, type DevClientProcessInfo } from "./dev-tui-client.ts";
+import { clientLaunchHome, shouldRestoreAfterClientSignal, stopRecordedClient, trackClient, type DevClientProcessInfo } from "./dev-tui-client.ts";
+import { restoreTerminalNow } from "../clients/tui/terminal-restore.ts";
 
 const CLI_ENTRYPOINT = fileURLToPath(
     new URL("../clients/cli/main.ts", import.meta.url),
@@ -802,7 +803,11 @@ async function spawnWorktreeTui(
         await child.exited;
         throw new Error("Development client home is missing.");
     }
-    return await trackClient(home, child);
+    try {
+        return await trackClient(home, child);
+    } finally {
+        if (shouldRestoreAfterClientSignal(child.signalCode, process.stdout.isTTY === true)) restoreTerminalNow();
+    }
 }
 
 if (import.meta.main) {

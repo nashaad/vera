@@ -5,6 +5,7 @@ import type { HostLockRecord } from "../host/lockfile.ts";
 import { acquireHostStartupClaim, HostStartupInProgressError } from "../host/startup-claim.ts";
 import { selectedVeraHome } from "../profile-paths.ts";
 import { currentReleaseBuildId } from "./layout.ts";
+import { cliHostRequester } from "../host/requester.ts";
 
 export async function reconcileColdHost(
     prefix: string,
@@ -19,7 +20,7 @@ export async function reconcileColdHost(
                 const current = currentReleaseBuildId(prefix);
                 const host = await readLiveHost();
                 if (current !== undefined && host?.build_id !== undefined && host.build_id !== current) {
-                    await stopHost({});
+                    await stopHost({ requester: cliHostRequester("install reconcile") });
                 }
                 return;
             } finally {

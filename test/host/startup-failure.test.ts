@@ -31,7 +31,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-    if (savedHome === undefined) delete process.env.VERA_HOME;
+    if (savedHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
     else process.env.VERA_HOME = savedHome;
     rmSync(scratch, { recursive: true, force: true });
 });
@@ -135,8 +135,14 @@ test("the boot loop message carries what the host reported", () => {
 });
 
 test("a printed command carries VERA_HOME only when the environment selects a home", () => {
-    delete process.env.VERA_HOME;
-    expect(homeCommandPrefix()).toBe("");
+    const env: Record<string, string | undefined> = { ...process.env, HOME: scratch };
+    delete env.VERA_HOME;
+    const probe = Bun.spawnSync([process.execPath, "-e", `
+        import { homeCommandPrefix } from ${JSON.stringify(new URL("../../src/host/startup-failure.ts", import.meta.url).href)};
+        process.stdout.write(homeCommandPrefix());
+    `], { cwd: scratch, env, stdout: "pipe", stderr: "pipe" });
+    expect(probe.exitCode, probe.stderr.toString()).toBe(0);
+    expect(probe.stdout.toString()).toBe("");
     process.env.VERA_HOME = "/tmp/vera-dev/x";
     expect(homeCommandPrefix()).toBe("VERA_HOME=/tmp/vera-dev/x ");
     process.env.VERA_HOME = "/tmp/my home";

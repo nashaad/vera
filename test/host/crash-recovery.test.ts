@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { TERMINAL_RESTORE_SEQUENCE } from "../../clients/tui/terminal-restore.ts";
+import { TERMINAL_RESTORE_SEQUENCE } from "../../src/terminal-restore-sequence.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 
@@ -59,53 +59,6 @@ test("the restore sequence leaves the alternate screen and shows the cursor", ()
     expect(TERMINAL_RESTORE_SEQUENCE).toContain("\x1b[?25h");
     expect(TERMINAL_RESTORE_SEQUENCE).toContain("\x1b[?2004l");
 });
-
-test("the external watchdog restores the terminal after SIGKILL", async () => {
-    const root = mkdtempSync(join(tmpdir(), "vera-watchdog-restore-"));
-    const heartbeatPath = join(root, "heartbeat");
-    const logPath = join(root, "flight.jsonl");
-    writeFileSync(heartbeatPath, new Date().toISOString());
-    const target = Bun.spawn([
-        process.execPath,
-        "-e",
-        "setInterval(() => {}, 1000)",
-    ], { stdout: "ignore", stderr: "ignore" });
-    const targetPid = target.pid;
-    expect(targetPid).toBeGreaterThan(0);
-    const watchdog = Bun.spawn([
-        process.execPath,
-        join(repoRoot, "clients/tui/flight-watchdog.ts"),
-        String(targetPid),
-        heartbeatPath,
-        logPath,
-        "test-instance",
-    ], {
-        stdin: "ignore",
-        stdout: "pipe",
-        stderr: "pipe",
-        env: {
-            ...process.env,
-            VERA_HOME: join(root, ".vera"),
-        },
-    });
-
-    try {
-        process.kill(targetPid, "SIGKILL");
-        const output = await new Response(watchdog.stdout).text();
-        expect(await watchdog.exited).toBe(0);
-        expect(output).toContain("\x1b[?1003l");
-        expect(output).toContain("\x1b[?1006l");
-        expect(output).toContain("\x1b[?25h");
-    } finally {
-        try {
-            process.kill(targetPid, "SIGKILL");
-        } catch {
-            // The expected path already killed it.
-        }
-        await target.exited;
-        rmSync(root, { recursive: true, force: true });
-    }
-}, 10_000);
 
 test("the crash guard keeps the host process alive and logs the cause", async () => {
     const result = await runChildScript(`

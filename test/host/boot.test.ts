@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 
 import { BootFailedError, bootResidentHost, renderBootBox, type BootCheck, type BootDependencies, type BootInspection, type BootQuestion, type HostMode } from "../../src/host/boot.ts";
-import type { HostLockRecord } from "../../src/host/lockfile.ts";
+import { HostReplacementBusyError } from "../../src/host/discovery.ts";
+import { HostBuildMismatchError, HostLockUnreadableError, HostProtocolMismatchError, HostUnresponsiveError, type HostLockRecord } from "../../src/host/lockfile.ts";
 
 const clean: BootInspection = { home: "/h/.vera", hostAnswers: false, lock: "absent", orphans: 0, unproven: 0, bootLoop: false };
 
@@ -50,10 +51,131 @@ test("an orphaned host with no lock or socket is stopped before a fresh host sta
     expect(rendered[0]!.find((check) => check.label === "Recovery")?.status).toBe("fixed");
 });
 
+test("surviving session processes are adopted before reset under the boot lock", async () => {
+    const { deps, calls } = harness({ ...clean, lock: "stale", orphans: 1 }, []);
+    const started = await bootResidentHost({
+        ...deps,
+        adopt: async () => { calls.push("adopt"); return host(8)(); },
+        exclusive: async (run) => { calls.push("lock"); return run(); },
+    });
+    expect(started.pid).toBe(8);
+    expect(calls).toEqual(["lock", "inspect", "adopt"]);
+});
+
+test("failed adoption reports the reason and resets before starting a fresh pooled host", async () => {
+    const { deps, calls, rendered } = harness({ ...clean, lock: "stale", orphans: 1 }, [host(9)]);
+    const started = await bootResidentHost({
+        ...deps,
+        full: true,
+        adopt: async () => { calls.push("adopt"); throw new Error("adoption failed"); },
+    });
+    expect(started.pid).toBe(9);
+    expect(calls).toEqual(["inspect", "adopt", "recover", "start:default"]);
+    expect(rendered[0]).toContainEqual({ label: "Session processes", status: "warn", detail: "adoption failed" });
+});
+
+test("an ineligible session process is reset before starting a fresh host", async () => {
+    const { deps, calls } = harness({ ...clean, lock: "stale", orphans: 1 }, [host(9)]);
+    const started = await bootResidentHost({
+        ...deps,
+        adopt: async () => { calls.push("inspect workers"); return undefined; },
+    });
+    expect(started.pid).toBe(9);
+    expect(calls).toEqual(["inspect", "inspect workers", "recover", "start:default"]);
+});
+
+test("unproven processes alone are reported without reset", async () => {
+    const { deps, calls } = harness({ ...clean, unproven: 1 }, [host(10)]);
+    const started = await bootResidentHost(deps);
+    expect(started.pid).toBe(10);
+    expect(calls).toEqual(["inspect", "start:default"]);
+});
+
 test("a published host is used without the full check", async () => {
     const { deps, calls, rendered } = harness(clean, [host(3)], { published: true });
     expect((await bootResidentHost(deps)).pid).toBe(3);
     expect(calls).toEqual(["start:default"]);
+    expect(rendered).toEqual([]);
+});
+
+test("a failed published host still checks and adopts surviving sessions", async () => {
+    const { deps, calls } = harness({ ...clean, lock: "stale", orphans: 1 }, [fail], { published: true });
+    const started = await bootResidentHost({
+        ...deps,
+        adopt: async () => { calls.push("adopt"); return host(8)(); },
+    });
+    expect(started.pid).toBe(8);
+    expect(calls).toEqual(["start:default", "inspect", "adopt"]);
+});
+
+test("@core published-host boot propagates discovery refusals without inspection or recovery", async () => {
+    const refusals = [
+        new HostReplacementBusyError(),
+        new HostBuildMismatchError("client", "host"),
+        new HostLockUnreadableError("/h/.vera/runtime/host.json", 51),
+        new HostProtocolMismatchError(51, 999),
+        new HostUnresponsiveError(51),
+    ];
+    for (const refusal of refusals) {
+        const { deps, calls, rendered } = harness(clean, [() => { throw refusal; }], { published: true });
+        await expect(bootResidentHost(deps)).rejects.toBe(refusal);
+        expect(calls).toEqual(["start:default"]);
+        expect(rendered).toEqual([]);
+    }
+});
+
+test("@core checked healthy boot propagates discovery refusals without confirming or recovering", async () => {
+    const refusals = [
+        new HostReplacementBusyError(),
+        new HostBuildMismatchError("client", "host"),
+        new HostLockUnreadableError("/h/.vera/runtime/host.json", 51),
+        new HostProtocolMismatchError(51, 999),
+        new HostUnresponsiveError(51),
+    ];
+    for (const refusal of refusals) {
+        const { deps, calls, rendered } = harness(
+            { ...clean, hostAnswers: true, lock: "live" },
+            [() => { throw refusal; }],
+        );
+        await expect(bootResidentHost(deps)).rejects.toBe(refusal);
+        expect(calls).toEqual(["inspect", "start:default"]);
+        expect(rendered).toEqual([]);
+    }
+});
+
+test("boot stops recovery when a later start refuses replacement", async () => {
+    const busy = new HostReplacementBusyError();
+    for (const [starts, expected] of [
+        [[() => { throw busy; }], ["inspect", "start:default"]],
+        [[fail, () => { throw busy; }], ["inspect", "start:default", "recover", "start:single"]],
+        [[fail, fail, () => { throw busy; }], ["inspect", "start:default", "recover", "start:single", "recover", "rollback", "start:single"]],
+    ] as Array<[Array<(mode: HostMode) => HostLockRecord>, string[]]>) {
+        const { deps, calls, rendered } = harness(clean, starts, { rollback: "vera-old", stash: true });
+        await expect(bootResidentHost(deps)).rejects.toBe(busy);
+        expect(calls).toEqual(expected);
+        expect(rendered).toEqual([]);
+    }
+});
+
+test("a discovery refusal during adoption does not reset session processes", async () => {
+    const busy = new HostReplacementBusyError();
+    const { deps, calls, rendered } = harness({ ...clean, orphans: 1 }, []);
+    await expect(bootResidentHost({
+        ...deps,
+        adopt: async () => { calls.push("adopt"); throw busy; },
+    })).rejects.toBe(busy);
+    expect(calls).toEqual(["inspect", "adopt"]);
+    expect(rendered).toEqual([]);
+});
+
+test("a refusal during fresh-runtime start leaves the running runtime alone", async () => {
+    const busy = new HostReplacementBusyError();
+    const { deps, calls, rendered } = harness(clean, [fail, fail, () => { throw busy; }], { stash: true });
+    await expect(bootResidentHost(deps)).rejects.toBe(busy);
+    expect(calls).toEqual([
+        "inspect", "start:default", "recover", "start:single", "recover",
+        "rollback", "ask:stash_runtime", "stash", "start:default",
+    ]);
     expect(rendered).toEqual([]);
 });
 

@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTuiFlightRecorder } from "../../clients/tui/flight-recorder.ts";
-import { heartbeatAge } from "../../clients/tui/flight-watchdog.ts";
 
 const roots: string[] = [];
 
@@ -17,7 +16,6 @@ describe("TUI flight recorder", () => {
         roots.push(runtimeDirectory);
         const recorder = createTuiFlightRecorder({
             runtimeDirectory,
-            spawnWatchdog: false,
             pid: 42,
             now: () => new Date("2026-08-14T18:10:00.000Z"),
         });
@@ -47,7 +45,6 @@ test("records event loop stalls with memory use", async () => {
     roots.push(runtimeDirectory);
     const recorder = createTuiFlightRecorder({
         runtimeDirectory,
-        spawnWatchdog: false,
         heartbeatIntervalMs: 20,
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -67,103 +64,15 @@ test("records event loop stalls with memory use", async () => {
     expect(stalls[0].heapUsedBytes).toBeGreaterThan(0);
 });
 
-test("heartbeat age rejects malformed timestamps", () => {
-    expect(heartbeatAge("bad", 10_000)).toBeUndefined();
-    expect(heartbeatAge("1970-01-01T00:00:05.000Z", 10_000)).toBe(5_000);
-});
-
-test("a stopped watchdog removes its own live record", async () => {
-    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
-    const home = mkdtempSync(join(tmpdir(), "vera-dev", "watchdog-exit-"));
-    roots.push(home);
-    const child = Bun.spawn([
-        process.execPath,
-        join(process.cwd(), "clients/tui/flight-watchdog.ts"),
-        String(process.pid), join(home, "heartbeat"), join(home, "client.log"), "trial",
-    ], { env: { ...process.env, VERA_HOME: home }, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-    const record = join(home, "machine", "live", `${child.pid}.json`);
-    try {
-        const deadline = Date.now() + 5_000;
-        while (!existsSync(record) && Date.now() < deadline) await Bun.sleep(20);
-        expect(existsSync(record)).toBe(true);
-        child.kill("SIGTERM");
-        await child.exited;
-        expect(existsSync(record)).toBe(false);
-    } finally {
-        if (child.exitCode === null) child.kill("SIGKILL");
-        await child.exited;
-    }
-}, 10_000);
-
-async function checkRecorderShutdown(stopped: boolean): Promise<void> {
-    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
-    const home = mkdtempSync(join(tmpdir(), "vera-dev", "recorder-shutdown-"));
-    roots.push(home);
-    const source = `
-        import assert from "node:assert/strict";
-        import { existsSync, readFileSync, readdirSync } from "node:fs";
-        import { join } from "node:path";
-        import { createTuiFlightRecorder } from ${JSON.stringify(join(process.cwd(), "clients/tui/flight-recorder.ts"))};
-        const home = process.env.VERA_HOME;
-        const recorder = createTuiFlightRecorder({ runtimeDirectory: join(home, "runtime") });
-        try {
-            const live = join(home, "machine", "live");
-            let pid;
-            const deadline = Date.now() + 3000;
-            while (pid === undefined && Date.now() < deadline) {
-                for (const file of existsSync(live) ? readdirSync(live) : []) {
-                    const entry = JSON.parse(readFileSync(join(live, file), "utf8"));
-                    if (entry.kind === "watchdog") pid = entry.pid;
-                }
-                if (pid === undefined) await Bun.sleep(10);
-            }
-            assert.notEqual(pid, undefined);
-            if (${stopped}) {
-                process.kill(pid, "SIGSTOP");
-                let state = "";
-                const stopDeadline = Date.now() + 1000;
-                while (!state.includes("T") && Date.now() < stopDeadline) {
-                    state = Bun.spawnSync(["ps", "-o", "state=", "-p", String(pid)]).stdout.toString();
-                    if (!state.includes("T")) await Bun.sleep(10);
-                }
-                assert.ok(state.includes("T"));
-            }
-            let finished = false;
-            const shutdown = recorder.close("relaunch");
-            assert.equal(recorder.close("second_close"), shutdown);
-            void shutdown.then(() => { finished = true; });
-            await Promise.resolve();
-            if (${stopped}) assert.equal(finished, false);
-            await shutdown;
-            assert.equal(finished, true);
-            assert.throws(() => process.kill(pid, 0));
-            const entries = readFileSync(recorder.logPath, "utf8").trim().split("\\n").map(JSON.parse);
-            const exits = entries.filter((entry) => entry.type === "client_exited");
-            assert.equal(exits.length, 1);
-            assert.equal(exits[0].reason, "relaunch");
-            assert.equal(entries.some((entry) => entry.type === "client_process_lost"), false);
-        } finally {
-            await recorder.close("cleanup");
-        }
-    `;
-    const child = Bun.spawn([process.execPath, "-e", source], {
-        env: { ...process.env, VERA_HOME: home },
-        stdin: "ignore", stdout: "ignore", stderr: "pipe",
-    });
-    try {
-        const stderr = await new Response(child.stderr).text();
-        expect(stderr).toBe("");
-        expect(await child.exited).toBe(0);
-    } finally {
-        if (child.exitCode === null) child.kill("SIGKILL");
-        await child.exited;
-    }
-}
-
-test("@core recorder shutdown completes after its watchdog exits and is idempotent", async () => {
-    await checkRecorderShutdown(false);
-});
-
-test("@core recorder shutdown reaps a stopped watchdog after its termination deadline", async () => {
-    await checkRecorderShutdown(true);
+test("@core recorder shutdown flushes once and is idempotent", async () => {
+    const runtimeDirectory = mkdtempSync(join(tmpdir(), "vera-flight-"));
+    roots.push(runtimeDirectory);
+    const recorder = createTuiFlightRecorder({ runtimeDirectory });
+    const shutdown = recorder.close("relaunch");
+    expect(recorder.close("second_close")).toBe(shutdown);
+    await shutdown;
+    const entries = readFileSync(recorder.logPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(entries.filter((entry) => entry.type === "client_exited")).toEqual([
+        expect.objectContaining({ reason: "relaunch" }),
+    ]);
 });

@@ -1,4 +1,5 @@
 import type { RestartRecord } from "../store/restart-records.ts";
+import type { HostRequester } from "./protocol.ts";
 
 export type StopWaitStatus = "working" | "waiting" | "queued";
 
@@ -42,6 +43,14 @@ export type StopRequestResult =
 export interface StopRequestOptions {
     // Cuts the waited sessions as soon as the wait opens.
     readonly cutFirst?: boolean;
+    readonly requester?: HostRequester;
+}
+
+export interface CompletedHostStop {
+    readonly reason: "host_stop" | "host_stop_force" | "update";
+    readonly target_build_id?: string;
+    readonly requester?: HostRequester;
+    readonly forced_by?: HostRequester;
 }
 
 export type StopCause = "stop" | "update";
@@ -67,7 +76,7 @@ export interface StopWhenIdleControl {
     ): StopRequestResult;
     // Calls the observer with the current wait, if one is announced, then with each change.
     observe(observer: StopWaitObserver): () => void;
-    cutWait(): Promise<CutStopWaitResult>;
+    cutWait(requester?: HostRequester): Promise<CutStopWaitResult>;
 }
 
 export interface StopWhenIdleOptions {
@@ -75,7 +84,7 @@ export interface StopWhenIdleOptions {
     readonly waitingOnAsync?: () => Promise<readonly StopWaitTarget[]>;
     readonly setTurnsHeld?: (held: boolean) => Promise<void>;
     readonly replyBeforeWorkerCheck?: boolean;
-    readonly onStopped: () => void | Promise<void>;
+    readonly onStopped: (cause: CompletedHostStop) => void | Promise<void>;
     readonly pollIntervalMs?: number;
     // Checked when a request names a build. A message refuses the request.
     readonly targetProblem?: (buildId: string) => string | undefined;
@@ -98,6 +107,9 @@ const DEFAULT_POLL_INTERVAL_MS = 200;
 export class StopWhenIdle implements StopWhenIdleControl {
     private held = false;
     private finished = false;
+    private forced = false;
+    private requester: HostRequester | undefined;
+    private forcedBy: HostRequester | undefined;
     // undefined: no stop pending. null: plain stop. A string: stop, then move to that build.
     private pending: string | null | undefined;
     private lastKey: string | undefined;
@@ -141,6 +153,9 @@ export class StopWhenIdle implements StopWhenIdleControl {
         const newWait = this.pending === undefined;
         this.pending = buildId;
         this.held = true;
+        if (newWait) this.requester = requestOptions.requester;
+        else if (requestOptions.cutFirst === true) this.forcedBy = requestOptions.requester;
+        if (requestOptions.cutFirst === true) this.forced = true;
         if (newWait && this.options.setTurnsHeld !== undefined) {
             this.holdChange = Promise.resolve().then(() => this.options.setTurnsHeld!(true));
         }
@@ -173,7 +188,7 @@ export class StopWhenIdle implements StopWhenIdleControl {
 
     // Halts each waited session once, then clears the halt. Queued prompts are dropped
     // with a "Not started" line; the active turn ends. The wait itself stays open.
-    async cutWait(): Promise<CutStopWaitResult> {
+    async cutWait(requester?: HostRequester): Promise<CutStopWaitResult> {
         if (this.finished || this.pending === undefined) {
             return {
                 status: "refused",
@@ -181,6 +196,8 @@ export class StopWhenIdle implements StopWhenIdleControl {
                 message: "No stop is waiting, so there is nothing to cut.",
             };
         }
+        this.forced = true;
+        if (requester !== undefined) this.forcedBy = requester;
         const cause: StopCause = this.pending === null ? "stop" : "update";
         await this.holdChange;
         const reason = this.pending === null
@@ -331,7 +348,14 @@ export class StopWhenIdle implements StopWhenIdleControl {
             await this.emit({ type: "restarting", build_id: this.pending });
         }
         await this.broadcast({ type: "stopped" });
-        await this.options.onStopped();
+        const details = {
+            ...(this.requester === undefined ? {} : { requester: this.requester }),
+            ...(this.forcedBy === undefined ? {} : { forced_by: this.forcedBy }),
+        };
+        const cause: CompletedHostStop = typeof this.pending === "string"
+            ? { reason: "update", target_build_id: this.pending, ...details }
+            : { reason: this.forced ? "host_stop_force" : "host_stop", ...details };
+        await this.options.onStopped(cause);
     }
 
     private prepareStop(): string | undefined {
@@ -352,6 +376,9 @@ export class StopWhenIdle implements StopWhenIdleControl {
         }
         this.held = false;
         this.pending = undefined;
+        this.forced = false;
+        this.requester = undefined;
+        this.forcedBy = undefined;
         this.lastKey = undefined;
         if (this.announced !== undefined) {
             this.announced = undefined;

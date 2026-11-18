@@ -11,6 +11,7 @@ import type { ReleaseManifest } from "./manifest.ts";
 import { compareVersions, isReleaseVersion } from "./version.ts";
 import { defaultReadLiveHost, handOffUpdate, type HandOffOutcome } from "./handoff.ts";
 import { targetPidIsAncestor } from "../host/process-ancestry.ts";
+import { cliHostRequester } from "../host/requester.ts";
 import { readStampedRelease } from "./stamp.ts";
 import {
     readUpgradeJournal,
@@ -76,6 +77,7 @@ export async function rollbackLocalInstall(
             return handOffUpdate({
                 buildId: target.manifest.build_id,
                 insideSession: targetPidIsAncestor(live.pid) === true,
+                requester: cliHostRequester("rollback"),
                 prefix,
                 report: (line) => process.stderr.write(`${line}\n`),
             });

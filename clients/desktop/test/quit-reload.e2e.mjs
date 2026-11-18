@@ -120,6 +120,7 @@ try {
         cwd: repoRoot,
         env: {
             ...process.env,
+            HOME: trial.userHome,
             VERA_HOME: trial.home,
             VERA_DEV_INSTANCE: `${basename(repoRoot)} e2e`,
             VERA_SOURCE_CHECKOUT: repoRoot,
@@ -131,6 +132,8 @@ try {
         host.once("error", resolveExit);
     });
     await trial.waitForHost();
+    const hostBuild = JSON.parse(readFileSync(join(trial.home, "runtime", "host.json"), "utf8")).build_id;
+    if (hostBuild !== "e2e") throw new Error(`Trial host used build ${hostBuild}, expected e2e.`);
     const agent = await seed();
     const app = await trial.launch();
     apps.push(app.process());

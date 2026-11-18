@@ -3,7 +3,7 @@ import { dlopen, FFIType, ptr } from "bun:ffi";
 
 export type LaunchVeraHome =
     | { readonly state: "unreadable" }
-    | { readonly state: "unset" }
+    | { readonly state: "unset"; readonly userHome?: string }
     | { readonly state: "set"; readonly home: string };
 
 // Reads the environment a process was launched with. Undefined when the OS will not say.
@@ -21,13 +21,21 @@ export function launchEnvironment(pid: number): Buffer | undefined {
 export function readLaunchVeraHome(pid: number): LaunchVeraHome {
     const environment = launchEnvironment(pid);
     if (environment === undefined) return { state: "unreadable" };
-    const entry = environment.toString("utf8").split("\0").find((value) => value.startsWith("VERA_HOME="));
-    return entry === undefined ? { state: "unset" } : { state: "set", home: entry.slice("VERA_HOME=".length) };
+    const entries = environment.toString("utf8").split("\0");
+    const home = launchEntry(entries, "VERA_HOME=");
+    if (home !== undefined && home.trim().length > 0) return { state: "set", home };
+    const userHome = launchEntry(entries, "HOME=");
+    return userHome === undefined || userHome.length === 0 ? { state: "unset" } : { state: "unset", userHome };
 }
 
 export function clientLaunchHome(pid: number): string | undefined {
-    const launch = readLaunchVeraHome(pid);
-    return launch.state === "set" ? launch.home : undefined;
+    const environment = launchEnvironment(pid);
+    return environment === undefined ? undefined : launchEntry(environment.toString("utf8").split("\0"), "VERA_HOME=");
+}
+
+function launchEntry(entries: readonly string[], prefix: string): string | undefined {
+    const entry = entries.find((value) => value.startsWith(prefix));
+    return entry?.slice(prefix.length);
 }
 
 function macLaunchEnvironment(pid: number): Buffer | undefined {

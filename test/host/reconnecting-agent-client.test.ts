@@ -1,5 +1,5 @@
 import { tmpdir } from "node:os";
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
@@ -264,6 +264,154 @@ test(
         client.close();
     },
 );
+
+test("@core reconnect budget spans receives after replay then disconnect", async () => {
+    const initial = fakeClient([], 4);
+    let attempts = 0;
+    const client = createReconnectingAgentClient(initial, async () => {
+        attempts += 1;
+        return fakeClient([{
+            type: "assistant_delta",
+            text: `replay ${attempts}`,
+            seq: 5,
+        }], 4);
+    }, { deadlineMs: 75, delaysMs: [0], failOnDisconnect: true, retryDirectDisconnect: () => true });
+    try {
+        expect((await client.receive()).type).toBe("assistant_delta");
+        await expect(client.receive()).rejects.toThrow("Could not reconnect agent before its deadline");
+        expect(attempts).toBe(1);
+    } finally {
+        client.close();
+    }
+});
+
+test("the reconnect deadline spans successful replay receives", async () => {
+    let attempts = 0;
+    const client = createReconnectingAgentClient(fakeClient([], 4), async () => {
+        attempts += 1;
+        return fakeClient([{ type: "assistant_delta", text: "replay", seq: 5 }], 4);
+    }, { deadlineMs: 50, delaysMs: [0, 0], failOnDisconnect: true, retryDirectDisconnect: () => true });
+    try {
+        await client.receive();
+        await Bun.sleep(75);
+        await expect(client.receive()).rejects.toThrow("Could not reconnect agent before its deadline");
+        expect(attempts).toBe(1);
+    } finally {
+        client.close();
+    }
+});
+
+test("an attachment arriving after the deadline is closed", async () => {
+    let replacementClosed = false;
+    const client = createReconnectingAgentClient(fakeClient([], 4), async () => {
+        await Bun.sleep(60);
+        return { ...fakeClient([{ type: "history", entries: [], seq: 5 }]),
+            close: () => { replacementClosed = true; } };
+    }, { deadlineMs: 30, delaysMs: [0] });
+    try {
+        await expect(client.receive()).rejects.toThrow("Could not reconnect agent before its deadline");
+        expect(replacementClosed).toBeTrue();
+    } finally {
+        client.close();
+    }
+});
+
+test("a direct attachment resets its reconnect budget only after 30 seconds open", async () => {
+    jest.useFakeTimers();
+    let attempts = 0;
+    let dropped = false;
+    const create = () => createReconnectingAgentClient(fakeClient([], 4), async () => {
+        attempts += 1;
+        return {
+            ...fakeClient([{ type: "assistant_delta", text: "replay", seq: 5 }], 4),
+            get closed() { return dropped; },
+        };
+    }, { deadlineMs: 120_000, delaysMs: [0], failOnDisconnect: true, retryDirectDisconnect: () => true });
+    const early = create();
+    let closedBeforeReset: AttachedAgentClient | undefined;
+    let stable: AttachedAgentClient | undefined;
+    try {
+        await early.receive();
+        jest.advanceTimersByTime(29_999);
+        await expect(early.receive()).rejects.toThrow("Could not reconnect agent before its deadline");
+        expect(attempts).toBe(1);
+        closedBeforeReset = create();
+        await closedBeforeReset.receive();
+        dropped = true;
+        jest.advanceTimersByTime(30_000);
+        await expect(closedBeforeReset.receive()).rejects.toThrow("Could not reconnect agent before its deadline");
+        expect(attempts).toBe(2);
+        dropped = false;
+        stable = create();
+        await stable.receive();
+        jest.advanceTimersByTime(30_000);
+        expect((await stable.receive()).type).toBe("assistant_delta");
+        expect(attempts).toBe(4);
+    } finally {
+        early.close();
+        closedBeforeReset?.close();
+        stable?.close();
+        jest.useRealTimers();
+    }
+});
+
+test("@core replacement attachments start immediately then back off across receives", async () => {
+    jest.useFakeTimers();
+    const initial = {
+        ...fakeClient([], 4),
+        receive: () => Promise.reject(new Error("host connection closed")),
+    };
+    let attempts = 0;
+    const client = createReconnectingAgentClient(initial, async () => {
+        attempts += 1;
+        if (attempts === 2) throw new Error("host is unavailable");
+        return fakeClient([{ type: "assistant_delta", text: "replay", seq: 5 }], 4);
+    }, { deadlineMs: 60_000, failOnDisconnect: true, retryDirectDisconnect: () => true });
+    const flush = async (): Promise<void> => {
+        for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    };
+    try {
+        const first = client.receive();
+        void first.catch(() => undefined);
+        await Promise.resolve();
+        expect(attempts).toBe(1);
+        expect((await first).type).toBe("assistant_delta");
+
+        const second = client.receive();
+        void second.catch(() => undefined);
+        await flush();
+        jest.advanceTimersByTime(249);
+        await flush();
+        expect(attempts).toBe(1);
+        jest.advanceTimersByTime(1);
+        await flush();
+        expect(attempts).toBe(2);
+        jest.advanceTimersByTime(499);
+        await flush();
+        expect(attempts).toBe(2);
+        jest.advanceTimersByTime(1);
+        await flush();
+        expect(attempts).toBe(3);
+        expect((await second).type).toBe("assistant_delta");
+
+        for (const wait of [1_000, 2_000, 4_000, 5_000, 5_000]) {
+            const previousAttempts = attempts;
+            const next = client.receive();
+            void next.catch(() => undefined);
+            await flush();
+            jest.advanceTimersByTime(wait - 1);
+            await flush();
+            expect(attempts).toBe(previousAttempts);
+            jest.advanceTimersByTime(1);
+            await flush();
+            expect(attempts).toBe(previousAttempts + 1);
+            expect((await next).type).toBe("assistant_delta");
+        }
+    } finally {
+        client.close();
+        jest.useRealTimers();
+    }
+});
 
 test("attachment-private work makes a disconnect terminal", async () => {
     const initial = fakeClient([], 4);

@@ -525,7 +525,7 @@ socketAndLoopbackTest("extension calls cross the process boundary and blocked mo
             if (workerPid !== undefined) expect(() => process.kill(workerPid!, 0)).toThrow();
             if (annexPid !== undefined) expect(() => process.kill(annexPid, 0)).toThrow();
         } finally {
-            if (previousHome === undefined) delete process.env.VERA_HOME;
+            if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = previousHome;
             await rm(home, { recursive: true, force: true });
         }

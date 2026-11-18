@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createConsumerRegistry } from "../../src/host/consumers.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { parseAgentUpdateFrame } from "../../src/host/agent-update-wire.ts";
+import { HOST_CAPABILITY_AGENT_ATTACH_RESUME } from "../../src/host/capabilities.ts";
 import { EXTENSION_CONFIG_NOTICE_KEY, activeExtensionConfigWatches } from "../../src/host/extension-config-watch.ts";
 import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
@@ -201,6 +202,128 @@ socketTest("@core config changes leave current and newly attached socket clients
         await rm(home, { recursive: true, force: true });
     }
 }, 15_000);
+
+socketTest("@core repeated attaches suppress an identical notice in the resident replay window", async () => {
+    const home = await mkdtemp(join(tmpdir(), "vera-ext-replay-"));
+    let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
+    let first: AttachedAgentClient | undefined;
+    const clients: AttachedAgentClient[] = [];
+    const eventLogPath = join(home, "events", "crow.jsonl");
+    try {
+        await writeFile(join(home, "config.json"), JSON.stringify(baseConfig));
+        host = await startResidentHost({
+            home,
+            config: baseConfig,
+            processWorker: false,
+            createAdapter: () => new FauxAdapter([]),
+            eventLogDirectory: join(home, "events"),
+        });
+        const agent = await host.registry.create({ id: "crow", workspace: home });
+        first = await attachAgent({ socketPath: host.server.socketPath, agentId: agent.id });
+        expect((await first.receive(AbortSignal.timeout(5_000))).type).toBe("history");
+        await host.registry.agents.get(agent.id)!.loopReady;
+        await writeFile(join(home, "config.json"), JSON.stringify({
+            ...baseConfig, disabled_included_extensions: ["vera.mcp"],
+        }));
+        const expected = "Disabled vera.mcp. Use Reconnect host (Ctrl+P) to unload it.";
+        const original = await receiveSocketNotice(first);
+        expect(original.text).toBe(expected);
+        await waitForEventLines(eventLogPath, 1);
+
+        for (let index = 0; index < 8; index += 1) {
+            const client = await attachAgent({ socketPath: host.server.socketPath, agentId: agent.id });
+            clients.push(client);
+            expect((await client.receive(AbortSignal.timeout(5_000))).type).toBe("history");
+            expect((await receiveSocketNotice(client)).seq).toBe(original.seq);
+            await expectNoSocketNotice(client);
+            expect(await extensionNoticeLineCount(eventLogPath)).toBe(1);
+        }
+
+        const resumed = await attachAgent({
+            socketPath: host.server.socketPath,
+            agentId: agent.id,
+            afterSequence: original.seq,
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_ATTACH_RESUME],
+        });
+        clients.push(resumed);
+        await expectNoSocketNotice(resumed);
+        expect(await extensionNoticeLineCount(eventLogPath)).toBe(1);
+
+        agent.engine.send({ type: "history", entries: [], seq: original.seq });
+        const simultaneous = [agent.attach(), agent.attach(), agent.attach()];
+        try {
+            await waitForEventLines(eventLogPath, 2);
+        } finally {
+            for (const attachment of simultaneous) attachment.detach();
+        }
+        const afterCheckpoint = await attachAgent({ socketPath: host.server.socketPath, agentId: agent.id });
+        clients.push(afterCheckpoint);
+        expect((await afterCheckpoint.receive(AbortSignal.timeout(5_000))).type).toBe("history");
+        const renewed = await receiveSocketNotice(afterCheckpoint);
+        expect(renewed.text).toBe(expected);
+        expect(renewed.seq).toBe(original.seq + 1);
+        await expectNoSocketNotice(afterCheckpoint);
+        await waitForEventLines(eventLogPath, 2);
+        expect((await receiveSocketNotice(first)).seq).toBe(renewed.seq);
+
+        const replayAfterCheckpoint = await attachAgent({ socketPath: host.server.socketPath, agentId: agent.id });
+        clients.push(replayAfterCheckpoint);
+        expect((await replayAfterCheckpoint.receive(AbortSignal.timeout(5_000))).type).toBe("history");
+        expect((await receiveSocketNotice(replayAfterCheckpoint)).seq).toBe(renewed.seq);
+        await expectNoSocketNotice(replayAfterCheckpoint);
+        expect(await extensionNoticeLineCount(eventLogPath)).toBe(2);
+
+        await writeFile(join(home, "config.json"), JSON.stringify(baseConfig));
+        expect((await receiveSocketNotice(first)).text).toBe("Enabled vera.mcp.");
+        await waitForEventLines(eventLogPath, 3);
+        await writeFile(join(home, "config.json"), JSON.stringify({
+            ...baseConfig, disabled_included_extensions: ["vera.mcp"],
+        }));
+        expect((await receiveSocketNotice(first)).text).toBe(expected);
+        await waitForEventLines(eventLogPath, 4);
+    } finally {
+        first?.close();
+        for (const client of clients) client.close();
+        const annexPid = host?.annexPid;
+        await host?.close();
+        if (annexPid !== undefined) expect(() => process.kill(annexPid, 0)).toThrow();
+        expect(activeExtensionConfigWatches()).toBe(0);
+        await rm(home, { recursive: true, force: true });
+    }
+}, 15_000);
+
+async function extensionNoticeLineCount(path: string): Promise<number> {
+    const lines = (await readFile(path, "utf8")).trim().split("\n");
+    return lines.filter((line) => {
+        if (line.length === 0) return false;
+        const event = JSON.parse(line) as { readonly type?: string; readonly key?: string };
+        return event.type === "notice" && event.key === EXTENSION_CONFIG_NOTICE_KEY;
+    }).length;
+}
+
+async function waitForEventLines(path: string, expected: number): Promise<void> {
+    const started = Date.now();
+    while (Date.now() - started < 2_000) {
+        if (await extensionNoticeLineCount(path) === expected) return;
+        await Bun.sleep(20);
+    }
+    throw new Error(`timed out waiting for ${expected} extension notice event lines`);
+}
+
+async function expectNoSocketNotice(client: AttachedAgentClient): Promise<void> {
+    const deadline = Date.now() + 100;
+    while (Date.now() < deadline) {
+        try {
+            const update = await client.receive(AbortSignal.timeout(Math.max(0, deadline - Date.now())));
+            if (update.type === "notice" && update.key === EXTENSION_CONFIG_NOTICE_KEY) {
+                throw new Error("received a duplicate extension config notice");
+            }
+        } catch (error) {
+            if (error instanceof DOMException && error.name === "TimeoutError") return;
+            throw error;
+        }
+    }
+}
 
 async function receiveSocketNotice(client: AttachedAgentClient): Promise<ExtensionNoticeUpdate> {
     const signal = AbortSignal.timeout(5_000);

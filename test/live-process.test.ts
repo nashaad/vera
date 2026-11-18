@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -17,6 +17,7 @@ import {
     liveProcessDirectory,
     liveProcessPath,
     postLiveProcess,
+    postLiveProcessIn,
     renderVeraPrune,
     signalListedProcess,
     stopListedLiveProcess,
@@ -42,6 +43,25 @@ test("a posted live process is listed until it is dropped", () => {
     expect(listLiveProcesses(home)).toEqual([]);
 });
 
+test("@core TUI instance id round-trips through the live process store", () => {
+    const home = tempHome();
+    const startedAt = new Date(Date.now() - process.uptime() * 1_000).toISOString();
+    try {
+        const record = postLiveProcessIn(home, "tui", {
+            pid: process.pid, startedAt, runtimeDir: join(home, "runtime"),
+            clientInstanceId: "00000000-0000-4000-8000-000000000001",
+        });
+        expect(listLiveProcessesIn(home, () => Date.parse(startedAt))).toEqual([record]);
+        const host = postLiveProcessIn(home, "host", {
+            pid: process.pid, startedAt, runtimeDir: join(home, "runtime"),
+            clientInstanceId: "00000000-0000-4000-8000-000000000001",
+        });
+        expect(host.client_instance_id).toBeUndefined();
+    } finally {
+        rmSync(home, { recursive: true, force: true });
+    }
+});
+
 test("installLiveProcess titles, posts, and the disposer unlinks", () => {
     const home = tempHome();
     const previous = process.env.VERA_HOME;
@@ -58,7 +78,7 @@ test("installLiveProcess titles, posts, and the disposer unlinks", () => {
         expect(listLiveProcesses(home)).toEqual([]);
     } finally {
         process.title = previousTitle;
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
     }
 });
@@ -202,7 +222,7 @@ test("stopListedLiveProcess kills a real child and drops its row", async () => {
         expect(processIsAlive(childPid)).toBe(false);
         expect(listLiveProcesses(home)).toEqual([]);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
         const running = child;
         if (
@@ -437,7 +457,7 @@ test("stopListedLiveProcess checks again before the signal to the PID after the 
         expect(sent).toEqual(["SIGKILL:-4242"]);
         expect(existsSync(liveProcessPath(4242, home))).toBe(false);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
     }
 });
@@ -465,7 +485,7 @@ test("stopListedLiveProcess signals nothing for a replaced PID and drops its sta
         expect(log.sent).toEqual([]);
         expect(existsSync(liveProcessPath(4242, home))).toBe(false);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
     }
 });
@@ -493,7 +513,7 @@ test("stopListedLiveProcess keeps the row of a process it could not confirm", ()
         expect(log.sent).toEqual([]);
         expect(existsSync(liveProcessPath(4242, home))).toBe(true);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
     }
 });

@@ -3,6 +3,7 @@ import { openUrl } from "../../src/url-opener.ts";
 import type { SaveProviderInput } from "../../src/providers/save-provider.ts";
 import type { ProviderSignInStatus } from "../../src/providers/provider-sign-in.ts";
 import { cutStopWaitThroughHost, type CutStopWaitOutcome } from "../../src/host/stop-wait-cut-client.ts";
+import { hostRequester } from "../../src/host/requester.ts";
 import { forgetProviderThroughHost } from "../../src/host/provider-forget-client.ts";
 import { operateModelsThroughHost } from "../../src/host/model-operation-client.ts";
 import type { ModelOperation, ModelOperationResult, ModelOperationStep } from "../../src/model/model-operations.ts";
@@ -19,7 +20,7 @@ import {
     writeRelaunchRecord,
 } from "../../src/release/relaunch.ts";
 import { launcherRelaunch, type TuiRelaunchRequest } from "./restart-notice.ts";
-import { installLiveProcess } from "../../src/live-process.ts";
+import { installLiveProcess, postLiveProcess } from "../../src/live-process.ts";
 import { readLastGoodConfig } from "./main/last-good-config.ts";
 import { requestCustomizationSources } from "./main/customization-sources.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
@@ -549,6 +550,12 @@ function tuiContextSnapshot(
     };
 }
 
+export interface TuiReconnectOptions {
+    readonly replaceExisting?: boolean;
+    readonly confirmWedge?: boolean;
+    readonly attachOnly?: boolean;
+}
+
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
     /** How Outrider is found and run. Supplied by a test that has no binary on the machine. */
@@ -565,7 +572,7 @@ export interface TuiDependencies {
     readonly saveProviderKey?: (provider: string, key: string) => Promise<void>;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     /** Ends one session's turn through the host. Used by the stop-now action. */
-    readonly cutStopWait?: () => Promise<CutStopWaitOutcome>;
+    readonly cutStopWait?: (sessionId?: string) => Promise<CutStopWaitOutcome>;
     /** Set only under a relaunch-capable launcher; leaves the TUI for the launcher to restart. */
     readonly relaunchTui?: (request: TuiRelaunchRequest) => Promise<void>;
     readonly clientBuildId?: string;
@@ -625,12 +632,9 @@ export interface TuiDependencies {
     ) => Promise<SessionSearchResults>;
     readonly reconnectSession?: (
         agentId: string,
-        options?: {
-            readonly replaceExisting?: boolean;
-            readonly confirmWedge?: boolean;
-            readonly attachOnly?: boolean;
-        },
+        options?: TuiReconnectOptions,
     ) => Promise<TuiAgentClient>;
+    readonly reconnectHome?: (options?: TuiReconnectOptions) => Promise<void>;
     readonly onSessionEntered?: (agentId: string) => void;
     readonly initialDraft?: TuiDraft;
     readonly startupNotices?: readonly string[];
@@ -774,6 +778,7 @@ export async function startConfiguredTui(
     // Optional: requiring config made attach fail against an already-running host.
     const config = loadOptionalVeraConfig();
     let host = await findOrStartResidentHost({
+        requester: hostRequester("tui", "startup", target.type === "attach" ? { id: target.agentId } : undefined),
         ...(options.confirmBusyUpgrade === undefined
             ? {}
             : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
@@ -822,6 +827,7 @@ export async function startConfiguredTui(
         })
         : await agentClients.attachPaged(agentId);
     const flightRecorder = createTuiFlightRecorder();
+    postLiveProcess("tui", { clientInstanceId: flightRecorder.instanceId });
     if (agentId !== undefined) flightRecorder.sessionEntered(agentId);
     const rememberSession = (enteredAgentId: string): void => {
         saveTuiRecentSessionId(enteredAgentId);
@@ -843,6 +849,27 @@ export async function startConfiguredTui(
                 loadPoolFile({ projectRoot: process.cwd() }).issues,
             ),
         ];
+        const reconnectHost = async (options?: TuiReconnectOptions, home = false, currentAgentId?: string): Promise<void> => {
+            const replaceExisting = options?.replaceExisting === true;
+            const confirmWedge = options?.confirmWedge === true;
+            await refuseOtherHostBuild(clientBuildId);
+            if (options?.attachOnly === true) return;
+            assertInstalledBuild(clientBuildId, installedBuildId());
+            host = await findOrStartResidentHost({
+                requester: hostRequester(
+                    "tui",
+                    replaceExisting ? "reconnect host" : "automatic reconnect",
+                    currentAgentId === undefined ? undefined : { id: currentAgentId },
+                ),
+                confirmBusyUpgrade: confirmWedge
+                    ? confirmManualReconnectUpgrade
+                    : () => false,
+                ...(replaceExisting ? { replaceExisting: true } : {}),
+                ...(home && replaceExisting
+                    ? { replaceOnlyHost: { pid: host.pid, started_at: host.started_at } }
+                    : {}),
+            });
+        };
         const exit = await startTui({
             client,
             initialDraft: restored?.draft,
@@ -864,7 +891,9 @@ export async function startConfiguredTui(
                 });
             },
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
-            cutStopWait: async () => cutStopWaitThroughHost(await pairedSocket()),
+            cutStopWait: async (sessionId) => cutStopWaitThroughHost(
+                await pairedSocket(), hostRequester("tui", "cut stop wait", { id: sessionId }),
+            ),
             operateModels: async (operation, onResult, workspace, onStep) => operateModelsThroughHost(await pairedSocket(), operation, onResult, workspace, onStep),
             readHostModelSettings: async (workspace) =>
                 readModelSettingsThroughHost(await pairedSocket(), workspace),
@@ -914,20 +943,10 @@ export async function startConfiguredTui(
             searchSessions: async (query) =>
                 searchSessionsThroughHost(await pairedSocket(), query),
             reconnectSession: async (currentAgentId, options) => {
-                // Manual reconnect confirms a wedge. Auto-restart after a drop does not. A busy host must refuse.
-                const replaceExisting = options?.replaceExisting === true;
-                const confirmWedge = options?.confirmWedge === true;
-                await refuseOtherHostBuild(clientBuildId);
-                if (options?.attachOnly === true) return attach(currentAgentId);
-                assertInstalledBuild(clientBuildId, installedBuildId());
-                host = await findOrStartResidentHost({
-                    confirmBusyUpgrade: confirmWedge
-                        ? confirmManualReconnectUpgrade
-                        : () => false,
-                    ...(replaceExisting ? { replaceExisting: true } : {}),
-                });
+                await reconnectHost(options, false, currentAgentId);
                 return attach(currentAgentId);
             },
+            reconnectHome: (options) => reconnectHost(options, true),
             onSessionEntered: rememberSession,
             trashSession: async (sessionId) =>
                 trashSessionThroughHost(await pairedSocket(), sessionId),
@@ -1102,7 +1121,6 @@ export async function startTui(
     // The restart notice ends once this TUI is attached to a host again.
     rt.relaunching = undefined;
     rt.plannedHostStop = undefined;
-    // One automatic host restart per drop. Clear only after the reconnected session is idle, or a dying worker loops.
     rt.hostReconnectAttempted = false;
     // agent_failed already arrived; the later stream close is not a dropped host.
     rt.agentFailedThisAttachment = false;
@@ -1537,6 +1555,7 @@ export async function startTui(
         rt.startConfiguredClientExtensionHost,
         (registry) => {
             rt.clientExtensionRegistry = registry;
+            if (rt.shuttingDown) return;
             refreshKeymap(rt);
             if (registry === undefined) {
                 rt.extensionMentions = [];

@@ -108,7 +108,7 @@ test("factory uses readable sessions, billed compactions and stash sidecars", as
         expect(sizes.filter((bytes) => bytes >= 20e6).length).toBe(8);
         expect(sizes.filter((bytes) => bytes >= 1e6 && bytes <= 10e6).length).toBe(40);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previous;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previous;
         await rm(root, { recursive: true, force: true });
     }
 });
@@ -279,7 +279,7 @@ socketAndLoopbackTest("startup limits connection bursts and the smoke records me
         expect(fifth.at).toBeGreaterThanOrEqual(Math.max(...ready.map((entry) => entry.at)));
         expect(checkFailed({ ...result, scenario: { ...result.scenario, sessions: 100 }, identityMisses: 1 })).toBe(true);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previous;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previous;
         await rm(root, { recursive: true, force: true });
     }
 }, 90_000);
@@ -303,7 +303,7 @@ for (const relay of [false, true]) socketAndLoopbackTest(`paging works with ${re
         expect(probe.find((event) => event.type === "attach_path")?.via).toBe(relay ? "routed" : "direct");
         expect(result.stop?.remainingPids).toEqual([]);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previous;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previous;
         await rm(root, { recursive: true, force: true });
     }
 }, 90_000);
@@ -328,7 +328,7 @@ socketAndLoopbackTest("worker kill reconnects affected clients and leaves the ot
         expect(result.stop?.remainingPids).toEqual([]);
         expect(result.stop?.remainingRecords).toEqual([]);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previous;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previous;
         await rm(root, { recursive: true, force: true });
     }
 }, 90_000);
@@ -349,7 +349,7 @@ socketAndLoopbackTest("worker pin samples the selected process for the measured 
         expect(result.stop?.remainingPids).toEqual([]);
         expect(result.stop?.remainingRecords).toEqual([]);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previous;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previous;
         await rm(root, { recursive: true, force: true });
     }
 }, 90_000);

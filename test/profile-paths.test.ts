@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { defaultVeraConfigPath } from "../src/config.ts";
@@ -203,8 +203,17 @@ test("every path helper accepts one selected home", () => {
 
     const saved = process.env.VERA_HOME;
     try {
-        delete process.env.VERA_HOME;
-        const defaultHome = join(homedir(), ".vera");
+        const userHome = mkdtempSync(join(tmpdir(), "vera-default-user-"));
+        const defaultHome = join(userHome, ".vera");
+        const env: Record<string, string | undefined> = { ...process.env, HOME: userHome };
+        delete env.VERA_HOME;
+        const probe = Bun.spawnSync([process.execPath, "-e", `
+            import { veraHomeDirectory } from ${JSON.stringify(new URL("../src/profile-paths.ts", import.meta.url).href)};
+            process.stdout.write(veraHomeDirectory());
+        `], { cwd: userHome, env, stdout: "pipe", stderr: "pipe" });
+        expect(probe.exitCode, probe.stderr.toString()).toBe(0);
+        expect(probe.stdout.toString()).toBe(defaultHome);
+        process.env.VERA_HOME = defaultHome;
         expect(resolved()).toEqual(expectedIn(defaultHome));
         expect(resolved(veraHome)).toEqual(expectedIn(veraHome));
 
@@ -212,7 +221,7 @@ test("every path helper accepts one selected home", () => {
         expect(resolved()).toEqual(expectedIn(veraHome));
         expect(resolved(veraHome)).toEqual(expectedIn(veraHome));
     } finally {
-        if (saved === undefined) delete process.env.VERA_HOME;
+        if (saved === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = saved;
     }
 });

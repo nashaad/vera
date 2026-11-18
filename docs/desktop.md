@@ -1161,7 +1161,7 @@ site popup opens in a new Browser tab, and `+` or the Browser tile opens a new,
 empty one; the launcher also opens a typed web address in a new Browser tab. The
 command palette's `Open a web page` opens the Browser or selects its most recent
 tab and focuses its address bar. A tab shows the page's title in the strip, and
-closing the tab closes the page. A
+closing the tab closes the page.
 Browser tabs hold websites only.
 
 At most 12 Browser tabs are open at once. At that point the Browser tile and the
@@ -1195,7 +1195,7 @@ available, or in the system browser when there is no pane or it cannot take
 another page. Links to websites are not opened.
 
 The command palette's Pages group lists Vera's pages. `/usage` opens Usage in
-the right pane. Usage and Runs have Reload and Open in your browser.
+the right pane. Usage and Workflow runs have Reload and Open in your browser.
 
 The pointer button at the right of the address bar opens the included browser
 annotation tool for the open session. Select an element or draw on a website,
@@ -1931,7 +1931,7 @@ session menu without a sheet, waiting for the result line. From a sidebar row's
 and forward between them, hides and shows the tree, unpins it from the
 right-click menu, clones it and closes the copy.
 
-The Browser tests check that websites open in Browser and that Usage, Runs
+The Browser tests check that websites open in Browser and that Usage, Workflow runs
 and Artifacts open in app page panes. They exercise typed app-page addresses,
 annotation controls and blocked annex requests from Browser.
 

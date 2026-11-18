@@ -15,7 +15,7 @@ function withIsolatedHome<T>(run: () => T): T {
         return run();
     } finally {
         if (previous === undefined) {
-            delete process.env.VERA_HOME;
+            process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         } else {
             process.env.VERA_HOME = previous;
         }
