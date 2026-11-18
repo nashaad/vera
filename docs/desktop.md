@@ -1272,7 +1272,7 @@ The desktop app imports a VS Code color theme from:
   list of them with a filter field. Enter or a click imports the chosen theme,
   and Escape closes the list. The list shows each theme's name and the
   extension it comes from, not file paths. A list cut at 300 themes, or after 500 extension folders, says
-  `More themes are installed than this list shows.`
+  `More items are available than this list shows.`
 
 The importer is an included desktop extension, `vera.vscode-theme-import`. Its
 source and manifest are in `extensions/vscode-theme-import/` in the repository,

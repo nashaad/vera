@@ -11,8 +11,8 @@ export interface CommandHost {
     chooseFile(filter: DesktopFileFilter): Promise<string | undefined>;
 }
 
-const UNAVAILABLE = "Vera could not import that theme.";
-const STALE_PICK = "That theme is not in the list. Open the list again.";
+const UNAVAILABLE = "Vera could not run that command.";
+const STALE_PICK = "That item is not in the list. Open the list again.";
 const PICK_KEY = /^pick-\d{1,4}$/;
 
 // Runs the commands of enabled included extensions, one task process per run. A list a task sends back is held
