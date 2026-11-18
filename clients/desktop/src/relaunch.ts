@@ -6,6 +6,15 @@ import type { InstalledBuildMismatch } from "../../shared/installed-build.ts";
 // The relaunch record the next window reads to reopen the session this one had open.
 export const DESKTOP_RELAUNCH_KEY = "desktop";
 
+// A composer holding more than this is not carried; the record stays small.
+export const MAX_RELAUNCH_DRAFT_CHARS = 64 * 1024;
+
+export interface ReopenTarget {
+    readonly agentId: string;
+    // The text the last window's composer held for that session.
+    readonly draft?: string;
+}
+
 export type RelaunchBanner = "not_under_shell" | "no_package" | "shell_too_old" | "same_package";
 
 export type RelaunchDecision =
@@ -46,6 +55,7 @@ export interface RelaunchActions {
 // Relaunches the window into the package for the installed build and hands the open session to the next one.
 export class DesktopRelaunch {
     private openSessionId: string | undefined;
+    private composer: { readonly agentId: string; readonly text: string } | undefined;
 
     constructor(private readonly actions: RelaunchActions, private readonly now: () => Date = () => new Date()) {}
 
@@ -54,13 +64,20 @@ export class DesktopRelaunch {
         this.openSessionId = agentId;
     }
 
+    // What the main composer of a session holds. Text that is blank or too long is not kept.
+    draftChanged(agentId: string | undefined, text: string): void {
+        this.composer = agentId === undefined || text.trim().length === 0 || text.length > MAX_RELAUNCH_DRAFT_CHARS ? undefined : { agentId, text };
+    }
+
     // True when the window is relaunching, so the caller shows nothing.
     buildChanged(mismatch: InstalledBuildMismatch): boolean {
         const decision = decideRelaunch(mismatch, { shell: this.actions.shell(), findPackage: this.actions.findPackage });
         if (decision.kind !== "relaunch") return false;
         try {
+            const draft = this.composer !== undefined && this.composer.agentId === this.openSessionId ? this.composer.text : undefined;
             this.actions.writeRecord({
                 ...(this.openSessionId === undefined ? {} : { sessionId: this.openSessionId }),
+                ...(draft === undefined ? {} : { draft: { text: draft, attachmentIds: [] } }),
                 writtenAt: this.now().toISOString(),
             });
         } catch {
@@ -72,8 +89,11 @@ export class DesktopRelaunch {
         return true;
     }
 
-    // The session the window before this one had open, once.
-    takeSession(): string | undefined {
-        return this.actions.takeRecord()?.sessionId;
+    // The session the window before this one had open, with the text its composer held, once.
+    takeReopen(): ReopenTarget | undefined {
+        const record = this.actions.takeRecord();
+        if (record?.sessionId === undefined) return undefined;
+        const draft = record.draft?.text;
+        return { agentId: record.sessionId, ...(draft === undefined || draft.length === 0 ? {} : { draft }) };
     }
 }

@@ -36,6 +36,9 @@ const MODEL_REFUSED = "Vera could not start this session on the model you chose,
 // A held first prompt gives up waiting for the agent switch after this long and hands the text back.
 const AGENT_WAIT_MS = 10_000;
 
+// The shell keeps the main composer's text so an update relaunch can hand it to the next window.
+const DRAFT_REPORT_MS = 250;
+
 interface ModelGate {
     readonly requestId: string;
     readonly prompt: PendingPrompt;
@@ -105,6 +108,12 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
         session: { bridge, agentId, pane, send, attached, running, folder, chat },
         notify: setNotice,
     });
+
+    useEffect(() => {
+        if (pane !== "main") return undefined;
+        const timer = setTimeout(() => bridge.reportComposerDraft(agentId, text), DRAFT_REPORT_MS);
+        return () => clearTimeout(timer);
+    }, [bridge, agentId, pane, text]);
 
     // A refusal of the last prompt sent from here gives the text back and says why.
     useEffect(() => {

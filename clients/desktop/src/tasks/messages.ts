@@ -8,6 +8,11 @@ export interface TaskRunMessage<Task> {
     readonly task: Task;
 }
 
+// Sent after the run message, and only when the caller of the task asked to be able to cancel it.
+export interface TaskCancelMessage {
+    readonly type: "cancel";
+}
+
 // `increment` is a percent of the whole task, as in VS Code's Progress.
 export interface TaskProgress {
     readonly message?: string;
@@ -36,6 +41,10 @@ export type TaskOutput = TaskProgressMessage | TaskLogMessage | TaskResultMessag
 
 export function runMessage<Task>(task: Task): TaskRunMessage<Task> {
     return { type: "run", task };
+}
+
+export function cancelMessage(): TaskCancelMessage {
+    return { type: "cancel" };
 }
 
 export function progressMessage(progress: TaskProgress): TaskProgressMessage {
@@ -84,4 +93,8 @@ export function parseRunMessage(value: unknown): TaskRunMessage<unknown> | undef
     const fields = record(value);
     if (fields === undefined || fields.type !== "run" || !("task" in fields)) return undefined;
     return runMessage(fields.task);
+}
+
+export function parseCancelMessage(value: unknown): TaskCancelMessage | undefined {
+    return record(value)?.type === "cancel" ? cancelMessage() : undefined;
 }

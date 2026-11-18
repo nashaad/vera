@@ -1,0 +1,19 @@
+/* The update sheet. The chip's styles are in sidebar-foot.css. */
+
+.update-heading {
+    color: var(--vera-text);
+}
+
+.update-bar {
+    width: 100%;
+    height: calc(var(--vera-space) * 1.5);
+    margin: 0 0 calc(var(--vera-space) * 2);
+    accent-color: var(--vera-accent);
+}
+
+.update-sessions {
+    margin: 0;
+    padding: 0 0 0 calc(var(--vera-space) * 4);
+    font-size: var(--vera-font-size-label);
+    color: var(--vera-text-dim);
+}

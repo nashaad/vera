@@ -1,12 +1,12 @@
-import type { TaskLog, TaskProgress, TaskRunMessage } from "./messages.ts";
-import { parseTaskOutput } from "./messages.ts";
+import type { TaskCancelMessage, TaskLog, TaskProgress, TaskRunMessage } from "./messages.ts";
+import { cancelMessage, parseTaskOutput } from "./messages.ts";
 
 export const TASK_TIMEOUT_MS = 60_000;
 
-// A transport carries messages and nothing else: the run message out, task output (already decoded) back.
+// A transport carries messages and nothing else: the run message (and a cancel message when asked for) out, task output (already decoded) back.
 // A message the transport cannot decode is delivered as `undefined`, which the runner refuses.
 export interface TaskProcess<Task> {
-    post(message: TaskRunMessage<Task>): void;
+    post(message: TaskRunMessage<Task> | TaskCancelMessage): void;
     onMessage(listener: (message: unknown) => void): void;
     onExit(listener: () => void): void;
     kill(): void;
@@ -15,6 +15,8 @@ export interface TaskProcess<Task> {
 export interface TaskListeners {
     onProgress?(progress: TaskProgress): void;
     onLog?(log: TaskLog): void;
+    // Aborting posts a cancel message. The task decides what stopping means and still answers; the deadline still applies.
+    signal?: AbortSignal;
 }
 
 // Starts a process for each task and stops it once it answers, fails or runs out of time.
@@ -38,10 +40,17 @@ export class TaskRunner<Task, Reply> {
         return new Promise((resolve, reject) => {
             const child = this.start();
             let settled = false;
+            const signal = listeners?.signal;
+            const cancel = (): void => {
+                try {
+                    child.post(cancelMessage());
+                } catch {}
+            };
             const finish = (reply: Reply | undefined, problem: string): void => {
                 if (settled) return;
                 settled = true;
                 clearTimeout(timer);
+                signal?.removeEventListener("abort", cancel);
                 child.kill();
                 if (reply === undefined) reject(new Error(problem));
                 else resolve(reply);
@@ -64,6 +73,8 @@ export class TaskRunner<Task, Reply> {
             child.onExit(() => finish(undefined, "The task stopped without answering."));
             try {
                 child.post({ type: "run", task });
+                if (signal?.aborted === true) cancel();
+                else signal?.addEventListener("abort", cancel, { once: true });
             } catch (error) {
                 finish(undefined, error instanceof Error ? error.message : String(error));
             }

@@ -21,7 +21,7 @@ function installPort(): FakePort {
     let listener: Listener | undefined;
     const sent: unknown[] = [];
     (process as { parentPort?: unknown }).parentPort = {
-        once: (_event: string, handler: Listener) => {
+        on: (_event: string, handler: Listener) => {
             listener = handler;
         },
         postMessage: (message: unknown) => {
@@ -75,4 +75,54 @@ test("@core serveOneTask refuses a message that is not a run message or whose ta
         expect(codes).toEqual([1]);
         expect(port.sent).toEqual([]);
     }
+});
+
+test("@core a cancel message after the run message reaches the task once, and the task still answers", async () => {
+    const port = installPort();
+    let cancels = 0;
+    serveOneTask(parseLine, async (task, report) => {
+        report.onCancel(() => {
+            cancels += 1;
+        });
+        await Bun.sleep(20);
+        return { n: task.n };
+    });
+    port.deliver({ type: "run", task: { n: 5 } });
+    port.deliver({ type: "cancel" });
+    port.deliver({ type: "cancel" });
+    port.deliver({ n: 9 });
+    await Bun.sleep(40);
+    expect(cancels).toBe(1);
+    expect(port.sent).toEqual([{ type: "result", reply: { n: 5 } }]);
+});
+
+test("@core a task that asks after the cancel arrived is told at once, and a task that never asks is not disturbed", async () => {
+    const port = installPort();
+    let told = false;
+    serveOneTask(parseLine, async (task, report) => {
+        await Bun.sleep(10);
+        report.onCancel(() => {
+            told = true;
+        });
+        return { n: task.n };
+    });
+    port.deliver({ type: "run", task: { n: 1 } });
+    port.deliver({ type: "cancel" });
+    await Bun.sleep(30);
+    expect(told).toBe(true);
+
+    const quiet = installPort();
+    serveOneTask(parseLine, (task) => ({ n: task.n }));
+    quiet.deliver({ type: "run", task: { n: 2 } });
+    quiet.deliver({ type: "cancel" });
+    await Bun.sleep(10);
+    expect(quiet.sent).toEqual([{ type: "result", reply: { n: 2 } }]);
+});
+
+test("@core a cancel message as the first message is refused like any other message that is not a run", () => {
+    const port = installPort();
+    const codes = trapExit();
+    serveOneTask(parseLine, () => ({}));
+    expect(() => port.deliver({ type: "cancel" })).toThrow("exit");
+    expect(codes).toEqual([1]);
 });

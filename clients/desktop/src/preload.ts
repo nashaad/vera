@@ -32,6 +32,7 @@ import type {
     SessionSearchResult,
     SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
+import type { UpdateAction, UpdateState } from "../../ui/src/protocol/updates.ts";
 import type { ImportedThemeSummary } from "../../ui/src/theme/imported.ts";
 import type { CatalogListResult, CatalogPreviewResult } from "../../ui/src/protocol/extension-catalog.ts";
 import type { ExtensionChangeResult, ExtensionPreviewResult } from "../../ui/src/protocol/extensions.ts";
@@ -53,6 +54,9 @@ const bridge: DesktopBridge = {
     sendSession: (pane: SessionPane, text: string) => ipcRenderer.send(CHANNELS.sessionSend, pane, text),
     unwatchSession: (pane: SessionPane) => ipcRenderer.send(CHANNELS.sessionUnwatch, pane),
     reportSessionShown: (agentId: string | undefined) => ipcRenderer.send(CHANNELS.sessionShown, agentId),
+    reportComposerDraft: (agentId: string | undefined, text: string) => ipcRenderer.send(CHANNELS.composerDraft, agentId, text),
+    updateState: async () => (await ipcRenderer.invoke(CHANNELS.updateState)) as UpdateState | undefined,
+    updateAct: (action: UpdateAction) => ipcRenderer.send(CHANNELS.update, action),
     setTitleBarHeight: (height: number) => ipcRenderer.send(CHANNELS.titleBar, height),
     setWindowBackground: (color: string) => ipcRenderer.send(CHANNELS.windowBackground, color),
     setTheme: (choice: ThemeChoice) => ipcRenderer.send(CHANNELS.theme, choice),

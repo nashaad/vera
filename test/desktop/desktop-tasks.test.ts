@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
-import type { TaskLog, TaskProgress, TaskRunMessage } from "../../clients/desktop/src/tasks/messages.ts";
+import type { TaskCancelMessage, TaskLog, TaskProgress, TaskRunMessage } from "../../clients/desktop/src/tasks/messages.ts";
 import { TaskRunner, type TaskProcess } from "../../clients/desktop/src/tasks/runner.ts";
 import { parseDesktopManifest } from "../../clients/ui/src/extensions/manifest.ts";
 import { registerExtensionCommands } from "../../clients/ui/src/extensions/commands.ts";
@@ -23,12 +23,12 @@ const parsePong = (message: unknown): { pong: number } | undefined =>
         : undefined;
 
 class FakeProcess implements TaskProcess<Ping> {
-    readonly posted: TaskRunMessage<Ping>[] = [];
+    readonly posted: Array<TaskRunMessage<Ping> | TaskCancelMessage> = [];
     kills = 0;
     private message: ((message: unknown) => void) | undefined;
     private exit: (() => void) | undefined;
 
-    post(message: TaskRunMessage<Ping>): void {
+    post(message: TaskRunMessage<Ping> | TaskCancelMessage): void {
         this.posted.push(message);
     }
 
@@ -209,6 +209,46 @@ test("a run message that cannot be posted fails the request and stops the proces
     expect(child.kills).toBe(1);
 });
 
+test("@core aborting the signal posts one cancel message after the run message, and the answer still arrives", async () => {
+    const { started, start } = fakeStarts();
+    const abort = new AbortController();
+    const pending = new TaskRunner(start, parsePong).run({ ping: 1 }, { signal: abort.signal });
+    await settle();
+    expect(started[0]?.posted).toEqual([{ type: "run", task: { ping: 1 } }]);
+    abort.abort();
+    abort.abort();
+    expect(started[0]?.posted).toEqual([{ type: "run", task: { ping: 1 } }, { type: "cancel" }]);
+    started[0]?.answer(result(1));
+    expect(await pending).toEqual({ pong: 1 });
+    expect(started[0]?.kills).toBe(1);
+});
+
+test("@core a signal that is already aborted cancels right after the run message; one that never fires, or fires after the answer, posts nothing", async () => {
+    const { started, start } = fakeStarts();
+    const tasks = new TaskRunner(start, parsePong);
+    const aborted = new AbortController();
+    aborted.abort();
+    const first = tasks.run({ ping: 1 }, { signal: aborted.signal });
+    await settle();
+    expect(started[0]?.posted).toEqual([{ type: "run", task: { ping: 1 } }, { type: "cancel" }]);
+    started[0]?.answer(result(1));
+    await first;
+
+    const late = new AbortController();
+    const second = tasks.run({ ping: 2 }, { signal: late.signal });
+    await settle();
+    started[1]?.answer(result(2));
+    await second;
+    late.abort();
+    expect(started[1]?.posted).toEqual([{ type: "run", task: { ping: 2 } }]);
+
+    const plain = tasks.run({ ping: 3 });
+    await settle();
+    started[2]?.answer(result(3));
+    await plain;
+    expect(started[2]?.posted).toEqual([{ type: "run", task: { ping: 3 } }]);
+});
+
 test("@core a task that is still reporting when time runs out is stopped", async () => {
     const { started, start } = fakeStarts();
     const pending = new TaskRunner(start, parsePong, 30).run({ ping: 1 });
@@ -275,6 +315,8 @@ test("@core the main process loads no task code; each task process loads its own
     expect(inDesktop(main.files, "model-assignments")).toEqual(["model-assignments/task-protocol.ts"]);
     expect(inDesktop(main.files, "extension-install")).toEqual(["extension-install/task-protocol.ts"]);
     expect(inDesktop(main.files, "extension-catalog")).toEqual(["extension-catalog/task-protocol.ts"]);
+    expect(inDesktop(main.files, "update")).toEqual(["update/task-protocol.ts"]);
+    expect(main.files).not.toContain(join(REPOSITORY, "clients", "shared", "updates.ts"));
     expect(main.files).not.toContain(join(REPOSITORY, "src", "config.ts"));
     expect([...main.packages].filter((name) => name.startsWith("zod"))).toEqual([]);
 
@@ -307,7 +349,15 @@ test("@core the main process loads no task code; each task process loads its own
     expect(inImporter(catalog.files)).toEqual([]);
     expect(catalog.files).not.toContain(join(REPOSITORY, "src", "config.ts"));
     expect(catalog.packages.has("electron")).toBe(false);
-    for (const worker of [themes, assignments, install, catalog]) expect(worker.files).not.toContain(join(DESKTOP_SOURCE, "main.ts"));
+    const update = reachable(join(DESKTOP_SOURCE, "update", "worker.ts"));
+    expect(inDesktop(update.files, "update")).toContain("update/run-task.ts");
+    expect(update.files).toContain(join(REPOSITORY, "clients", "shared", "updates.ts"));
+    expect(inDesktop(update.files, "extension-install")).toEqual([]);
+    expect(inDesktop(update.files, "extension-catalog")).toEqual([]);
+    expect(inDesktop(update.files, "model-assignments")).toEqual([]);
+    expect(inImporter(update.files)).toEqual([]);
+    expect(update.packages.has("electron")).toBe(false);
+    for (const worker of [themes, assignments, install, catalog, update]) expect(worker.files).not.toContain(join(DESKTOP_SOURCE, "main.ts"));
 });
 
 function sourcesUnder(directory: string): string[] {
