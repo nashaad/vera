@@ -61,9 +61,9 @@ function workerPids(trialHome: string): number[] {
     });
 }
 
-async function waitUntil(check: () => boolean, label: string, timeoutMs = 30_000): Promise<void> {
+async function waitUntil(check: () => boolean | Promise<boolean>, label: string, timeoutMs = 30_000): Promise<void> {
     const deadline = performance.now() + timeoutMs;
-    while (!check()) {
+    while (!await check()) {
         if (performance.now() >= deadline) throw new Error(`Timed out waiting for ${label}`);
         await Bun.sleep(25);
     }
@@ -313,6 +313,14 @@ realProcessTest(
                 const pid = readHostPid(trialHome);
                 return pid !== undefined && pid !== killedHost;
             }, "replacement host");
+            await waitUntil(async () => {
+                const host = await requestHostIdentity(hostSocket);
+                if (host?.pid === undefined || host.pid === killedHost || host.workers_ready !== 1) return false;
+                try {
+                    const record = JSON.parse(readFileSync(join(trialHome, "runtime", "workers", "w0.json"), "utf8")) as { pid?: number; host_pid?: number };
+                    return record.pid === workerPid && record.host_pid === host.pid;
+                } catch { return false; }
+            }, "worker adoption");
             for (const pid of workerPids(trialHome)) startedWorkers.add(pid);
             expect((await requestHostIdentity(workerSocket))?.pid).toBe(workerPid);
             release.resolve();

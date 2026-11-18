@@ -50,6 +50,46 @@ test("an orphaned host with no lock or socket is stopped before a fresh host sta
     expect(rendered[0]!.find((check) => check.label === "Recovery")?.status).toBe("fixed");
 });
 
+test("surviving session processes are adopted before reset under the boot lock", async () => {
+    const { deps, calls } = harness({ ...clean, lock: "stale", orphans: 1 }, []);
+    const started = await bootResidentHost({
+        ...deps,
+        adopt: async () => { calls.push("adopt"); return host(8)(); },
+        exclusive: async (run) => { calls.push("lock"); return run(); },
+    });
+    expect(started.pid).toBe(8);
+    expect(calls).toEqual(["lock", "inspect", "adopt"]);
+});
+
+test("failed adoption reports the reason and resets before starting a fresh pooled host", async () => {
+    const { deps, calls, rendered } = harness({ ...clean, lock: "stale", orphans: 1 }, [host(9)]);
+    const started = await bootResidentHost({
+        ...deps,
+        full: true,
+        adopt: async () => { calls.push("adopt"); throw new Error("adoption failed"); },
+    });
+    expect(started.pid).toBe(9);
+    expect(calls).toEqual(["inspect", "adopt", "recover", "start:default"]);
+    expect(rendered[0]).toContainEqual({ label: "Session processes", status: "warn", detail: "adoption failed" });
+});
+
+test("an ineligible session process is reset before starting a fresh host", async () => {
+    const { deps, calls } = harness({ ...clean, lock: "stale", orphans: 1 }, [host(9)]);
+    const started = await bootResidentHost({
+        ...deps,
+        adopt: async () => { calls.push("inspect workers"); return undefined; },
+    });
+    expect(started.pid).toBe(9);
+    expect(calls).toEqual(["inspect", "inspect workers", "recover", "start:default"]);
+});
+
+test("unproven processes alone are reported without reset", async () => {
+    const { deps, calls } = harness({ ...clean, unproven: 1 }, [host(10)]);
+    const started = await bootResidentHost(deps);
+    expect(started.pid).toBe(10);
+    expect(calls).toEqual(["inspect", "start:default"]);
+});
+
 test("a published host is used without the full check", async () => {
     const { deps, calls, rendered } = harness(clean, [host(3)], { published: true });
     expect((await bootResidentHost(deps)).pid).toBe(3);

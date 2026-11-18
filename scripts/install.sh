@@ -112,7 +112,9 @@ else
     if [ -z "$version" ]; then
         version=$(latest_version)
     fi
-    base="https://github.com/$repo/releases/download/v$version"
+    download_base=${VERA_RELEASES_DOWNLOAD_BASE:-https://github.com/$repo/releases/download}
+    download_base=${download_base%/}
+    base="$download_base/v$version"
     echo "Downloading $asset"
     tarball="$work/$asset"
     download "$base/$asset" "$tarball" || die "download failed: $base/$asset"

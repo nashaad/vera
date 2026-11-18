@@ -30,7 +30,7 @@ core       vera.chat, vera.command-hooks, vera.context, vera.customize,
            vera.explorer, vera.monitor, vera.reasoning-cycle,
            vera.session-identity, vera.web-search
 included   vera.artifacts, vera.btw, vera.budget, vera.cache, vera.diff,
-           vera.mcp, vera.recap, vera.titles
+           vera.mcp, vera.titles
 ```
 
 ## BTW and Pair
@@ -56,35 +56,6 @@ Ctrl+G changes focus. Ctrl+\ cycles split and single-pane layouts.
 Use `/diff` to [review workspace changes](workspace-diff.md). Use `/context`
 to [inspect context usage](context-usage.md). The Context extension also
 provides `/dashboard`; disabling it removes both commands.
-
-## Recap a conversation
-
-`/recap` opens a full-screen list of the conversation's phases, newest first.
-Each row starts with the time the phase began, followed by its title, how long
-Vera worked on it, and whether its last test run passed. `/timeline` does the
-same. Commits, questions Vera asked you, long steps, side questions and
-interruptions sit under the phase they happened in, each with its own time.
-The right pane shows the selected row's details, including the files it
-edited.
-
-Before it lists phases, `/recap` loads every older part of the conversation, so
-the list covers all of it. A long conversation takes a moment to open. If an
-older part cannot load, `/recap` shows `History page request failed: <reason>`
-in place of the list.
-
-Phases are built from the conversation itself. Their titles come from the
-snappy model (see [Assign defaults](models.md#assign-defaults)): when you open
-`/recap`, Vera sends each finished phase that has no title yet (your
-requests, the checklist items it ticked, the files it edited, its commits and
-test result, and the start of its last reply) and asks for a one-line title.
-Titles are kept until the client exits. With no snappy model, or if it does
-not answer, a phase is titled with the checklist item it ticked, or else the
-first words of your request. A phase still running keeps that title too.
-
-Type to filter. Enter scrolls the transcript to that point, and the next
-`/recap` starts on the row you jumped to. Otherwise it starts on the newest
-phase. Time between turns, while Vera was
-waiting on you, does not count toward a phase.
 
 ## Monitor a background command
 

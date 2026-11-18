@@ -1,0 +1,12 @@
+{
+  "id": "test.thread-history",
+  "version": "1.0.0",
+  "sdk": "1",
+  "entrypoint": "./extension.ts",
+  "capabilities": [
+    "client.commands.register",
+    "client.thread.read",
+    "client.ui.picker",
+    "client.ui.reveal"
+  ]
+}

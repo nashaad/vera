@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { pairedHostSocket, refuseOtherHostBuild } from "../../clients/tui/configured-agent-client.ts";
+import { pairedHostSocket, refuseOtherHostBuild, refuseOtherRunningHostBuild } from "../../clients/tui/configured-agent-client.ts";
 import { readHostLockRecordFile, type HostLockRecord } from "../../src/host/lockfile.ts";
 import { HostBuildChangedError } from "../../src/host/reconnecting-agent-client.ts";
 
@@ -25,6 +25,15 @@ const crowHost: HostLockRecord = {
     socket_path: "/tmp/crow/host.sock",
     build_id: "vera-crow-1",
 };
+
+test("the installed-build refusal first checks an unresponsive running host", async () => {
+    const result = await refuseOtherRunningHostBuild("vera-crow-1", async () => ({
+        record: { ...crowHost, build_id: "vera-kraken-2" }, wedged: true,
+    })).catch((error) => error);
+    expect(result).toBeInstanceOf(HostBuildChangedError);
+    expect(result).toMatchObject({ hostBuildId: "vera-kraken-2" });
+    await refuseOtherRunningHostBuild("vera-crow-1", async () => ({}));
+});
 
 test("a request refuses the socket when the lockfile names another build on it", async () => {
     const refused = await pairedHostSocket(

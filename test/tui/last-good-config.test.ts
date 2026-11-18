@@ -32,7 +32,7 @@ test("each distinct load error is logged once", () => {
     const recorder: TuiFlightRecorder = {
         instanceId: "crow", logPath: "",
         record: (event) => { events.push(event); },
-        sessionEntered: () => {}, close: () => {},
+        sessionEntered: () => {}, close: async () => {},
     };
     const rt = { flightRecorder: recorder };
     const path = join(home, "config.json");

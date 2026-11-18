@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { createServer, type Server, type Socket } from "node:net";
+import { createServer, Socket, type Server } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -762,4 +762,109 @@ socketTest("starts the next frame when a chunk begins with its newline", async (
             }
         },
     );
+});
+
+
+socketTest("a socket error follows already parsed frames", async () => {
+    const emit = Socket.prototype.emit;
+    const fault = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    let injected = false;
+    try {
+        Socket.prototype.emit = function (this: Socket, event: string | symbol, ...args: unknown[]): boolean {
+            if (!injected && event === "data" && Buffer.isBuffer(args[0])
+                && args[0].includes('"stop-notice"')) {
+                injected = true;
+                const result = Reflect.apply(emit, this, [event, ...args]);
+                Reflect.apply(emit, this, ["error", fault]);
+                return result;
+            }
+            return Reflect.apply(emit, this, [event, ...args]);
+        } as typeof Socket.prototype.emit;
+        await withServer(
+            (socket) => socket.write('{"type":"update"}\n{"type":"stop-notice"}\n'),
+            async (socketPath) => {
+                const connection = await connectHost({ socketPath });
+                try {
+                    expect(await connection.closedReason()).toBe(fault);
+                    expect(injected).toBe(true);
+                    expect(await connection.receive()).toEqual({ type: "update" });
+                    expect(await connection.receive()).toEqual({ type: "stop-notice" });
+                    await expect(connection.receive()).rejects.toBe(fault);
+                } finally {
+                    connection.close();
+                }
+            },
+        );
+    } finally {
+        Socket.prototype.emit = emit;
+    }
+});
+
+socketTest("a socket error follows complete lines buffered behind the pending limit", async () => {
+    const emit = Socket.prototype.emit;
+    const fault = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    let injected = false;
+    try {
+        Socket.prototype.emit = function (this: Socket, event: string | symbol, ...args: unknown[]): boolean {
+            if (!injected && event === "data" && Buffer.isBuffer(args[0])
+                && args[0].includes('"stop-notice"')) {
+                injected = true;
+                const result = Reflect.apply(emit, this, [event, ...args]);
+                Reflect.apply(emit, this, ["error", fault]);
+                return result;
+            }
+            return Reflect.apply(emit, this, [event, ...args]);
+        } as typeof Socket.prototype.emit;
+        await withServer(
+            (socket) => socket.write('{"type":"update"}\n{"type":"stop-notice"}\n{"type":"partial"'),
+            async (socketPath) => {
+                const connection = await connectHost({ socketPath, maxPendingValues: 1 });
+                try {
+                    expect(await connection.closedReason()).toBe(fault);
+                    expect(injected).toBe(true);
+                    expect(await connection.receive()).toEqual({ type: "update" });
+                    expect(await connection.receive()).toEqual({ type: "stop-notice" });
+                    await expect(connection.receive()).rejects.toBe(fault);
+                } finally {
+                    connection.close();
+                }
+            },
+        );
+    } finally {
+        Socket.prototype.emit = emit;
+    }
+});
+
+socketTest("buffered lines retain frame-size errors after a socket error", async () => {
+    const emit = Socket.prototype.emit;
+    const fault = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    let injected = false;
+    try {
+        Socket.prototype.emit = function (this: Socket, event: string | symbol, ...args: unknown[]): boolean {
+            if (!injected && event === "data" && Buffer.isBuffer(args[0]) && args[0].includes('"oversized"')) {
+                injected = true;
+                const result = Reflect.apply(emit, this, [event, ...args]);
+                Reflect.apply(emit, this, ["error", fault]);
+                return result;
+            }
+            return Reflect.apply(emit, this, [event, ...args]);
+        } as typeof Socket.prototype.emit;
+        await withServer(
+            (socket) => socket.write('{"n":1}\n{"oversized":"123456789"}\n{"n":2}\n'),
+            async (socketPath) => {
+                const connection = await connectHost({ socketPath, maxPendingValues: 1, maxLineBytes: 16 });
+                try {
+                    expect(await connection.closedReason()).toBe(fault);
+                    expect(await connection.receive()).toEqual({ n: 1 });
+                    await expect(connection.receive()).rejects.toThrow("host connection line exceeds maximum size");
+                    expect(await connection.receive()).toEqual({ n: 2 });
+                    await expect(connection.receive()).rejects.toBe(fault);
+                } finally {
+                    connection.close();
+                }
+            },
+        );
+    } finally {
+        Socket.prototype.emit = emit;
+    }
 });

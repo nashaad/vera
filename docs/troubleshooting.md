@@ -26,16 +26,22 @@ the command to resume this session before it exits.
 During automatic recovery, the TUI keeps the conversation visible, shows
 `reconnecting…`, and stops the live turn and tool timers until it reconnects.
 
-Ctrl+L does what Reconnect host does: it starts a host if none runs and
-reopens this session. If the installed build differs from the
-TUI's build, the TUI relaunches into the installed build and keeps the
-conversation. If the restart fails, the conversation says so and prints
-`vera resume <id>`.
+Ctrl+L and **Reconnect host** start a host if none runs and reopen this session.
+If the active release of the installation differs from the TUI's build, either
+action relaunches a TUI started through the `vera` launcher, keeping the
+conversation and draft. Automatic recovery makes the same build check before
+requesting a host start. Without the launcher, the TUI refuses; quit and reopen
+Vera. This check uses the TUI's own installation, including a private prefix.
+If a Ctrl+L restart fails, the conversation says so and prints `vera resume <id>`.
 
-To stay in the TUI instead, press Ctrl+P and choose **Reconnect host**. It
-attaches to or replaces the host associated with this Vera home and returns to
-the same conversation without changing the installed build. It is not a slash
+To choose **Reconnect host**, press Ctrl+P. It attaches to or replaces the host
+associated with this Vera home and returns to the same conversation without
+changing the installed build. It is not a slash
 command. Choosing it authorizes that recovery; there is no second prompt.
+
+Every client of a Vera home shares one host. Replacing a healthy host stops it
+for all of them: each other attached TUI loses its connection until it
+reconnects, with Ctrl+L or Reconnect host if it does not do so itself.
 
 ### What recovery does
 
@@ -105,6 +111,18 @@ Quit and reopen Vera to continue.
 Other requests to that host, such as listing, searching or starting sessions,
 are not sent. Each fails with an error naming both builds. Quit and reopen
 Vera. The new TUI starts on the installed build.
+
+If the installation's active build differs and the TUI has no launcher, it
+shows this error:
+
+```text
+The installed Vera is now build <installed-build>, and this TUI is build <client-build>.
+Quit and reopen Vera to continue.
+```
+
+The status line reads `disconnected: installed Vera is a different build · quit
+and reopen Vera · Ctrl+C quit`. If another build's host is running, the host
+refusal above is shown instead.
 
 ## A key or command did nothing
 

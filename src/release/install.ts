@@ -1,4 +1,5 @@
 import { activateRelease } from "./activate.ts";
+import { reconcileColdHost } from "./cold-host-reconcile.ts";
 import { currentReleaseBuildId, launcherPath } from "./layout.ts";
 import type { ReleaseManifest } from "./manifest.ts";
 import {
@@ -71,6 +72,7 @@ export async function installRelease(options: InstallReleaseOptions): Promise<In
             await stopLeftoverPoolWorkers(veraHomeDirectory());
         }
         activateRelease(packed.releaseRoot, prefix);
+        await reconcileColdHost(prefix, readLiveHost, options.stopHost ?? stopResidentHostWhenIdle);
         return {
             kind: "activated",
             buildId,
@@ -90,6 +92,7 @@ export async function installRelease(options: InstallReleaseOptions): Promise<In
             await stopLeftoverPoolWorkers(veraHomeDirectory());
         }
         activateRelease(packed.releaseRoot, prefix);
+        await reconcileColdHost(prefix, readLiveHost, options.stopHost ?? stopResidentHostWhenIdle);
         report(`Installed ${buildId}. The next 'vera' starts it and runs the startup check.`);
         return {
             kind: "activated",

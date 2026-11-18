@@ -1,3 +1,4 @@
+import { RendererControlState } from "@opentui/core";
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { stopWaitCardUpdate } from "../stop-wait.ts";
 import { HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE } from "../../../src/host/capabilities.ts";
@@ -5,6 +6,8 @@ import type { AttachmentReleasePolicy } from "../../../src/host/protocol.ts";
 import { HostReplacementBusyError } from "../../../src/host/discovery.ts";
 import { HostBuildChangedError } from "../../../src/host/reconnecting-agent-client.ts";
 import { HostConnectionClosedError } from "../../../src/host/connection.ts";
+import { InstalledBuildChangedError } from "../installed-build.ts";
+import { restoreRawInput } from "../terminal-restore.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
 import { isHomeClient } from "../home-client.ts";
 import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
@@ -468,6 +471,15 @@ export function beginHostReconnect(rt: TuiRuntime,
     ) {
         return;
     }
+    const reconnectDraft = currentDraft(rt);
+    if (rt.relaunching !== true) {
+        const clientBuildId = rt.dependencies.clientBuildId;
+        const installedBuildId = rt.dependencies.installedBuildId?.();
+        if (clientBuildId !== undefined && installedBuildId !== undefined && clientBuildId !== installedBuildId) {
+            handleInstalledBuildChange(rt, currentAgentId, clientBuildId, installedBuildId, reconnectDraft, options.failureText);
+            return;
+        }
+    }
     if (options.clearComposer) {
         rt.composer.clearComposer();
     }
@@ -483,12 +495,15 @@ export function beginHostReconnect(rt: TuiRuntime,
     if (!stayAttached) {
         settleLostHost(rt, "Host connection closed");
     }
-    const draft = options.clearComposer ? undefined : currentDraft(rt);
+    const draft = options.clearComposer ? undefined : reconnectDraft;
     renderState(rt);
     void withSessionSwitchDeadline(rt, 
         rt.dependencies.reconnectSession(currentAgentId, {
             ...(replaceExisting ? { replaceExisting: true } : {}),
             ...(confirmWedge ? { confirmWedge: true } : {}),
+            ...(rt.relaunching === true && rt.dependencies.relaunchTui !== undefined
+                ? { attachOnly: true }
+                : {}),
         }),
         ((next: TuiAgentClient) => discardSwitchTarget(rt, next)),
     ).then((next) => {
@@ -510,6 +525,10 @@ export function beginHostReconnect(rt: TuiRuntime,
         }
         if (rt.shuttingDown) return;
         rt.sessionSwitchPending = false;
+        if (error instanceof InstalledBuildChangedError) {
+            handleInstalledBuildChange(rt, currentAgentId, error.clientBuildId, error.installedBuildId, reconnectDraft, options.failureText);
+            return;
+        }
         if (error instanceof HostReplacementBusyError) {
             if (options.lossMessage !== undefined) {
                 rt.connectionFailed = true;
@@ -565,7 +584,65 @@ export function beginHostReconnect(rt: TuiRuntime,
             renderState(rt);
             return;
         }
-        reportConnectionError(rt, error);
+        reportConnectionError(rt, error, true);
+    });
+}
+
+function handleInstalledBuildChange(
+    rt: TuiRuntime,
+    sessionId: string,
+    clientBuildId: string,
+    installedBuildId: string,
+    draft: ReturnType<typeof currentDraft>,
+    failureText?: (message: string) => string,
+): void {
+    const relaunch = rt.dependencies.relaunchTui;
+    if (relaunch === undefined) {
+        refuseInstalledBuildChange(rt, clientBuildId, installedBuildId, failureText);
+        return;
+    }
+    void relaunch({ sessionId, ...(draft === undefined ? {} : { draft }) })
+        .catch((error: unknown) => {
+            if (rt.shuttingDown) return;
+            const message = error instanceof Error ? error.message : String(error);
+            rt.state = appendTuiError(rt.state, failureText?.(message) ?? `Could not reconnect: ${message}`);
+            renderState(rt);
+            rt.composer.focus();
+        });
+}
+
+function refuseInstalledBuildChange(
+    rt: TuiRuntime,
+    clientBuildId: string,
+    installedBuildId: string,
+    failureText?: (message: string) => string,
+): void {
+    rt.sessionSwitchPending = true;
+    void (async () => {
+        await withSessionSwitchDeadline(rt, rt.dependencies.refuseOtherHostBuild?.() ?? Promise.resolve(), () => {});
+        if (rt.shuttingDown) return;
+        rt.sessionSwitchPending = false;
+        const message = `The installed Vera is now build ${installedBuildId}, and this TUI is build ${clientBuildId}. `
+            + "Quit and reopen Vera to continue.";
+        rt.connectionFailed = true;
+        rt.connectionFailure = "installed Vera is a different build";
+        rt.hostBuildRefusal = { hostBuildId: undefined };
+        rt.activity = "disconnected";
+        settleLostHost(rt, message);
+        rt.state = appendTuiError(rt.state, message);
+        renderState(rt);
+        rt.composer.focus();
+    })().catch((error: unknown) => {
+        if (rt.shuttingDown) return;
+        rt.sessionSwitchPending = false;
+        if (error instanceof HostBuildChangedError) {
+            refuseChangedHostBuild(rt, error, failureText);
+            return;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        rt.state = appendTuiError(rt.state, failureText?.(message) ?? `Could not reconnect: ${message}`);
+        renderState(rt);
+        rt.composer.focus();
     });
 }
 
@@ -623,8 +700,19 @@ export function settleLostHost(rt: TuiRuntime, reason: string): void {
     rt.state = failTuiConnection(rt.state);
 }
 
-export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
+export function reportConnectionError(rt: TuiRuntime, error: unknown, receiveEnded = false): void {
     if (rt.shuttingDown || rt.connectionFailed || rt.sessionSwitchPending) {
+        return;
+    }
+    if (!receiveEnded && rt.client.onStopWait !== undefined && isTransportClosure(error)) {
+        // A send failure can run before a stop frame already buffered by the socket.
+        const client = rt.client;
+        const generation = rt.clientGeneration;
+        setTimeout(() => {
+            if (rt.client === client && rt.clientGeneration === generation) {
+                reportConnectionError(rt, error, true);
+            }
+        }, 0);
         return;
     }
     if (error instanceof HostBuildChangedError) {
@@ -644,6 +732,14 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
         return;
     }
     rt.flightRecorder?.record({ type: "host_connection_lost", reason: message });
+    if (
+        rt.plannedHostStop === true
+        && rt.relaunching !== true
+        && rt.renderer.controlState !== RendererControlState.EXPLICIT_SUSPENDED
+        && rt.renderer.controlState !== RendererControlState.EXPLICIT_STOPPED
+    ) {
+        restoreRawInput(rt.renderer.stdin);
+    }
     if (
         rt.client.viewOnly === true
         || rt.client.failed === true
@@ -677,6 +773,15 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
     rt.state = appendLostHostEntry(rt.state, message, rt.plannedHostStop);
     renderState(rt);
     rt.composer.focus();
+}
+
+function isTransportClosure(error: unknown): boolean {
+    return error instanceof HostConnectionClosedError
+        || (error instanceof Error && (
+            ["ECONNRESET", "EPIPE", "ENOTCONN"].includes((error as NodeJS.ErrnoException).code ?? "")
+            || error.message === "Agent attachment is closed"
+            || error.message === "host connection closed"
+        ));
 }
 
 // A planned stop without a relaunch in progress waits for the user's restart key.

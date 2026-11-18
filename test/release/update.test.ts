@@ -747,6 +747,53 @@ test("update installs a fake newer release end to end from an installed temp pre
     }
 });
 
+test("update downloads from VERA_RELEASES_DOWNLOAD_BASE over real HTTP", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-update-download-base-"));
+    const { prefix, oldRoot } = prefixWithOldRelease(root);
+    const newRoot = join(root, "new-release");
+    writeVerifiableRelease(newRoot, "vera-mirror", "0.1.0-alpha.3");
+    const tarball = tarballFor(root, newRoot, "vera-mirror");
+    const tarballBytes = new Uint8Array(readFileSync(tarball));
+    const checksum = checksumFor(tarball);
+    const requests: string[] = [];
+    const server = Bun.serve({
+        port: 0,
+        fetch(request) {
+            const path = new URL(request.url).pathname;
+            requests.push(path);
+            if (path === "/api") {
+                return new Response(releaseJson({ version: "0.1.0-alpha.3" }), {
+                    headers: { "content-type": "application/json" },
+                });
+            }
+            if (path === `/mirror/v0.1.0-alpha.3/${ASSET}`) return new Response(tarballBytes);
+            if (path === `/mirror/v0.1.0-alpha.3/${ASSET}.sha256`) return new Response(checksum);
+            return new Response("not found", { status: 404 });
+        },
+    });
+    try {
+        const output: string[] = [];
+        const result = await withTempEnvironment(join(root, "home"), () => runUpdate({
+            prefix,
+            running: { root: oldRoot, prefix, version: "0.1.0-alpha.1", buildId: "vera-old" },
+            platform: "darwin",
+            arch: "arm64",
+            releasesApi: `http://localhost:${server.port}/api`,
+            downloadBase: `http://localhost:${server.port}/mirror/`,
+            output: (text) => output.push(text),
+            install: (options) => installRelease({ ...options, readLiveHost: async () => undefined }),
+        }));
+        expect(result).toBe(0);
+        expect(requests).toContain(`/mirror/v0.1.0-alpha.3/${ASSET}`);
+        expect(requests).toContain(`/mirror/v0.1.0-alpha.3/${ASSET}.sha256`);
+        expect(currentReleaseBuildId(prefix)).toBe("vera-mirror");
+        expect(output.join(" ")).toContain("Vera 0.1.0-alpha.3 is installed.");
+    } finally {
+        server.stop(true);
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("update refuses a checkout and points at bun run install:local", async () => {
     const saved = process.env.VERA_DEV_INSTANCE;
     delete process.env.VERA_DEV_INSTANCE;

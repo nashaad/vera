@@ -12,7 +12,7 @@ afterEach(() => {
 });
 
 describe("TUI flight recorder", () => {
-    test("records lifecycle and redacted composer metadata", () => {
+    test("records lifecycle and redacted composer metadata", async () => {
         const runtimeDirectory = mkdtempSync(join(tmpdir(), "vera-flight-"));
         roots.push(runtimeDirectory);
         const recorder = createTuiFlightRecorder({
@@ -23,7 +23,7 @@ describe("TUI flight recorder", () => {
         });
         recorder.sessionEntered("session-1");
         recorder.record({ type: "composer_changed", characters: 12 });
-        recorder.close("renderer_destroyed");
+        await recorder.close("renderer_destroyed");
 
         const entries = readFileSync(recorder.logPath, "utf8")
             .trim().split("\n").map((line) => JSON.parse(line));
@@ -56,7 +56,7 @@ test("records event loop stalls with memory use", async () => {
         // Busy-wait to freeze the event loop.
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
-    recorder.close("renderer_destroyed");
+    await recorder.close("renderer_destroyed");
 
     const stalls = readFileSync(recorder.logPath, "utf8")
         .trim().split("\n").map((line) => JSON.parse(line))
@@ -94,3 +94,76 @@ test("a stopped watchdog removes its own live record", async () => {
         await child.exited;
     }
 }, 10_000);
+
+async function checkRecorderShutdown(stopped: boolean): Promise<void> {
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = mkdtempSync(join(tmpdir(), "vera-dev", "recorder-shutdown-"));
+    roots.push(home);
+    const source = `
+        import assert from "node:assert/strict";
+        import { existsSync, readFileSync, readdirSync } from "node:fs";
+        import { join } from "node:path";
+        import { createTuiFlightRecorder } from ${JSON.stringify(join(process.cwd(), "clients/tui/flight-recorder.ts"))};
+        const home = process.env.VERA_HOME;
+        const recorder = createTuiFlightRecorder({ runtimeDirectory: join(home, "runtime") });
+        try {
+            const live = join(home, "machine", "live");
+            let pid;
+            const deadline = Date.now() + 3000;
+            while (pid === undefined && Date.now() < deadline) {
+                for (const file of existsSync(live) ? readdirSync(live) : []) {
+                    const entry = JSON.parse(readFileSync(join(live, file), "utf8"));
+                    if (entry.kind === "watchdog") pid = entry.pid;
+                }
+                if (pid === undefined) await Bun.sleep(10);
+            }
+            assert.notEqual(pid, undefined);
+            if (${stopped}) {
+                process.kill(pid, "SIGSTOP");
+                let state = "";
+                const stopDeadline = Date.now() + 1000;
+                while (!state.includes("T") && Date.now() < stopDeadline) {
+                    state = Bun.spawnSync(["ps", "-o", "state=", "-p", String(pid)]).stdout.toString();
+                    if (!state.includes("T")) await Bun.sleep(10);
+                }
+                assert.ok(state.includes("T"));
+            }
+            let finished = false;
+            const shutdown = recorder.close("relaunch");
+            assert.equal(recorder.close("second_close"), shutdown);
+            void shutdown.then(() => { finished = true; });
+            await Promise.resolve();
+            if (${stopped}) assert.equal(finished, false);
+            await shutdown;
+            assert.equal(finished, true);
+            assert.throws(() => process.kill(pid, 0));
+            const entries = readFileSync(recorder.logPath, "utf8").trim().split("\\n").map(JSON.parse);
+            const exits = entries.filter((entry) => entry.type === "client_exited");
+            assert.equal(exits.length, 1);
+            assert.equal(exits[0].reason, "relaunch");
+            assert.equal(entries.some((entry) => entry.type === "client_process_lost"), false);
+        } finally {
+            await recorder.close("cleanup");
+        }
+    `;
+    const child = Bun.spawn([process.execPath, "-e", source], {
+        env: { ...process.env, VERA_HOME: home },
+        stdin: "ignore", stdout: "ignore", stderr: "pipe",
+    });
+    try {
+        const stderr = await new Response(child.stderr).text();
+        expect(stderr).toBe("");
+        expect(await child.exited).toBe(0);
+    } finally {
+        if (child.exitCode === null) child.kill("SIGKILL");
+        await child.exited;
+    }
+}
+
+test("@core recorder shutdown completes after its watchdog exits and is idempotent", async () => {
+    await checkRecorderShutdown(false);
+});
+
+test("@core recorder shutdown reaps a stopped watchdog after its termination deadline", async () => {
+    await checkRecorderShutdown(true);
+});

@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
-import { currentReleaseBuildId } from "../../src/release/layout.ts";
+import { assertInstalledBuild, installedBuildId } from "./installed-build.ts";
 import {
     launcherKeyFromEnv,
     RELAUNCH_LAUNCHER_ENV,
@@ -130,6 +130,7 @@ import {
     createConfiguredTuiAgentClients,
     pairedHostSocket,
     refuseOtherHostBuild,
+    refuseOtherRunningHostBuild,
 } from "./configured-agent-client.ts";
 import {
     configuredTuiClientExtensions,
@@ -559,10 +560,9 @@ export interface TuiDependencies {
     readonly cutStopWait?: () => Promise<CutStopWaitOutcome>;
     /** Set only under a relaunch-capable launcher; leaves the TUI for the launcher to restart. */
     readonly relaunchTui?: (request: TuiRelaunchRequest) => Promise<void>;
-    /** This TUI's build id. Compared with the installed build only when a relaunch is possible. */
     readonly clientBuildId?: string;
-    /** Reads the `current` link. Called only when relaunchTui is set. */
     readonly installedBuildId?: () => string | undefined;
+    readonly refuseOtherHostBuild?: () => Promise<void>;
     readonly operateModels?: (operation: ModelOperation, onResult: (result: ModelOperationResult) => void, workspace?: string, onStep?: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readHostModelSettings?: (
         workspace: string,
@@ -620,6 +620,7 @@ export interface TuiDependencies {
         options?: {
             readonly replaceExisting?: boolean;
             readonly confirmWedge?: boolean;
+            readonly attachOnly?: boolean;
         },
     ) => Promise<TuiAgentClient>;
     readonly onSessionEntered?: (agentId: string) => void;
@@ -657,6 +658,7 @@ export interface TuiDependencies {
     readonly loginProvider?: (
         providerId: string,
         onBrowserUnavailable: (url: string) => void,
+        onAuthorizationUrl?: (url: string) => void,
     ) => Promise<void>;
     readonly flightRecorder?: TuiFlightRecorder;
     readonly createRenderer?: () => Promise<CliRenderer>;
@@ -733,6 +735,17 @@ async function hostHasSessions(socketPath: string): Promise<boolean> {
 }
 
 const HOME_SESSION_PROBE_PAGES = 4;
+
+export function relaunchAfterRecorderShutdown(
+    recorder: Pick<TuiFlightRecorder, "close">,
+    relaunch: TuiDependencies["relaunchTui"],
+): TuiDependencies["relaunchTui"] {
+    if (relaunch === undefined) return undefined;
+    return async (request) => {
+        await recorder.close("relaunch");
+        await relaunch(request);
+    };
+}
 
 export async function startConfiguredTui(
     requestedTarget: TuiStartTarget,
@@ -825,13 +838,14 @@ export async function startConfiguredTui(
         const exit = await startTui({
             client,
             initialDraft: restored?.draft,
-            relaunchTui: launcherRelaunch(launcherKey, {
+            relaunchTui: relaunchAfterRecorderShutdown(flightRecorder, launcherRelaunch(launcherKey, {
                 writeRecord: writeRelaunchRecord,
                 markTerminalRestored,
                 exit: (code) => process.exit(code),
-            }),
+            })),
             clientBuildId,
-            installedBuildId: () => currentReleaseBuildId(),
+            installedBuildId,
+            refuseOtherHostBuild: () => refuseOtherRunningHostBuild(clientBuildId),
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
             cutStopWait: async () => cutStopWaitThroughHost(await pairedSocket()),
             operateModels: async (operation, onResult, workspace, onStep) => operateModelsThroughHost(await pairedSocket(), operation, onResult, workspace, onStep),
@@ -887,6 +901,8 @@ export async function startConfiguredTui(
                 const replaceExisting = options?.replaceExisting === true;
                 const confirmWedge = options?.confirmWedge === true;
                 await refuseOtherHostBuild(clientBuildId);
+                if (options?.attachOnly === true) return attach(currentAgentId);
+                assertInstalledBuild(clientBuildId, installedBuildId());
                 host = await findOrStartResidentHost({
                     confirmBusyUpgrade: confirmWedge
                         ? confirmManualReconnectUpgrade
@@ -945,8 +961,11 @@ export async function startConfiguredTui(
         client.close();
         throw error;
     } finally {
-        flightRecorder.close("tui_returned");
-        removeLiveProcess();
+        try {
+            await flightRecorder.close("tui_returned");
+        } finally {
+            removeLiveProcess();
+        }
     }
 }
 

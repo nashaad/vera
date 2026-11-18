@@ -11,6 +11,7 @@ import {
 import {
     createHostLockfile,
     readHostLockRecordFile,
+    type HostLockDiagnosis,
     type HostLockRecord,
 } from "../../src/host/lockfile.ts";
 import {
@@ -184,6 +185,14 @@ export async function refuseOtherHostBuild(
     if (hostBuildId !== undefined && hostBuildId !== clientBuildId) {
         throw new HostBuildChangedError(clientBuildId, hostBuildId);
     }
+}
+
+export async function refuseOtherRunningHostBuild(
+    clientBuildId: string,
+    diagnose: () => Promise<HostLockDiagnosis> = () => createHostLockfile().diagnose!(),
+): Promise<void> {
+    const diagnosis = await diagnose();
+    await refuseOtherHostBuild(clientBuildId, async () => diagnosis.record?.build_id);
 }
 
 async function readLiveHostBuild(): Promise<string | undefined> {

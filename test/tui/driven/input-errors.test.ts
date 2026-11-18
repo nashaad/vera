@@ -18,7 +18,7 @@ function recordingFlightRecorder(events: TuiFlightEvent[], throwOn?: string): Tu
             events.push(event);
         },
         sessionEntered: () => {},
-        close: () => {},
+        close: async () => {},
     };
 }
 
