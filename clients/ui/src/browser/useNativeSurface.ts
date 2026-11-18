@@ -15,10 +15,12 @@ export function useNativeSurface(show: boolean) {
         if (!show) return;
         let frame = 0;
         let last = "";
+        let lastPixelRatio = 0;
         const send = (bounds: BrowserBounds | null): void => {
             const key = JSON.stringify(bounds);
-            if (key === last) return;
+            if (key === last && window.devicePixelRatio === lastPixelRatio) return;
             last = key;
+            lastPixelRatio = window.devicePixelRatio;
             void nativeCommand("bounds", bounds);
         };
         const update = (): void => {

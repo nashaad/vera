@@ -699,7 +699,13 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
         const rect = value as Record<string, unknown> | null;
         if (rect === null || typeof rect !== "object") pane.layout(undefined);
         else if ([rect.x, rect.y, rect.width, rect.height].every((part) => typeof part === "number" && Number.isFinite(part) && part >= 0 && part <= 10000)) {
-            pane.layout({ x: Math.round(rect.x as number), y: Math.round(rect.y as number), width: Math.round(rect.width as number), height: Math.round(rect.height as number) });
+            const zoom = event.sender.getZoomFactor();
+            pane.layout({
+                x: Math.round((rect.x as number) * zoom),
+                y: Math.round((rect.y as number) * zoom),
+                width: Math.round((rect.width as number) * zoom),
+                height: Math.round((rect.height as number) * zoom),
+            });
         }
     }
     return {
