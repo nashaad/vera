@@ -45,6 +45,14 @@ full-width title bar and no status bar.
 - While Browser tools are on, a notice at the bottom of the window says Vera can
   open, read and act on pages in the Browser and offers Turn off. The notice
   stays in every view until the tools are turned off.
+- When the host announces a restart for an update, the banner says `Vera is
+  restarting`. The window reconnects by itself once the host closes and the new
+  host answers, and the draft in the composer stays. The host sends the notice
+  on an open conversation's connection, so a window with no conversation open
+  sees the connection drop and offers Reconnect.
+- When the installed Vera is another build than the app, the banner says `Vera
+  was updated` and shows the build of each. It offers no button: quit and reopen
+  Vera.
 
 While attached, the app asks the host for its identity and session count every
 three seconds. A reply that does not arrive, or a host that closes the
@@ -1215,6 +1223,16 @@ The desktop app requires an installed `vera` command and does not install or
 update it on launch. Install Vera as described in [Installation and
 upgrades](installation.md), then choose Try again if the app reports it missing.
 A checkout run uses its own CLI.
+
+Before it runs that command, on first start and on Reconnect, the app compares
+its own build with the installed release's. The build stamped into the app is
+the id a release packed from the same commit carries. When the two differ, the
+app starts no host and the banner says `The installed Vera is now build
+<installed-build>, and this desktop app is build <app-build>. Quit and reopen
+Vera to continue.` The same rule decides this for the terminal UI, which words
+it for the terminal. The check is skipped when the app has no stamped build, when
+no release is installed, and when `VERA_DESKTOP_DEV_CLI` is set, because that
+run starts the host from the checkout and not from the installed release.
 
 `VERA_HOME` is inherited unchanged, so a trial home attaches to that home's
 host and writes nothing outside it. The app's own Chromium user data, including

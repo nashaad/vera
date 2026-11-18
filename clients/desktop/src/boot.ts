@@ -1,7 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 
+import { installedBuildChangedMessage, type InstalledBuildMismatch } from "../../shared/installed-build.ts";
 import type { DesktopEvent } from "../../ui/src/protocol/bridge.ts";
+import { desktopBuildMismatch } from "./build-check.ts";
 import { resolveBootCommand } from "./vera-command.ts";
 
 const IDLE_TIMEOUT_MS = 60_000;
@@ -20,6 +22,7 @@ export class BootSession {
     constructor(
         private readonly home: string,
         private readonly emit: (event: DesktopEvent) => void,
+        private readonly buildMismatch: () => InstalledBuildMismatch | undefined = desktopBuildMismatch,
     ) {}
 
     start(): void {
@@ -30,6 +33,18 @@ export class BootSession {
     }
 
     private launch(): void {
+        const mismatch = this.buildMismatch();
+        if (mismatch !== undefined) {
+            this.finished = true;
+            this.emit({
+                type: "build_changed",
+                message: installedBuildChangedMessage("desktop app", mismatch),
+                clientBuildId: mismatch.clientBuildId,
+                installedBuildId: mismatch.installedBuildId,
+            });
+            return;
+        }
+
         const resolution = resolveBootCommand();
         if ("missing" in resolution) {
             this.finished = true;

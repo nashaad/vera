@@ -2,7 +2,7 @@ import type { DesktopEvent, DesktopPhase } from "../protocol/bridge.ts";
 import type { HostIdentityFacts } from "../protocol/client.ts";
 import type { SessionRow } from "../protocol/sessions.ts";
 
-export type UiPhase = DesktopPhase | "disconnected" | "failed" | "missing";
+export type UiPhase = DesktopPhase | "disconnected" | "failed" | "missing" | "outdated";
 
 export interface ReadyFacts {
     readonly pid: number;
@@ -17,6 +17,11 @@ export interface UiQuestion {
     readonly text: string;
 }
 
+// The host announced it is closing to restart as this build; the window reconnects when it is back.
+export interface PlannedRestart {
+    readonly buildId: string;
+}
+
 export interface UiState {
     readonly phase: UiPhase;
     readonly ready?: ReadyFacts;
@@ -28,6 +33,7 @@ export interface UiState {
     readonly failure?: string;
     readonly checked?: readonly string[];
     readonly notice?: string;
+    readonly restarting?: PlannedRestart;
 }
 
 export type UiAction =
@@ -41,6 +47,7 @@ export type UiAction =
     | { readonly type: "notice"; readonly message: string }
     | { readonly type: "lost"; readonly reason: string }
     | { readonly type: "reconnecting" }
+    | { readonly type: "restarting"; readonly buildId: string }
     | { readonly type: "answered" };
 
 export const INITIAL_STATE: UiState = { phase: "starting" };
@@ -58,7 +65,9 @@ export function reduceConnection(state: UiState, action: UiAction): UiState {
         case "lost":
             return lost(state, action.reason);
         case "reconnecting":
-            return { phase: "starting", ready: state.ready };
+            return { phase: "starting", ready: state.ready, ...keepRestart(state) };
+        case "restarting":
+            return state.phase === "attached" ? { ...state, restarting: { buildId: action.buildId } } : state;
         case "answered":
             return { ...state, question: undefined };
     }
@@ -84,6 +93,8 @@ function reduceEvent(state: UiState, event: DesktopEvent): UiState {
             };
         case "failed":
             return { phase: "failed", ready: state.ready, failure: event.message };
+        case "build_changed":
+            return { phase: "outdated", ready: state.ready, failure: event.message };
         case "disconnected":
             return lost(state, event.reason);
         case "frame":
@@ -99,7 +110,11 @@ function reduceEvent(state: UiState, event: DesktopEvent): UiState {
 // The last host facts stay for the sidebar footer; the live ones are dropped with the connection.
 function lost(state: UiState, reason: string): UiState {
     if (state.phase === "disconnected") return state;
-    return { phase: "disconnected", ready: state.ready, failure: reason };
+    return { phase: "disconnected", ready: state.ready, failure: reason, ...keepRestart(state) };
+}
+
+function keepRestart(state: UiState): { readonly restarting?: PlannedRestart } {
+    return state.restarting === undefined ? {} : { restarting: state.restarting };
 }
 
 export type Tone = "success" | "info" | "warning" | "danger";
@@ -113,7 +128,7 @@ export type BannerState =
         readonly detail: string;
     }
     | {
-        readonly kind: "failed" | "missing" | "disconnected";
+        readonly kind: "failed" | "missing" | "disconnected" | "outdated" | "restarting";
         readonly tone: Tone;
         readonly title: string;
         readonly detail: string;
@@ -137,6 +152,14 @@ export function bannerFor(state: UiState): BannerState | undefined {
             detail: state.question.text,
         };
     }
+    if (state.phase === "outdated") {
+        return {
+            kind: "outdated",
+            tone: "warning",
+            title: "Vera was updated",
+            detail: state.failure ?? "The installed Vera is a different build than this app.",
+        };
+    }
     if (state.phase === "missing") {
         return {
             kind: "missing",
@@ -151,6 +174,14 @@ export function bannerFor(state: UiState): BannerState | undefined {
             tone: "danger",
             title: "Vera did not start",
             detail: state.failure ?? "The host did not start.",
+        };
+    }
+    if (state.restarting !== undefined) {
+        return {
+            kind: "restarting",
+            tone: "info",
+            title: "Vera is restarting",
+            detail: `The host is restarting as build ${state.restarting.buildId}. This window reconnects when it is back.`,
         };
     }
     if (state.phase === "disconnected") {
@@ -177,6 +208,7 @@ export function toneOf(state: UiState): Tone {
         case "waiting":
             return "info";
         case "disconnected":
+        case "outdated":
             return "warning";
         case "failed":
         case "missing":
@@ -191,6 +223,7 @@ const PHASE_LABELS: Record<UiPhase, string> = {
     disconnected: "Disconnected",
     failed: "Failed",
     missing: "Not installed",
+    outdated: "Update needed",
 };
 
 export function phaseLabel(state: UiState): string {

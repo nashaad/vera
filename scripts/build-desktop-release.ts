@@ -91,7 +91,7 @@ async function main(): Promise<void> {
     const scratch = mkdtempSync(join(tmpdir(), "vera-desktop-build-"));
     let built;
     try {
-        run(process.execPath, ["run", join(root, "clients", "desktop", "build.ts"), "--out", scratch]);
+        run(process.execPath, ["run", join(root, "clients", "desktop", "build.ts"), "--out", scratch, "--build-id", hostBuildId]);
         built = await buildDesktopRelease({
             hostBuildId,
             desktopVersion,

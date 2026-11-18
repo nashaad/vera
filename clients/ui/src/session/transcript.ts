@@ -229,6 +229,8 @@ export function reduceWatch(state: SessionWatch, message: SessionMessage): Sessi
             return { ...state, timeline: message.reply };
         case "background_agents":
             return { ...state, background: message.background };
+        case "host_restarting":
+            return state;
         default: {
             const ended = message.type === "turn_finished" || message.type === "agent_failed";
             const usage = message.type === "turn_finished" ? message.usage : undefined;

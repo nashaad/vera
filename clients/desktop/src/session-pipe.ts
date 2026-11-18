@@ -6,6 +6,7 @@ import {
     HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
     HOST_CAPABILITY_SESSION_SHOW_WINDOW,
     HOST_CAPABILITY_SESSION_TITLE,
+    HOST_CAPABILITY_STOP_WAIT,
 } from "../../../src/host/capabilities.ts";
 import { MAX_FRAME_BYTES } from "../../../src/host/connection.ts";
 import type { DesktopEvent, SessionPane } from "../../ui/src/protocol/bridge.ts";
@@ -161,7 +162,7 @@ export class SessionPipe {
 
 // The main pane and the Chat tabs are asked to open screens, which a Help chat does; the subagent pane is a read-only view.
 export function attachLine(agentId: string, hidesReasoning: boolean, pane: SessionPane = "main"): string {
-    const capabilities = [HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_TITLE];
+    const capabilities = [HOST_CAPABILITY_AGENT_HISTORY_PAGING, HOST_CAPABILITY_SESSION_TITLE, HOST_CAPABILITY_STOP_WAIT];
     if (hidesReasoning) capabilities.push(HOST_CAPABILITY_AGENT_REASONING_PROGRESS);
     if (pane === "main" || isChatPane(pane)) capabilities.push(HOST_CAPABILITY_SESSION_SHOW_WINDOW);
     return `${JSON.stringify({ type: "attach", agent_id: agentId, requested_capabilities: capabilities })}\n`;

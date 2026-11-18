@@ -90,6 +90,8 @@ export function describeEvent(event: DesktopEvent): OutputLine | undefined {
             return { kind: "error", text: `Start failed: ${event.message}` };
         case "missing_cli":
             return { kind: "error", text: event.message };
+        case "build_changed":
+            return { kind: "error", text: event.message };
         case "frame":
         case "window_shown":
         case "command":

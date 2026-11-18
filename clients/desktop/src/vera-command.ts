@@ -17,11 +17,20 @@ export type BootCommandResolution =
     | { readonly command: BootCommand }
     | { readonly missing: MissingBootCommand };
 
+function devCliEntry(env: NodeJS.ProcessEnv): string | undefined {
+    const entry = env.VERA_DESKTOP_DEV_CLI?.trim();
+    return entry !== undefined && entry.length > 0 ? entry : undefined;
+}
+
+export function bootsFromSource(env: NodeJS.ProcessEnv = process.env): boolean {
+    return devCliEntry(env) !== undefined;
+}
+
 export function resolveBootCommand(
     env: NodeJS.ProcessEnv = process.env,
 ): BootCommandResolution {
-    const devEntry = env.VERA_DESKTOP_DEV_CLI?.trim();
-    if (devEntry !== undefined && devEntry.length > 0) {
+    const devEntry = devCliEntry(env);
+    if (devEntry !== undefined) {
         if (!existsSync(devEntry)) {
             return {
                 missing: {

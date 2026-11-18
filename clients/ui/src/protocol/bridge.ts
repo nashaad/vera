@@ -50,6 +50,13 @@ export type DesktopEvent =
         readonly type: "missing_cli";
         readonly message: string;
         readonly checked: readonly string[];
+    }
+    // The installed release is another build than this app, so the app did not start its host.
+    | {
+        readonly type: "build_changed";
+        readonly message: string;
+        readonly clientBuildId: string;
+        readonly installedBuildId: string;
     };
 
 // The most folder paths one existence check accepts.
