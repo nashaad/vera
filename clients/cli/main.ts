@@ -91,6 +91,7 @@ import {
     runUpdate,
     type UpdateOptions,
 } from "../../src/release/update.ts";
+import { runUpdateCheckJson, runUpdateJson } from "../../src/release/update-json.ts";
 import {
     HomeMigrationError,
     migrateHome,
@@ -377,6 +378,7 @@ export interface CliDependencies {
     ) => Promise<number | undefined>;
     readonly rollbackInstall?: (prefix: string) => Promise<RollbackInstallResult>;
     readonly update?: (options: UpdateOptions) => Promise<number>;
+    readonly updateJson?: (options: UpdateOptions) => Promise<number>;
     readonly migrateHome?: (home: string) => HomeMigrationResult;
     readonly rollbackHomeMigration?: (home: string) => HomeMigrationResult;
 }
@@ -1972,10 +1974,21 @@ async function runUpdateCommand(
     dependencies: CliDependencies,
 ): Promise<number> {
     let check = false;
+    let json = false;
+    let downloadOnly = false;
     let version: string | undefined;
+    const usage = "vera update: usage: vera update [VERSION] [--check] [--download-only] [--json]\n";
     for (const flag of flags) {
         if (flag === "--check") {
             check = true;
+            continue;
+        }
+        if (flag === "--json") {
+            json = true;
+            continue;
+        }
+        if (flag === "--download-only") {
+            downloadOnly = true;
             continue;
         }
         if (flag.startsWith("-")) {
@@ -1983,14 +1996,22 @@ async function runUpdateCommand(
             return 1;
         }
         if (version !== undefined) {
-            errorOutput.write("vera update: usage: vera update [VERSION] [--check]\n");
+            errorOutput.write(usage);
             return 1;
         }
         version = flag;
     }
+    if (check && downloadOnly) {
+        errorOutput.write(usage);
+        return 1;
+    }
+    const run = json
+        ? dependencies.updateJson ?? (check ? runUpdateCheckJson : runUpdateJson)
+        : dependencies.update ?? runUpdate;
     try {
-        return await (dependencies.update ?? runUpdate)({
+        return await run({
             check,
+            ...(downloadOnly ? { downloadOnly } : {}),
             ...(version === undefined ? {} : { version }),
             output: (text) => output.write(text),
             errorOutput: (text) => errorOutput.write(text),

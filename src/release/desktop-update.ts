@@ -24,6 +24,8 @@ export interface DesktopUpdateOptions extends DownloadOptions {
     readonly arch: string;
     // The build id of the host release that was just unpacked.
     readonly hostBuildId: string;
+    // Use the package already stored for this host build without asking the network, for a host release staged by an earlier run.
+    readonly preferStored?: boolean;
 }
 
 export type DesktopUpdateOutcome =
@@ -41,6 +43,10 @@ export function desktopAssetName(platform: string, arch: string): string {
 export async function readyDesktopPackage(
     options: DesktopUpdateOptions,
 ): Promise<DesktopUpdateOutcome> {
+    if (options.preferStored === true) {
+        const stored = findDesktopPackage(options.hostBuildId, options.prefix);
+        if (stored !== undefined) return { kind: "ready", package: stored };
+    }
     const asset = desktopAssetName(options.platform, options.arch);
     const url = `${releaseAssetBase(options, options.tag)}/${asset}`;
     const releases = releasesDirectory(options.prefix);

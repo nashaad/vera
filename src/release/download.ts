@@ -4,11 +4,20 @@ import { open } from "node:fs/promises";
 
 export const UPDATE_FETCH_TIMEOUT_MS = 30_000;
 
+export interface DownloadProgress {
+    readonly url: string;
+    readonly bytes: number;
+    readonly total: number | undefined;
+}
+
 export interface DownloadOptions {
     readonly fetch?: typeof fetch;
     readonly timeoutMs?: number;
     readonly repo?: string;
     readonly downloadBase?: string;
+    // Aborting ends the request in flight and rejects with the signal's reason.
+    readonly signal?: AbortSignal;
+    readonly onProgress?: (progress: DownloadProgress) => void;
 }
 
 // A missing file is told apart from a failed download: an absent release asset is an answer, not an error.
@@ -41,8 +50,17 @@ export async function fetchWithTimeout<T>(
     const controller = new AbortController();
     const timeoutMs = options.timeoutMs ?? UPDATE_FETCH_TIMEOUT_MS;
     const stalled = new Error(`Download of ${url} stalled for ${timeoutMs / 1000} s.`);
+    const outer = options.signal;
+    outer?.throwIfAborted();
+    const onOuterAbort = (): void => controller.abort(outer?.reason);
+    outer?.addEventListener("abort", onOuterAbort, { once: true });
     async function waitForProgress<R>(operation: Promise<R>): Promise<R> {
+        if (outer?.aborted === true) {
+            void operation.catch(() => undefined);
+            throw outer.reason;
+        }
         let timer: ReturnType<typeof setTimeout> | undefined;
+        let onAbort: (() => void) | undefined;
         try {
             return await Promise.race([
                 operation,
@@ -51,10 +69,15 @@ export async function fetchWithTimeout<T>(
                         reject(stalled);
                         controller.abort(stalled);
                     }, timeoutMs);
+                    if (outer !== undefined) {
+                        onAbort = () => reject(outer.reason);
+                        outer.addEventListener("abort", onAbort, { once: true });
+                    }
                 }),
             ]);
         } finally {
             if (timer !== undefined) clearTimeout(timer);
+            if (onAbort !== undefined) outer?.removeEventListener("abort", onAbort);
         }
     }
     let response: Response;
@@ -64,7 +87,8 @@ export async function fetchWithTimeout<T>(
             headers,
         }));
     } catch (error) {
-        if (error === stalled) throw error;
+        outer?.removeEventListener("abort", onOuterAbort);
+        if (error === stalled || (outer?.aborted === true && error === outer.reason)) throw error;
         const reason = error instanceof Error ? error.message : String(error);
         throw new Error(`Could not reach ${url}: ${reason}`);
     }
@@ -99,6 +123,7 @@ export async function fetchWithTimeout<T>(
     try {
         return await consume(response, readBody, readChunks);
     } finally {
+        outer?.removeEventListener("abort", onOuterAbort);
         controller.abort();
     }
 }
@@ -124,11 +149,22 @@ export async function downloadToFile(
         if (response.body === null) {
             throw new Error(`Could not download ${url}: the response has no body.`);
         }
+        const declared = Number(response.headers.get("content-length"));
+        const total = Number.isFinite(declared) && declared > 0 ? declared : undefined;
+        let bytes = 0;
         const file = await open(path, "w");
         try {
-            await readChunks(async (chunk) => { await file.write(chunk); });
+            await readChunks(async (chunk) => {
+                await file.write(chunk);
+                bytes += chunk.byteLength;
+                options.onProgress?.({ url, bytes, total });
+            });
         } finally {
             await file.close();
+        }
+        // A declared length is for the bytes as sent, so a compressed response cannot be compared to it.
+        if (total !== undefined && bytes < total && response.headers.get("content-encoding") === null) {
+            throw new Error(`Download of ${url} ended early: ${bytes} of ${total} bytes.`);
         }
     });
 }

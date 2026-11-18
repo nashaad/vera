@@ -248,7 +248,7 @@ function unpack(tarball: string, into: string): Promise<void> {
 }
 
 // Undefined when the archive has no such member or cannot be read.
-function tarMemberText(tarball: string, member: string): Promise<string | undefined> {
+export function tarMemberText(tarball: string, member: string): Promise<string | undefined> {
     return new Promise((resolvePromise, reject) => {
         const child = spawn("tar", ["-xzOf", resolve(tarball), member], {
             stdio: ["ignore", "pipe", "ignore"],
