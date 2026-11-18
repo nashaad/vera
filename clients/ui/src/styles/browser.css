@@ -16,7 +16,22 @@
     font-size: var(--vera-font-size-label);
 }
 
-.browser-controls button {
+.browser-controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--vera-space);
+}
+
+.browser-controls .appearance-switch:hover:not(:disabled) {
+    border-color: var(--vera-text-muted);
+}
+
+.browser-controls .appearance-switch:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.browser-controls button:not(.appearance-switch) {
     height: calc(var(--vera-row-height) * 0.8);
     padding: 0 calc(var(--vera-space) * 3);
     color: var(--vera-text);
@@ -27,16 +42,16 @@
     transition: background var(--vera-motion), border-color var(--vera-motion);
 }
 
-.browser-controls button:hover:not(:disabled) {
+.browser-controls button:not(.appearance-switch):hover:not(:disabled) {
     background: var(--vera-surface-hover);
 }
 
-.browser-controls button:disabled {
+.browser-controls button:not(.appearance-switch):disabled {
     color: var(--vera-text-disabled);
     cursor: default;
 }
 
-.browser-controls button:focus-visible {
+.browser-controls button:not(.appearance-switch):focus-visible {
     outline: thin solid var(--vera-focus);
     outline-offset: calc(var(--vera-space) / 2);
 }
