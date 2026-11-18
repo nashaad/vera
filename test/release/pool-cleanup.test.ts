@@ -120,7 +120,7 @@ socketTest("a development pool starts only after a verified old-build session pr
         await forceStopPool(home);
         if (old.exitCode === null && old.signalCode === null) old.kill("SIGKILL");
         await oldExited;
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         if (previousUserHome === undefined) delete process.env.HOME;
         else process.env.HOME = previousUserHome;

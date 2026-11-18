@@ -53,7 +53,7 @@ test("a home extension contributes its skill directories and a project one does 
         expect(sources.extensionRoots.map((root) => root.extensionId))
             .not.toContain("acme.cloned");
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
     }
 });
@@ -64,7 +64,7 @@ function withHome<T>(home: string, run: () => T): T {
     try {
         return run();
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
     }
 }

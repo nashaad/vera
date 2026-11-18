@@ -99,7 +99,7 @@ socketAndLoopbackTest("a packed pool upgrades after a turn and leaves no old pro
         await stopRecordedWorkers(env.home).catch(() => {});
         for (const worker of oldWorkers) await stopWorkerProcess(worker).catch(() => {});
         env.cleanup();
-        if (previousHome === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previousHome;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previousHome;
         if (previousDev === undefined) delete process.env.VERA_DEV_INSTANCE; else process.env.VERA_DEV_INSTANCE = previousDev;
     }
 }, 180_000);

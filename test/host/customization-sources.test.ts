@@ -32,7 +32,7 @@ test("source catalog is served without a turn and includes registered definition
         expect(parseAgentUpdate(update)?.type).toBe("customization_sources");
     } finally {
         await registry.close();
-        if (previous === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previous;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previous;
         await rm(workspace, { recursive: true, force: true });
         await rm(home, { recursive: true, force: true });
     }

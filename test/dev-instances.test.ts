@@ -182,7 +182,7 @@ test("the home defaults to the one VERA_HOME names", () => {
         process.env.VERA_HOME = join(tempDir("vera-trial-"), "home");
         expect(processIsDevelopmentInstance({ treeRoot, userHome })).toBe(true);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
     }
 });

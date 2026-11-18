@@ -29,7 +29,7 @@ socketTest("doctor checks the host before reporting an unavailable session proce
     } finally {
         await worker.close();
         await host.close();
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         await rm(home, { recursive: true, force: true });
     }

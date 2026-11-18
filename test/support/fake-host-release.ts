@@ -221,7 +221,7 @@ export async function withVeraHome<T>(home: string, run: () => Promise<T>): Prom
     try {
         return await run();
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
     }
 }

@@ -41,6 +41,10 @@ export function veraRuntimeDirectoryIn(veraHome: string): string {
     return join(veraHome, "runtime");
 }
 
+export function hostLifecyclePathIn(veraHome: string): string {
+    return join(veraRuntimeDirectoryIn(veraHome), "host-lifecycle.json");
+}
+
 export function veraMachineDirectory(home?: string): string {
     return veraMachineDirectoryIn(veraHomeDirectory(home));
 }

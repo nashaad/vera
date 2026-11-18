@@ -1,4 +1,5 @@
 import { createHostLogger, type HostLog } from "../../src/host/host-log.ts";
+import type { HostIdentity } from "../../src/host/protocol.ts";
 import type { ResidentHost } from "../../src/host/runtime.ts";
 
 // Keep under the SIGTERM grace in src/host/force-stop.ts, or an upgrade reports this host as still running.
@@ -6,13 +7,15 @@ export const HOST_CLOSE_DEADLINE_MS = 2_500;
 // Covers both hand-off attempts in src/release/handoff.ts, so the process always exits.
 export const AFTER_CLOSE_DEADLINE_MS = 75_000;
 
-export interface ShutdownSignalWait {
-    readonly promise: Promise<void>;
+export type HostShutdownSignal = "SIGINT" | "SIGTERM" | "SIGHUP";
+
+export interface ShutdownSignalWait<T = void> {
+    readonly promise: Promise<T>;
     dispose(): void;
 }
 
 export interface ResidentHostProcessOptions {
-    readonly waitForSignal?: () => ShutdownSignalWait;
+    readonly waitForSignal?: () => ShutdownSignalWait<void | HostShutdownSignal>;
     readonly waitForCheckoutRemoval?: () => ShutdownSignalWait;
     readonly waitForSocketLoss?: () => ShutdownSignalWait;
     readonly exit?: (code: number) => void;
@@ -20,12 +23,33 @@ export interface ResidentHostProcessOptions {
     readonly closeDeadlineMs?: number;
     readonly poolWorkerPids?: () => readonly number[];
     readonly log?: HostLog;
+    readonly identity?: Pick<HostIdentity, "pid" | "started_at" | "build_id">;
     // Runs after a failed or clean close and before exit. A timed-out close skips it, since that host may still serve.
     readonly afterClose?: () => Promise<void>;
     readonly afterCloseDeadlineMs?: number;
 }
 
-type CloseableResidentHost = Pick<ResidentHost, "shutdownRequested" | "close">;
+export function installStartupSignalLogging(log: HostLog, identity: Pick<HostIdentity, "pid" | "started_at" | "build_id">): () => void {
+    const stop = (signal: HostShutdownSignal): void => {
+        dispose();
+        log({ type: "host_stopping", role: "host", ...identity, reason: "signal", signal });
+        process.kill(process.pid, signal);
+    };
+    const onInterrupt = (): void => stop("SIGINT");
+    const onTerminate = (): void => stop("SIGTERM");
+    const onHangup = (): void => stop("SIGHUP");
+    const dispose = (): void => {
+        process.off("SIGINT", onInterrupt);
+        process.off("SIGTERM", onTerminate);
+        process.off("SIGHUP", onHangup);
+    };
+    process.once("SIGINT", onInterrupt);
+    process.once("SIGTERM", onTerminate);
+    process.once("SIGHUP", onHangup);
+    return dispose;
+}
+
+type CloseableResidentHost = Pick<ResidentHost, "shutdownRequested" | "close" | "shutdownCause">;
 
 type CloseOutcome =
     | { readonly kind: "closed" }
@@ -42,12 +66,17 @@ export async function runResidentHostProcess(
     const socket = options.waitForSocketLoss?.();
     let exitCode = 0;
     try {
-        await Promise.race([
-            signal.promise,
-            host.shutdownRequested,
-            ...(checkout === undefined ? [] : [checkout.promise]),
-            ...(socket === undefined ? [] : [socket.promise]),
+        const cause = await Promise.race([
+            signal.promise.then((name) => ({ reason: "signal", ...(name === undefined ? {} : { signal: name }) })),
+            host.shutdownRequested.then(() => host.shutdownCause?.() ?? { reason: "shutdown_requested" }),
+            ...(checkout === undefined ? [] : [checkout.promise.then(() => ({ reason: "checkout_removed" }))]),
+            ...(socket === undefined ? [] : [socket.promise.then(() => ({ reason: "socket_lost" }))]),
         ]);
+        (options.log ?? createHostLogger())({
+            type: "host_stopping",
+            ...(options.identity === undefined ? { pid: process.pid } : { role: "host", ...options.identity }),
+            ...cause,
+        });
     } finally {
         signal.dispose();
         checkout?.dispose();
@@ -122,19 +151,24 @@ async function closeBeforeDeadline(
     }
 }
 
-function waitForShutdownSignal(): ShutdownSignalWait {
+function waitForShutdownSignal(): ShutdownSignalWait<HostShutdownSignal> {
     let dispose = (): void => {};
-    const promise = new Promise<void>((resolve) => {
-        const stop = (): void => {
+    const promise = new Promise<HostShutdownSignal>((resolve) => {
+        const stop = (name: HostShutdownSignal): void => {
             dispose();
-            resolve();
+            resolve(name);
         };
+        const onInterrupt = (): void => stop("SIGINT");
+        const onTerminate = (): void => stop("SIGTERM");
+        const onHangup = (): void => stop("SIGHUP");
         dispose = () => {
-            process.off("SIGINT", stop);
-            process.off("SIGTERM", stop);
+            process.off("SIGINT", onInterrupt);
+            process.off("SIGTERM", onTerminate);
+            process.off("SIGHUP", onHangup);
         };
-        process.once("SIGINT", stop);
-        process.once("SIGTERM", stop);
+        process.once("SIGINT", onInterrupt);
+        process.once("SIGTERM", onTerminate);
+        process.once("SIGHUP", onHangup);
     });
     return { promise, dispose };
 }

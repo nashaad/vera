@@ -4,7 +4,8 @@ import { join } from "node:path";
 
 import { dropLiveProcessIn } from "../live-process.ts";
 import { inspectHostLockFile, defaultHostLockPath } from "./lockfile.ts";
-import { requestHostStop, type HostIdentity, type HostStopResult } from "./protocol.ts";
+import { requestHostStop, type HostIdentity, type HostRequester, type HostStopResult } from "./protocol.ts";
+import { cliHostRequester } from "./requester.ts";
 import { listAgentsThroughHost } from "./agent-list-client.ts";
 import { removeUnusedSocketFile, socketFileIdentity } from "./socket-file.ts";
 import { backUpResetRecords } from "./reset-backup.ts";
@@ -30,6 +31,7 @@ export interface ResetOptions {
     readonly home?: string;
     readonly defaultHome?: string;
     readonly assumeYes: boolean;
+    readonly requester?: HostRequester;
 }
 
 export interface ResetDependencies {
@@ -42,6 +44,7 @@ export interface ResetDependencies {
         socketPath: string,
         identity: Pick<HostIdentity, "pid" | "started_at">,
         onWaiting: (waiting: readonly StopWaitTarget[]) => void,
+        requester?: HostRequester,
     ) => Promise<HostStopResult>;
     readonly listTurns?: (socketPath: string) => Promise<readonly { readonly name: string; readonly status: string }[]>;
     readonly termPolls?: number;
@@ -96,7 +99,7 @@ export async function runHostReset(options: ResetOptions, dependencies: ResetDep
     const backup = await backUpResetRecords(discovery, discovery.candidates, (dependencies.now ?? (() => new Date()))());
     output(`Backup: ${backup}\n`);
     const failures: string[] = [];
-    const stopped = await stopProcesses(discovery, stoppable, dependencies, failures);
+    const stopped = await stopProcesses(discovery, stoppable, dependencies, failures, options.requester ?? cliHostRequester("host reset"));
     if (failures.length > 0) {
         for (const failure of failures) errorOutput(`${failure}\n`);
         errorOutput("Stopped records and sockets were left in place. Run 'vera host reset' again after the process above exits.\n");
@@ -163,13 +166,14 @@ async function stopProcesses(
     stoppable: readonly ResetCandidate[],
     dependencies: ResetDependencies,
     failures: string[],
+    requester: HostRequester,
 ): Promise<ResetCandidate[]> {
     const { system } = dependencies;
     const ended: ResetCandidate[] = [];
     const host = stoppable.find((candidate) => candidate.role === "host");
     if (host !== undefined && discovery.hostAnswer !== undefined && stillVerified(system, host)) {
         const deadlineMs = dependencies.gracefulDeadlineMs ?? GRACEFUL_STOP_DEADLINE_MS;
-        const outcome = await gracefulHostStop(discovery, host, dependencies, deadlineMs);
+        const outcome = await gracefulHostStop(discovery, host, dependencies, deadlineMs, requester);
         if (outcome.type === "exited") {
             ended.push(host);
         } else {
@@ -198,6 +202,7 @@ async function gracefulHostStop(
     host: ResetCandidate,
     dependencies: ResetDependencies,
     deadlineMs: number,
+    requester: HostRequester,
 ): Promise<GracefulOutcome> {
     const { system } = dependencies;
     const pollMs = dependencies.pollMs ?? DEFAULT_POLL_MS;
@@ -207,6 +212,7 @@ async function gracefulHostStop(
         discovery.socketPath,
         { pid: host.pid, started_at: discovery.hostAnswer?.started_at ?? new Date(host.startedAt).toISOString() },
         renderWaiting(dependencies),
+        requester,
     ).then((result) => { settled = result; }, (error: unknown) => {
         settled = error instanceof Error ? error : new Error(String(error));
     });
@@ -261,8 +267,9 @@ function defaultRequestStop(
     socketPath: string,
     identity: Pick<HostIdentity, "pid" | "started_at">,
     onWaiting: (waiting: readonly StopWaitTarget[]) => void,
+    requester?: HostRequester,
 ): Promise<HostStopResult> {
-    return requestHostStop(socketPath, identity, onWaiting, {});
+    return requestHostStop(socketPath, identity, onWaiting, { requester });
 }
 
 // A record stays while its process is still alive, so a reused pid keeps its own record.

@@ -58,7 +58,7 @@ test("installLiveProcess titles, posts, and the disposer unlinks", () => {
         expect(listLiveProcesses(home)).toEqual([]);
     } finally {
         process.title = previousTitle;
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
     }
 });
@@ -202,7 +202,7 @@ test("stopListedLiveProcess kills a real child and drops its row", async () => {
         expect(processIsAlive(childPid)).toBe(false);
         expect(listLiveProcesses(home)).toEqual([]);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
         const running = child;
         if (
@@ -437,7 +437,7 @@ test("stopListedLiveProcess checks again before the signal to the PID after the 
         expect(sent).toEqual(["SIGKILL:-4242"]);
         expect(existsSync(liveProcessPath(4242, home))).toBe(false);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
     }
 });
@@ -465,7 +465,7 @@ test("stopListedLiveProcess signals nothing for a replaced PID and drops its sta
         expect(log.sent).toEqual([]);
         expect(existsSync(liveProcessPath(4242, home))).toBe(false);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
     }
 });
@@ -493,7 +493,7 @@ test("stopListedLiveProcess keeps the row of a process it could not confirm", ()
         expect(log.sent).toEqual([]);
         expect(existsSync(liveProcessPath(4242, home))).toBe(true);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
     }
 });

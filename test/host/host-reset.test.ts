@@ -332,17 +332,20 @@ test("signals go by the pinned pid and start time when the host socket stops ans
     system.add(HOST_PID, HOST_COMMAND, { launch: { state: "unset" } });
     system.hostAnswer = { socketPath: socketPathIn(home), identity: hostIdentity(HOST_PID), answering: true };
     const identities: { pid: number; started_at: string }[] = [];
+    const requester = { pid: 123, client_kind: "cli", command: "host reset" };
+    let receivedRequester: unknown;
     const transcript = newTranscript();
 
     const code = await runHostReset(
-        { home, defaultHome: home, assumeYes: false },
+        { home, defaultHome: home, assumeYes: false, requester },
         makeDeps(system, transcript, {
             confirm: async () => {
                 if (system.hostAnswer !== undefined) system.hostAnswer.answering = false;
                 return true;
             },
-            requestStop: async (_socketPath, identity) => {
+            requestStop: async (_socketPath, identity, _waiting, origin) => {
                 identities.push({ pid: identity.pid, started_at: identity.started_at });
+                receivedRequester = origin;
                 throw new Error("socket closed");
             },
         }),
@@ -350,6 +353,7 @@ test("signals go by the pinned pid and start time when the host socket stops ans
 
     expect(code).toBe(0);
     expect(identities).toEqual([{ pid: HOST_PID, started_at: START }]);
+    expect(receivedRequester).toEqual(requester);
     expect(transcript.out.join("")).toContain("The host stop request failed: socket closed.");
     expect(system.signalLog()).toEqual([`${HOST_PID} SIGTERM`]);
 });

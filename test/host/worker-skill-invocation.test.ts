@@ -157,7 +157,7 @@ test("a worker reads a SKILL.md under the host's last good settings after config
         }]);
     } finally {
         await registry.close();
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         await rm(root, { recursive: true, force: true });
     }

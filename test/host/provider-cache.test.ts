@@ -139,7 +139,7 @@ test("warm host settings and policy reads reuse catalogs and follow live inputs"
         expect(providerCatalogsOf(readSettings())?.some((row) => row.id === "pirate-crow")).toBe(false);
     } finally {
         await host.close();
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         if (previousPool === undefined) delete process.env.VERA_POOL_FILE;
         else process.env.VERA_POOL_FILE = previousPool;
@@ -177,7 +177,7 @@ test("catalog caches follow replacement, deletion, malformed files and curated u
         } });
         expect(effectiveCatalog("ollama").models.find((row) => row.id === rows[0]!.id)?.recommended).toBeUndefined();
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         fs.rmSync(home, { recursive: true, force: true });
     }

@@ -19,7 +19,7 @@ const roots: string[] = [];
 
 afterEach(() => {
     if (previousHome === undefined) {
-        delete process.env[VERA_HOME_ENV];
+        process.env[VERA_HOME_ENV] = process.env.VERA_TEST_HOME!;
     } else {
         process.env[VERA_HOME_ENV] = previousHome;
     }

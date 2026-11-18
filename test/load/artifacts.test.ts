@@ -188,7 +188,7 @@ test("@core setup failure releases the lock and bounds retained artifacts", asyn
         expect(JSON.parse(await readFile(join(root, "load-runs", runs[0]!, ".load-owner.json"), "utf8")).state).toBe("complete");
     } finally {
         register.mockRestore();
-        if (previous === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previous;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previous;
         await rm(root, { recursive: true, force: true });
     }
 });
@@ -223,7 +223,7 @@ test("@core failed measurement and result collection clean scratch while retaini
         const factory = JSON.parse(await readFile(join(root, "load-factories", factories[0]!, ".load-owner.json"), "utf8"));
         expect(factory.seed).toBe(20);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previous;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previous;
         await rm(root, { recursive: true, force: true });
     }
 }, 30_000);
@@ -246,7 +246,7 @@ test("@core handled interruption produces a report and cleans owned scratch", as
         expect(existsSync(join(root, "run.lock"))).toBe(false);
     } finally {
         register.mockRestore();
-        if (previous === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previous;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previous;
         await rm(root, { recursive: true, force: true });
     }
 }, 30_000);
@@ -275,7 +275,7 @@ test("@core cleanup failure retains the stopped lock for a safe retry", async ()
         await next.release();
     } finally {
         finish.mockRestore();
-        if (previous === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previous;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previous;
         if (alias !== "") await rm(alias, { recursive: true, force: true });
         await rm(root, { recursive: true, force: true });
     }
@@ -296,7 +296,7 @@ test("@core unproven shutdown retains the run, alias and lock", async () => {
         expect(existsSync(join(root, "run.lock"))).toBe(true);
     } finally {
         stop.mockRestore();
-        if (previous === undefined) delete process.env.VERA_HOME; else process.env.VERA_HOME = previous;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previous;
         if (alias !== "") await rm(alias, { recursive: true, force: true });
         await rm(root, { recursive: true, force: true });
     }

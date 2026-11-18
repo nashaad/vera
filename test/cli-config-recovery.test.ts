@@ -23,7 +23,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-    if (previousHome === undefined) delete process.env.VERA_HOME;
+    if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
     else process.env.VERA_HOME = previousHome;
     rmSync(home, { recursive: true, force: true });
 });

@@ -8,6 +8,7 @@ import {
     type ReadyAgent,
 } from "../../src/host/agent-start-client.ts";
 import { findOrStartResidentHost } from "../host/launch.ts";
+import { hostRequester } from "../../src/host/requester.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import {
@@ -65,7 +66,9 @@ export async function runStdioProcess(
     target: StdioStartTarget,
 ): Promise<void> {
     const buildId = thisProcessBuildId();
-    const host = await findOrStartResidentHost();
+    const host = await findOrStartResidentHost({
+        requester: hostRequester("stdio", "startup", target.type === "attach" ? { id: target.agentId } : undefined),
+    });
     const agent = await resolveAgent(host.socket_path, target);
     const client = await attachReconnectingAgent({
         socketPath: () => host.socket_path,

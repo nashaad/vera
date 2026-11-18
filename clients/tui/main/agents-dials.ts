@@ -542,7 +542,7 @@ export async function stopWaitNow(rt: TuiRuntime): Promise<void> {
     const wait = rt.stopWait;
     const cutStopWait = rt.dependencies.cutStopWait;
     if (wait === undefined || cutStopWait === undefined) return;
-    const outcome = await stopNow({ cut: cutStopWait });
+    const outcome = await stopNow({ cut: () => cutStopWait(rt.client.agentId) });
     if (outcome.kind === "unsupported") {
         showStatusNotice(rt, "Could not stop the running turns: the resident host cannot cut them");
         return;

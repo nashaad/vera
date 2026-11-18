@@ -122,7 +122,7 @@ for (const scenario of cases) test(scenario.name, async () => {
         } finally {
             delivery.close();
             inbox.close();
-            if (previousHome === undefined) delete process.env.VERA_HOME;
+            if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
             else process.env.VERA_HOME = previousHome;
             if (previousInstance === undefined) delete process.env.VERA_DEV_INSTANCE;
             else process.env.VERA_DEV_INSTANCE = previousInstance;

@@ -411,7 +411,7 @@ SECRET BODY
             }
         }
     } finally {
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         await rm(cwd, { recursive: true, force: true });
         await rm(home, { recursive: true, force: true });

@@ -669,7 +669,7 @@ async function pruneWithReads(
         expect(exitCode).toBe(0);
         return { output, signals };
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
         rmSync(home, { recursive: true, force: true });
     }
@@ -2275,7 +2275,7 @@ test("vera models refresh fetches arena scores when no host is running", async (
         expect(output).toContain("test-gateway: 1 models\n");
     } finally {
         globalThis.fetch = originalFetch;
-        if (previousHome === undefined) delete process.env.VERA_HOME;
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
         server.stop(true);
         rmSync(root, { recursive: true, force: true });
@@ -2401,7 +2401,7 @@ async function withDamagedHostLock<T>(
         writeFileSync(lockPath, source);
         return await run(lockPath, root);
     } finally {
-        if (previous === undefined) delete process.env.VERA_HOME;
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previous;
         rmSync(root, { recursive: true, force: true });
     }

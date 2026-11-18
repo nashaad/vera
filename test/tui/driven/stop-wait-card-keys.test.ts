@@ -9,6 +9,7 @@ import { createTuiChildDependencies } from "../../support/tui-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 let cuts = 0;
+let cutSession: string | undefined;
 let sent: string[] = [];
 let emitStopWait: ((event: HostStopWaitEvent) => void) | undefined;
 
@@ -17,6 +18,7 @@ function createStopWaitDependencies(): TuiDependencies {
     const inner = base.client;
     const client: TuiAgentClient = {
         ...inner,
+        agentId: "current-session",
         async send(command) {
             sent.push(command.type);
             return inner.send(command);
@@ -33,8 +35,9 @@ function createStopWaitDependencies(): TuiDependencies {
     const dependencies = {
         ...base,
         client,
-        cutStopWait: async () => {
+        cutStopWait: async (sessionId?: string) => {
             cuts += 1;
+            cutSession = sessionId;
             return { type: "cut_stop_wait_done" as const, cut: ["s1"], failed: [] };
         },
         abortAgent: async () => {
@@ -62,6 +65,7 @@ async function until(check: () => boolean, label: string): Promise<void> {
 
 async function startWithQueuedPrompt(name: string) {
     cuts = 0;
+    cutSession = undefined;
     sent = [];
     const home = mkdtempSync(join(tmpdir(), name));
     const session = await startTuiTestSession({
@@ -95,6 +99,7 @@ test("Down then Enter on the stop-wait card cuts once and releases nothing", asy
         await until(() => cuts === 1, "one cut");
         await session.settle(200);
         expect(cuts).toBe(1);
+        expect(cutSession).toBe("current-session");
         expect(sent.slice(before)).not.toContain("release_queued_prompts");
         expect(sent.slice(before)).not.toContain("prompt");
     } finally {

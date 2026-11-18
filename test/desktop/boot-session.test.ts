@@ -8,6 +8,7 @@ import type { DesktopEvent } from "../../clients/ui/src/protocol/bridge.ts";
 
 const FAKE_BOOT = `
 import { appendFileSync } from "node:fs";
+appendFileSync(process.env.FAKE_KIND_FILE, process.env.VERA_HOST_REQUESTER_KIND ?? "");
 console.log(JSON.stringify({ type: "check", label: "fake", status: "ok" }));
 console.log(JSON.stringify({ type: "question", id: "q1", text: "Restart the host?" }));
 process.stdin.setEncoding("utf8");
@@ -26,20 +27,25 @@ function setup(): {
     events: DesktopEvent[];
     waitForQuestion: () => Promise<string>;
     answerFile: string;
+    kindFile: string;
 } {
     const root = mkdtempSync(join(tmpdir(), "vera-boot-session-"));
     const answerFile = join(root, "answers.txt");
+    const kindFile = join(root, "kind.txt");
     writeFileSync(answerFile, "");
+    writeFileSync(kindFile, "");
     const script = join(root, "fake-boot.ts");
     writeFileSync(script, FAKE_BOOT);
     process.env.VERA_DESKTOP_DEV_CLI = script;
     process.env.VERA_DESKTOP_BUN = process.execPath;
     process.env.FAKE_ANSWER_FILE = answerFile;
+    process.env.FAKE_KIND_FILE = kindFile;
     const events: DesktopEvent[] = [];
     return {
         root,
         events,
         answerFile,
+        kindFile,
         waitForQuestion: async () => {
             for (let attempt = 0; attempt < 100; attempt += 1) {
                 const question = events.find((event) => event.type === "question");
@@ -55,6 +61,7 @@ function cleanup(root: string): void {
     delete process.env.VERA_DESKTOP_DEV_CLI;
     delete process.env.VERA_DESKTOP_BUN;
     delete process.env.FAKE_ANSWER_FILE;
+    delete process.env.FAKE_KIND_FILE;
     rmSync(root, { recursive: true, force: true });
 }
 
@@ -72,6 +79,7 @@ test("@core the desktop sends only the answer the person picked", async () => {
     try {
         session.start();
         const id = await helper.waitForQuestion();
+        expect(readFileSync(helper.kindFile, "utf8")).toBe("desktop");
         session.answer(id, true);
         await waitForAnswer(helper.answerFile, "true");
         expect(readFileSync(helper.answerFile, "utf8").trim()).toBe("true");

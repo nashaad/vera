@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
 import { sourceTestHome } from "../support/source-test-home.mjs";
 import { recoverHome } from "../../clients/host/launch.ts";
+import { cliHostRequester } from "../../src/host/requester.ts";
 import { bootResidentHost } from "../../src/host/boot.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
@@ -136,7 +137,7 @@ socketAndLoopbackTest("a host started before a simulated adoption timeout exits 
                 throw new Error("Session processes could not be adopted");
             },
             recover: async () => {
-                const result = await recoverHome();
+                const result = await recoverHome(cliHostRequester("startup"));
                 expect(result.ok).toBe(true);
                 expect(attemptedPid).toBeDefined();
                 expect(alive(attemptedPid!)).toBe(false);
