@@ -201,6 +201,29 @@ wait $napper
     expect(run.cancel()).toBe(true);
     expect(await run.done).toEqual({ result: "cancelled", changed: false });
 
+    // The release wrapper keeps INT and TERM for itself and waits for its child, which is the program that cancels.
+    const wrapped = fakeVera(`
+trap ':' INT
+trap 'stopped=1' TERM HUP
+(
+    trap 'echo "{\\"result\\":\\"cancelled\\",\\"changed\\":false}"; exit 1' TERM
+    echo '{"phase":"checking"}'
+    sleep 30 &
+    wait $!
+) &
+child=$!
+wait $child
+code=$?
+while [ "$code" -gt 128 ]; do wait $child; code=$?; done
+exit $code
+`);
+    const wrappedSeen: UpdateProgress[] = [];
+    const behind = runUpdate({ veraCommand: wrapped }, (progress) => wrappedSeen.push(progress));
+    while (wrappedSeen.length === 0) await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(behind.cancel()).toBe(true);
+    expect(await behind.done).toEqual({ result: "cancelled", changed: false });
+
     const marker = join(scratch(), "got-term");
     const switching = fakeVera(`
 trap 'echo got > ${marker}' TERM

@@ -99,7 +99,9 @@ export async function fetchWithTimeout<T>(
             while (true) {
                 const chunk = await waitForProgress((async () => {
                     while (true) {
-                        const next = await reader.read();
+                        const next = await reader.read().catch((error: unknown) => {
+                            throw controller.signal.aborted ? error : new Error(interruptedMessage(url, error));
+                        });
                         if (next.done || next.value.byteLength > 0) return next;
                     }
                 })());
@@ -126,6 +128,12 @@ export async function fetchWithTimeout<T>(
         outer?.removeEventListener("abort", onOuterAbort);
         controller.abort();
     }
+}
+
+// Bun appends a pointer to its verbose option to connection errors.
+function interruptedMessage(url: string, error: unknown): string {
+    const reason = (error instanceof Error ? error.message : String(error)).replace(/\. For more information.*$/s, "");
+    return `Download of ${url} was interrupted: ${reason}`;
 }
 
 export async function fetchText(url: string, options: DownloadOptions): Promise<string> {

@@ -162,6 +162,14 @@ test("@core a download that ends before its declared length is an error", async 
             .rejects.toThrow("Download of https://x.test/a.tar.gz ended early: 10 of 25 bytes.");
         const whole = (async () => new Response(new Uint8Array(25), { headers: { "content-length": "25" } })) as unknown as typeof fetch;
         await downloadToFile("https://x.test/a.tar.gz", join(root, "b"), { fetch: whole });
+        const reset = (async () => new Response(new ReadableStream<Uint8Array>({
+            pull(controller) {
+                controller.error(new Error("ECONNRESET: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()"));
+            },
+        }))) as unknown as typeof fetch;
+        const interrupted = await downloadToFile("https://x.test/a.tar.gz", join(root, "c"), { fetch: reset }).catch((error: Error) => error);
+        expect((interrupted as Error).message)
+            .toBe("Download of https://x.test/a.tar.gz was interrupted: ECONNRESET: The socket connection was closed unexpectedly");
     } finally {
         rmSync(root, { recursive: true, force: true });
     }

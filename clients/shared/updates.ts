@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -151,6 +151,7 @@ export function runUpdate(options: UpdateRunOptions, onProgress: (progress: Upda
             child = spawn(options.veraCommand, args, {
                 env: { ...process.env, ...options.env },
                 stdio: ["ignore", "pipe", "pipe"],
+                detached: ownsProcessGroup(),
             });
         } catch (error) {
             resolve(failed(`Could not run ${options.veraCommand}: ${errorText(error)}`));
@@ -190,10 +191,28 @@ export function runUpdate(options: UpdateRunOptions, onProgress: (progress: Upda
     return {
         cancel(): boolean {
             if (switching || outcome !== undefined || child === undefined || child.exitCode !== null) return false;
-            return child.kill("SIGTERM");
+            return signalRun(child, "SIGTERM");
         },
         done,
     };
+}
+
+// The vera command is a shell wrapper that keeps a signal for itself and does not pass it to the
+// program it runs, so a run is signalled as a process group, the way a terminal's Ctrl-C reaches it.
+function ownsProcessGroup(): boolean {
+    return process.platform !== "win32";
+}
+
+function signalRun(child: ChildProcess, signal: NodeJS.Signals): boolean {
+    if (ownsProcessGroup() && child.pid !== undefined) {
+        try {
+            process.kill(-child.pid, signal);
+            return true;
+        } catch {
+            // The group is already gone.
+        }
+    }
+    return child.kill(signal);
 }
 
 interface CapturedRun {
@@ -207,13 +226,14 @@ function captureRun(options: UpdateCommandOptions, args: readonly string[], time
         const child = spawn(options.veraCommand, [...args], {
             env: { ...process.env, ...options.env },
             stdio: ["ignore", "pipe", "pipe"],
+            detached: ownsProcessGroup(),
         });
         let stdout = "";
         let stderr = "";
         let timedOut = false;
         const timer = setTimeout(() => {
             timedOut = true;
-            child.kill("SIGTERM");
+            signalRun(child, "SIGTERM");
         }, timeoutMs);
         child.stdout.setEncoding("utf8");
         child.stdout.on("data", (chunk: string) => { stdout = (stdout + chunk).slice(-64_000); });

@@ -15,7 +15,11 @@ interface BuildOptions {
     readonly newerWithoutDesktop: boolean;
     // Neither release ships desktop assets; the terminal legs need none.
     readonly noDesktop: boolean;
+    // The newer desktop package needs a newer shell than the older release's app, so its update replaces Vera.app.
+    readonly newerShell: boolean;
 }
+
+const SHELL_API_NEWER = 2;
 
 function run(args: string[], cwd = root): void {
     const result = Bun.spawnSync(args, { cwd, stdout: "inherit", stderr: "inherit" });
@@ -92,6 +96,13 @@ async function build(out: string, older: string, newer: string, options: BuildOp
             if (!declaration.test(source)) throw new Error("Could not find copied product version");
             const changed = source.replace(declaration, `$1"${selected}"`);
             writeFileSync(manifest, changed);
+            if (selected === newer && options.newerShell) {
+                const bootstrap = join(copy, "clients/desktop/shell/bootstrap.ts");
+                const shellSource = readFileSync(bootstrap, "utf8");
+                const shellApi = /(export const SHELL_API = )\d+;/;
+                if (!shellApi.test(shellSource)) throw new Error("Could not find copied shell API");
+                writeFileSync(bootstrap, shellSource.replace(shellApi, "$1" + String(SHELL_API_NEWER) + ";"));
+            }
             const tagOut = join(out, `v${selected}`);
             mkdirSync(tagOut, { recursive: true });
             const asset = `vera-${linux ? "linux" : process.platform}-${process.arch}.tar.gz`;
@@ -231,13 +242,16 @@ function serve(out: string, args: string[]): void {
 if (import.meta.main) {
     try {
         const [command, output, older, newer, ...flags] = Bun.argv.slice(2);
-        if (!output) throw new Error("Usage: update-rehearsal.ts build OUT OLDER NEWER [--linux] [--no-newer-desktop] [--no-desktop] | serve OUT [--port N] [--bind ADDRESS] [--only VERSION] [--corrupt-checksum VERSION]");
+        if (!output) throw new Error("Usage: update-rehearsal.ts build OUT OLDER NEWER [--linux] [--no-newer-desktop] [--no-desktop] [--newer-shell] | serve OUT [--port N] [--bind ADDRESS] [--only VERSION] [--corrupt-checksum VERSION]");
         if (command === "build") {
-            if (flags.some((flag) => flag !== "--linux" && flag !== "--no-newer-desktop" && flag !== "--no-desktop")) throw new Error("Unknown build flag");
+            if (flags.some((flag) => flag !== "--linux" && flag !== "--no-newer-desktop" && flag !== "--no-desktop" && flag !== "--newer-shell")) throw new Error("Unknown build flag");
             const linux = process.platform === "linux" || flags.includes("--linux");
             const newerWithoutDesktop = flags.includes("--no-newer-desktop");
+            if (flags.includes("--newer-shell") && (linux || newerWithoutDesktop || flags.includes("--no-desktop"))) {
+                throw new Error("--newer-shell needs the macOS desktop assets in both releases");
+            }
             if (newerWithoutDesktop && linux) throw new Error("--no-newer-desktop applies to the macOS build, which is the only one with desktop assets");
-            await build(resolve(output), version(older), version(newer), { linux, newerWithoutDesktop, noDesktop: flags.includes("--no-desktop") });
+            await build(resolve(output), version(older), version(newer), { linux, newerWithoutDesktop, noDesktop: flags.includes("--no-desktop"), newerShell: flags.includes("--newer-shell") });
         } else if (command === "serve") {
             serve(resolve(output), Bun.argv.slice(4));
         } else throw new Error(`Unknown command: ${command}`);
