@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { configureFauxHome, until } from "./faux-home.mjs";
-import { MODIFIER, press, startTrial } from "./trial.mjs";
+import { MODIFIER, press, startTrial, waitForAnnexPages } from "./trial.mjs";
 
 const exec = promisify(execFile);
 const provider = createServer((request, response) => {
@@ -35,6 +35,7 @@ try {
     page = await app.firstWindow();
     await page.waitForSelector('.app[data-sessions="0"]', { timeout: 45_000 });
     await trial.waitForHost();
+    await waitForAnnexPages(page, app);
 
     const notice = page.locator(".browser-tools-notice");
     const composer = page.locator(".composer-input");
@@ -140,8 +141,8 @@ try {
     async function openBrowser() {
         await press(app, "K", [MODIFIER]);
         const palette = page.getByRole("textbox", { name: "Command palette" });
-        await palette.fill("Usage");
-        await palette.press("Enter");
+        await palette.fill("Open a web page");
+        await page.locator('[data-command="page.openBrowser"]').click();
         const pane = page.locator('[data-location="rightPane"]');
         await pane.getByRole("textbox", { name: "Address" }).waitFor();
         return pane;

@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 
 import { configureFauxHome, until } from "./faux-home.mjs";
-import { MODIFIER, press, startTrial } from "./trial.mjs";
+import { MODIFIER, press, startTrial, waitForAnnexPages } from "./trial.mjs";
 
 const provider = createServer((request, response) => {
     request.resume();
@@ -24,12 +24,13 @@ try {
     page = await app.firstWindow();
     await page.waitForSelector('.app[data-sessions="0"]', { timeout: 45_000 });
     const host = await trial.waitForHost();
+    await waitForAnnexPages(page, app);
     console.log(`Switch trial desktop ${app.process().pid}, host ${host}, home ${trial.trialRoot}`);
 
     await press(app, "K", [MODIFIER]);
     const palette = page.getByRole("textbox", { name: "Command palette" });
-    await palette.fill("Usage");
-    await palette.press("Enter");
+    await palette.fill("Open a web page");
+    await page.locator('[data-command="page.openBrowser"]').click();
     const pane = page.locator('[data-location="rightPane"]');
     const tools = pane.getByRole("switch", { name: "Browser tools" });
     const controls = pane.locator(".browser-controls");
