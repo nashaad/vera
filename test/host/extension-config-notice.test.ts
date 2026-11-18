@@ -153,7 +153,7 @@ test("@core extension config notices from the registry pass the client parser", 
                 expect(notice.facts).toBeUndefined();
                 expect(notice.source).toBeUndefined();
                 expect(parseAgentUpdateFrame(notice)).toEqual({ kind: "update", update: notice });
-                expect(parseAgentUpdateFrame({ ...notice, facts: { operation } })).toEqual({ kind: "invalid" });
+                expect(parseAgentUpdateFrame({ ...notice, facts: { operation } })).toEqual({ kind: "invalid_notice", seq: notice.seq });
             }
         } finally {
             attachment.detach();
