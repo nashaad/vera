@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { runCli } from "../../clients/cli/main.ts";
+import { defaultVeraHomeDirectory, veraHomeDirectory } from "../../src/profile-paths.ts";
 import { HOST_LOG_TAIL_BYTES } from "../../src/host/reset-backup.ts";
 import { discoverResetProcesses, veraRoleOf, type ResetProcessSample } from "../../src/host/reset-discovery.ts";
 import {
@@ -14,7 +15,7 @@ import {
     type ResetDependencies,
     type ResetSystem,
 } from "../../src/host/reset.ts";
-import type { LaunchVeraHome } from "../../src/host/launch-environment.ts";
+import { clientLaunchHome, readLaunchVeraHome, type LaunchVeraHome } from "../../src/host/launch-environment.ts";
 import type { HostIdentity, HostStopResult } from "../../src/host/protocol.ts";
 
 const START = "2026-11-01T10:00:00.000Z";
@@ -124,14 +125,12 @@ afterEach(async () => {
     for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
-async function setupRoots(): Promise<{ readonly home: string; readonly defaultHome: string }> {
+async function setupRoots(): Promise<{ readonly home: string }> {
     const root = await realpath(await mkdtemp(join(tmpdir(), "vera-reset-test-")));
     roots.push(root);
-    const home = join(root, "vera-home");
-    const defaultHome = join(root, "default-home");
+    const home = veraHomeDirectory(join(root, "a"));
     await mkdir(home, { recursive: true });
-    await mkdir(defaultHome, { recursive: true });
-    return { home, defaultHome };
+    return { home };
 }
 
 function newTranscript(): Transcript {
@@ -176,10 +175,10 @@ function socketPathIn(home: string): string {
 
 // The daily-home shape: a host answering on its socket, workers launched with this home, and an annex.
 function addDailyStack(system: FakeResetSystem, home: string, workerPids: readonly number[] = WORKER_PIDS): void {
-    system.add(HOST_PID, HOST_COMMAND, { launch: { state: "unset" } });
+    system.add(HOST_PID, HOST_COMMAND, { launch: { state: "unset", userHome: dirname(home) } });
     system.hostAnswer = { socketPath: socketPathIn(home), identity: hostIdentity(HOST_PID), answering: true };
     for (const pid of workerPids) system.add(pid, WORKER_COMMAND, { launch: { state: "set", home } });
-    system.add(ANNEX_PID, `${ANNEX_COMMAND} ${home}`, { launch: { state: "unset" } });
+    system.add(ANNEX_PID, `${ANNEX_COMMAND} ${home}`, { launch: { state: "unset", userHome: dirname(home) } });
 }
 
 async function writeWorkerRecords(home: string, pids: readonly number[]): Promise<void> {
@@ -237,7 +236,7 @@ test("@core host reset stops a stuck daily home when the graceful stop never set
     const transcript = newTranscript();
 
     const code = await runHostReset(
-        { home, defaultHome: home, assumeYes: true },
+        { home, assumeYes: true },
         makeDeps(system, transcript, { requestStop: () => new Promise<HostStopResult>(() => {}) }),
     );
 
@@ -252,14 +251,14 @@ test("@core host reset stops a stuck daily home when the graceful stop never set
 });
 
 test("host is proven by its socket answer when its launch environment is unreadable", async () => {
-    const { home, defaultHome } = await setupRoots();
+    const { home } = await setupRoots();
     const system = new FakeResetSystem();
     system.add(HOST_PID, "bun /opt/vera/clients/host/main.ts", { launch: { state: "unreadable" } });
     system.hostAnswer = { socketPath: socketPathIn(home), identity: hostIdentity(HOST_PID), answering: true };
     const transcript = newTranscript();
 
     const code = await runHostReset(
-        { home, defaultHome, assumeYes: true },
+        { home, assumeYes: true },
         makeDeps(system, transcript, {
             requestStop: async () => {
                 system.exit(HOST_PID);
@@ -278,25 +277,139 @@ test("host is proven by its socket answer when its launch environment is unreada
 test("host is proven by the default-home rule when its launch environment has no VERA_HOME", async () => {
     const { home } = await setupRoots();
     const system = new FakeResetSystem();
-    system.add(HOST_PID, HOST_COMMAND, { launch: { state: "unset" } });
+    system.add(HOST_PID, HOST_COMMAND, { launch: { state: "unset", userHome: dirname(home) } });
     const transcript = newTranscript();
 
-    const code = await runHostReset({ home, defaultHome: home, assumeYes: true }, makeDeps(system, transcript));
+    const code = await runHostReset({ home, assumeYes: true }, makeDeps(system, transcript));
 
     expect(code).toBe(0);
     expect(transcript.out.join("")).toContain("proof: default home, no VERA_HOME in its environment");
     expect(system.signalLog()).toEqual([`${HOST_PID} SIGTERM`]);
 });
 
+test("default-home proof follows each process HOME, including aliases", async () => {
+    const { home } = await setupRoots();
+    const userHome = dirname(home);
+    const alias = join(dirname(userHome), "alias");
+    await symlink(userHome, alias);
+    const system = new FakeResetSystem();
+    system.add(7101, HOST_COMMAND, { launch: { state: "unset", userHome } });
+    system.add(7102, HOST_COMMAND, { launch: { state: "unset", userHome: `${userHome}/` } });
+    system.add(7103, HOST_COMMAND, { launch: { state: "unset", userHome: alias } });
+    system.add(7104, HOST_COMMAND, { launch: { state: "unset" } });
+    system.add(7105, HOST_COMMAND, { launch: { state: "unset" }, sockets: [socketPathIn(home)] });
+    system.add(7106, HOST_COMMAND, { launch: { state: "unset", userHome: "" } });
+    system.add(7107, HOST_COMMAND, { launch: { state: "unreadable" }, sockets: [socketPathIn(home)] });
+
+    for (const selectedHome of [home, veraHomeDirectory(alias)]) {
+        const discovery = await discoverResetProcesses(system, { home: selectedHome });
+        expect(discovery.candidates.map(({ pid, proof }) => ({ pid, proof }))).toEqual([
+            { pid: 7101, proof: "default_home" },
+            { pid: 7102, proof: "default_home" },
+            { pid: 7103, proof: "default_home" },
+            { pid: 7105, proof: "socket_holder" },
+            { pid: 7107, proof: "socket_holder" },
+        ]);
+    }
+});
+
+test("@core launch home reads the child environment and preserves the client raw value", async () => {
+    const { home } = await setupRoots();
+    const userHome = dirname(home);
+    const cases: Array<{
+        env: Record<string, string>;
+        expected: LaunchVeraHome;
+        clientHome?: string;
+    }> = [
+        { env: { HOME: userHome }, expected: { state: "unset", userHome } },
+        { env: { HOME: userHome, VERA_HOME: home }, expected: { state: "set", home }, clientHome: home },
+        { env: { HOME: userHome, VERA_HOME: "   " }, expected: { state: "unset", userHome }, clientHome: "   " },
+        { env: { HOME: userHome, VERA_HOME: "" }, expected: { state: "unset", userHome }, clientHome: "" },
+        { env: {}, expected: { state: "unset" } },
+        { env: { HOME: "" }, expected: { state: "unset" } },
+    ];
+
+    for (const scenario of cases) {
+        // macOS can return an empty launch environment for platform binaries.
+        const child = Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000)"], {
+            env: scenario.env, stdout: "ignore", stderr: "ignore",
+        });
+        try {
+            await Bun.sleep(30);
+            expect(child.exitCode).toBeNull();
+            const launch = readLaunchVeraHome(child.pid);
+            expect(launch).toEqual(scenario.expected);
+            expect(clientLaunchHome(child.pid)).toBe(scenario.clientHome);
+            if (scenario.env.VERA_HOME === "   ") {
+                const system = new FakeResetSystem();
+                system.add(HOST_PID, HOST_COMMAND, { launch });
+                const discovery = await discoverResetProcesses(system, { home });
+                expect(discovery.candidates.map(({ pid, proof }) => ({ pid, proof }))).toEqual([
+                    { pid: HOST_PID, proof: "default_home" },
+                ]);
+            }
+        } finally {
+            if (child.exitCode === null) child.kill();
+            await child.exited;
+        }
+    }
+});
+
+test("@core reset does not claim or signal a process with another HOME and no VERA_HOME", async () => {
+    const probeRoot = process.env.VERA_RESET_HOME_PROBE;
+    if (probeRoot === undefined) {
+        const root = await realpath(await mkdtemp(join(tmpdir(), "vera-reset-other-home-")));
+        roots.push(root);
+        const selectedUserHome = join(root, "a");
+        const home = veraHomeDirectory(selectedUserHome);
+        await mkdir(home, { recursive: true });
+        const child = Bun.spawn([
+            process.execPath, "test", import.meta.path, "--test-name-pattern",
+            "reset does not claim or signal a process with another HOME",
+        ], {
+            env: { ...process.env, HOME: selectedUserHome, VERA_HOME: home, VERA_RESET_HOME_PROBE: root },
+            stdout: "pipe", stderr: "pipe",
+        });
+        try {
+            const [code, stdout, stderr] = await Promise.all([
+                child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
+            ]);
+            expect(code, `${stdout}\n${stderr}`).toBe(0);
+        } finally {
+            if (child.exitCode === null) child.kill();
+            await child.exited;
+        }
+        return;
+    }
+
+    const selectedUserHome = join(probeRoot, "a");
+    const otherUserHome = join(probeRoot, "b");
+    const home = veraHomeDirectory(selectedUserHome);
+    const system = new FakeResetSystem();
+    const launch = { state: "unset" as const, userHome: otherUserHome };
+    system.add(HOST_PID, HOST_COMMAND, { launch });
+    const transcript = newTranscript();
+
+    expect(defaultVeraHomeDirectory()).toBe(home);
+    const discovery = await discoverResetProcesses(system, { home });
+    const code = await runHostReset({ home, assumeYes: true }, makeDeps(system, transcript));
+
+    expect(system.signals).toEqual([]);
+    expect(discovery.candidates).toEqual([]);
+    expect(code).toBe(0);
+    expect(transcript.out.join("")).not.toContain(`PID ${HOST_PID}`);
+    expect(system.isAlive(HOST_PID)).toBe(true);
+});
+
 test("a process whose VERA_HOME names another home is never signalled", async () => {
-    const { home, defaultHome } = await setupRoots();
+    const { home } = await setupRoots();
     const otherHome = join(home, "..", "other-home");
     const system = new FakeResetSystem();
     system.add(7001, "bun /opt/vera/src/host/worker/entry.ts", { launch: { state: "set", home: otherHome } });
     system.add(7002, WORKER_COMMAND, { launch: { state: "set", home } });
     const transcript = newTranscript();
 
-    const code = await runHostReset({ home, defaultHome, assumeYes: true }, makeDeps(system, transcript));
+    const code = await runHostReset({ home, assumeYes: true }, makeDeps(system, transcript));
 
     expect(code).toBe(0);
     expect(system.signalLog()).toEqual(["7002 SIGTERM"]);
@@ -307,12 +420,12 @@ test("a process whose VERA_HOME names another home is never signalled", async ()
 test("a reused pid is not signalled when its start time changes after discovery", async () => {
     const { home } = await setupRoots();
     const system = new FakeResetSystem();
-    system.add(HOST_PID, HOST_COMMAND, { launch: { state: "unset" } });
-    system.add(ANNEX_PID, `${ANNEX_COMMAND} ${home}`, { launch: { state: "unset" } });
+    system.add(HOST_PID, HOST_COMMAND, { launch: { state: "unset", userHome: dirname(home) } });
+    system.add(ANNEX_PID, `${ANNEX_COMMAND} ${home}`, { launch: { state: "unset", userHome: dirname(home) } });
     const transcript = newTranscript();
 
     const code = await runHostReset(
-        { home, defaultHome: home, assumeYes: false },
+        { home, assumeYes: false },
         makeDeps(system, transcript, {
             confirm: async () => {
                 system.setStartedAt(HOST_PID, START_MS + 3 * 60 * 60 * 1000);
@@ -329,7 +442,7 @@ test("a reused pid is not signalled when its start time changes after discovery"
 test("signals go by the pinned pid and start time when the host socket stops answering", async () => {
     const { home } = await setupRoots();
     const system = new FakeResetSystem();
-    system.add(HOST_PID, HOST_COMMAND, { launch: { state: "unset" } });
+    system.add(HOST_PID, HOST_COMMAND, { launch: { state: "unset", userHome: dirname(home) } });
     system.hostAnswer = { socketPath: socketPathIn(home), identity: hostIdentity(HOST_PID), answering: true };
     const identities: { pid: number; started_at: string }[] = [];
     const requester = { pid: 123, client_kind: "cli", command: "host reset" };
@@ -337,7 +450,7 @@ test("signals go by the pinned pid and start time when the host socket stops ans
     const transcript = newTranscript();
 
     const code = await runHostReset(
-        { home, defaultHome: home, assumeYes: false, requester },
+        { home, assumeYes: false, requester },
         makeDeps(system, transcript, {
             confirm: async () => {
                 if (system.hostAnswer !== undefined) system.hostAnswer.answering = false;
@@ -365,7 +478,7 @@ test("a host that accepts the graceful stop and exits receives no SIGTERM", asyn
     const transcript = newTranscript();
 
     const code = await runHostReset(
-        { home, defaultHome: home, assumeYes: true },
+        { home, assumeYes: true },
         makeDeps(system, transcript, {
             requestStop: async () => {
                 system.exit(HOST_PID);
@@ -383,13 +496,13 @@ test("a host that accepts the graceful stop and exits receives no SIGTERM", asyn
 test("a host that refuses the graceful stop falls back to SIGTERM on the pinned host", async () => {
     const { home } = await setupRoots();
     const system = new FakeResetSystem();
-    system.add(HOST_PID, HOST_COMMAND, { launch: { state: "unset" } });
+    system.add(HOST_PID, HOST_COMMAND, { launch: { state: "unset", userHome: dirname(home) } });
     system.hostAnswer = { socketPath: socketPathIn(home), identity: hostIdentity(HOST_PID), answering: true };
     const transcript = newTranscript();
     let requests = 0;
 
     const code = await runHostReset(
-        { home, defaultHome: home, assumeYes: true },
+        { home, assumeYes: true },
         makeDeps(system, transcript, {
             requestStop: async () => {
                 requests++;
@@ -407,13 +520,13 @@ test("a host that refuses the graceful stop falls back to SIGTERM on the pinned 
 });
 
 test("an unproven live worker record stops the reset before any signal or backup", async () => {
-    const { home, defaultHome } = await setupRoots();
+    const { home } = await setupRoots();
     const system = new FakeResetSystem();
     system.add(8001, "bun /opt/vera/src/host/worker/entry.ts", { launch: { state: "unreadable" } });
     await writeWorkerRecords(home, [8001]);
     const transcript = newTranscript();
 
-    const code = await runHostReset({ home, defaultHome, assumeYes: true }, makeDeps(system, transcript));
+    const code = await runHostReset({ home, assumeYes: true }, makeDeps(system, transcript));
 
     expect(code).toBe(1);
     expect(transcript.err.join("")).toContain("PID 8001 could not be proven to belong to this home");
@@ -422,11 +535,11 @@ test("an unproven live worker record stops the reset before any signal or backup
 });
 
 test("an empty home reports nothing to reset and exits 0", async () => {
-    const { home, defaultHome } = await setupRoots();
+    const { home } = await setupRoots();
     const system = new FakeResetSystem();
     const transcript = newTranscript();
 
-    const code = await runHostReset({ home, defaultHome, assumeYes: false }, makeDeps(system, transcript));
+    const code = await runHostReset({ home, assumeYes: false }, makeDeps(system, transcript));
 
     expect(code).toBe(0);
     expect(transcript.out.join("")).toContain("Nothing to reset");
@@ -441,7 +554,7 @@ test("a declined confirmation signals nothing and writes no backup", async () =>
     const transcript = newTranscript();
 
     const code = await runHostReset(
-        { home, defaultHome: home, assumeYes: false },
+        { home, assumeYes: false },
         makeDeps(system, transcript, { confirm: async (question) => {
             transcript.questions.push(question);
             return false;
@@ -458,7 +571,7 @@ test("a declined confirmation signals nothing and writes no backup", async () =>
 test("the backup keeps runtime records and the host log tail, and copies no sessions", async () => {
     const { home } = await setupRoots();
     const system = new FakeResetSystem();
-    system.add(HOST_PID, HOST_COMMAND, { launch: { state: "unset" } });
+    system.add(HOST_PID, HOST_COMMAND, { launch: { state: "unset", userHome: dirname(home) } });
     await writeHostLock(home, HOST_PID);
     await writeWorkerRecords(home, [5001]);
     system.add(5001, WORKER_COMMAND, { launch: { state: "set", home } });
@@ -473,7 +586,7 @@ test("the backup keeps runtime records and the host log tail, and copies no sess
     await writeFile(logPath, `${logLines.join("\n")}\n`);
     const transcript = newTranscript();
 
-    const code = await runHostReset({ home, defaultHome: home, assumeYes: true }, makeDeps(system, transcript));
+    const code = await runHostReset({ home, assumeYes: true }, makeDeps(system, transcript));
 
     expect(code).toBe(0);
     const [backupName] = await backupDirs(home);
@@ -501,25 +614,26 @@ test("the backup keeps runtime records and the host log tail, and copies no sess
     expect(await readFile(join(home, "sessions", "s1.jsonl"), "utf8")).toBe("SESSION BODY\n");
 });
 
-test("runtime paths resolve under the home, both for the default home and for another home", async () => {
-    const { home, defaultHome } = await setupRoots();
+test("runtime paths resolve under the selected home", async () => {
+    const { home } = await setupRoots();
+    const homes = [home, join(dirname(home), "other-home")];
 
-    for (const options of [{ home, defaultHome: home }, { home, defaultHome }]) {
-        const discovery = await discoverResetProcesses(new FakeResetSystem(), options);
-        expect(discovery.home).toBe(home);
-        expect(discovery.runtime).toBe(join(home, "runtime"));
-        expect(discovery.socketPath).toBe(join(home, "runtime", "host.sock"));
-        expect(discovery.runtime).not.toBe(join(home, ".vera", "runtime"));
+    for (const selectedHome of homes) {
+        const discovery = await discoverResetProcesses(new FakeResetSystem(), { home: selectedHome });
+        expect(discovery.home).toBe(selectedHome);
+        expect(discovery.runtime).toBe(join(selectedHome, "runtime"));
+        expect(discovery.socketPath).toBe(join(selectedHome, "runtime", "host.sock"));
+        expect(discovery.runtime).not.toBe(join(selectedHome, ".vera", "runtime"));
     }
 });
 
 test("discovery skips the reset's own process", async () => {
     const { home } = await setupRoots();
     const system = new FakeResetSystem();
-    system.add(7001, "bun clients/cli/main.ts host reset --yes --vera-role=cli", { launch: { state: "unset" } });
-    system.add(7002, "vera --vera-role=tui", { launch: { state: "unset" } });
+    system.add(7001, "bun clients/cli/main.ts host reset --yes --vera-role=cli", { launch: { state: "unset", userHome: dirname(home) } });
+    system.add(7002, "vera --vera-role=tui", { launch: { state: "unset", userHome: dirname(home) } });
 
-    const discovery = await discoverResetProcesses(system, { home, defaultHome: home, selfPid: 7001 });
+    const discovery = await discoverResetProcesses(system, { home, selfPid: 7001 });
     expect(discovery.candidates.map((candidate) => candidate.pid)).toEqual([7002]);
 });
 
