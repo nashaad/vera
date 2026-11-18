@@ -509,6 +509,10 @@ return {
 - Leave `link` out while `vera.annex.pageUrl` is `undefined`. The notice then
   shows as text.
 
+A notice may also have `action: "open_browser"`. The desktop offers Open Browser
+when the Browser is available; the action opens it without enabling its tools.
+The action and a page link may appear together. Other action values are refused.
+
 ## Contribute skills
 
 An extension can ship [skills](skills.md). List directories inside the

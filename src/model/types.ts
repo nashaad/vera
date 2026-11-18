@@ -303,6 +303,7 @@ export interface ToolNoticePresentation {
     readonly kind: "tool_notice";
     readonly text: string;
     readonly link?: ToolNoticeLink;
+    readonly action?: "open_browser";
 }
 
 export function isToolNoticeLink(value: unknown): value is ToolNoticeLink {
@@ -368,7 +369,8 @@ export function isToolPresentation(value: unknown): value is ToolPresentation {
     return presentation.kind === "tool_notice"
         && typeof presentation.text === "string"
         && presentation.text.trim().length > 0
-        && (presentation.link === undefined || isToolNoticeLink(presentation.link));
+        && (presentation.link === undefined || isToolNoticeLink(presentation.link))
+        && (presentation.action === undefined || presentation.action === "open_browser");
 }
 
 function isChecklistItem(value: unknown): value is ChecklistItem {

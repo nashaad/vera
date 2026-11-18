@@ -216,6 +216,7 @@ test("@core session store reloads a tool notice with its page link", async () =>
             kind: "tool_notice",
             text: "Artifact page: http://127.0.0.1:8372/x/vera.artifacts/artifacts?session=s1&artifact=raid",
             link: { title: "Raid", page: "/x/vera.artifacts/artifacts", query: { session: "s1", artifact: "raid" } },
+            action: "open_browser",
         },
     };
     const assistant: ModelMessage = {

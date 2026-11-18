@@ -1487,12 +1487,12 @@ function parseToolPresentation(
     }
     if (
         value.kind === "tool_notice"
-        && (hasExactKeys(value, ["kind", "text"]) || hasExactKeys(value, ["kind", "text", "link"]))
+        && Object.keys(value).every((key) => key === "kind" || key === "text" || key === "link" || key === "action")
         && typeof value.text === "string"
         && value.text.trim().length > 0
         && Buffer.byteLength(value.text) <= MAX_EXTENSION_PRESENTATION_BYTES
     ) {
-        if (value.link === undefined) return { kind: "tool_notice", text: value.text };
+        if (value.link === undefined) return { kind: "tool_notice", text: value.text, ...(value.action === undefined ? {} : { action: value.action }) };
         // A link names one of the extension's own pages by id; the notice leaves with the page's annex path.
         const link = value.link;
         if (!hasExactKeys(link as unknown as Readonly<Record<string, unknown>>, link.query === undefined ? ["title", "page"] : ["title", "page", "query"])) return undefined;
@@ -1500,6 +1500,7 @@ function parseToolPresentation(
         return {
             kind: "tool_notice",
             text: value.text,
+            ...(value.action === undefined ? {} : { action: value.action }),
             link: {
                 title: link.title,
                 page: `/x/${encodeURIComponent(extensionId)}/${link.page}`,

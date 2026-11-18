@@ -51,6 +51,7 @@ export interface ToolNoticePresentation {
     readonly kind: "tool_notice";
     readonly text: string;
     readonly link?: NoticeLink;
+    readonly action?: "open_browser";
 }
 
 export type Presentation = DiffPresentation | ChecklistPresentation | ToolNoticePresentation;

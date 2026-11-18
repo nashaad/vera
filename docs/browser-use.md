@@ -39,7 +39,9 @@ window in every view: "Browser tools are on. Vera can open, read and act on
 pages in the Browser." Choose Turn off there or turn the switch off in the pane
 to stop further browser tool calls. If the Browser tools connection is
 unavailable, the notice stays visible and both controls are disabled until it
-is available again. A desktop window must be open for the tools to work.
+is available again. A desktop window must be open for the tools to work. If a call fails because
+Browser tools are off, choose Open Browser under the failed run, turn on the
+switch, then ask again. Opening the Browser does not turn the switch on.
 Vera's own pages, such as Usage, cannot be controlled by `builtin_browser`.
 When the built-in browser and the Chrome extension's `browser` tool are both
 loaded, Vera asks which to use before its first browser call and keeps the
