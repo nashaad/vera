@@ -1,5 +1,5 @@
 import { tmpdir } from "node:os";
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
@@ -264,6 +264,115 @@ test(
         client.close();
     },
 );
+
+test("@core reconnect budget spans receives after replay then disconnect", async () => {
+    const initial = fakeClient([], 4);
+    let attempts = 0;
+    const client = createReconnectingAgentClient(initial, async () => {
+        attempts += 1;
+        return fakeClient([{
+            type: "assistant_delta",
+            text: `replay ${attempts}`,
+            seq: 5,
+        }], 4);
+    }, { deadlineMs: 75, delaysMs: [0], failOnDisconnect: true, retryDirectDisconnect: () => true });
+    try {
+        expect((await client.receive()).type).toBe("assistant_delta");
+        await expect(client.receive()).rejects.toThrow("Could not reconnect agent before its deadline");
+        expect(attempts).toBe(1);
+    } finally {
+        client.close();
+    }
+});
+
+test("the reconnect deadline spans successful replay receives", async () => {
+    let attempts = 0;
+    const client = createReconnectingAgentClient(fakeClient([], 4), async () => {
+        attempts += 1;
+        return fakeClient([{ type: "assistant_delta", text: "replay", seq: 5 }], 4);
+    }, { deadlineMs: 50, delaysMs: [0, 0], failOnDisconnect: true, retryDirectDisconnect: () => true });
+    try {
+        await client.receive();
+        await Bun.sleep(75);
+        await expect(client.receive()).rejects.toThrow("Could not reconnect agent before its deadline");
+        expect(attempts).toBe(1);
+    } finally {
+        client.close();
+    }
+});
+
+test("an attachment arriving after the deadline is closed", async () => {
+    let replacementClosed = false;
+    const client = createReconnectingAgentClient(fakeClient([], 4), async () => {
+        await Bun.sleep(60);
+        return { ...fakeClient([{ type: "history", entries: [], seq: 5 }]),
+            close: () => { replacementClosed = true; } };
+    }, { deadlineMs: 30, delaysMs: [0] });
+    try {
+        await expect(client.receive()).rejects.toThrow("Could not reconnect agent before its deadline");
+        expect(replacementClosed).toBeTrue();
+    } finally {
+        client.close();
+    }
+});
+
+test("a direct attachment resets its reconnect budget only after 30 seconds open", async () => {
+    jest.useFakeTimers();
+    let attempts = 0;
+    let dropped = false;
+    const create = () => createReconnectingAgentClient(fakeClient([], 4), async () => {
+        attempts += 1;
+        return {
+            ...fakeClient([{ type: "assistant_delta", text: "replay", seq: 5 }], 4),
+            get closed() { return dropped; },
+        };
+    }, { deadlineMs: 120_000, delaysMs: [0], failOnDisconnect: true, retryDirectDisconnect: () => true });
+    const early = create();
+    let closedBeforeReset: AttachedAgentClient | undefined;
+    let stable: AttachedAgentClient | undefined;
+    try {
+        await early.receive();
+        jest.advanceTimersByTime(29_999);
+        await expect(early.receive()).rejects.toThrow("Could not reconnect agent before its deadline");
+        expect(attempts).toBe(1);
+        closedBeforeReset = create();
+        await closedBeforeReset.receive();
+        dropped = true;
+        jest.advanceTimersByTime(30_000);
+        await expect(closedBeforeReset.receive()).rejects.toThrow("Could not reconnect agent before its deadline");
+        expect(attempts).toBe(2);
+        dropped = false;
+        stable = create();
+        await stable.receive();
+        jest.advanceTimersByTime(30_000);
+        expect((await stable.receive()).type).toBe("assistant_delta");
+        expect(attempts).toBe(4);
+    } finally {
+        early.close();
+        closedBeforeReset?.close();
+        stable?.close();
+        jest.useRealTimers();
+    }
+});
+
+test("replacement attachments use exponential backoff", async () => {
+    const times: number[] = [];
+    const start = performance.now();
+    const client = createReconnectingAgentClient(fakeClient([], 4), async () => {
+        times.push(performance.now());
+        return fakeClient([{ type: "assistant_delta", text: "replay", seq: 5 }], 4);
+    }, { failOnDisconnect: true, retryDirectDisconnect: () => true });
+    try {
+        await client.receive();
+        await client.receive();
+        await client.receive();
+        expect(times[0]! - start).toBeGreaterThanOrEqual(220);
+        expect(times[1]! - times[0]!).toBeGreaterThanOrEqual(450);
+        expect(times[2]! - times[1]!).toBeGreaterThanOrEqual(900);
+    } finally {
+        client.close();
+    }
+}, 5_000);
 
 test("attachment-private work makes a disconnect terminal", async () => {
     const initial = fakeClient([], 4);
