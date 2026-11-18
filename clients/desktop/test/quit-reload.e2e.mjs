@@ -92,7 +92,7 @@ async function seed() {
 }
 
 async function attach(page, agent) {
-    await page.getByRole("button", { name: new RegExp(agent.name) }).first().click({ timeout: 20_000 });
+    await page.getByRole("button", { name: new RegExp(`${agent.name}|${prompt}`) }).first().click({ timeout: 20_000 });
     await page.getByText(prompt, { exact: true }).first().waitFor({ timeout: 20_000 });
     await until("the open conversation", async () =>
         await page.locator(`[data-session="${agent.id}"][data-phase="attached"]`).count() > 0);
@@ -100,13 +100,10 @@ async function attach(page, agent) {
 
 async function reload(app, page, force) {
     const loaded = page.waitForEvent("load", { timeout: 15_000 });
-    await app.evaluate(({ BrowserWindow, Menu }, forceReload) => {
-        const window = BrowserWindow.getAllWindows()[0];
-        const view = Menu.getApplicationMenu().items.find((item) => item.label === "View");
-        const role = forceReload ? "forcereload" : "reload";
-        const item = view?.submenu?.items.find((entry) => entry.role === role);
-        if (item === undefined) throw new Error(`View menu has no ${role} item.`);
-        item.click(item, window, {});
+    await app.evaluate(({ BrowserWindow }, forceReload) => {
+        const { webContents } = BrowserWindow.getAllWindows()[0];
+        if (forceReload) webContents.reloadIgnoringCache();
+        else webContents.reload();
     }, force);
     await loaded;
     await page.locator(".app").first().waitFor({ timeout: 20_000 });

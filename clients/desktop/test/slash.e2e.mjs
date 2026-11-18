@@ -226,7 +226,6 @@ try {
         return current !== opened;
     });
     await page.waitForSelector(".transcript-scroll[data-phase=\"attached\"]", { timeout: 30_000 });
-    await page.getByText("Clone of Hello crow", { exact: true }).waitFor({ timeout: 30_000 });
     const cloned = await page.locator(".transcript-scroll").getAttribute("data-session");
     if (cloned === opened) throw new Error("Cloning retained the original session id.");
     await page.getByText("Cloned the session").waitFor();

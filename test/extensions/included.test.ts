@@ -209,7 +209,9 @@ test("core and shipped extensions load from their own folders", () => {
         "vera.btw",
         "vera.budget",
         "vera.cache",
+        "vera.desktop-browser",
         "vera.diff",
+        "vera.feedback",
         "vera.mcp",
         "vera.titles",
     ]);

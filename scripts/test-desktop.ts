@@ -82,7 +82,7 @@ process.exit(failed === 0 ? 0 : 1);
 function runScript(name: string): Promise<Outcome> {
     const started = Date.now();
     return new Promise((resolve) => {
-        const child = spawn("node", [join(testDir, name)], {
+        const child = spawn(runtimeFor(name), [join(testDir, name)], {
             cwd: root,
             detached: true,
             env: { ...process.env, TMPDIR: scratch },
@@ -110,6 +110,11 @@ function runScript(name: string): Promise<Outcome> {
             });
         });
     });
+}
+
+// A script that imports the engine or host runs under bun; Node cannot strip their parameter properties.
+function runtimeFor(name: string): string {
+    return /from "(\.\.\/){3}src\/[^"]+\.ts"/.test(readFileSync(join(testDir, name), "utf8")) ? "bun" : "node";
 }
 
 function signalGroup(pid: number | undefined, signal: NodeJS.Signals): void {

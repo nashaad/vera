@@ -151,7 +151,7 @@ Ctrl+X then B, or `/sidebar`, shows or hides a sidebar listing running conversat
 Ctrl+Shift+←/→ cycle live conversations, including leftovers still idle. Side panes from `/btw` and `/pair` stay beside the transcript. Park a live conversation with `/close`, or `Ctrl+W` from the composer; with a side pane focused, the same key closes that pane instead.
 Manual: `docs/sessions.md`.
 
-## Tools, permissions, and agents [lines=34]
+## Tools, permissions, and agents [lines=36]
 The selected agent definition supplies instructions and an exact tool allow-list. An omitted tool list means all available tools; an empty list means no tools.
 The session permission posture is the outer ceiling. An agent may narrow it but cannot widen it.
 Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
@@ -243,7 +243,7 @@ Tool results should be visibly bounded, truncated, or paginated. Oversized outpu
 How much context Vera keeps is configurable on one screen: `/settings` then Overrides. It exposes the context limit, compaction, and tool-result levers. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, asks before saving a summary target that is not under the trigger, and asks before clearing every lever at once.
 Manual: `docs/context-levers.md`.
 
-## Diagnostics and recovery [lines=28]
+## Diagnostics and recovery [lines=29]
 Vera automatically retries rate-limit, server, dropped-connection and stalled-stream failures with increasing waits; retry activity stays visible and Escape cancels the pending retry or a stuck request. A spent subscription usage limit is not retried: the turn stops at once and the error says when the limit resets.
 If Vera cannot build a request locally, it stops without retrying and the Vera report in `/diagnostics` has the error.
 If a resident agent stops unexpectedly, the conversation shows the failure and the host log records its message and stack.

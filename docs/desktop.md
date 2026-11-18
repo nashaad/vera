@@ -53,7 +53,7 @@ three seconds. A reply that does not arrive, or a host that closes the
 connection, ends the attachment and shows the banner.
 
 When you quit the desktop app with background commands in a conversation open
-in the main or companion pane, a confirmation counts them and offers `Cancel`,
+in the main pane, a chat tab or a subagent pane, a confirmation counts them and offers `Cancel`,
 `Keep running`, and `Stop and quit`. Keep running quits as usual and leaves the
 conversations running; the host parks them after ten idle minutes. Stop and quit
 asks the host to close each counted conversation still open in a pane before

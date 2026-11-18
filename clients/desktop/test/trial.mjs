@@ -44,6 +44,11 @@ export function startTrial() {
             timeout: 60_000,
         });
         apps.push(app);
+        // A window with a watched session raises a beforeunload prompt on close. Without a listener,
+        // Playwright answers it itself and the rejected reply crashes the script after it passed.
+        const answerUnloadPrompt = (page) => page.on("dialog", (dialog) => { dialog.accept().catch(() => {}); });
+        app.windows().forEach(answerUnloadPrompt);
+        app.on("window", answerUnloadPrompt);
         if (!visible) {
             await app.firstWindow();
             const hidden = await app.evaluate(({ app: electronApp, BrowserWindow }) => electronApp.dock?.isVisible() !== true
