@@ -1867,10 +1867,5 @@ function publishExtensionConfigChange(
     inbound.publishNotice({
         key: EXTENSION_CONFIG_NOTICE_KEY,
         text: extensionConfigNoticeText(change),
-        facts: {
-            operation: change.operation,
-            id: change.id,
-            needs_restart: change.needsRestart,
-        },
     });
 }
