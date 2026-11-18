@@ -115,9 +115,8 @@ detaches. A failed page request rejects, including one that makes no progress.
 If another reveal starts first, the older call resolves `false` and the newer
 call takes over.
 
-The included `/recap` command loads every older part with `loadEarlier` before
-it reads `entries()`, and it jumps with `reveal`. See
-[Recap a conversation](included-extensions.md#recap-a-conversation).
+An extension can load earlier parts with `loadEarlier` before reading
+`entries()`, then jump to an entry with `reveal`.
 
 ### Word a notice
 

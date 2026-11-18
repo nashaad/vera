@@ -13,11 +13,22 @@ import {
     type TestSession,
 } from "../../support/paged-conversation.ts";
 import { createTuiResumeScenario } from "../../support/tui-resume-child.ts";
-import { startTuiTestSession } from "../../support/tui-harness.ts";
+import { startTuiTestSession as startTuiWithDependencies } from "../../support/tui-harness.ts";
 import { saveTuiPersistedAgentPane } from "../../../clients/tui/theme-preference.ts";
 
-const PICKER_MARK = "Search phases";
+const PICKER_MARK = "Thread history";
 const FAILED_MARK = "History page request failed: unavailable";
+const THREAD_HISTORY_EXTENSION = join(import.meta.dir, "../../support/fixtures/thread-history-extension");
+
+function startTuiTestSession(options: Parameters<typeof startTuiWithDependencies>[0]) {
+    return startTuiWithDependencies({
+        ...options,
+        dependencies: async (renderer) => ({
+            ...await options.dependencies(renderer),
+            clientExtensions: [{ path: THREAD_HISTORY_EXTENSION, enabled: true, config: {} }],
+        }),
+    });
+}
 
 function freshHome(name: string): string {
     const devRoot = join(tmpdir(), "vera-dev");
@@ -25,16 +36,16 @@ function freshHome(name: string): string {
     return mkdtempSync(join(devRoot, name));
 }
 
-function openRecap(session: TestSession): void {
-    session.sendText("/recap");
+function openThreadHistory(session: TestSession): void {
+    session.sendText("/thread-history");
     session.sendKey("Enter");
 }
 
 // Sends the command only after the transcript has loaded.
-async function openRecapWhenLoaded(session: TestSession, marker: string): Promise<void> {
+async function openThreadHistoryWhenLoaded(session: TestSession, marker: string): Promise<void> {
     await session.waitForVisiblePane(marker);
     await session.settle(60);
-    openRecap(session);
+    openThreadHistory(session);
 }
 
 function occurrences(pane: string, text: string): number {
@@ -48,8 +59,8 @@ async function reconnectFromPalette(session: TestSession): Promise<void> {
     session.sendKey("Enter");
 }
 
-test("a recap still loading when the conversation changes leaves no output in the next one", async () => {
-    const home = freshHome("recap-switch-");
+test("a history load during a conversation change leaves no output in the next one", async () => {
+    const home = freshHome("thread-switch-");
     const scenario = createTuiResumeScenario({ home });
     const first = conversation({
         agentId: "current-session-id",
@@ -76,8 +87,8 @@ test("a recap still loading when the conversation changes leaves no output in th
         }),
     });
     try {
-        await openRecapWhenLoaded(session, "TAIL59");
-        await settleUntil(session, () => first.requested.length > 0, "the recap's page request");
+        await openThreadHistoryWhenLoaded(session, "TAIL59");
+        await settleUntil(session, () => first.requested.length > 0, "the extension's page request");
         expect(first.requested).toEqual(["tail-0"]);
         await switchToNextConversationFromList(session);
         await session.waitForVisiblePane("BTAIL59");
@@ -97,7 +108,7 @@ test("a recap still loading when the conversation changes leaves no output in th
     }
 }, 30_000);
 
-test("a recap of a long conversation loads its earlier pages before it lists phases", async () => {
+test("an extension loads every earlier page before reading entries", async () => {
     const paged = conversation({
         agentId: "current-session-id",
         tail: "TAIL",
@@ -106,13 +117,13 @@ test("a recap of a long conversation loads its earlier pages before it lists pha
         pages: 3,
     });
     const session = await startTuiTestSession({
-        home: freshHome("recap-long-"),
+        home: freshHome("thread-long-"),
         width: 120,
         height: 40,
         dependencies: () => ({ client: paged.client, listAgents: async () => [] }),
     });
     try {
-        await openRecapWhenLoaded(session, "TAIL59");
+        await openThreadHistoryWhenLoaded(session, "TAIL59");
         await session.waitForVisiblePane(PICKER_MARK);
         expect(paged.requested).toEqual(["tail-0", "older-before-1", "older-before-2"]);
         expect(session.captureVisiblePane()).toContain("OLDER0");
@@ -121,25 +132,29 @@ test("a recap of a long conversation loads its earlier pages before it lists pha
     }
 }, 30_000);
 
-test("a recap jumps to a selected earlier entry", async () => {
+test("an extension reveals a selected earlier entry", async () => {
     const paged = conversation({
         agentId: "current-session-id", tail: "TAIL", older: "OLDER", reply: "older", pages: 3,
     });
     const session = await startTuiTestSession({
-        home: freshHome("recap-jump-"),
+        home: freshHome("thread-jump-"),
         width: 120,
         height: 40,
         dependencies: () => ({ client: paged.client, listAgents: async () => [] }),
     });
     try {
-        await openRecapWhenLoaded(session, "TAIL59");
+        await openThreadHistoryWhenLoaded(session, "TAIL59");
         await session.waitForVisiblePane(PICKER_MARK);
+        session.sendKey("Tab");
         session.sendText("OLDER0");
-        await session.waitForVisiblePane("OLDER0");
+        await session.waitForVisiblePaneWhere(
+            (pane) => pane.includes("OLDER0") && !pane.includes("OLDER1"),
+            "the filtered earlier thread entry",
+        );
         session.sendKey("Enter");
         await session.waitForVisiblePaneWhere(
             (pane) => !pane.includes(PICKER_MARK) && pane.includes("OLDER0"),
-            "the earlier recap entry",
+            "the earlier thread entry",
         );
     } finally {
         paged.release();
@@ -147,7 +162,7 @@ test("a recap jumps to a selected earlier entry", async () => {
     }
 }, 30_000);
 
-test("a recap that finds a page already out joins it instead of asking again", async () => {
+test("an extension joins a page already loading instead of asking again", async () => {
     const paged = conversation({
         agentId: "current-session-id",
         tail: "TAIL",
@@ -156,7 +171,7 @@ test("a recap that finds a page already out joins it instead of asking again", a
         hold: true,
     });
     const session = await startTuiTestSession({
-        home: freshHome("recap-join-"),
+        home: freshHome("thread-join-"),
         width: 120,
         height: 40,
         dependencies: () => ({ client: paged.client, listAgents: async () => [] }),
@@ -164,7 +179,7 @@ test("a recap that finds a page already out joins it instead of asking again", a
     try {
         await scrollToRequest(session);
         expect(paged.requested).toEqual(["tail-0"]);
-        openRecap(session);
+        openThreadHistory(session);
         await settleFor(session, 300);
         expect(paged.requested).toEqual(["tail-0"]);
         expect(session.captureVisiblePane()).not.toContain(PICKER_MARK);
@@ -177,7 +192,7 @@ test("a recap that finds a page already out joins it instead of asking again", a
     }
 }, 30_000);
 
-test("a recap whose page adds nothing reports the failure once", async () => {
+test("an extension reports a page that adds nothing once", async () => {
     const paged = conversation({
         agentId: "current-session-id",
         tail: "TAIL",
@@ -185,13 +200,13 @@ test("a recap whose page adds nothing reports the failure once", async () => {
         reply: "empty",
     });
     const session = await startTuiTestSession({
-        home: freshHome("recap-empty-"),
+        home: freshHome("thread-empty-"),
         width: 120,
         height: 40,
         dependencies: () => ({ client: paged.client, listAgents: async () => [] }),
     });
     try {
-        await openRecapWhenLoaded(session, "TAIL59");
+        await openThreadHistoryWhenLoaded(session, "TAIL59");
         await session.waitForVisiblePane(FAILED_MARK);
         await settleFor(session, 300);
         expect(paged.requested).toEqual(["tail-0"]);
@@ -203,7 +218,33 @@ test("a recap whose page adds nothing reports the failure once", async () => {
     }
 }, 30_000);
 
-test("a recap on a client that cannot page lists the entries it has", async () => {
+test("an extension reports a rejected history page once", async () => {
+    const paged = conversation({
+        agentId: "current-session-id",
+        tail: "TAIL",
+        older: "OLDER",
+        reply: new Error("page transport failed"),
+    });
+    const session = await startTuiTestSession({
+        home: freshHome("thread-rejected-"),
+        width: 120,
+        height: 40,
+        dependencies: () => ({ client: paged.client, listAgents: async () => [] }),
+    });
+    try {
+        await openThreadHistoryWhenLoaded(session, "TAIL59");
+        await session.waitForVisiblePane(FAILED_MARK);
+        await settleFor(session, 300);
+        expect(paged.requested).toEqual(["tail-0"]);
+        const pane = session.captureVisiblePane();
+        expect(occurrences(pane, FAILED_MARK)).toBe(1);
+        expect(pane).not.toContain(PICKER_MARK);
+    } finally {
+        await session.close();
+    }
+}, 30_000);
+
+test("an extension on a client that cannot page lists its loaded entries", async () => {
     const client = createSettingsAnsweringClient({
         agentId: "plain-session-id",
         workspace: "/work/vera",
@@ -227,13 +268,13 @@ test("a recap on a client that cannot page lists the entries it has", async () =
         }],
     });
     const session = await startTuiTestSession({
-        home: freshHome("recap-plain-"),
+        home: freshHome("thread-plain-"),
         width: 120,
         height: 40,
         dependencies: () => ({ client, listAgents: async () => [] }),
     });
     try {
-        await openRecapWhenLoaded(session, "PLAIN4");
+        await openThreadHistoryWhenLoaded(session, "PLAIN4");
         await session.waitForVisiblePane(PICKER_MARK);
         const pane = session.captureVisiblePane();
         expect(pane).toContain("PLAIN0");
@@ -243,8 +284,8 @@ test("a recap on a client that cannot page lists the entries it has", async () =
     }
 }, 30_000);
 
-test("/recap with a held page, focus moves to the side pane, page released, recap output appears", async () => {
-    const home = freshHome("recap-focus-");
+test("focus can move to the side pane while an extension loads history", async () => {
+    const home = freshHome("thread-focus-");
     const paged = conversation({
         agentId: "current-session-id",
         tail: "TAIL",
@@ -256,19 +297,19 @@ test("/recap with a held page, focus moves to the side pane, page released, reca
         "current-session-id",
         {
             mainAgentId: "current-session-id",
-            sidebarAgentId: "recap-sidebar-id",
+            sidebarAgentId: "thread-sidebar-id",
             owner: "vera.btw",
         },
         join(home, ".vera", "tui.json"),
     );
     const sidebarClient = createSettingsAnsweringClient({
-        agentId: "recap-sidebar-id",
+        agentId: "thread-sidebar-id",
         workspace: "/work/vera",
         model: "sidebar-model",
         mode: "auto",
         initialUpdates: [{
             type: "history",
-            entries: [{ kind: "assistant", text: "SIDEBAR RECAP TEXT" }],
+            entries: [{ kind: "assistant", text: "SIDEBAR THREAD TEXT" }],
             seq: 0,
         }],
     });
@@ -284,15 +325,15 @@ test("/recap with a held page, focus moves to the side pane, page released, reca
         }),
     });
     try {
-        await session.waitForVisiblePane("SIDEBAR RECAP TEXT");
-        // Activating the side pane focuses it, so focus returns to the main conversation before the recap starts.
+        await session.waitForVisiblePane("SIDEBAR THREAD TEXT");
+        // Activating the side pane focuses it, so focus returns to the main conversation first.
         session.sendKey("C-g");
         await session.waitForVisiblePaneWhere(
             (pane) => pane.includes("Ctrl+G") && !pane.includes("Ctrl+G vera"),
             "the main conversation focused",
         );
-        await openRecapWhenLoaded(session, "TAIL59");
-        await settleUntil(session, () => paged.requested.length > 0, "the recap's page request");
+        await openThreadHistoryWhenLoaded(session, "TAIL59");
+        await settleUntil(session, () => paged.requested.length > 0, "the extension's page request");
         session.sendKey("C-g");
         await session.waitForVisiblePane("Ctrl+G vera");
         await settleFor(session, 300);
@@ -305,7 +346,7 @@ test("/recap with a held page, focus moves to the side pane, page released, reca
     }
 }, 30_000);
 
-test("a same-session reconnect fails a recap still loading with the history error", async () => {
+test("a same-session reconnect fails an extension history load", async () => {
     const paged = conversation({
         agentId: "current-session-id",
         tail: "TAIL",
@@ -320,7 +361,7 @@ test("a same-session reconnect fails a recap still loading with the history erro
         reply: "older",
     });
     const session = await startTuiTestSession({
-        home: freshHome("recap-reconnect-"),
+        home: freshHome("thread-reconnect-"),
         width: 120,
         height: 40,
         dependencies: () => ({
@@ -330,8 +371,8 @@ test("a same-session reconnect fails a recap still loading with the history erro
         }),
     });
     try {
-        await openRecapWhenLoaded(session, "TAIL59");
-        await settleUntil(session, () => paged.requested.length > 0, "the recap's page request");
+        await openThreadHistoryWhenLoaded(session, "TAIL59");
+        await settleUntil(session, () => paged.requested.length > 0, "the extension's page request");
         await reconnectFromPalette(session);
         await session.waitForVisiblePane(FAILED_MARK);
         await settleFor(session, 300);
