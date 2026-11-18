@@ -109,6 +109,9 @@ test("build refuses unknown flags and a held newer release on a Linux build befo
         for (const [flags, message] of [
             [["--nope"], "Unknown build flag"],
             [["--linux", "--no-newer-desktop"], "--no-newer-desktop applies to the macOS build"],
+            [["--newer-shell", "--no-desktop"], "--newer-shell needs the macOS desktop assets in both releases"],
+            [["--newer-shell", "--no-newer-desktop"], "--newer-shell needs the macOS desktop assets in both releases"],
+            [["--newer-shell", "--linux"], "--newer-shell needs the macOS desktop assets in both releases"],
         ] as const) {
             const child = Bun.spawn([process.execPath, script, "build", join(out, "feed"), "0.0.9", "0.1.0", ...flags], { stdout: "pipe", stderr: "pipe" });
             expect(await child.exited).toBe(1);
