@@ -48,6 +48,7 @@ import {
     approvalLayout,
 } from "./approval-layout.ts";
 import { tuiApprovalQuestion } from "./approval-title.ts";
+import { tuiBindingId, tuiKeyChordLabel } from "./keymap.ts";
 import {
     createTuiSingleLineTextarea,
     insertTuiSingleLinePaste,
@@ -370,7 +371,7 @@ export function createTuiApprovalView(
                 : [
                     ...(typedAnswerAvailable(update)
                         ? [
-                            fg(TUI_TEXT)("Tab"),
+                            fg(TUI_TEXT)(approvalNotesChordLabel()),
                             fg(TUI_MUTED)(" to tell Vera what to do instead · "),
                         ]
                         : []),
@@ -379,7 +380,7 @@ export function createTuiApprovalView(
                 ]),
             ...(capped
                 ? [
-                    fg(TUI_TEXT)("  Ctrl+R"),
+                    fg(TUI_TEXT)(`  ${tuiKeyChordLabel("expand_call")}`),
                     fg(TUI_MUTED)(expanded ? " collapse" : " expand"),
                 ]
                 : []),
@@ -391,8 +392,9 @@ export function createTuiApprovalView(
     function handleNotesKey(
         update: ToolApprovalUiRequestUpdate,
         key: TuiApprovalKey,
+        binding: string | undefined,
     ): TuiApprovalKeyResult {
-        if (key.name === "escape" || key.name === "tab") {
+        if (key.name === "escape" || binding === "approval_notes") {
             stopEditing();
             renderChrome(update);
             return { handled: true };
@@ -471,14 +473,19 @@ export function createTuiApprovalView(
             details.scrollTo(0);
         },
         handleKey(update, key): TuiApprovalKeyResult {
-            if (key.ctrl && !key.meta && !key.shift && key.name === "r") {
+            const binding = tuiBindingId("approval", key);
+            if (binding === "expand_call") {
                 expanded = !expanded;
                 renderBody(update);
                 renderChrome(update);
                 return { handled: true };
             }
             if (editing) {
-                return handleNotesKey(update, key);
+                return handleNotesKey(update, key, binding);
+            }
+            if (binding === "approval_notes") {
+                startEditing(update);
+                return { handled: true };
             }
             if (key.ctrl || key.meta || key.shift) {
                 return { handled: false };
@@ -497,10 +504,6 @@ export function createTuiApprovalView(
                     selectedIndex = next;
                     renderButtons(update);
                 }
-                return { handled: true };
-            }
-            if (key.name === "tab") {
-                startEditing(update);
                 return { handled: true };
             }
             if (key.name === "return" || key.name === "enter") {
@@ -696,13 +699,18 @@ function toneColor(tone: TuiApprovalTone): string {
     return TUI_TEXT;
 }
 
+function approvalNotesChordLabel(): string {
+    const label = tuiKeyChordLabel("approval_notes");
+    return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 export function tuiApprovalHint(
     update: ToolApprovalUiRequestUpdate,
 ): string {
     if (isSubagentCall(update)) {
         return "approval required · Esc deny · Ctrl+C stop";
     }
-    return "approval required · Tab tell Vera · Esc deny · Ctrl+C stop";
+    return `approval required · ${approvalNotesChordLabel()} tell Vera · Esc deny · Ctrl+C stop`;
 }
 
 function specificReason(reason: string): string | undefined {
