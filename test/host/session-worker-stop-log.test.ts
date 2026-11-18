@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { checkRecordIdentity, processCommandLine, processIsAlive } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { socketTest } from "../support/socket-probe.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 
 interface WorkerRecord {
     readonly pid: number;
@@ -36,7 +37,7 @@ for (const fault of ["uncaught_exception", "unhandled_rejection"] as const) {
             await running;
         `], {
             cwd: process.cwd(),
-            env: { ...process.env, VERA_HOME: root, VERA_DEV_INSTANCE: "hoststop dev" },
+            env: { ...process.env, HOME: sourceTestHome(join(root, "user")), VERA_HOME: root, VERA_DEV_INSTANCE: "hoststop dev" },
             stdout: "ignore", stderr: "pipe",
         });
         const stderr = new Response(child.stderr).text();
@@ -77,7 +78,7 @@ socketTest("a session process records loss of its host after the adoption grace"
         await runResidentHostProcess(host);
     `], {
         cwd: process.cwd(),
-        env: { ...process.env, VERA_HOME: home, VERA_DEV_INSTANCE: "hoststop dev" },
+        env: { ...process.env, HOME: sourceTestHome(join(root, "user")), VERA_HOME: home, VERA_DEV_INSTANCE: "hoststop dev" },
         stdout: "ignore", stderr: "pipe",
     });
     const stderr = new Response(child.stderr).text();
@@ -138,7 +139,7 @@ for (const signal of ["SIGTERM", "SIGINT", "SIGHUP", "SIGKILL", "HOST_REQUEST"] 
         }));
         const host = Bun.spawn([process.execPath, "clients/host/main.ts", "--no-discovery"], {
             cwd: process.cwd(),
-            env: { ...process.env, VERA_HOME: home, VERA_DEV_INSTANCE: "hoststop dev" },
+            env: { ...process.env, HOME: sourceTestHome(join(root, "user")), VERA_HOME: home, VERA_DEV_INSTANCE: "hoststop dev" },
             stdout: "ignore", stderr: "pipe",
         });
         const stderr = new Response(host.stderr).text();

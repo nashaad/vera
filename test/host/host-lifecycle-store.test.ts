@@ -8,6 +8,7 @@ import { hostLifecyclePathIn } from "../../src/profile-paths.ts";
 import { HostLifecycle } from "../../src/host/host-lifecycle.ts";
 import { HOST_STARTUP_RACE_EXIT_CODE } from "../../src/host/lockfile.ts";
 import { socketTest } from "../support/socket-probe.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 
 interface LifecycleRecord {
     readonly pid: number;
@@ -68,7 +69,7 @@ for (const role of ["host", "worker"] as const) {
         const entry = role === "host" ? "clients/host/main.ts" : "clients/host/session-worker.ts";
         const child = Bun.spawn([process.execPath, entry], {
             cwd: process.cwd(),
-            env: { ...process.env, VERA_HOME: root, VERA_DEV_INSTANCE: "hoststop dev" },
+            env: { ...process.env, HOME: sourceTestHome(join(root, "user")), VERA_HOME: root, VERA_DEV_INSTANCE: "hoststop dev" },
             stdout: "ignore", stderr: "pipe",
         });
         try {
@@ -104,7 +105,7 @@ socketTest("a new host reports an unrecorded exit and ignores a recorded stop", 
     const launch = () => {
         const child = Bun.spawn([process.execPath, "clients/host/main.ts", "--single-process", "--no-discovery"], {
             cwd: process.cwd(),
-            env: { ...process.env, VERA_HOME: home, VERA_DEV_INSTANCE: "hoststop dev" },
+            env: { ...process.env, HOME: sourceTestHome(join(root, "user")), VERA_HOME: home, VERA_DEV_INSTANCE: "hoststop dev" },
             stdout: "ignore", stderr: "pipe",
         });
         children.push(child);
@@ -153,7 +154,7 @@ socketTest("a new host reports an unrecorded exit and ignores a recorded stop", 
             });
         `], {
             cwd: process.cwd(),
-            env: { ...process.env, VERA_HOME: home, VERA_DEV_INSTANCE: "hoststop dev" },
+            env: { ...process.env, HOME: sourceTestHome(join(root, "user")), VERA_HOME: home, VERA_DEV_INSTANCE: "hoststop dev" },
             stdout: "ignore", stderr: "pipe",
         });
         children.push(paused);

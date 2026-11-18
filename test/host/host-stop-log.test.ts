@@ -11,6 +11,7 @@ import {
 import { StopWhenIdle, type CompletedHostStop } from "../../src/host/stop-when-idle.ts";
 import { hostLifecyclePathIn } from "../../src/profile-paths.ts";
 import { socketTest } from "../support/socket-probe.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 
 for (const pooled of [false, true]) {
     for (const reason of ["host_stop", "host_stop_force", "shutdown_if_idle", "shutdown_for_replacement"] as const) {
@@ -25,7 +26,7 @@ for (const pooled of [false, true]) {
             }));
             const child = Bun.spawn([process.execPath, "clients/host/main.ts", "--no-discovery"], {
                 cwd: process.cwd(),
-                env: { ...process.env, VERA_HOME: home, VERA_DEV_INSTANCE: "hoststop dev" },
+                env: { ...process.env, HOME: sourceTestHome(join(root, "user")), VERA_HOME: home, VERA_DEV_INSTANCE: "hoststop dev" },
                 stdout: "ignore", stderr: "pipe",
             });
             const stderr = new Response(child.stderr).text();
