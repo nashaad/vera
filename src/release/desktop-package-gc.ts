@@ -12,15 +12,19 @@ import {
     defaultInstallPrefix,
     desktopPackageDirectory,
     desktopPackagesDirectory,
+    releaseDirectory,
+    releasesDirectory,
     rollbackReleaseBuildId,
 } from "./layout.ts";
+import { readStampedRelease } from "./stamp.ts";
+import { compareReleaseVersions } from "./version-order.ts";
 
 export interface DesktopPackageCleanupOptions {
     readonly onHeld?: (reason: string) => void;
 }
 
-// Keeps the newest package of the current and rollback host builds and any package a running desktop holds.
-// Everything else goes, including packages of host builds that are gone. Returns "<host build id>/<version>" for each removal.
+// Keeps the newest package of the current host build, the rollback host build and any host release that is downloaded but not yet current,
+// plus any package a running desktop holds. Everything else goes, including packages of host builds that are gone. Returns "<host build id>/<version>" for each removal.
 export function cleanDesktopPackages(
     prefix = defaultInstallPrefix(),
     options: DesktopPackageCleanupOptions = {},
@@ -36,6 +40,7 @@ export function cleanDesktopPackages(
     for (const buildId of [currentReleaseBuildId(prefix), rollbackReleaseBuildId(prefix)]) {
         if (buildId !== undefined) keptHostBuilds.add(buildId);
     }
+    for (const buildId of downloadedHostBuilds(prefix)) keptHostBuilds.add(buildId);
     const removed: string[] = [];
     for (const entry of readdirSync(root, { withFileTypes: true })) {
         if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
@@ -56,6 +61,33 @@ export function cleanDesktopPackages(
         }
     }
     return removed;
+}
+
+// A held update leaves its host release unpacked and not current. Its package is installed before the hold, so it is kept for the later activation.
+function downloadedHostBuilds(prefix: string): readonly string[] {
+    const current = currentReleaseBuildId(prefix);
+    if (current === undefined) return [];
+    let currentVersion: string;
+    try {
+        currentVersion = readStampedRelease(releaseDirectory(current, prefix)).product_version;
+    } catch {
+        return [];
+    }
+    let names: string[];
+    try {
+        names = readdirSync(releasesDirectory(prefix), { withFileTypes: true })
+            .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== current)
+            .map((entry) => entry.name);
+    } catch {
+        return [];
+    }
+    return names.filter((name) => {
+        try {
+            return compareReleaseVersions(readStampedRelease(releaseDirectory(name, prefix)).product_version, currentVersion) > 0;
+        } catch {
+            return false;
+        }
+    });
 }
 
 // Rename first, then look again: a desktop that recorded the package after the first read gets it back.

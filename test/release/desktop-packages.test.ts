@@ -39,6 +39,11 @@ import {
     rollbackSymlinkPath,
     veraShareRoot,
 } from "../../src/release/layout.ts";
+import {
+    RELEASE_ARTIFACT_NAMES,
+    RELEASE_LAYOUT_VERSION,
+    serializeReleaseManifest,
+} from "../../src/release/manifest.ts";
 import { compareVersions } from "../../src/release/version.ts";
 import { compareReleaseVersions } from "../../src/release/version-order.ts";
 
@@ -325,6 +330,71 @@ test("cleanup keeps the newest package of the current and rollback host builds a
             "vera-retained/0.1.0", "vera-retained/0.2.0", "vera-retained/0.3.0",
         ]);
         expect(cleanDesktopPackages(prefix)).toEqual([]);
+    });
+});
+
+// A host release with a readable stamp, which is what the cleanup reads to tell a downloaded release from an older one.
+function placeStampedRelease(prefix: string, buildId: string, productVersion: string, builtAt: string): void {
+    const root = releaseDirectory(buildId, prefix);
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "manifest.json"), serializeReleaseManifest({
+        layout_version: RELEASE_LAYOUT_VERSION,
+        product_version: productVersion,
+        source_revision: "abc",
+        build_id: buildId,
+        protocol_version: 1,
+        platform: "darwin",
+        arch: "arm64",
+        asset_digest: `sha256:${"ab".repeat(32)}`,
+        built_at: builtAt,
+        artifacts: [...RELEASE_ARTIFACT_NAMES],
+    }));
+}
+
+test("@core cleanup keeps the package of a host release that is downloaded but not current", async () => {
+    await withPrefix((prefix) => {
+        placeStampedRelease(prefix, "vera-cur", "0.2.0", "2026-11-10T00:00:00.000Z");
+        placeStampedRelease(prefix, "vera-staged", "0.3.0", "2026-11-12T00:00:00.000Z");
+        placeStampedRelease(prefix, "vera-older", "0.1.0", "2026-11-01T00:00:00.000Z");
+        activate(prefix, "vera-cur");
+        for (const host of ["vera-cur", "vera-staged", "vera-older", "vera-gone"]) placePackage(prefix, host, "0.1.0");
+        placePackage(prefix, "vera-staged", "0.0.9");
+
+        expect([...cleanDesktopPackages(prefix)].sort()).toEqual([
+            "vera-gone/0.1.0", "vera-older/0.1.0", "vera-staged/0.0.9",
+        ]);
+        expect(versionsOf(prefix, "vera-cur")).toEqual(["0.1.0"]);
+        expect(versionsOf(prefix, "vera-staged")).toEqual(["0.1.0"]);
+        expect(versionsOf(prefix, "vera-older")).toEqual([]);
+    });
+});
+
+test("cleanup does not keep a host release that is no newer than current or whose release is gone", async () => {
+    await withPrefix((prefix) => {
+        placeStampedRelease(prefix, "vera-cur", "0.2.0", "2026-11-10T00:00:00.000Z");
+        placeStampedRelease(prefix, "vera-same", "0.2.0", "2026-11-12T00:00:00.000Z");
+        activate(prefix, "vera-cur");
+        placePackage(prefix, "vera-same", "0.1.0");
+        placePackage(prefix, "vera-removed", "0.1.0");
+        expect([...cleanDesktopPackages(prefix)].sort()).toEqual(["vera-removed/0.1.0", "vera-same/0.1.0"]);
+    });
+});
+
+test("release garbage collection leaves a downloaded host release and its package in place", async () => {
+    await withPrefix((prefix) => {
+        placeStampedRelease(prefix, "vera-cur", "0.2.0", "2026-11-10T00:00:00.000Z");
+        placeStampedRelease(prefix, "vera-staged", "0.3.0", "2026-11-12T00:00:00.000Z");
+        writeFileSync(join(releaseDirectory("vera-cur", prefix), "vera"), "#!/bin/sh\n");
+        activate(prefix, "vera-cur");
+        placePackage(prefix, "vera-cur", "0.1.0");
+        placePackage(prefix, "vera-staged", "0.1.0");
+
+        const removed = gcReleases(prefix, { listProcessExecutables: () => [] });
+
+        expect(removed).toEqual([]);
+        expect(existsSync(releaseDirectory("vera-staged", prefix))).toBe(true);
+        expect(versionsOf(prefix, "vera-staged")).toEqual(["0.1.0"]);
+        expect(versionsOf(prefix, "vera-cur")).toEqual(["0.1.0"]);
     });
 });
 

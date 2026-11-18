@@ -17,9 +17,11 @@ import {
     DESKTOP_PACKAGE_MANIFEST_NAME,
     isSafeHostBuildId,
     parseDesktopPackageManifest,
+    type DesktopPackageManifest,
 } from "./desktop-package-manifest.ts";
 import {
     defaultInstallPrefix,
+    desktopInstallRecordPath,
     desktopPackageDirectory,
     desktopPackagesDirectory,
 } from "./layout.ts";
@@ -141,6 +143,22 @@ export function findDesktopPackage(
     return scanDesktopPackages(hostBuildId, prefix).valid[0];
 }
 
+// The installer writes the record only when it puts the desktop app in place, and only on macOS.
+export function desktopInstallRecorded(prefix = defaultInstallPrefix()): boolean {
+    return existsSync(desktopInstallRecordPath(prefix));
+}
+
+// Reads the manifest of an archive that is not unpacked yet, so a package can be matched to its host build before anything is written.
+export async function readDesktopPackageTarballManifest(
+    tarball: string,
+): Promise<DesktopPackageManifest> {
+    for (const member of [`./${DESKTOP_PACKAGE_MANIFEST_NAME}`, DESKTOP_PACKAGE_MANIFEST_NAME]) {
+        const text = await tarMemberText(tarball, member);
+        if (text !== undefined) return parseDesktopPackageManifest(text);
+    }
+    throw new Error(`${basename(tarball)} holds no ${DESKTOP_PACKAGE_MANIFEST_NAME} at its root.`);
+}
+
 // The package reaches its final path by one rename of a finished directory, so no reader sees it half written.
 export async function installDesktopPackage(
     options: InstallDesktopPackageOptions,
@@ -223,6 +241,35 @@ function unpack(tarball: string, into: string): Promise<void> {
             }
             const detail = stderr.trim() || `tar exited ${code}`;
             reject(new Error(`Could not unpack ${basename(tarball)}: ${detail}`));
+        });
+    });
+}
+
+// Undefined when the archive has no such member or cannot be read.
+function tarMemberText(tarball: string, member: string): Promise<string | undefined> {
+    return new Promise((resolvePromise, reject) => {
+        const child = spawn("tar", ["-xzOf", resolve(tarball), member], {
+            stdio: ["ignore", "pipe", "ignore"],
+        });
+        const chunks: Buffer[] = [];
+        let size = 0;
+        let tooLarge = false;
+        child.stdout.on("data", (chunk: Buffer) => {
+            size += chunk.length;
+            if (size > MAX_MANIFEST_BYTES) {
+                tooLarge = true;
+                child.kill();
+                return;
+            }
+            chunks.push(chunk);
+        });
+        child.on("error", reject);
+        child.on("close", (code) => {
+            if (tooLarge) {
+                reject(new Error(`${DESKTOP_PACKAGE_MANIFEST_NAME} is larger than ${MAX_MANIFEST_BYTES} bytes`));
+                return;
+            }
+            resolvePromise(code === 0 ? Buffer.concat(chunks).toString("utf8") : undefined);
         });
     });
 }

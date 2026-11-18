@@ -66,6 +66,11 @@ export function desktopPackageDirectory(
     return join(desktopPackagesDirectory(prefix), hostBuildId, desktopVersion);
 }
 
+// Written by the installer when it puts the desktop app in place. Its presence means a desktop package must match the host build that current names.
+export function desktopInstallRecordPath(prefix = defaultInstallPrefix()): string {
+    return join(desktopPackagesDirectory(prefix), "installed.json");
+}
+
 // One <pid>.json per running desktop. The leading dot keeps it from reading as a host build id.
 export function desktopPackageReferencesDirectory(prefix = defaultInstallPrefix()): string {
     return join(desktopPackagesDirectory(prefix), ".loaded");
