@@ -341,3 +341,20 @@
 .browser-history-more {
     margin: var(--vera-space) 0;
 }
+
+.browser-tools-notice {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: calc(var(--vera-space) * 2);
+    padding: var(--vera-space) calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    background: var(--vera-surface-panel);
+    border-top: thin solid var(--vera-border);
+    font-size: var(--vera-font-size-label);
+}
+
+.browser-tools-notice .chip {
+    flex: 0 0 auto;
+}

@@ -23,6 +23,7 @@ import type {
 import { NO_PINS } from "../../ui/src/protocol/pins.ts";
 import type { MoveSessionOutcome } from "../../ui/src/protocol/sessionMove.ts";
 import type { ExtensionCommandResult } from "../../ui/src/protocol/extension-commands.ts";
+import { BROWSER_STATE_CHANGED } from "../../ui/src/browser/native-types.ts";
 import { hiddenCommandsFor, parseHiddenIds } from "../../ui/src/state/surfaces.ts";
 import { DEFAULT_THEME, importedThemeSlug, isThemeChoice, type ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import { annexAddress, readAnnexPages } from "./annex-requests.ts";
@@ -727,5 +728,9 @@ app.whenReady().then(() => {
         (url, title) => sendEvent({ type: "browser_loaded", url, title }),
         (id) => sendEvent({ type: "command", id }),
     );
-    browserGateway = new BrowserGateway(new BrowserCdp(browserPane), () => sendEvent({ type: "command", id: "browser.reveal" }));
+    browserGateway = new BrowserGateway(
+        new BrowserCdp(browserPane),
+        () => sendEvent({ type: "command", id: "browser.reveal" }),
+        () => sendEvent({ type: "command", id: BROWSER_STATE_CHANGED }),
+    );
 });

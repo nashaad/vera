@@ -5,6 +5,7 @@ import { MAX_TABS } from "../layout/model.ts";
 import { useWorkbench } from "../workbench/context.tsx";
 import { revealContainer } from "../workbench/reveal.ts";
 import { nativeCommand } from "./native.ts";
+import { BROWSER_STATE_CHANGED } from "./native-types.ts";
 import { BROWSER_CONTAINER, newBrowserTabId } from "./open.ts";
 import { reconcile, type ReconcilePlan } from "./reconcile.ts";
 import { browserSlots, CONTAINER_SLOT, useSlotStore } from "./slots.ts";
@@ -93,7 +94,12 @@ export function BrowserSync() {
 
     // The agent used the browser: take in any page it opened, then show the tab of the page the shell shows.
     useEffect(() => window.veraDesktop?.onEvent((event) => {
-        if (event.type !== "command" || event.id !== "browser.reveal") return;
+        if (event.type !== "command") return;
+        if (event.id === BROWSER_STATE_CHANGED) {
+            void nativeCommand("state");
+            return;
+        }
+        if (event.id !== "browser.reveal") return;
         void (async () => {
             await nativeCommand("state");
             await syncRef.current();

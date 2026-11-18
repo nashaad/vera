@@ -33,5 +33,9 @@ location or notifications in the pane.
 Browser tools are off by default. Turn on Browser tools in the pane to let
 Vera open a page, read it, click, type, scroll, go back and take a screenshot.
 Tool calls follow the session's approval mode. You can watch in the pane and
-use it yourself. Turn the switch off to stop further browser tool calls. A
-desktop window must be open for the tools to work.
+use it yourself. While the tools are on, a notice stays at the bottom of the
+window in every view: "Browser tools are on. Vera can open, read and act on
+pages in the Browser." Choose Turn off there or turn the switch off in the pane
+to stop further browser tool calls. If the Browser tools connection is
+unavailable, the notice stays visible and both controls are disabled until it
+is available again. A desktop window must be open for the tools to work.

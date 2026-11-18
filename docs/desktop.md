@@ -44,6 +44,9 @@ full-width title bar and no status bar.
   reasons scroll inside it. A bundled release that could not be installed, when
   a working `vera` command was already there, shows a warning banner with the
   reason and a Dismiss button instead.
+- While Browser tools are on, a notice at the bottom of the window says Vera can
+  open, read and act on pages in the Browser and offers Turn off. The notice
+  stays in every view until the tools are turned off.
 
 While attached, the app asks the host for its identity and session count every
 three seconds. A reply that does not arrive, or a host that closes the
@@ -1161,8 +1164,9 @@ press Enter to clear it.
 
 Browser tools are off by default. Turn on Browser tools in the pane to let Vera
 read and act in the selected site tab, under the session's approval mode. A page
-Vera opens gets its own Browser tab. You can watch and take over in the pane. See
-[Browser use](browser-use.md).
+Vera opens gets its own Browser tab. You can watch and take over in the pane.
+A notice stays at the bottom of the window while the tools are on, with Turn off
+to switch them off without returning to the pane. See [Browser use](browser-use.md).
 
 A link to one of Vera's pages in a reply or a tool notice opens inside the window.
 A page that has its own pane opens there: in the tab already on that address, else
