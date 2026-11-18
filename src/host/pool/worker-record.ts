@@ -97,6 +97,7 @@ export async function publishWorkerRecord(home: string, hello: WorkerHello, cont
 export async function inspectWorkerRecords(
     home: string,
     buildId: string,
+    options: { readonly removeStale?: boolean } = {},
 ): Promise<WorkerRecordScan> {
     const directory = join(dirname(defaultHostSocketPath(home)), "workers");
     const names = await readdir(directory).catch((error: NodeJS.ErrnoException) => {
@@ -124,7 +125,7 @@ export async function inspectWorkerRecords(
         const matching = processIsAlive(record.pid) ? checkRecordIdentity(record) : "mismatch";
         if (matching === "mismatch") {
             stale.push(record);
-            await removeUnchanged(path, source);
+            if (options.removeStale !== false) await removeUnchanged(path, source);
             return;
         }
         if (matching !== "match") throw new Error(`Could not verify session process PID ${record.pid}`);
