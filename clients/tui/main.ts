@@ -358,6 +358,9 @@ import { renderStatus } from "./main/render-status.ts";
 import { startStatusTimer } from "./main/animation-level.ts";
 import { setTerminalFocused, streamRenderIntervalMs } from "./main/terminal-focus.ts";
 import { watchSessionShow } from "./main/show-target.ts";
+import { startUpdateChecks, stopUpdateChecks } from "./main/update-ops.ts";
+import type { TuiUpdateDependencies } from "./update-state.ts";
+import { installedTuiUpdates } from "./update-dependencies.ts";
 import { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, watchStopWait, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
 export { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, watchStopWait, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent };
 export { renderStatus };
@@ -570,6 +573,8 @@ export interface TuiDependencies {
     readonly relaunchTui?: (request: TuiRelaunchRequest) => Promise<void>;
     readonly clientBuildId?: string;
     readonly installedBuildId?: () => string | undefined;
+    /** Absent for a source checkout: the footer shows no notice and /update says there is nothing to update. */
+    readonly updates?: TuiUpdateDependencies;
     readonly refuseOtherHostBuild?: () => Promise<void>;
     readonly operateModels?: (operation: ModelOperation, onResult: (result: ModelOperationResult) => void, workspace?: string, onStep?: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readHostModelSettings?: (
@@ -822,6 +827,7 @@ export async function startConfiguredTui(
         })
         : await agentClients.attachPaged(agentId);
     const flightRecorder = createTuiFlightRecorder();
+    const updates = installedTuiUpdates();
     if (agentId !== undefined) flightRecorder.sessionEntered(agentId);
     const rememberSession = (enteredAgentId: string): void => {
         saveTuiRecentSessionId(enteredAgentId);
@@ -853,6 +859,7 @@ export async function startConfiguredTui(
             })),
             clientBuildId,
             installedBuildId,
+            ...(updates === undefined ? {} : { updates }),
             refuseOtherHostBuild: () => refuseOtherRunningHostBuild(clientBuildId),
             listProviders: async () => (await listProvidersThroughHost(await pairedSocket())).providers,
             saveProvider: async (input) => saveProviderThroughHost(await pairedSocket(), input),
@@ -2634,6 +2641,7 @@ export async function startTui(
         stopModeToastTimers(rt);
         rt.renderCoalescer.stop();
         clearInterval(rt.statusTimer);
+        stopUpdateChecks(rt);
         rt.stopWatchingBackgroundAgents?.();
         rt.stopWatchingBackgroundAgents = undefined;
         rt.stopWatchingWorkIndex?.();
@@ -2718,6 +2726,7 @@ export async function startTui(
     watchSessionTitle(rt, rt.dependencies.client);
     watchSessionShow(rt, rt.dependencies.client);
     watchStopWait(rt, rt.dependencies.client);
+    startUpdateChecks(rt);
     writeTerminal(rt, FOCUS_REPORTING_ON);
 
     rt.renderer.on(CliRenderEvents.RESIZE, () => {
