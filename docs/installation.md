@@ -38,8 +38,13 @@ sh install.sh ~/Downloads/vera-darwin-arm64.tar.gz
 Set `VERA_VERSION` to install a version other than the newest, and
 `VERA_INSTALL_PREFIX` to install somewhere other than `~/.local`. Without
 `VERA_VERSION`, the installer asks the GitHub API for the newest release; if
-that request fails, set `VERA_VERSION` to install a specific version. The
-release includes its own runtime, so Bun and Node are not needed. Installing
+that request fails, set `VERA_VERSION` to install a specific version.
+`VERA_RELEASES_API` overrides the release-list URL, and
+`VERA_RELEASES_DOWNLOAD_BASE` overrides the release download base used for the
+platform archive and its `.sha256` checksum. The default download base is
+`https://github.com/nashaad/vera/releases/download`; both variables can be set
+when using a release mirror. The release includes its own runtime, so Bun and
+Node are not needed. Installing
 the same release again leaves it in place, and installing a newer one keeps
 the previous release for [`vera rollback`](installed-command.md).
 

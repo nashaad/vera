@@ -63,6 +63,8 @@ version instead. `vera update --check` prints the running version and the
 newest release without downloading or installing anything. It exits 0 when
 the running release is equal to or newer than the newest published release,
 10 when a newer release exists, and another nonzero code on an error. An
+`vera update` honors `VERA_RELEASES_API` and `VERA_RELEASES_DOWNLOAD_BASE` as described in [Installation](installation.md).
+
 update to an older version is refused; use `vera rollback` to restore the
 previous release.
 
