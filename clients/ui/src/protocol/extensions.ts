@@ -14,6 +14,7 @@ export interface DesktopMenuItem {
     readonly description?: string;
     readonly button?: string;
     readonly icon?: "pointer";
+    readonly page?: true;
 }
 
 export interface DesktopExtensionMenus {

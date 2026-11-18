@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Composer } from "../composer/Composer.tsx";
+import type { DraftCaptureOwner } from "../composer/draft-capture-owner.ts";
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
 import { PanelIcon, SidebarIcon, SidebarRightIcon } from "../components/Icons.tsx";
 import type { IconProps } from "../components/Icons.tsx";
@@ -25,9 +26,11 @@ const HINTS: readonly Hint[] = [
 export interface HomePageProps {
     readonly platform: string;
     readonly folder?: string;
+    readonly active?: boolean;
+    readonly captureOwner?: DraftCaptureOwner;
 }
 
-export function HomePage({ platform, folder }: HomePageProps) {
+export function HomePage({ platform, folder, active = true, captureOwner }: HomePageProps) {
     const bridge = window.veraDesktop as DesktopBridge | undefined;
     const { hidden } = useWorkbench();
     return (
@@ -37,7 +40,7 @@ export function HomePage({ platform, folder }: HomePageProps) {
                     <h1 className="greeting">Where to, captain?</h1>
                     {bridge === undefined ? null : (
                         <div className="home-composer">
-                            <Composer key={folder ?? ""} mode="new" bridge={bridge} {...(folder === undefined ? {} : { folder })} />
+                            <Composer key={folder ?? ""} mode="new" bridge={bridge} active={active} captureOwner={captureOwner} {...(folder === undefined ? {} : { folder })} />
                         </div>
                     )}
                     <ul className="home-keys">

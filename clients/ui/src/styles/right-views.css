@@ -508,6 +508,7 @@ button.file-row:focus-visible {
     display: flex;
     flex: 1 1 auto;
     min-height: 0;
+    min-width: 0;
     border-top: thin solid var(--vera-border);
 }
 
@@ -533,8 +534,10 @@ button.file-row:focus-visible {
 
 .local-preview-controls {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--vera-space);
+    min-width: 0;
     padding: var(--vera-space);
 }
 
@@ -547,7 +550,23 @@ button.file-row:focus-visible {
 }
 
 .local-preview-controls .right-seg {
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
     margin: 0;
+}
+
+.local-preview-controls .right-seg-option {
+    flex: 0 1 auto;
+    min-width: 0;
+    height: auto;
+    min-height: calc(var(--vera-row-height) * 0.8);
+    overflow-wrap: anywhere;
+}
+
+.local-preview-controls .icon-button {
+    flex: 0 0 auto;
 }
 
 .file-preview-bar {

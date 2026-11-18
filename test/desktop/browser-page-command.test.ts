@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -166,6 +166,61 @@ describe("page command boundary", () => {
         expect(await new PageCommandService().run("pageScript()", contents.contents(), "unused", frame)).toEqual({ ok: false, reason: "The page could not be read." });
         expect(contents.captured).toBeUndefined();
         expect(attached).toBe(false);
+    });
+    test("rejects subpixel iframe dimensions and accepts a later capture", async () => {
+        const directory = mkdtempSync(join(tmpdir(), "vera-page-floor-"));
+        const contents = new Contents();
+        const events = new EventEmitter();
+        const original = { name: "preview-floor", url: "http://localhost/preview" };
+        let attached = false;
+        const values = [
+            { rect: { x: 1, y: 2, width: 1, height: 20 }, text: "Narrow" },
+            { rect: { x: 1, y: 2, width: 20, height: 1 }, text: "Short" },
+            { rect: { x: 1, y: 2, width: 20, height: 30 }, text: "Normal" },
+            null,
+        ];
+        Object.assign(contents, {
+            mainFrame: { framesInSubtree: [original] },
+            executeJavaScript: async () => ({ ...original, x: 10, y: 20, width: 300, height: 400 }),
+            getZoomFactor: () => 0.8,
+            debugger: Object.assign(events, {
+                isAttached: () => attached,
+                attach: () => { attached = true; },
+                detach: () => { attached = false; },
+                sendCommand: async (method: string, parameters?: Record<string, unknown>) => {
+                    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" }, childFrames: [{ frame: { id: "child", ...original } }] } };
+                    if (method === "Page.createIsolatedWorld") return { executionContextId: 42 };
+                    if (method === "Runtime.evaluate") {
+                        const expression = String(parameters?.expression);
+                        if (expression.includes("typeof globalThis.__veraPageNext")) return { result: { value: true } };
+                        if (expression.includes("delete globalThis")) return { result: { value: undefined } };
+                        return { result: { value: values.shift() } };
+                    }
+                    return {};
+                },
+            }),
+        });
+        const results: unknown[] = [];
+        try {
+            const frame = await browserFrame(contents.contents(), () => true, original.name);
+            expect(frame?.identity).toBe(original as unknown as Electron.WebFrameMain);
+            const outcome = await new PageCommandService().run("pageScript()", contents.contents(), directory, frame, (result) => {
+                results.push(result);
+                if (!result.ok) {
+                    expect(contents.captured).toBeUndefined();
+                    expect(readdirSync(directory)).toEqual([]);
+                }
+            });
+            expect(outcome).toEqual({ ok: true, kind: "closed" });
+            expect(results).toHaveLength(3);
+            expect(results.slice(0, 2)).toEqual([{ ok: false, reason: "The page could not be read." }, { ok: false, reason: "The page could not be read." }]);
+            const success = results[2] as { ok: boolean; kind: string; capture: { path: string; text: string } };
+            expect(success.ok && success.kind).toBe("capture");
+            expect(success.capture.text).toBe("Normal");
+            expect(readFileSync(success.capture.path, "utf8")).toBe("capture");
+            expect(contents.captured).toEqual({ x: 9, y: 18, width: 16, height: 24 });
+            expect(attached).toBe(false);
+        } finally { rmSync(directory, { recursive: true, force: true }); }
     });
     test("refuses malformed output before capturing", async () => {
         const contents = new Contents();

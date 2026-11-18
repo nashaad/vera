@@ -168,6 +168,7 @@ export class PageCommandService {
                     if (x + width > current.width || y + height > current.height) throw new Error("The page could not be read.");
                     const zoom = frame === undefined ? 1 : contents.getZoomFactor();
                     const rect = { x: Math.ceil((x + current.x) * zoom), y: Math.ceil((y + current.y) * zoom), width: Math.floor(width * zoom), height: Math.floor(height * zoom) };
+                    if (rect.width < 1 || rect.height < 1) throw new Error("The page could not be read.");
                     const image = await contents.capturePage(rect, { stayHidden: true, stayAwake: true });
                     if (wasCanceled) return { ok: true, kind: "closed" };
                     const path = await savePastedImage(directory, image.toPNG(), "image/png");
