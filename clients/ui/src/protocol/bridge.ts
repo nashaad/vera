@@ -12,6 +12,7 @@ import type { ExtensionChangeResult, ExtensionPreviewResult } from "./extensions
 import type { ExtensionCommandResult } from "./extension-commands.ts";
 import type { BrowserBounds, BrowserState } from "../browser/native-types.ts";
 import type { AgentInfo, SkillInfo, SourceInfo } from "../customize/wire.ts";
+import type { UpdateAction, UpdateState } from "./updates.ts";
 
 export type DesktopPhase = "starting" | "waiting" | "attached";
 
@@ -58,8 +59,10 @@ export type DesktopEvent =
         readonly clientBuildId: string;
         readonly installedBuildId: string;
     }
-    // The window was relaunched into the installed build; the page opens the session the last window showed.
-    | { readonly type: "reopen_session"; readonly agentId: string };
+    // The window was relaunched into the installed build; the page opens the session the last window showed,
+    // and puts the composer text that window held back in its composer.
+    | { readonly type: "reopen_session"; readonly agentId: string; readonly draft?: string }
+    | { readonly type: "update_state"; readonly state: UpdateState };
 
 // The most folder paths one existence check accepts.
 export const MAX_FOLDER_CHECKS = 64;
@@ -302,6 +305,11 @@ export interface DesktopBridge {
     unwatchSession(pane: SessionPane): void;
     // Tells the shell which session the page shows, so a relaunch can reopen it. Undefined on any other page.
     reportSessionShown(agentId: string | undefined): void;
+    // Tells the shell what the main composer of the shown session holds, so an update relaunch can hand it to the next window.
+    reportComposerDraft(agentId: string | undefined, text: string): void;
+    // The shell's current update state; later changes arrive as `update_state` events.
+    updateState(): Promise<UpdateState | undefined>;
+    updateAct(action: UpdateAction): void;
     // Starts a new session holding the conversation before one of the source session's prompts.
     branchSession(agentId: string, boundaryId: string): Promise<BranchSessionResult>;
     // Starts a new session holding a copy of the whole conversation. The result's prompt is empty.

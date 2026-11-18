@@ -188,6 +188,10 @@ export interface OpenUsageTuiCommandAction {
     readonly type: "open_usage";
 }
 
+export interface RunUpdateTuiCommandAction {
+    readonly type: "run_update";
+}
+
 export interface WriteFailureReportTuiCommandAction {
     readonly type: "write_failure_report";
 }
@@ -265,6 +269,7 @@ export type TuiCommandAction =
     | ManageExtensionsTuiCommandAction
     | ShowDoctorTuiCommandAction
     | OpenUsageTuiCommandAction
+    | RunUpdateTuiCommandAction
     | WriteFailureReportTuiCommandAction
     | ReloadClientExtensionsTuiCommandAction
     | AddCurrentModelToPoolTuiCommandAction
@@ -327,6 +332,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "manage_extensions":
         case "show_doctor":
         case "open_usage":
+        case "run_update":
         case "write_failure_report":
         case "reload_client_extensions":
         case "pool_current_model":
@@ -390,6 +396,7 @@ export interface TuiCommandDefinition {
         | ShowExtensionsTuiCommandAction
         | ShowDoctorTuiCommandAction
         | OpenUsageTuiCommandAction
+        | RunUpdateTuiCommandAction
         | WriteFailureReportTuiCommandAction
         | ReloadClientExtensionsTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
@@ -584,6 +591,12 @@ const USAGE_COMMAND = {
     usage: "/usage",
 } as const satisfies TuiCommandCatalogEntry;
 
+const UPDATE_COMMAND = {
+    name: "update",
+    description: "Update Vera to the latest version",
+    usage: "/update",
+} as const satisfies TuiCommandCatalogEntry;
+
 const FAILURE_REPORT_COMMAND = {
     name: "failure-report",
     description: "Write a shareable report of recorded model failures",
@@ -626,6 +639,7 @@ export const BUILTIN_COMMANDS = [
     EXTENSION_COMMAND,
     DOCTOR_COMMAND,
     USAGE_COMMAND,
+    UPDATE_COMMAND,
     FAILURE_REPORT_COMMAND,
     RELOAD_EXTENSIONS_COMMAND,
     MODELS_COMMAND,
@@ -1675,6 +1689,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Settings",
             slashName: "usage",
             action: { type: "open_usage" },
+        },
+    });
+    registry.registerCommand({
+        ...UPDATE_COMMAND,
+        action: { type: "run_update" },
+        palette: {
+            name: "update",
+            label: "Update Vera",
+            description: "install the latest version and restart into it",
+            group: "Session",
+            slashName: "update",
+            action: { type: "run_update" },
         },
     });
     registry.registerCommand({

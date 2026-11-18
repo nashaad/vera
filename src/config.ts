@@ -102,7 +102,15 @@ import {
     type VeraModelRequestOptions,
 } from "./providers/request-options.ts";
 
-export const VERA_CONFIG_SCHEMA_VERSION = 1;
+import {
+    CONFIG_SCHEMA_VERSION,
+    STARTING_MODEL,
+    STARTING_PROVIDER,
+    STARTING_REASONING_EFFORT,
+} from "./config-starting.ts";
+
+export { STARTING_MODEL, STARTING_PROVIDER, STARTING_REASONING_EFFORT };
+export const VERA_CONFIG_SCHEMA_VERSION = CONFIG_SCHEMA_VERSION;
 
 /** Compatibility export while callers move to the provider resolver. */
 export const VERA_PROVIDER_IDS: readonly string[] = shippedProviderIds();
@@ -1042,10 +1050,6 @@ function writeVeraConfigFile(
  * created file omits the key so that a first save settles a model and leaves
  * the permissions posture to whoever chooses one.
  */
-export const STARTING_PROVIDER = "openrouter";
-export const STARTING_MODEL = "openai/gpt-5.6-sol";
-export const STARTING_REASONING_EFFORT = "high";
-
 export function startingVeraConfig(): VeraConfig {
     return {
         schema_version: VERA_CONFIG_SCHEMA_VERSION,
@@ -1088,14 +1092,14 @@ export function createLiveVeraConfigReader(
  * Keys in `~/.vera/config.json` that belong to some other writer. `VeraConfig`
  * cannot represent them, so updating the defaults would round-trip the file
  * through a type that drops them. They are read back raw and carried across
- * instead. Nothing shares this file today; the model pool has its own.
+ * instead. `updates` is the update mode the clients write.
  *
  * This is a list rather than "preserve everything unknown" on purpose. A key
  * this file no longer models is not automatically foreign; it may be one this
  * file deliberately migrated away from, and carrying those across would
  * resurrect them. Add a key here when a new owner starts writing to this file.
  */
-const FOREIGN_CONFIG_KEYS: readonly string[] = [];
+const FOREIGN_CONFIG_KEYS: readonly string[] = ["updates"];
 
 /**
  * One assignment replaced or removed, the rest carried across untouched. Written as

@@ -6,6 +6,7 @@ import { FeedbackIcon, GearIcon, LaptopIcon, PanelIcon, PlayIcon, QuestionIcon }
 import { useRouter } from "../pages/router.tsx";
 import { buildLabel, phaseLabel, toneOf, type UiState } from "../state/connection.ts";
 import { useVisibility } from "../state/useSurfaces.ts";
+import { UpdateChip } from "../updates/UpdateChip.tsx";
 import { useViewEnvironment } from "../views/env.tsx";
 import { useIsShown, useWorkbench } from "./context.tsx";
 import { shortcutLabel } from "./hints.ts";
@@ -112,27 +113,30 @@ function hostTitle(state: UiState): string {
     return lines.join("\n");
 }
 
-// The sidebar's bottom row: the connection to the host, the panel toggle, Tour, Devices, Feedback, Help and Settings.
+// The sidebar's bottom row: the connection to the host with the update chip under it, the panel toggle, Tour, Devices, Feedback, Help and Settings.
 export function SidebarFoot() {
     const { connection: state } = useViewEnvironment();
     const { run, layout } = useWorkbench();
     const visible = useVisibility();
     return (
         <footer className="sidebar-foot" aria-label="Status">
-            <span
-                className="sidebar-foot-state"
-                data-item="state"
-                data-tone={toneOf(state)}
-                title={state.ready === undefined ? undefined : hostTitle(state)}
-            >
-                <span className="sidebar-foot-dot" aria-hidden="true" />
-                {phaseLabel(state)}
-                {state.ready !== undefined && visible.buildLine ? (
-                    <span className="sidebar-foot-build" data-item="host" data-protocol={state.identity?.protocol_version}>
-                        {" · "}{buildLabel(state)}
-                    </span>
-                ) : null}
-            </span>
+            <div className="sidebar-foot-stack">
+                <span
+                    className="sidebar-foot-state"
+                    data-item="state"
+                    data-tone={toneOf(state)}
+                    title={state.ready === undefined ? undefined : hostTitle(state)}
+                >
+                    <span className="sidebar-foot-dot" aria-hidden="true" />
+                    {phaseLabel(state)}
+                    {state.ready !== undefined && visible.buildLine ? (
+                        <span className="sidebar-foot-build" data-item="host" data-protocol={state.identity?.protocol_version}>
+                            {" · "}{buildLabel(state)}
+                        </span>
+                    ) : null}
+                </span>
+                <UpdateChip />
+            </div>
             {layout.locations.panel.all.length > 0 ? <PanelToggle /> : null}
             {visible.tour ? <TourButton /> : null}
             {visible.devices ? <DevicesButton /> : null}

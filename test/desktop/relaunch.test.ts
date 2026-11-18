@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DESKTOP_RELAUNCH_KEY, DesktopRelaunch, decideRelaunch, type RelaunchActions } from "../../clients/desktop/src/relaunch.ts";
+import { DESKTOP_RELAUNCH_KEY, DesktopRelaunch, MAX_RELAUNCH_DRAFT_CHARS, decideRelaunch, type RelaunchActions } from "../../clients/desktop/src/relaunch.ts";
 import { desktopBuildMismatch } from "../../clients/desktop/src/build-check.ts";
 import { INITIAL_STATE, reduceConnection } from "../../clients/ui/src/state/connection.ts";
 import { DESKTOP_PACKAGE_MANIFEST_NAME, serializeDesktopPackageManifest } from "../../src/release/desktop-package-manifest.ts";
@@ -155,6 +155,58 @@ test("a relaunch from a page with no session records none", () => {
     expect(records).toEqual([{ writtenAt: NOW.toISOString() }]);
 });
 
+test("@core a relaunch carries the text the open session's composer holds", () => {
+    const { records, actions } = recordedActions();
+    const relaunch = new DesktopRelaunch(actions, () => NOW);
+    relaunch.sessionShown("crow");
+    relaunch.draftChanged("crow", "half a thought");
+    expect(relaunch.buildChanged(MISMATCH)).toBe(true);
+    expect(records).toEqual([{ sessionId: "crow", draft: { text: "half a thought", attachmentIds: [] }, writtenAt: NOW.toISOString() }]);
+});
+
+test("a draft from another session, a blank one or an oversized one is not carried", () => {
+    const cases: Array<[string | undefined, string]> = [
+        ["finch", "for another session"],
+        ["crow", "   \n"],
+        ["crow", "x".repeat(MAX_RELAUNCH_DRAFT_CHARS + 1)],
+    ];
+    for (const [agentId, text] of cases) {
+        const { records, actions } = recordedActions();
+        const relaunch = new DesktopRelaunch(actions, () => NOW);
+        relaunch.sessionShown("crow");
+        relaunch.draftChanged(agentId, text);
+        relaunch.buildChanged(MISMATCH);
+        expect(records).toEqual([{ sessionId: "crow", writtenAt: NOW.toISOString() }]);
+    }
+});
+
+test("a draft cleared before the relaunch is not carried", () => {
+    const { records, actions } = recordedActions();
+    const relaunch = new DesktopRelaunch(actions, () => NOW);
+    relaunch.sessionShown("crow");
+    relaunch.draftChanged("crow", "typed");
+    relaunch.draftChanged("crow", "");
+    relaunch.buildChanged(MISMATCH);
+    expect(records).toEqual([{ sessionId: "crow", writtenAt: NOW.toISOString() }]);
+});
+
+test("the next window takes the carried draft with the session, once", () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-relaunch-draft-"));
+    try {
+        const writer = recordedActions({ writeRecord: (record) => writeRelaunchRecord(DESKTOP_RELAUNCH_KEY, record, home) });
+        const first = new DesktopRelaunch(writer.actions, () => NOW);
+        first.sessionShown("crow");
+        first.draftChanged("crow", "half a thought");
+        first.buildChanged(MISMATCH);
+        const reader = recordedActions({ takeRecord: () => takeRelaunchRecord(DESKTOP_RELAUNCH_KEY, NOW.getTime() + 1_000, home) });
+        const next = new DesktopRelaunch(reader.actions);
+        expect(next.takeReopen()).toEqual({ agentId: "crow", draft: "half a thought" });
+        expect(next.takeReopen()).toBeUndefined();
+    } finally {
+        rmSync(home, { recursive: true, force: true });
+    }
+});
+
 test("a relaunch goes ahead when the record cannot be written", () => {
     const { calls, actions } = recordedActions({
         writeRecord: () => {
@@ -186,8 +238,8 @@ test("the next window takes the session once", () => {
         writeRelaunchRecord(DESKTOP_RELAUNCH_KEY, { sessionId: "crow", writtenAt: NOW.toISOString() }, home);
         expect(readFileSync(relaunchRecordPath(DESKTOP_RELAUNCH_KEY, home), "utf8")).toContain("crow");
         const next = new DesktopRelaunch(actions);
-        expect(next.takeSession()).toBe("crow");
-        expect(next.takeSession()).toBeUndefined();
+        expect(next.takeReopen()).toEqual({ agentId: "crow" });
+        expect(next.takeReopen()).toBeUndefined();
     } finally {
         rmSync(home, { recursive: true, force: true });
     }
@@ -198,7 +250,7 @@ test("a record older than five minutes opens nothing", () => {
     try {
         writeRelaunchRecord(DESKTOP_RELAUNCH_KEY, { sessionId: "crow", writtenAt: NOW.toISOString() }, home);
         const later = NOW.getTime() + 6 * 60 * 1000;
-        expect(new DesktopRelaunch(recordedActions({ takeRecord: () => takeRelaunchRecord(DESKTOP_RELAUNCH_KEY, later, home) }).actions).takeSession())
+        expect(new DesktopRelaunch(recordedActions({ takeRecord: () => takeRelaunchRecord(DESKTOP_RELAUNCH_KEY, later, home) }).actions).takeReopen())
             .toBeUndefined();
     } finally {
         rmSync(home, { recursive: true, force: true });

@@ -13,6 +13,7 @@ import { ShowSection } from "./settings/ShowSection.tsx";
 import { filterSettings } from "./settings/filter.ts";
 import { subscribeRequestedSection, takeRequestedSection } from "./settings/requestedSection.ts";
 import { SETTINGS_SECTIONS } from "./settings/sections.ts";
+import { UpdatesSection } from "./settings/UpdatesSection.tsx";
 import { useNarrowRail } from "./settings/useNarrowRail.ts";
 import { WorkspacesSection } from "./settings/WorkspacesSection.tsx";
 
@@ -118,6 +119,7 @@ export function SettingsPage() {
                     {current?.id === "git" ? <GitSection /> : null}
                     {current?.id === "devices" ? <DevicesSection /> : null}
                     {current?.id === "keyboard" ? <KeyboardSection /> : null}
+                    {current?.id === "updates" ? <UpdatesSection /> : null}
                     {current?.id === "show" ? <ShowSection /> : null}
                     {current?.id === "data" ? <DataSection /> : null}
                 </div>

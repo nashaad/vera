@@ -7,12 +7,18 @@ import { selectedVeraHome } from "../profile-paths.ts";
 import { currentReleaseBuildId } from "./layout.ts";
 import { cliHostRequester } from "../host/requester.ts";
 
+// A boot that holds the claim this long is not waited for: current has already moved, and a host that
+// still runs the old build is stopped by the next update.
+const DEFAULT_MAX_WAIT_MS = 60_000;
+
 export async function reconcileColdHost(
     prefix: string,
     readLiveHost: () => Promise<HostLockRecord | undefined>,
     stopHost: (options: StopWhenIdleOptions) => Promise<StopWhenIdleOutcome | undefined>,
+    maxWaitMs = DEFAULT_MAX_WAIT_MS,
 ): Promise<void> {
     const path = join(selectedVeraHome(), "boot.lock");
+    const deadline = Date.now() + maxWaitMs;
     for (;;) {
         try {
             const claim = await acquireHostStartupClaim({ path, maxClaimAgeMs: 15 * 60_000 });
@@ -28,6 +34,7 @@ export async function reconcileColdHost(
             }
         } catch (error) {
             if (!(error instanceof HostStartupInProgressError)) throw error;
+            if (Date.now() >= deadline) return;
             await new Promise((resolve) => setTimeout(resolve, 250));
         }
     }

@@ -19,6 +19,7 @@ import { loadExtensionCommands } from "./extension-bridge.ts";
 import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, requestCreateSession, beginSessionResume, disconnectedRecoveryHint, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openModelPicker, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, toggleWorkspaceSidebar, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestFocusedPaneClose, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
 import { openExtensionsList, refreshOpenExtensionsList } from "./extensions-ops.ts";
 import { importSessionFromTui, openImportPicker } from "./import-ops.ts";
+import { runUpdateCommand } from "./update-ops.ts";
 import { holdHomeSessionName } from "./home-session-name.ts";
 import { homeNeedsProvider } from "./model-pickers.ts";
 import { openOnboardingWizard } from "./onboarding-wizard-ops.ts";
@@ -452,6 +453,13 @@ export function submitPrompt(rt: TuiRuntime,
         rt.composer.clearComposer();
         renderCommandSuggestions(rt);
         openImportPicker(rt, "folder");
+        return;
+    }
+    if (commandAction?.type === "run_update") {
+        rt.composer.rememberSubmittedText(prompt);
+        rt.composer.clearComposer();
+        renderCommandSuggestions(rt);
+        runUpdateCommand(rt);
         return;
     }
     if (commandAction?.type === "open_usage") {

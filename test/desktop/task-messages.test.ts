@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 
 import { decodeJsonLine, LineReader } from "../../clients/desktop/src/tasks/lines.ts";
 import {
+    cancelMessage,
     logMessage,
+    parseCancelMessage,
     parseRunMessage,
     parseTaskOutput,
     progressMessage,
@@ -23,6 +25,11 @@ test("@core task messages survive structuredClone and JSON unchanged", () => {
     for (const output of outputs) {
         expect(parseTaskOutput(structuredClone(output))).toEqual(output);
         expect(parseTaskOutput(JSON.parse(JSON.stringify(output)))).toEqual(output);
+    }
+    expect(parseCancelMessage(structuredClone(cancelMessage()))).toEqual(cancelMessage());
+    expect(parseCancelMessage(JSON.parse(JSON.stringify(cancelMessage())))).toEqual(cancelMessage());
+    for (const value of [undefined, null, [], {}, { type: "run" }, { type: "Cancel" }]) {
+        expect(parseCancelMessage(value)).toBeUndefined();
     }
     const run = runMessage({ ping: 1 });
     expect(parseRunMessage(structuredClone(run))).toEqual(run);

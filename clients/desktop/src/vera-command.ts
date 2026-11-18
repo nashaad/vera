@@ -75,3 +75,12 @@ function isExecutable(path: string): boolean {
         return false;
     }
 }
+
+// The command that runs `vera update`: VERA_DESKTOP_UPDATE_COMMAND when set, else the installed launcher the boot uses.
+// A window started from source has no installed launcher, so it has none.
+export function resolveUpdateCommand(env: NodeJS.ProcessEnv = process.env, launcher: string = launcherPath()): string | undefined {
+    const named = env.VERA_DESKTOP_UPDATE_COMMAND?.trim();
+    if (named !== undefined && named.length > 0) return isExecutable(named) ? named : undefined;
+    if (bootsFromSource(env)) return undefined;
+    return isExecutable(launcher) ? launcher : undefined;
+}

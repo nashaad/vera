@@ -7,6 +7,7 @@ import { EXTENSION_TASK_FILE } from "./src/extension-install/task-protocol.ts";
 import { releaseBuildId } from "../../src/release/build-id.ts";
 import { DESKTOP_BUILD_ID_SYMBOL } from "./src/client-build.ts";
 import { ASSIGNMENT_TASK_FILE } from "./src/model-assignments/task-protocol.ts";
+import { UPDATE_TASK_FILE } from "./src/update/task-protocol.ts";
 
 const root = import.meta.dir;
 
@@ -58,6 +59,7 @@ const TASKS = [
     { entry: join(root, "src", "model-assignments", "worker.ts"), file: ASSIGNMENT_TASK_FILE },
     { entry: join(root, "src", "extension-install", "worker.ts"), file: EXTENSION_TASK_FILE },
     { entry: join(root, "src", "extension-catalog", "worker.ts"), file: CATALOG_TASK_FILE },
+    { entry: join(root, "src", "update", "worker.ts"), file: UPDATE_TASK_FILE },
 ];
 async function bundleTask(entry: string, outdir: string, file: string): Promise<void> {
     const bundle = await Bun.build({ entrypoints: [entry], outdir, target: "node", format: "cjs", external: ["electron"], naming: file });

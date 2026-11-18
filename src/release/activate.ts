@@ -19,6 +19,7 @@ import {
     rollbackSymlinkPath,
     veraShareRoot,
 } from "./layout.ts";
+import { exitAt } from "./exit-at.ts";
 import { readStampedRelease } from "./stamp.ts";
 import { gcReleases, type GcOptions } from "./gc.ts";
 
@@ -37,16 +38,25 @@ export function activateRelease(
     const share = veraShareRoot(prefix);
     mkdirSync(share, { recursive: true, mode: 0o755 });
     const previous = currentReleaseBuildId(prefix);
+    exitAt("activate:start");
     if (previous !== undefined && previous !== manifest.build_id) {
         writeRelativeReleaseLink(rollbackSymlinkPath(prefix), previous, share);
     }
+    exitAt("activate:rollback-linked");
     writeRelativeReleaseLink(currentSymlinkPath(prefix), manifest.build_id, share);
+    exitAt("activate:current-linked");
     writeLauncher(prefix);
+    exitAt("activate:launcher-written");
     try {
         gcReleases(prefix, { ...gcOptions, onHeld: (reason) => console.error(`Release GC: ${reason}`) });
     } catch (error) {
         console.error(`Release GC: ${String(error)}`);
     }
+}
+
+// Points the rollback pin at a retained release without touching current.
+export function repointRollbackLink(buildId: string, prefix = defaultInstallPrefix()): void {
+    writeRelativeReleaseLink(rollbackSymlinkPath(prefix), buildId, veraShareRoot(prefix));
 }
 
 function writeRelativeReleaseLink(

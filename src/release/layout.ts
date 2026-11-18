@@ -71,6 +71,11 @@ export function desktopInstallRecordPath(prefix = defaultInstallPrefix()): strin
     return join(desktopPackagesDirectory(prefix), "installed.json");
 }
 
+// Desktop app shell archives fetched for an update that has not switched yet, one directory per release tag. The leading dot keeps it from reading as a host build id.
+export function desktopShellDownloadsDirectory(prefix = defaultInstallPrefix()): string {
+    return join(desktopPackagesDirectory(prefix), ".shell-downloads");
+}
+
 // One <pid>.json per running desktop. The leading dot keeps it from reading as a host build id.
 export function desktopPackageReferencesDirectory(prefix = defaultInstallPrefix()): string {
     return join(desktopPackagesDirectory(prefix), ".loaded");

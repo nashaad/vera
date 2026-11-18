@@ -643,7 +643,7 @@ function handleInstalledBuildChange(
         });
 }
 
-function refuseInstalledBuildChange(
+export function refuseInstalledBuildChange(
     rt: TuiRuntime,
     clientBuildId: string,
     installedBuildId: string,

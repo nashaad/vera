@@ -3,7 +3,8 @@ import type { TuiStatusChunk, TuiStatusTone } from "./status.ts";
 import { tuiWorkspaceForms } from "./status.ts";
 
 export interface FooterItemFacts {
-    readonly status?: { readonly text: string; readonly color: string };
+    // Shorter forms of the same status, tried in order when the text does not fit.
+    readonly status?: { readonly text: string; readonly color: string; readonly alternates?: readonly string[] };
     readonly keys: string;
     readonly limits: readonly string[];
     // Undefined when an extension's status line owns the place.
@@ -15,11 +16,14 @@ export interface FooterItemFacts {
 }
 
 export function footerItemContents(facts: FooterItemFacts): FooterItemContents {
+    const status = facts.status;
     const contents: FooterItemContents = {
         status: {
-            forms: facts.status === undefined || facts.status.text.length === 0
+            forms: status === undefined || status.text.length === 0
                 ? []
-                : [[{ text: facts.status.text, tone: "muted", color: facts.status.color }]],
+                : [status.text, ...(status.alternates ?? [])].map((text) => [
+                    { text, tone: "muted" as const, color: status.color },
+                ]),
         },
         keys: { forms: keyHintForms(facts.keys) },
         limits: { forms: facts.limits.map((form) => [muted(form)]) },

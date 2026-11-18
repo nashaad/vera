@@ -205,7 +205,8 @@ export function workerFreeAction(rt: TuiRuntime,
         || action?.type === "open_help"
         || action?.type === "open_theme_picker"
         || action?.type === "toggle_session_rail"
-        || action?.type === "open_usage";
+        || action?.type === "open_usage"
+        || action?.type === "run_update";
 }
 
 export function createMarkdownStyle(activeTheme: TuiTheme): SyntaxStyle {

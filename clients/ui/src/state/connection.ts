@@ -104,6 +104,7 @@ function reduceEvent(state: UiState, event: DesktopEvent): UiState {
         case "command":
         case "browser_loaded":
         case "reopen_session":
+        case "update_state":
             return state;
     }
 }

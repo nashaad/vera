@@ -28,6 +28,7 @@ import {
     releasesDirectory,
     safeRealpath,
 } from "./layout.ts";
+import { exitAt } from "./exit-at.ts";
 import { prefixOfReleaseRoot } from "./handoff.ts";
 import {
     installRelease,
@@ -35,7 +36,19 @@ import {
     type InstallReleaseOptions,
     type PackedInstallRelease,
 } from "./install.ts";
+import {
+    prepareShell,
+    ShellHeldError,
+    stageShell,
+    sweepShellLeftovers,
+    type ShellPlan,
+    type StagedShell,
+} from "./shell-update.ts";
 import { readStampedRelease } from "./stamp.ts";
+import { stagedReleaseBuild } from "./staged-release.ts";
+import { sweepStaleStaging } from "./staging-sweep.ts";
+import { acquireUpdateLock } from "./update-lock.ts";
+import { formatDuration, UpdateBusyError, waitForIdleHost, type IdleWaitOptions } from "./update-wait.ts";
 import { verifyPackedRelease } from "./verify.ts";
 import {
     compareVersions,
@@ -59,11 +72,11 @@ export interface PublishedRelease {
     readonly body: string;
 }
 
-interface ResolvedRelease extends PublishedRelease {
+export interface ResolvedRelease extends PublishedRelease {
     readonly draft: boolean;
 }
 
-interface ReleaseWindow {
+export interface ReleaseWindow {
     readonly target: ResolvedRelease;
     readonly notes: readonly ResolvedRelease[];
     readonly truncated: boolean;
@@ -71,9 +84,61 @@ interface ReleaseWindow {
 
 export type UpdateInstall = (options: InstallReleaseOptions) => Promise<InstallOutcome>;
 
+export interface UpdateWaitingSession {
+    readonly id: string;
+    readonly title: string;
+}
+
+export type UpdatePhase =
+    | { readonly phase: "checking" }
+    | {
+        readonly phase: "waiting";
+        readonly sessions: readonly UpdateWaitingSession[];
+        readonly waitedMs: number;
+        readonly limitMs: number;
+    }
+    | { readonly phase: "switching" };
+
+export type UpdateReport =
+    | { readonly kind: "up_to_date"; readonly version: string }
+    | {
+        readonly kind: "checked";
+        readonly runningVersion: string;
+        readonly runningBuildId: string;
+        readonly targetVersion: string;
+        readonly requested: boolean;
+    }
+    // The release is on disk but must not become current yet; `message` says why.
+    | { readonly kind: "held"; readonly version: string; readonly buildId: string; readonly message: string }
+    | { readonly kind: "downloaded"; readonly version: string; readonly buildId: string }
+    | {
+        readonly kind: "installed";
+        readonly version: string;
+        readonly buildId: string;
+        readonly outcome: InstallOutcome;
+    };
+
+// Thrown when the signal in UpdateOptions aborts before the switch starts.
+export class UpdateCancelled extends Error {
+    constructor() {
+        super("The update was cancelled.");
+        this.name = "UpdateCancelled";
+    }
+}
+
 export interface UpdateOptions extends DownloadOptions {
     readonly prefix?: string;
     readonly check?: boolean;
+    // Stage the release and its desktop package, then stop before anything becomes current.
+    readonly downloadOnly?: boolean;
+    readonly onPhase?: (phase: UpdatePhase) => void;
+    // Set by tests; the wait for busy sessions reads these.
+    readonly idle?: IdleWaitOptions;
+    // The run must end by this time (ms since the epoch); the wait for busy sessions shortens to fit.
+    readonly deadlineAt?: number;
+    // How long the whole run, and the check alone, may take in JSON mode. Tests shorten them.
+    readonly runLimitMs?: number;
+    readonly checkLimitMs?: number;
     readonly version?: string;
     readonly running?: InstalledRelease;
     readonly releasesApi?: string;
@@ -116,42 +181,63 @@ export function installedRunningRelease(
 export async function runUpdate(options: UpdateOptions = {}): Promise<number> {
     const output = options.output ?? ((text: string) => process.stdout.write(text));
     const errorOutput = options.errorOutput ?? ((text: string) => process.stderr.write(text));
+    let announced = "";
+    const report = await performUpdate({
+        ...options,
+        onPhase: (phase) => {
+            if (phase.phase === "waiting") {
+                // Said once for each set of sessions, not at every poll.
+                const names = phase.sessions.map((session) => session.title).join(", ");
+                if (names !== announced) {
+                    announced = names;
+                    writeLine(
+                        output,
+                        `Waiting for ${names} to finish before updating`
+                        + ` (up to ${formatDuration(phase.limitMs)}). Press Ctrl-C to stop waiting.`,
+                    );
+                }
+            }
+            options.onPhase?.(phase);
+        },
+    });
+    return renderUpdateReport(report, output, errorOutput);
+}
+
+// The update as data. Throws for a failure; a held or staged-only update is a report.
+export async function performUpdate(options: UpdateOptions = {}): Promise<UpdateReport> {
     const running = options.running ?? installedRunningRelease();
     const prefix = options.prefix ?? running.prefix;
-
-    const requestedVersion = options.version === undefined || options.version.length === 0
-        ? undefined
-        : normalizeReleaseVersion(options.version);
-    if (requestedVersion !== undefined && !isReleaseVersion(requestedVersion)) {
-        throw new Error(
-            `Invalid version '${options.version}'. Expected a version like 0.1.0.`,
-        );
-    }
+    const requestedVersion = requestedVersionOf(options);
 
     if (requestedVersion !== undefined && compareVersions(requestedVersion, running.version) === 0) {
-        writeLine(output, `Vera ${running.version} is up to date`);
-        return 0;
+        return { kind: "up_to_date", version: running.version };
     }
+    return await updateOnce(options, running, prefix, requestedVersion);
+}
 
+async function updateOnce(
+    options: UpdateOptions,
+    running: InstalledRelease,
+    prefix: string,
+    requestedVersion: string | undefined,
+): Promise<UpdateReport> {
+    options.onPhase?.({ phase: "checking" });
     const releases = await fetchReleaseWindow(options, running.version, requestedVersion);
     const target = releases.target;
+    throwIfCancelled(options.signal);
 
     if (options.check === true) {
-        writeLine(output, `Running Vera ${running.version} (${running.buildId}).`);
-        writeLine(
-            output,
-            requestedVersion === undefined
-                ? `Newest release is Vera ${target.version}.`
-                : `Target release is Vera ${target.version}.`,
-        );
-        return compareVersions(target.version, running.version) > 0 ? 10 : 0;
+        return {
+            kind: "checked",
+            runningVersion: running.version,
+            runningBuildId: running.buildId,
+            targetVersion: target.version,
+            requested: requestedVersion !== undefined,
+        };
     }
 
     const comparison = compareVersions(target.version, running.version);
-    if (comparison === 0) {
-        writeLine(output, `Vera ${target.version} is up to date`);
-        return 0;
-    }
+    if (comparison === 0) return { kind: "up_to_date", version: target.version };
     if (comparison < 0) {
         throw new Error(
             `Vera ${target.version} is older than the running Vera ${running.version}.`
@@ -159,6 +245,23 @@ export async function runUpdate(options: UpdateOptions = {}): Promise<number> {
         );
     }
 
+    // A check only reads, so it never takes the lock.
+    const release = acquireUpdateLock(prefix);
+    try {
+        return await stageAndSwitch(options, prefix, releases, target);
+    } finally {
+        release();
+    }
+}
+
+async function stageAndSwitch(
+    options: UpdateOptions,
+    prefix: string,
+    releases: ReleaseWindow,
+    target: ResolvedRelease,
+): Promise<UpdateReport> {
+    sweepStaleStaging(prefix);
+    sweepShellLeftovers(prefix);
     let createdReleaseRoot: string | undefined;
     const verify = options.verify ?? verifyPackedRelease;
     const prepared = await prepareRelease({
@@ -170,8 +273,11 @@ export async function runUpdate(options: UpdateOptions = {}): Promise<number> {
         verify,
     });
     createdReleaseRoot = prepared.created ? prepared.releaseRoot : undefined;
+    const buildId = prepared.manifest.build_id;
+    exitAt("update:release-staged");
 
     const platform = options.platform ?? process.platform;
+    let shell: ShellPlan = { kind: "none" };
     // A CLI-only install has no installed.json and moves on the host release alone.
     if (platform === "darwin" && desktopInstallRecorded(prefix)) {
         let desktop: DesktopUpdateOutcome;
@@ -182,8 +288,23 @@ export async function runUpdate(options: UpdateOptions = {}): Promise<number> {
                 tag: target.tag,
                 platform,
                 arch: options.arch ?? process.arch,
-                hostBuildId: prepared.manifest.build_id,
+                hostBuildId: buildId,
+                preferStored: !prepared.created,
             });
+            throwIfCancelled(options.signal);
+            exitAt("update:package-staged");
+            if (desktop.kind === "ready") {
+                shell = await prepareShell({
+                    ...options,
+                    prefix,
+                    tag: target.tag,
+                    version: target.version,
+                    platform,
+                    arch: options.arch ?? process.arch,
+                    requiredApi: desktop.package.shellApi,
+                });
+                throwIfCancelled(options.signal);
+            }
         } catch (error) {
             if (createdReleaseRoot !== undefined) {
                 rmSync(createdReleaseRoot, { recursive: true, force: true });
@@ -191,15 +312,62 @@ export async function runUpdate(options: UpdateOptions = {}): Promise<number> {
             throw error;
         }
         if (desktop.kind === "held") {
-            writeLine(
-                output,
-                `Vera ${target.version} is downloaded. It turns on once the desktop app for it is released;`
-                + " run 'vera update' again then.",
-            );
-            return 0;
+            return {
+                kind: "held",
+                version: target.version,
+                buildId,
+                message: desktopHeldMessage(target.version),
+            };
+        }
+        if (shell.kind === "held") {
+            return { kind: "held", version: target.version, buildId, message: shell.message };
         }
     }
 
+    if (options.downloadOnly === true) {
+        return { kind: "downloaded", version: target.version, buildId };
+    }
+
+    try {
+        await waitForIdleHost({
+            buildId,
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
+            ...(options.deadlineAt === undefined ? {} : { deadlineAt: options.deadlineAt }),
+            onWaiting: (waiting) => options.onPhase?.({ phase: "waiting", ...waiting }),
+            ...(options.idle === undefined ? {} : { idle: options.idle }),
+        });
+    } catch (error) {
+        if (error instanceof UpdateBusyError) {
+            return { kind: "held", version: target.version, buildId, message: error.message };
+        }
+        throw error;
+    }
+    throwIfCancelled(options.signal);
+
+    let staged: StagedShell | undefined;
+    try {
+        if (shell.kind === "swap") staged = await stageShell(shell, prefix, options.signal);
+        throwIfCancelled(options.signal);
+    } catch (error) {
+        staged?.discard();
+        if (error instanceof ShellHeldError) {
+            return { kind: "held", version: target.version, buildId, message: error.message };
+        }
+        throw error;
+    }
+
+    exitAt("update:before-switch");
+    options.onPhase?.({ phase: "switching" });
+    if (staged !== undefined) {
+        try {
+            staged.commit();
+        } catch (error) {
+            if (error instanceof ShellHeldError) {
+                return { kind: "held", version: target.version, buildId, message: error.message };
+            }
+            throw error;
+        }
+    }
     const install = options.install ?? installRelease;
     const outcome = await install({
         prefix,
@@ -216,7 +384,57 @@ export async function runUpdate(options: UpdateOptions = {}): Promise<number> {
             }
         },
     });
-    return printInstallOutcome(outcome, target.version, output, errorOutput);
+    return { kind: "installed", version: target.version, buildId, outcome };
+}
+
+export function desktopHeldMessage(version: string): string {
+    return `Vera ${version} is downloaded. It turns on once the desktop app for it is released;`
+        + " run 'vera update' again then.";
+}
+
+function requestedVersionOf(options: UpdateOptions): string | undefined {
+    if (options.version === undefined || options.version.length === 0) return undefined;
+    const requested = normalizeReleaseVersion(options.version);
+    if (!isReleaseVersion(requested)) {
+        throw new Error(`Invalid version '${options.version}'. Expected a version like 0.1.0.`);
+    }
+    return requested;
+}
+
+function throwIfCancelled(signal: AbortSignal | undefined): void {
+    if (signal?.aborted === true) throw new UpdateCancelled();
+}
+
+export function renderUpdateReport(
+    report: UpdateReport,
+    output: (text: string) => void,
+    errorOutput: (text: string) => void,
+): number {
+    switch (report.kind) {
+        case "up_to_date":
+            writeLine(output, `Vera ${report.version} is up to date`);
+            return 0;
+        case "checked":
+            writeLine(output, `Running Vera ${report.runningVersion} (${report.runningBuildId}).`);
+            writeLine(
+                output,
+                report.requested
+                    ? `Target release is Vera ${report.targetVersion}.`
+                    : `Newest release is Vera ${report.targetVersion}.`,
+            );
+            return compareVersions(report.targetVersion, report.runningVersion) > 0 ? 10 : 0;
+        case "held":
+            writeLine(output, report.message);
+            return 0;
+        case "downloaded":
+            writeLine(
+                output,
+                `Vera ${report.version} is downloaded. Run 'vera update' to switch to it.`,
+            );
+            return 0;
+        case "installed":
+            return printInstallOutcome(report.outcome, report.version, output, errorOutput);
+    }
 }
 
 function writeLine(output: (text: string) => void, text: string): void {
@@ -230,7 +448,7 @@ function releaseApiUrl(options: UpdateOptions): string {
     return `https://api.github.com/repos/${repo}/releases?per_page=${RELEASES_PER_PAGE}`;
 }
 
-async function fetchReleaseWindow(
+export async function fetchReleaseWindow(
     options: UpdateOptions,
     runningVersion: string,
     requestedVersion: string | undefined,
@@ -421,6 +639,7 @@ async function prepareRelease(options: PrepareOptions): Promise<StagedRelease> {
     const prepared = await downloadAndUnpack(options);
     try {
         options.verify(prepared.releaseRoot, options.prefix);
+        throwIfCancelled(options.signal);
         const output = options.output ?? ((text: string) => process.stdout.write(text));
         writeReleaseNotes(options.notes, output);
         if (options.notesTruncated) {
@@ -441,6 +660,12 @@ async function downloadAndUnpack(options: ReleaseDownloadOptions): Promise<Stage
     const platform = options.platform ?? process.platform;
     const arch = options.arch ?? process.arch;
     refuseUnsupportedPlatform(platform, arch);
+    // A release staged by an earlier run is switched to without downloading it again.
+    const staged = stagedReleaseBuild(prefix, target.version, platform, arch);
+    if (staged !== undefined) {
+        const releaseRoot = releaseDirectory(staged, prefix);
+        return { releaseRoot, manifest: readStampedRelease(releaseRoot), created: false };
+    }
     const asset = `vera-${platform}-${arch}.tar.gz`;
     const base = releaseAssetBase(options, target.tag);
     const tarballUrl = `${base}/${asset}`;

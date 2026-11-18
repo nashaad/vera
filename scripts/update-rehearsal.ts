@@ -13,6 +13,8 @@ interface BuildOptions {
     readonly linux: boolean;
     // The newer release ships without desktop assets, so an update to it is held.
     readonly newerWithoutDesktop: boolean;
+    // Neither release ships desktop assets; the terminal legs need none.
+    readonly noDesktop: boolean;
 }
 
 function run(args: string[], cwd = root): void {
@@ -57,7 +59,7 @@ export function otherMacCommands(out: string, older: string, newer: string, newe
 async function build(out: string, older: string, newer: string, options: BuildOptions): Promise<void> {
     if (compareVersions(older, newer) >= 0) throw new Error("Older version must precede newer version");
     const { linux } = options;
-    const desktop = !linux && process.platform === "darwin";
+    const desktop = !linux && process.platform === "darwin" && !options.noDesktop;
     const desktopModules = join(root, "clients/desktop/node_modules");
     if (desktop && !existsSync(desktopModules)) {
         throw new Error("clients/desktop/node_modules is missing; the desktop assets need Electron from there");
@@ -114,6 +116,21 @@ async function build(out: string, older: string, newer: string, options: BuildOp
     if (desktop) console.log(`\n${otherMacCommands(out, older, newer, !options.newerWithoutDesktop)}`);
 }
 
+// The first half of the file, then a reset connection, with the full length declared.
+function droppedResponse(file: Bun.BunFile): Response {
+    let sent = false;
+    return new Response(new ReadableStream<Uint8Array>({
+        async pull(controller) {
+            if (sent) {
+                controller.error(new Error("connection dropped"));
+                return;
+            }
+            sent = true;
+            controller.enqueue(new Uint8Array(await file.slice(0, Math.floor(file.size / 2)).arrayBuffer()));
+        },
+    }), { headers: { "content-length": String(file.size) } });
+}
+
 function serve(out: string, args: string[]): void {
     let port = 8789;
     let hostname = "127.0.0.1";
@@ -148,7 +165,7 @@ function serve(out: string, args: string[]): void {
                 const mode = url.searchParams.get("mode") ?? "normal";
                 const selected = url.searchParams.get("version") ?? versions[0]!;
                 const listed = url.searchParams.get("only") ?? undefined;
-                if (!["normal", "wrong-checksum", "truncated-tarball", "no-desktop"].includes(mode)
+                if (!["normal", "wrong-checksum", "truncated-tarball", "drop-mid-download", "no-desktop"].includes(mode)
                     || !versions.includes(selected) || (listed && !versions.includes(listed))) {
                     return new Response("Invalid scenario\n", { status: 400 });
                 }
@@ -201,6 +218,7 @@ function serve(out: string, args: string[]): void {
             downloads += 1;
             if (match[1] === target && scenario === "wrong-checksum" && match[3]) return new Response(`${"0".repeat(64)}  ${match[2]}\n`);
             if (match[1] === target && scenario === "truncated-tarball" && !match[3]) return new Response(file.slice(0, 128));
+            if (match[1] === target && scenario === "drop-mid-download" && !match[3]) return droppedResponse(file);
             return new Response(file);
         },
     });
@@ -213,13 +231,13 @@ function serve(out: string, args: string[]): void {
 if (import.meta.main) {
     try {
         const [command, output, older, newer, ...flags] = Bun.argv.slice(2);
-        if (!output) throw new Error("Usage: update-rehearsal.ts build OUT OLDER NEWER [--linux] [--no-newer-desktop] | serve OUT [--port N] [--bind ADDRESS] [--only VERSION] [--corrupt-checksum VERSION]");
+        if (!output) throw new Error("Usage: update-rehearsal.ts build OUT OLDER NEWER [--linux] [--no-newer-desktop] [--no-desktop] | serve OUT [--port N] [--bind ADDRESS] [--only VERSION] [--corrupt-checksum VERSION]");
         if (command === "build") {
-            if (flags.some((flag) => flag !== "--linux" && flag !== "--no-newer-desktop")) throw new Error("Unknown build flag");
+            if (flags.some((flag) => flag !== "--linux" && flag !== "--no-newer-desktop" && flag !== "--no-desktop")) throw new Error("Unknown build flag");
             const linux = process.platform === "linux" || flags.includes("--linux");
             const newerWithoutDesktop = flags.includes("--no-newer-desktop");
             if (newerWithoutDesktop && linux) throw new Error("--no-newer-desktop applies to the macOS build, which is the only one with desktop assets");
-            await build(resolve(output), version(older), version(newer), { linux, newerWithoutDesktop });
+            await build(resolve(output), version(older), version(newer), { linux, newerWithoutDesktop, noDesktop: flags.includes("--no-desktop") });
         } else if (command === "serve") {
             serve(resolve(output), Bun.argv.slice(4));
         } else throw new Error(`Unknown command: ${command}`);

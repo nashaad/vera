@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import {
+    existsSync,
     mkdirSync,
     renameSync,
     writeFileSync,
@@ -9,7 +10,8 @@ import { dirname, join, resolve } from "node:path";
 
 import { canonicalPath } from "../canonical-path.ts";
 
-import { activateRelease } from "./activate.ts";
+import { activateRelease, repointRollbackLink } from "./activate.ts";
+import { exitAt } from "./exit-at.ts";
 import {
     currentReleaseBuildId,
     defaultInstallPrefix,
@@ -17,6 +19,7 @@ import {
     packedReleaseRoot,
     RELEASE_HOST_NAME,
     releaseDirectory,
+    rollbackReleaseBuildId,
     upgradeJournalPath,
     userHome,
 } from "./layout.ts";
@@ -75,6 +78,8 @@ export interface UpgradeJournal {
     readonly from_build_id: string | null;
     readonly to_build_id: string;
     readonly host_was_running: boolean;
+    // The rollback pin before the switch began, so an interrupted switch that is undone can put it back.
+    readonly previous_pin?: string;
     // Starting the new host failed: recovery restores the previous release.
     readonly start_failed?: boolean;
     // A host this install started and could not stop.
@@ -175,6 +180,9 @@ export async function readUpgradeJournal(
     if (record.start_failed !== undefined && typeof record.start_failed !== "boolean") {
         throw new Error(`Upgrade journal at ${path} has a bad start_failed`);
     }
+    if (record.previous_pin !== undefined && (typeof record.previous_pin !== "string" || record.previous_pin.length === 0)) {
+        throw new Error(`Upgrade journal at ${path} has a bad previous_pin`);
+    }
     const survivor = parseRecordedHost(record.surviving_host);
     if (survivor === null) {
         throw new Error(`Upgrade journal at ${path} has a bad surviving_host`);
@@ -188,6 +196,7 @@ export async function readUpgradeJournal(
         from_build_id: record.from_build_id,
         to_build_id: record.to_build_id,
         host_was_running: record.host_was_running,
+        ...(record.previous_pin === undefined ? {} : { previous_pin: record.previous_pin }),
         ...(record.start_failed === true ? { start_failed: true } : {}),
         ...(survivor === undefined ? {} : { surviving_host: survivor }),
         ...(launched === undefined ? {} : { launched_host: launched }),
@@ -229,6 +238,7 @@ export function writeUpgradeJournal(
             from_build_id: journal.from_build_id,
             to_build_id: journal.to_build_id,
             host_was_running: journal.host_was_running,
+            ...(journal.previous_pin === undefined ? {} : { previous_pin: journal.previous_pin }),
             ...(journal.start_failed === true ? { start_failed: true } : {}),
             ...(journal.surviving_host === undefined
                 ? {}
@@ -601,6 +611,7 @@ export async function recoverInterruptedUpgrade(
     // An install that died after it moved current but before it wrote "starting".
     const startsNewRelease = journal.phase === "starting"
         || (journal.phase === "activating" && current === journal.to_build_id);
+    if (!startsNewRelease) restoreRollbackPin(prefix, journal);
     if (journal.host_was_running && current !== undefined) {
         try {
             await startHost(releaseDirectory(current, prefix));
@@ -630,6 +641,17 @@ export async function recoverInterruptedUpgrade(
     }
     await clearUpgradeJournal(prefix);
     return { recovered: true, buildId: current };
+}
+
+// Activation points the rollback pin at the old current before it moves current. When that is undone
+// between the two writes, the pin names the release that stays current and the earlier pin is lost.
+function restoreRollbackPin(prefix: string, journal: UpgradeJournal): void {
+    const pin = journal.previous_pin;
+    if (pin === undefined || journal.phase !== "activating") return;
+    const current = currentReleaseBuildId(prefix);
+    if (current !== journal.from_build_id || rollbackReleaseBuildId(prefix) !== current || pin === current) return;
+    if (!existsSync(releaseDirectory(pin, prefix))) return;
+    repointRollbackLink(pin, prefix);
 }
 
 // The survivor is recorded only for a host this run started and could not stop.
@@ -832,6 +854,8 @@ export async function upgradeLocalInstall(
 
     let hostWasRunning = false;
     let startFailed = false;
+    const previousPin = rollbackReleaseBuildId(prefix);
+    const pinned = previousPin === undefined ? {} : { previous_pin: previousPin };
     try {
         const existing = await readHostLockRecordFile();
         if (existing !== undefined && processIsAlive(existing.pid)) {
@@ -840,6 +864,7 @@ export async function upgradeLocalInstall(
                 from_build_id: fromBuildId,
                 to_build_id: packed.manifest.build_id,
                 host_was_running: true,
+                ...pinned,
             }, prefix);
         }
         const drained = await drainHost();
@@ -849,14 +874,18 @@ export async function upgradeLocalInstall(
             from_build_id: fromBuildId,
             to_build_id: packed.manifest.build_id,
             host_was_running: hostWasRunning,
+            ...pinned,
         }, prefix);
+        exitAt("upgrade:journal-activating");
         activateRelease(packed.releaseRoot, prefix);
+        exitAt("upgrade:activated");
         writeUpgradeJournal({
             phase: "starting",
             from_build_id: fromBuildId,
             to_build_id: packed.manifest.build_id,
             host_was_running: hostWasRunning,
         }, prefix);
+        exitAt("upgrade:journal-starting");
         if (hostWasRunning) {
             try {
                 await startHost(packed.releaseRoot);

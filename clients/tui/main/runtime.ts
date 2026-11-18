@@ -24,6 +24,7 @@ import type { TuiActivityAnimation } from "../activity-pulse.ts";
 import type { TuiAdmissionDialogState, TuiAdmissionDialogView } from "../admission-dialog.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
 import type { TuiStopWait, TuiStopWaitCard } from "../stop-wait.ts";
+import type { TuiUpdateRuntime } from "../update-state.ts";
 import type { TuiAppearance } from "../appearance.ts";
 import type { TuiApprovalView } from "../approval.ts";
 import type { TuiBodyFocusController } from "../body-focus.ts";
@@ -270,6 +271,7 @@ export interface TuiRuntime {
     plannedHostStop: boolean | undefined;
     // Set once the host reports a restart; the notice shows until the TUI exits or reconnects.
     relaunching: boolean | undefined;
+    update: TuiUpdateRuntime | undefined;
     searchInFlight: boolean;
     pendingSearchTarget: TuiPendingSearchTarget | undefined;
     pendingExtensionReveal: PendingExtensionReveal | undefined;

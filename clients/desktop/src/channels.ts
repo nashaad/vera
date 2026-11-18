@@ -72,5 +72,8 @@ export const CHANNELS = {
     annexPages: "vera:annex-pages",
     annexOpen: "vera:annex-open",
     browser: "vera:browser",
+    update: "vera:update",
+    updateState: "vera:update-state",
+    composerDraft: "vera:composer-draft",
     event: "vera:event",
 } as const;

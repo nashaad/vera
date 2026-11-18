@@ -13,7 +13,9 @@ not change.
 
 Each item shows whenever it has something to show: the activity strip during
 a turn, the limits when the provider reports them. The live status reads
-`ready` while idle and names the phase during a turn. After one Ctrl+C on an
+`ready` while idle and names the phase during a turn. When a newer Vera is
+available it reads `update available: Vera <version> · /update` instead of
+`ready`, unless the Updates setting is Off. After one Ctrl+C on an
 empty composer, it reads `Press Ctrl+C again to quit` until the second press
 or until Escape cancels it. A draft hides it, because Ctrl+C clears the draft
 first. The key hints read `Ctrl+P commands · Ctrl+X h keys` while idle and

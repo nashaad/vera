@@ -45,6 +45,7 @@ export const SHOW_TARGETS: readonly ShowTarget[] = [
     settings("git", "Git & PRs", false),
     settings("devices", "Devices", false),
     settings("keyboard", "Keyboard", true),
+    settings("updates", "Updates", false),
     settings("show", "Show", false),
     settings("data", "Data", false),
     page("new-chat", "New Chat", false),
