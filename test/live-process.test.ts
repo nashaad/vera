@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -17,6 +17,7 @@ import {
     liveProcessDirectory,
     liveProcessPath,
     postLiveProcess,
+    postLiveProcessIn,
     renderVeraPrune,
     signalListedProcess,
     stopListedLiveProcess,
@@ -40,6 +41,25 @@ test("a posted live process is listed until it is dropped", () => {
     expect(listLiveProcesses(home)).toEqual([record]);
     dropLiveProcess(record.pid, home);
     expect(listLiveProcesses(home)).toEqual([]);
+});
+
+test("@core TUI instance id round-trips through the live process store", () => {
+    const home = tempHome();
+    const startedAt = new Date(Date.now() - process.uptime() * 1_000).toISOString();
+    try {
+        const record = postLiveProcessIn(home, "tui", {
+            pid: process.pid, startedAt, runtimeDir: join(home, "runtime"),
+            clientInstanceId: "00000000-0000-4000-8000-000000000001",
+        });
+        expect(listLiveProcessesIn(home, () => Date.parse(startedAt))).toEqual([record]);
+        const host = postLiveProcessIn(home, "host", {
+            pid: process.pid, startedAt, runtimeDir: join(home, "runtime"),
+            clientInstanceId: "00000000-0000-4000-8000-000000000001",
+        });
+        expect(host.client_instance_id).toBeUndefined();
+    } finally {
+        rmSync(home, { recursive: true, force: true });
+    }
 });
 
 test("installLiveProcess titles, posts, and the disposer unlinks", () => {

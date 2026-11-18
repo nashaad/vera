@@ -16,7 +16,7 @@ import {
     writeRelaunchRecord,
 } from "../../src/release/relaunch.ts";
 import { launcherRelaunch, type TuiRelaunchRequest } from "./restart-notice.ts";
-import { installLiveProcess } from "../../src/live-process.ts";
+import { installLiveProcess, postLiveProcess } from "../../src/live-process.ts";
 import { readLastGoodConfig } from "./main/last-good-config.ts";
 import { requestCustomizationSources } from "./main/customization-sources.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
@@ -819,6 +819,7 @@ export async function startConfiguredTui(
         })
         : await agentClients.attachPaged(agentId);
     const flightRecorder = createTuiFlightRecorder();
+    postLiveProcess("tui", { clientInstanceId: flightRecorder.instanceId });
     if (agentId !== undefined) flightRecorder.sessionEntered(agentId);
     const rememberSession = (enteredAgentId: string): void => {
         saveTuiRecentSessionId(enteredAgentId);

@@ -185,7 +185,6 @@ function scaffoldReleaseSource(): string {
         "clients/cli/main.ts",
         "clients/host/main.ts",
         "clients/host/session-worker.ts",
-        "clients/tui/flight-watchdog.ts",
         "scripts/release-role-entry.ts",
         "src/annex/main.ts",
         "src/host/session-import-child.ts",

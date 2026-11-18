@@ -44,7 +44,7 @@ import {
 import { activateRelease } from "../../src/release/activate.ts";
 import { releaseProblem } from "../../src/release/handoff.ts";
 import { bootResidentHost, renderBootBox, type BootCheck, type BootInspection, type BootQuestion, type HostMode } from "../../src/host/boot.ts";
-import { discoverResetProcesses } from "../../src/host/reset-discovery.ts";
+import { clientOwnedWatchdog, discoverResetProcesses, stoppableResetCandidates } from "../../src/host/reset-discovery.ts";
 import { runHostReset } from "../../src/host/reset.ts";
 import { realResetSystem } from "../../src/host/reset-system.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
@@ -199,8 +199,7 @@ async function adoptableWorkers(): Promise<readonly WorkerRecord[] | undefined> 
     for (const candidate of discovery.candidates) {
         if (candidate.role === "client") continue;
         if (candidate.role === "worker") continue;
-        if (candidate.role === "watchdog"
-            && clients.some((pid) => targetPidIsAncestor(pid, { currentPid: candidate.pid }) === true)) continue;
+        if (clientOwnedWatchdog(candidate, clients)) continue;
         return undefined;
     }
     const { inspectWorkerRecords } = await import("../../src/host/pool/worker-record.ts");
@@ -227,7 +226,7 @@ async function inspectHome(): Promise<BootInspection> {
     const lock: BootInspection["lock"] = discovery.lock.state === "absent" ? "absent"
         : discovery.lock.state === "valid" ? (processIsAlive(discovery.lock.record.pid) ? "live" : "stale")
         : "damaged";
-    const orphans = hostAnswers ? 0 : discovery.candidates.filter((candidate) => candidate.role !== "client").length;
+    const orphans = hostAnswers ? 0 : stoppableResetCandidates(discovery.candidates).length;
     const problem = activeReleaseProblem();
     const homeProblem = homeFilesystemProblem(discovery.home);
     const blocker = configBlocker() ?? environmentBlocker(discovery.home);

@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { runCli } from "../../clients/cli/main.ts";
 import { defaultVeraHomeDirectory, veraHomeDirectory } from "../../src/profile-paths.ts";
 import { HOST_LOG_TAIL_BYTES } from "../../src/host/reset-backup.ts";
-import { discoverResetProcesses, veraRoleOf, type ResetProcessSample } from "../../src/host/reset-discovery.ts";
+import { clientOwnedWatchdog, discoverResetProcesses, stoppableResetCandidates, veraRoleOf, type ResetProcessSample } from "../../src/host/reset-discovery.ts";
 import {
     GRACEFUL_STOP_DEADLINE_MS,
     RESET_CONFIRM_QUESTION,
@@ -225,6 +225,49 @@ async function filesUnder(root: string, prefix = ""): Promise<string[]> {
     }
     return files.sort();
 }
+
+test("@core boot and reset leave a live client's old watchdog alone", async () => {
+    const { home } = await setupRoots();
+    const system = new FakeResetSystem();
+    const launch = { state: "set" as const, home };
+    system.add(7101, "vera-tui --vera-role=tui", { launch });
+    system.add(7102, "vera-watchdog --vera-role=watchdog", { launch });
+    system.add(7103, "vera-watchdog --vera-role=watchdog", { launch });
+    const isAncestor: NonNullable<ResetDependencies["isAncestor"]> = (pid, options) => pid === 7101 && options.currentPid === 7102;
+    const discovery = await discoverResetProcesses(system, { home });
+    expect(stoppableResetCandidates(discovery.candidates, isAncestor).map((candidate) => candidate.pid)).toEqual([7103]);
+    expect(stoppableResetCandidates(discovery.candidates, () => undefined)).toEqual([]);
+    const transcript = newTranscript();
+    const result = await runHostReset({ home, assumeYes: true }, makeDeps(system, transcript, { isAncestor }));
+    expect(result).toBe(0);
+    expect(system.signalLog()).toEqual(["7103 SIGTERM"]);
+    expect(system.isAlive(7101)).toBe(true);
+    expect(system.isAlive(7102)).toBe(true);
+    expect(transcript.out.join("\n")).toContain("client PID 7101, started 2026-11-01T10:00:00.000Z (attached client, left running)");
+    expect(transcript.out.join("\n")).toContain("watchdog PID 7102, started 2026-11-01T10:00:00.000Z (watchdog of an attached TUI, left running)");
+});
+
+test("@core host reset leaves a watchdog running when client ancestry is unknown", async () => {
+    const { home } = await setupRoots();
+    const system = new FakeResetSystem();
+    const launch = { state: "set" as const, home };
+    system.add(7201, "vera-tui --vera-role=tui", { launch });
+    system.add(7202, "vera-watchdog --vera-role=watchdog", { launch });
+    const isAncestor: NonNullable<ResetDependencies["isAncestor"]> = (pid) => pid === process.pid ? false : undefined;
+    const discovery = await discoverResetProcesses(system, { home });
+    const watchdog = discovery.candidates.find((candidate) => candidate.pid === 7202);
+    if (watchdog === undefined) throw new Error("watchdog was not discovered");
+    expect(clientOwnedWatchdog(watchdog, [7201], isAncestor)).toBe(true);
+    expect(stoppableResetCandidates(discovery.candidates, isAncestor)).toEqual([]);
+
+    const transcript = newTranscript();
+    const result = await runHostReset({ home, assumeYes: true }, makeDeps(system, transcript, { isAncestor }));
+    expect(result).toBe(0);
+    expect(system.signalLog()).toEqual([]);
+    expect(system.isAlive(7201)).toBe(true);
+    expect(system.isAlive(7202)).toBe(true);
+    expect(transcript.out.join("\n")).toContain("watchdog PID 7202, started 2026-11-01T10:00:00.000Z (watchdog of an attached TUI, left running)");
+});
 
 test("@core host reset stops a stuck daily home when the graceful stop never settles", async () => {
     const { home } = await setupRoots();

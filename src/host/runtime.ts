@@ -58,6 +58,7 @@ import {
 } from "./capabilities.ts";
 import { createAsyncHostLogger, createHostLogger, defaultHostLogPath, type HostLog, type HostLogEntry } from "./host-log.ts";
 import { createHostLockfile, defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
+import { startClientWatchdog, type ClientWatchdog } from "./client-watchdog.ts";
 import { removeStoppedPoolLock } from "./pool/worker-records.ts";
 import { hasInterruptedPoolScan } from "./pool/crash-scan.ts";
 import { stopRecordedWorkers } from "./pool/stop-worker.ts";
@@ -1088,6 +1089,7 @@ async function startHostRuntime(
     let closing: Promise<void> | undefined;
     let shutdownCause: HostShutdownCause = { reason: "shutdown_requested" };
     let logPruneTimer: ReturnType<typeof setInterval> | undefined;
+    let clientWatchdog: ClientWatchdog | undefined;
     let announceShutdown: () => void = () => {};
     const shutdownRequested = new Promise<void>((resolve) => {
         announceShutdown = resolve;
@@ -1097,6 +1099,8 @@ async function startHostRuntime(
         inProcessWorker?.stopSupervising?.();
         sessionHost.stopMaintenance();
         inProcessWorker?.stopMaintenance();
+        clientWatchdog?.close();
+        clientWatchdog = undefined;
         if (logPruneTimer !== undefined) {
             clearInterval(logPruneTimer);
             logPruneTimer = undefined;
@@ -1429,6 +1433,7 @@ async function startHostRuntime(
         throw error;
     }
 
+    clientWatchdog = startClientWatchdog(home, { log: hostLog });
     const buildId = thisProcessBuildId();
     const pruneOldLogs = () => {
         void pruneLogs(logDirectory, {

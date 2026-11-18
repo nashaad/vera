@@ -231,7 +231,8 @@ holds:
 - it answers on this home's host socket;
 - it holds a socket in this home's runtime directory.
 
-Attached clients are listed and left running.
+Attached clients and any watchdogs belonging to older attached TUIs are listed
+and left running.
 
 If the command finds a process it cannot prove belongs to this home, it changes
 nothing, prints the process and the reason, and exits 1. A process whose start
@@ -346,10 +347,17 @@ to send and record requester details.
 ## What prune can see
 
 Prune reads process registrations in `~/.vera/machine/live/`. Registered
-hosts, clients, workers, watchdogs, supervisors, and the local helper can
-appear there. Shell commands, tool subprocesses, launch wrappers, and
-in-process SDK instances do not. A registered process whose start time the
-system cannot report is not listed, and its registration is kept.
+hosts, clients, workers, supervisors, and the local helper can appear there.
+An older TUI's watchdog can also appear while that TUI is running. Shell
+commands, tool subprocesses, launch wrappers, and in-process SDK instances do
+not. A registered process whose start time the system cannot report is not
+listed, and its registration is kept.
+
+Each TUI writes a heartbeat and a diagnostic log under `runtime/logs/clients/`.
+The resident host watches up to 64 TUIs, oldest first, and records detected
+stalls, recovery and unexpected exits in their logs. It records a limit being
+reached in the host log. Detection is best effort across host restarts. Older
+TUIs continue to use their own watchdog until they exit.
 
 Before each signal, `vera prune`, `bun run dev:sweep` and the stray-process
 cleanup in `vera doctor` check again that the PID still belongs to the process
