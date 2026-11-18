@@ -3,8 +3,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { APP_BUNDLE_ID, assembleApp } from "../../scripts/desktop-dmg/app-bundle.ts";
-import { run } from "../../scripts/desktop-dmg/run.ts";
+import { APP_BUNDLE_ID, assembleApp } from "../../scripts/desktop-release/app-bundle.ts";
+import { run } from "../../scripts/desktop-release/run.ts";
+import { fakeElectronApp } from "./fake-electron-app.ts";
 
 const roots: string[] = [];
 
@@ -12,44 +13,13 @@ afterEach(() => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-const HELPERS = ["Electron Helper", "Electron Helper (GPU)", "Electron Helper (Plugin)", "Electron Helper (Renderer)"];
-
-function plist(entries: string): string {
-    return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>${entries}</dict></plist>\n`;
-}
-
-function fakeElectronApp(parent: string): string {
-    const app = join(parent, "Electron.app");
-    const contents = join(app, "Contents");
-    mkdirSync(join(contents, "MacOS"), { recursive: true });
-    mkdirSync(join(contents, "Resources"), { recursive: true });
-    writeFileSync(join(contents, "MacOS", "Electron"), "#!/bin/sh\n", { mode: 0o755 });
-    writeFileSync(join(contents, "Resources", "default_app.asar"), "asar");
-    writeFileSync(join(contents, "Resources", "electron.icns"), "old icon");
-    writeFileSync(join(contents, "Info.plist"), plist(
-        "<key>CFBundleName</key><string>Electron</string>"
-        + "<key>CFBundleExecutable</key><string>Electron</string>"
-        + "<key>CFBundleIdentifier</key><string>com.github.Electron</string>"
-        + "<key>ElectronAsarIntegrity</key><dict><key>Resources/default_app.asar</key><dict/></dict>",
-    ));
-    for (const name of HELPERS) {
-        const helper = join(contents, "Frameworks", `${name}.app`, "Contents");
-        mkdirSync(join(helper, "MacOS"), { recursive: true });
-        writeFileSync(join(helper, "MacOS", name), "#!/bin/sh\n", { mode: 0o755 });
-        writeFileSync(join(helper, "Info.plist"), plist(
-            `<key>CFBundleName</key><string>${name}</string><key>CFBundleIdentifier</key><string>com.github.Electron.helper</string>`,
-        ));
-    }
-    return app;
-}
-
 function extract(plistPath: string, key: string): string {
     return run("plutil", ["-extract", key, "raw", plistPath]).trim();
 }
 
 const MARK = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 400 400\"><circle cx=\"200\" cy=\"200\" r=\"200\" fill=\"#e8582a\"/></svg>\n";
 
-test.skipIf(process.platform !== "darwin")("assembleApp renames the executable and helpers and carries the release", async () => {
+test.skipIf(process.platform !== "darwin")("assembleApp renames the executable and helpers without a bundled release", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-app-bundle-"));
     roots.push(root);
     const appBuild = join(root, "dist");
@@ -59,9 +29,6 @@ test.skipIf(process.platform !== "darwin")("assembleApp renames the executable a
     mkdirSync(join(appBuild, "extensions", "vera.sample"), { recursive: true });
     writeFileSync(join(appBuild, "extensions", "vera.sample", "vera.desktop.json"), "{}\n");
     writeFileSync(join(appBuild, "extensions", "vera.sample", "worker.cjs"), "module.exports = {};\n");
-    const tarball = join(root, "vera-release.tar.gz");
-    writeFileSync(tarball, "archive");
-    writeFileSync(`${tarball}.sha256`, "abc  vera-release.tar.gz\n");
     const destination = join(root, "stage", "Vera.app");
     const iconSource = join(root, "mark.svg");
     writeFileSync(iconSource, MARK);
@@ -69,8 +36,6 @@ test.skipIf(process.platform !== "darwin")("assembleApp renames the executable a
     await assembleApp({
         electronApp: fakeElectronApp(root),
         appBuild,
-        releaseTarball: tarball,
-        releaseManifest: "{\"build_id\":\"vera-x\"}\n",
         iconSource,
         version: "0.1.0",
         destination,
@@ -115,8 +80,5 @@ test.skipIf(process.platform !== "darwin")("assembleApp renames the executable a
     expect(readFileSync(join(app, "dist", "renderer", "index.html"), "utf8")).toBe("<html></html>\n");
     expect(readFileSync(join(app, "dist", "extensions", "vera.sample", "worker.cjs"), "utf8")).toBe("module.exports = {};\n");
     expect(existsSync(join(app, "dist", "extensions", "vera.sample", "vera.desktop.json"))).toBe(true);
-    const release = join(contents, "Resources", "release");
-    expect(readFileSync(join(release, "vera-release.tar.gz"), "utf8")).toBe("archive");
-    expect(readFileSync(join(release, "vera-release.tar.gz.sha256"), "utf8")).toContain("abc");
-    expect(readFileSync(join(release, "manifest.json"), "utf8")).toContain("vera-x");
+    expect(existsSync(join(contents, "Resources", "release"))).toBe(false);
 });

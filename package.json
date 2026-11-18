@@ -22,7 +22,7 @@
     "dev:desktop": "bun run scripts/dev-desktop.ts",
     "catalog:build": "bun run catalog/build.ts",
     "desktop:build": "bun run clients/desktop/build.ts",
-    "desktop:dmg": "bun run scripts/build-desktop-dmg.ts",
+    "desktop:release": "bun run scripts/build-desktop-release.ts",
     "desktop:tour": "bun run desktop:build && node clients/desktop/tour/tour.mjs",
     "desktop:bench": "bun run desktop:build && node clients/desktop/bench/stream.mjs",
     "typecheck:desktop": "tsc --noEmit -p clients/desktop/tsconfig.json",

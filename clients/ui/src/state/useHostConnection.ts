@@ -13,7 +13,6 @@ export interface HostConnection {
     answer(id: string, yes: boolean): void;
     // Reads the session list now rather than at the next poll.
     refreshSessions(): void;
-    dismissInstallNotice(): void;
     listAgents(options?: ListAgentsOptions): Promise<AgentListFacts>;
 }
 
@@ -117,7 +116,6 @@ export function useHostConnection(log: OutputLog): HostConnection {
             log.append("info", `Answered ${yes ? "yes" : "no"}.`);
             dispatch({ type: "answered" });
         },
-        dismissInstallNotice: () => dispatch({ type: "dismiss_install_notice" }),
         listAgents: (options) => {
             const client = clientRef.current;
             if (client === undefined) return Promise.reject(new Error("The host is not connected."));

@@ -50,8 +50,6 @@ test("the snapshot is the same array until the log changes, and subscribers hear
 test("connection events become log lines; frames and layout commands do not", () => {
     const events: DesktopEvent[] = [
         { type: "phase", phase: "starting" },
-        { type: "phase", phase: "installing" },
-        { type: "install_notice", message: "The archive is damaged. Vera is using the release you already had." },
         { type: "ready", socketPath: "/s", pid: 12, buildId: "abcdef0123", home: "/h" },
         { type: "question", id: "q", text: "Replace the host?" },
         { type: "disconnected", reason: "The host is not running." },
@@ -61,9 +59,7 @@ test("connection events become log lines; frames and layout commands do not", ()
         { type: "command", id: "layout.togglePanel" },
     ] as DesktopEvent[];
     const lines = events.map((event) => describeEvent(event));
-    expect(lines.map((line) => line?.kind)).toEqual(["info", "info", "warning", "info", "warning", "warning", "error", "error", undefined, undefined]);
-    expect(lines[1]?.text).toBe("Installing the Vera release inside this app.");
-    expect(lines[2]?.text).toBe("Release install failed: The archive is damaged. Vera is using the release you already had.");
-    expect(lines[3]?.text).toBe("Attached to host 12, build abcdef0, home /h.");
-    expect(lines[5]?.text).toBe("Connection lost: The host is not running.");
+    expect(lines.map((line) => line?.kind)).toEqual(["info", "info", "warning", "warning", "error", "error", undefined, undefined]);
+    expect(lines[1]?.text).toBe("Attached to host 12, build abcdef0, home /h.");
+    expect(lines[3]?.text).toBe("Connection lost: The host is not running.");
 });

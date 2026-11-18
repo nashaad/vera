@@ -13,8 +13,7 @@ import type { ExtensionCommandResult } from "./extension-commands.ts";
 import type { BrowserBounds, BrowserState } from "../browser/native-types.ts";
 import type { AgentInfo, SkillInfo, SourceInfo } from "../customize/wire.ts";
 
-// "installing" is the packaged app putting its bundled release in place before it connects.
-export type DesktopPhase = "starting" | "installing" | "waiting" | "attached";
+export type DesktopPhase = "starting" | "waiting" | "attached";
 
 export interface LocalPreviewScope {
     readonly ok: true;
@@ -36,8 +35,6 @@ export type DesktopEvent =
         readonly home: string;
     }
     | { readonly type: "question"; readonly id: string; readonly text: string }
-    // The bundled release could not be installed and the Vera already on the machine is used instead.
-    | { readonly type: "install_notice"; readonly message: string }
     | { readonly type: "frame"; readonly text: string }
     // False while the window is hidden or minimized.
     | { readonly type: "window_shown"; readonly shown: boolean }

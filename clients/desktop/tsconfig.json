@@ -5,5 +5,5 @@
         "types": ["node"],
         "jsx": "react-jsx"
     },
-    "include": ["./src/**/*.ts", "../../extensions/vscode-theme-import/**/*.ts"]
+    "include": ["./src/**/*.ts", "./shell/**/*.ts", "../../extensions/vscode-theme-import/**/*.ts"]
 }

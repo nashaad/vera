@@ -42,7 +42,7 @@ export function App() {
         }
     }), []);
     const [log] = useState(() => new OutputLog());
-    const { state, reconnect, answer, refreshSessions, dismissInstallNotice, listAgents } = useHostConnection(log);
+    const { state, reconnect, answer, refreshSessions, listAgents } = useHostConnection(log);
     useWindowEvidence(state, log);
     const visible = useVisibility();
     const unavailable = useMemo(() => unavailableContainers(visible), [visible]);
@@ -88,7 +88,7 @@ export function App() {
                         <Workbench
                             platform={platform}
                             banner={banner !== undefined ? (
-                                <HostBanner banner={banner} onAnswer={answer} onReconnect={reconnect} onDismiss={dismissInstallNotice} />
+                                <HostBanner banner={banner} onAnswer={answer} onReconnect={reconnect} />
                             ) : null}
                             {...(platform === "darwin" ? { onTitleBarHeight: reportTitleBarHeight } : {})}
                         />
