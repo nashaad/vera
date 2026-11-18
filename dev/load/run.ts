@@ -1,12 +1,14 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
-import { availableParallelism, tmpdir } from "node:os";
+import { rm, symlink } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import { includedExtensionIds } from "../../src/extensions/included.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { inspectHostLockFile } from "../../src/host/lockfile.ts";
 import { assertTrialHome, command, LOAD_ROOT, REPO, rows, waitFor } from "./common.ts";
-import { buildFactory, cloneFactory, configureHome, FACTORY_VERSION } from "./factory.ts";
+import { cloneFactory, configureHome } from "./factory.ts";
+import { ArtifactSetupCleanupError, factoryFor, pruneRetained, removeActive, RunArtifacts } from "./artifacts.ts";
+import { RunLock } from "./lock.ts";
 import { ProcessOwner, type StopMeasurement } from "./processes.ts";
 import { checkFailed, collectResult, footprintDetails, table, type Footprint, type Result, type Scenario } from "./results.ts";
 import { processReadings, sampleFootprints } from "./metrics.ts";
@@ -16,6 +18,8 @@ import { parseLoadOptions } from "./options.ts";
 
 export interface RunOptions {
     readonly cpuProfile?: boolean;
+    readonly collect?: typeof collectResult;
+    readonly signal?: AbortSignal;
 }
 
 interface StartingClientBatch {
@@ -28,14 +32,15 @@ const MAX_STARTING_CLIENT_BATCHES = 4;
 export async function runScenario(scenario: Scenario, root = LOAD_ROOT, options: RunOptions = {}): Promise<Result> {
     assertTrialHome();
     await command(["/bin/ps", "-p", String(process.pid), "-o", "pid="]);
-    await mkdir(root, { recursive: true });
-    const lock = join(root, "run.lock");
-    await mkdir(lock).catch(() => { throw new Error(`Runner lock exists: ${lock}`); });
-    const run = await mkdtemp(join(tmpdir(), "vera-dev", "hl-"));
-    const home = join(run, "home");
-    const owner = new ProcessOwner(run, home);
+    root = assertTrialHome(root);
+    const lock = await RunLock.acquire(root);
     const errors: string[] = [];
     const active = join(root, "active");
+    let artifacts: RunArtifacts | undefined;
+    let owner: ProcessOwner;
+    let activeCreated = false;
+    let safeToClean = true;
+    let result: Result | undefined;
     let start = Date.now();
     let end = start;
     let startedAwake = performance.now();
@@ -47,22 +52,56 @@ export async function runScenario(scenario: Scenario, root = LOAD_ROOT, options:
     let kill: KillPlan | undefined;
     let failedRecords: number | null = null;
     const interrupt = () => { interrupted = true; };
+    const checkInterrupted = () => { if (interrupted) throw new Error("Interrupted"); };
     process.on("SIGINT", interrupt);
     process.on("SIGTERM", interrupt);
-    const sha = (await command(["git", "-C", REPO, "rev-parse", "HEAD"])).trim();
+    options.signal?.addEventListener("abort", interrupt);
+    if (options.signal?.aborted === true) interrupt();
+    const removeInterruptHandlers = () => {
+        process.off("SIGINT", interrupt);
+        process.off("SIGTERM", interrupt);
+        options.signal?.removeEventListener("abort", interrupt);
+    };
     try {
-        const factory = join(root, `factory-v${FACTORY_VERSION}-${scenario.seed}${scenario.small ? "-small" : ""}`);
-        const manifest = await buildFactory({ root: factory, seed: scenario.seed, workspace: join(active, "workspace"), small: scenario.small });
+        artifacts = await RunArtifacts.create(root);
+        await lock.register(artifacts);
+        owner = new ProcessOwner(artifacts.run, artifacts.home);
+    } catch (error) {
+        let cleaned = artifacts === undefined && !(error instanceof ArtifactSetupCleanupError);
+        try {
+            if (artifacts !== undefined) {
+                await artifacts.finish();
+                cleaned = true;
+                await pruneRetained(root, artifacts.run);
+            }
+        } finally {
+            removeInterruptHandlers();
+            if (cleaned) await lock.release();
+        }
+        throw error;
+    }
+    const { run, home } = artifacts;
+    let sha = "";
+    try {
+        checkInterrupted();
+        sha = (await command(["git", "-C", REPO, "rev-parse", "HEAD"])).trim();
+        checkInterrupted();
+        const { path: factory, manifest } = await factoryFor(root, run, scenario.seed, scenario.small, join(active, "workspace"));
+        checkInterrupted();
         if (scenario.sessions > manifest.sessions.length) throw new Error("Not enough factory sessions");
-        // ProcessOwner creates the home before the copy so cp copies its contents explicitly.
-        await rm(home, { recursive: true });
+        await lock.running();
+        await rm(join(run, "home"), { recursive: true });
         await cloneFactory(factory, run);
-        await rm(active, { force: true });
+        await lock.setup();
+        checkInterrupted();
         await symlink(run, active);
+        activeCreated = true;
+        await lock.running();
         const provider = owner.start("provider", join(REPO, "dev/load/provider.ts"), { LOAD_SEED: String(scenario.seed) });
         await waitFor(() => { if (provider.exitCode !== null) throw new Error("Provider exited"); return existsSync(join(run, "provider-ready.json")); }, 10_000, "provider start");
         const { port } = await Bun.file(join(run, "provider-ready.json")).json();
         await configureHome(home, port, scenario.extensions, scenario.workers);
+        checkInterrupted();
         const memorySampling = process.env.LOAD_MEMHEAP === "1";
         const bunOptions = [`--preload=${join(REPO, "dev/load/drift.ts")}`];
         if (memorySampling) bunOptions.push(`--preload=${join(REPO, "dev/load/memheap.ts")}`);
@@ -172,16 +211,34 @@ export async function runScenario(scenario: Scenario, root = LOAD_ROOT, options:
             }
             catch (error) { errors.push(`Stop: ${error}`); }
         }
-        try { await owner.stop(); } catch (error) { errors.push(`Cleanup: ${error}`); }
-        await rm(active, { force: true });
-        await rm(lock, { recursive: true });
-        process.off("SIGINT", interrupt);
-        process.off("SIGTERM", interrupt);
+        try {
+            await owner.stop();
+            await lock.stopped(owner.identities());
+        } catch (error) {
+            safeToClean = false;
+            errors.push(`Cleanup: ${error}`);
+        }
     }
-    const result = collectResult(run, scenario, start, Math.max(end, start + 1), sha, { start: initial, end: final }, errors, stopped, kill, failedRecords);
-    await Bun.write(join(run, "result.json"), JSON.stringify(result, null, 2));
-    await Bun.write(join(run, "result.md"), `${table([result])}\n${footprintDetails(result)}`);
-    process.stdout.write(`${table([result])}\n${footprintDetails(result)}\nRESULT ${join(run, "result.json")}\n`);
+    try {
+        if (!safeToClean) throw new Error(`${errors.join("; ")}. Retained run, active link, and lock: ${run}`);
+        result = (options.collect ?? collectResult)(run, scenario, start, Math.max(end, start + 1), sha, { start: initial, end: final }, errors, stopped, kill, failedRecords);
+        await Bun.write(join(run, "result.json"), JSON.stringify(result, null, 2));
+        await Bun.write(join(run, "result.md"), `${table([result])}\n${footprintDetails(result)}`);
+    } finally {
+        removeInterruptHandlers();
+        if (safeToClean) {
+            let cleaned = false;
+            try {
+                await artifacts.finish();
+                cleaned = true;
+                if (activeCreated) await removeActive(active, artifacts.run);
+                await pruneRetained(root, artifacts.run);
+            } finally {
+                if (cleaned) await lock.release();
+            }
+        }
+    }
+    process.stdout.write(`${table([result])}\n${footprintDetails(result)}\nRESULT ${join(result.run, "result.json")}\n`);
     return result;
 }
 
@@ -196,7 +253,7 @@ if (import.meta.main) {
         results.push(result);
         if (result.errors.length) break;
     }
-    const path = join(LOAD_ROOT, `matrix-${Date.now()}.md`);
+    const path = join(results[results.length - 1]!.run, "matrix.md");
     await Bun.write(path, table(results));
     process.stdout.write(`TABLE ${path}\n`);
     if (results.some((result) => result.errors.length > 0) || (options.check && results.some(checkFailed))) process.exitCode = 1;
