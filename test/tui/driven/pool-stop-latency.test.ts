@@ -97,7 +97,7 @@ for (const force of [false, true]) {
                 command.exited, new Response(command.stdout).text(), new Response(command.stderr).text(),
             ]);
             if (!force) {
-                await session.waitForVisiblePane("Vera is stopping.");
+                await session.waitForVisiblePane("Vera stops when running turns finish.");
                 session.sendKey("Escape");
                 gate.resolve();
             }

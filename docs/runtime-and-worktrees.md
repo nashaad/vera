@@ -275,6 +275,9 @@ Ordinary `vera host stop` asks the host to stop once its running turns end.
 It lists the sessions it waits on and refuses new turns until the host stops.
 An attached TUI names a waiting session in a dialog and above its composer,
 updates it as the wait changes, and removes the notice when the wait ends.
+Choose **Keep waiting** to let the turns finish, or **Stop it now** to cut the
+waited turns and drop their queued prompts. The same choices appear during an
+update that waits for turns.
 It prints Stopped only after the process exits. If the host does not answer,
 the command leaves it running and exits with status 1. `vera host stop --force`
 asks the host to cut the running turns and drop their queued prompts, then stop.
