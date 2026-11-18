@@ -445,8 +445,8 @@ ipcMain.on(CHANNELS.theme, (event, choice: unknown) => {
 });
 ipcMain.handle(CHANNELS.themesLoad, (event) => (fromWindow(event) ? themeService.load() : []));
 ipcMain.handle(CHANNELS.extensionCommand, async (event, command: unknown, pick: unknown, token: unknown, frameName: unknown): Promise<ExtensionCommandResult> => {
-    if (!fromWindow(event) || window === undefined) return { ok: false, reason: "That window cannot import themes." };
-    if (typeof command !== "string" || (pick !== undefined && typeof pick !== "string") || (token !== undefined && (typeof token !== "string" || token.length > 64))) return { ok: false, reason: "Vera could not import that theme." };
+    if (!fromWindow(event) || window === undefined) return { ok: false, reason: "That window cannot run extension commands." };
+    if (typeof command !== "string" || (pick !== undefined && typeof pick !== "string") || (token !== undefined && (typeof token !== "string" || token.length > 64))) return { ok: false, reason: "Vera could not run that command." };
     if (frameName !== undefined && (typeof frameName !== "string" || frameName.length === 0 || frameName.length > 256)) return { ok: true, kind: "closed" };
     const script = extensionStore.pageScript(command);
     if (script !== undefined && pick === undefined) {

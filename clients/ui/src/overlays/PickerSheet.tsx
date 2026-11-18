@@ -4,7 +4,7 @@ import { PaletteRow } from "./CommandPalette.tsx";
 import { rankItems, type PaletteItem, type RankedItem } from "./palette.ts";
 import type { PickerRequest } from "./store.ts";
 
-const CUT_NOTE = "More themes are installed than this list shows.";
+const CUT_NOTE = "More items are available than this list shows.";
 
 function itemsOf(request: PickerRequest): readonly PaletteItem[] {
     return request.items.map((item): PaletteItem => ({

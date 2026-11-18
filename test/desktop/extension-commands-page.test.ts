@@ -66,9 +66,9 @@ test("the picker sheet lists the items with their details, and notes a cut list"
     expect(html).toContain('data-pick="pick-0"');
     expect(html).toContain('data-pick="pick-1"');
     expect(html).toContain("Crow Pack");
-    expect(html).toContain("More themes are installed than this list shows.");
+    expect(html).toContain("More items are available than this list shows.");
     expect(html).toContain('placeholder="Type to filter"');
     const whole = renderToStaticMarkup(createElement(PickerSheet, { request: { ...request, items: [], cut: false }, onClose: () => {} }));
     expect(whole).toContain("No matches");
-    expect(whole).not.toContain("More themes");
+    expect(whole).not.toContain("More items are available than this list shows.");
 });

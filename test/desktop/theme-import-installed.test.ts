@@ -153,14 +153,14 @@ test("@core the next list replaces the last, so an old key is not read against t
     roots[0] = single;
     const again = await service.run(INSTALLED_COMMAND);
     expect(again.ok && again.kind === "pick" && again.items.map((item) => item.label)).toEqual(["Lone Crow"]);
-    expect(await service.run(INSTALLED_COMMAND, "pick-1")).toEqual({ ok: false, reason: "That theme is not in the list. Open the list again." });
+    expect(await service.run(INSTALLED_COMMAND, "pick-1")).toEqual({ ok: false, reason: "That item is not in the list. Open the list again." });
     const picked = await service.run(INSTALLED_COMMAND, "pick-0");
     expect(picked.ok && picked.kind === "themes" && picked.imported.map((theme) => theme.name)).toEqual(["Lone Crow"]);
 });
 
 test("@core a key the last list did not hold is refused, so a request cannot name a path", async () => {
     const { service, sent } = commandsOver(scratchDirectory(), [fixtureRoot()]);
-    const stale = { ok: false, reason: "That theme is not in the list. Open the list again." } as const;
+    const stale = { ok: false, reason: "That item is not in the list. Open the list again." } as const;
     expect(await service.run(INSTALLED_COMMAND, "pick-0")).toEqual(stale);
     await service.run(INSTALLED_COMMAND);
     for (const key of ["../../etc/passwd", "pick-9", "/Users/crow/theme.json", "", "pick-00000", "pick--1"]) expect(await service.run(INSTALLED_COMMAND, key)).toEqual(stale);
@@ -188,8 +188,8 @@ test("a command that is missing, or whose extension is not included, runs nothin
         chooseFile: async () => { throw new Error("A dialog must not open."); },
     };
     const service = new ExtensionCommandService(host, themes);
-    expect(await service.run(IMPORT_COMMAND)).toEqual({ ok: false, reason: "Vera could not import that theme." });
-    expect(await service.run("vera.unknown.command")).toEqual({ ok: false, reason: "Vera could not import that theme." });
+    expect(await service.run(IMPORT_COMMAND)).toEqual({ ok: false, reason: "Vera could not run that command." });
+    expect(await service.run("vera.unknown.command")).toEqual({ ok: false, reason: "Vera could not run that command." });
 });
 
 test("@core a file command asks for a file with the manifest's filter, and cancelling runs nothing and reports nothing", async () => {
