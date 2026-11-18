@@ -734,6 +734,17 @@ async function hostHasSessions(socketPath: string): Promise<boolean> {
 
 const HOME_SESSION_PROBE_PAGES = 4;
 
+export function relaunchAfterRecorderShutdown(
+    recorder: Pick<TuiFlightRecorder, "close">,
+    relaunch: TuiDependencies["relaunchTui"],
+): TuiDependencies["relaunchTui"] {
+    if (relaunch === undefined) return undefined;
+    return async (request) => {
+        await recorder.close("relaunch");
+        await relaunch(request);
+    };
+}
+
 export async function startConfiguredTui(
     requestedTarget: TuiStartTarget,
     options: TuiStartOptions = {},
@@ -825,11 +836,11 @@ export async function startConfiguredTui(
         const exit = await startTui({
             client,
             initialDraft: restored?.draft,
-            relaunchTui: launcherRelaunch(launcherKey, {
+            relaunchTui: relaunchAfterRecorderShutdown(flightRecorder, launcherRelaunch(launcherKey, {
                 writeRecord: writeRelaunchRecord,
                 markTerminalRestored,
                 exit: (code) => process.exit(code),
-            }),
+            })),
             clientBuildId,
             installedBuildId: () => currentReleaseBuildId(),
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
@@ -945,8 +956,11 @@ export async function startConfiguredTui(
         client.close();
         throw error;
     } finally {
-        flightRecorder.close("tui_returned");
-        removeLiveProcess();
+        try {
+            await flightRecorder.close("tui_returned");
+        } finally {
+            removeLiveProcess();
+        }
     }
 }
 
