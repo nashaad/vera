@@ -1085,7 +1085,6 @@ export async function startTui(
     // The restart notice ends once this TUI is attached to a host again.
     rt.relaunching = undefined;
     rt.plannedHostStop = undefined;
-    // One automatic host restart per drop. Clear only after the reconnected session is idle, or a dying worker loops.
     rt.hostReconnectAttempted = false;
     // agent_failed already arrived; the later stream close is not a dropped host.
     rt.agentFailedThisAttachment = false;

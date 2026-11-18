@@ -18,6 +18,7 @@ import type { TuiSessionLeaveDisposition, TuiSessionLeaveResult } from "../sessi
 import { appendTuiDiagnostic, appendTuiError, failTuiConnection, type TuiState } from "../state.ts";
 import type { TuiTimelinePickerTransition } from "../timeline-picker.ts";
 import type { TuiRuntime } from "./runtime.ts";
+import { ReconnectBudget } from "./reconnect-budget.ts";
 
 export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
     if (rt.dialStrip !== undefined) {
@@ -464,6 +465,9 @@ export function beginHostReconnect(rt: TuiRuntime,
     },
 ): void {
     const currentAgentId = rt.client.agentId;
+    if (options.manual === true && currentAgentId !== undefined) {
+        rt.hostReconnectBudget?.clear(currentAgentId);
+    }
     if (
         rt.sessionSwitchPending
         || rt.dependencies.reconnectSession === undefined
@@ -756,10 +760,10 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown, receiveEnd
         return;
     }
     if (
-        !rt.hostReconnectAttempted
-        && automaticReconnectAllowed(rt.plannedHostStop, rt.relaunching)
+        automaticReconnectAllowed(rt.plannedHostStop, rt.relaunching)
         && rt.dependencies.reconnectSession !== undefined
         && rt.client.agentId !== undefined
+        && (rt.hostReconnectBudget ??= new ReconnectBudget()).tryStart(rt.client.agentId)
     ) {
         rt.hostReconnectAttempted = true;
         beginHostReconnect(rt, { clearComposer: false, lossMessage: message });

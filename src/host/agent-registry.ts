@@ -1408,7 +1408,7 @@ export class AgentRegistry {
                         if (reason !== undefined) this.haltInProcess(entry, reason);
                         if (agent.attached) {
                             for (const change of this.options.readExtensionConfigDrift?.() ?? []) {
-                                publishExtensionConfigChange(inbound, change);
+                                publishExtensionConfigDrift(agent, inbound, change);
                             }
                         }
                     },
@@ -1625,13 +1625,11 @@ export class AgentRegistry {
         }
         agent.onAttachmentChanged((attached) => {
             if (!attached || entry.inbound === undefined) return;
-            const changes = this.options.readExtensionConfigDrift?.() ?? [];
-            if (changes.length === 0) return;
             // The attach replays its checkpoint and update window after this callback.
             queueMicrotask(() => {
-                if (entry.inbound === undefined) return;
-                for (const change of changes) {
-                    publishExtensionConfigChange(entry.inbound, change);
+                if (entry.inbound === undefined || !agent.attached) return;
+                for (const change of this.options.readExtensionConfigDrift?.() ?? []) {
+                    publishExtensionConfigDrift(agent, entry.inbound, change);
                 }
             });
         });
@@ -1858,6 +1856,16 @@ export class AgentRegistry {
     requireOpen(): void {
         return registryLifecycle.requireOpen(this);
     }
+}
+
+function publishExtensionConfigDrift(
+    agent: ResidentAgent,
+    inbound: InboundCommandRouter,
+    change: ExtensionConfigChange,
+): void {
+    const text = extensionConfigNoticeText(change);
+    if (agent.hasReplayNotice(EXTENSION_CONFIG_NOTICE_KEY, text)) return;
+    publishExtensionConfigChange(inbound, change);
 }
 
 function publishExtensionConfigChange(
