@@ -131,9 +131,13 @@ vera update
 
 It installs the newest published release and prints its release notes first.
 `vera update <version>` installs a named version, and `vera update --check`
-reports the running and newest versions without installing anything. A
-checkout or development instance is refused; update that install with
-`bun run install:local` instead. See
+reports the running and newest versions without installing anything.
+`vera update --download-only` fetches the release and stops before switching.
+On macOS the update moves the host and the desktop app together, and replaces
+`Vera.app` when the new desktop package needs a newer one. It waits for running
+sessions to finish, and a failed or interrupted update leaves either the whole
+previous version or the whole new one. A checkout or development instance is
+refused; update that install with `bun run install:local` instead. See
 [Update from a release](installed-command.md#update-from-a-release).
 
 From the checkout containing the version you want, run the same installation

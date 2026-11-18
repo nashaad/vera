@@ -98,6 +98,62 @@ downloaded. It turns on once the desktop app for it is released; run 'vera
 update' again then.` Run `vera update` again after that release to activate it. A CLI-only install, and any install on Linux,
 updates without a desktop package.
 
+The desktop app is a shell, `Vera.app`, that runs the desktop package for the
+host build. When a new package needs a newer shell than the installed app,
+`vera update` downloads the release's `vera-desktop-shell-darwin-<arch>.tar.gz`,
+verifies it and replaces `Vera.app` in place in the folder it was installed to,
+as part of the same update. The new app takes the old one's place in one step,
+so the app is never missing. The old copy is removed once the new one is in
+place, or by a later update when the desktop app was still running. The update
+changes nothing and prints why when:
+
+- there is no app at the recorded path: `Vera <version> needs a newer desktop
+  app, but there is no app at <path>. Nothing was changed. Run the Vera
+  installer to add it.`
+- the recorded path is not the Vera desktop app, so it is left alone;
+- the folder is not writable, so the app cannot be replaced;
+- the release has no desktop package or shell archive yet;
+- the shell archive does not hold only the Vera desktop app, is older than the
+  package needs, or does not match its checksum.
+
+A rollback never replaces the app: a newer shell runs an older package.
+
+`vera update --download-only` stages the release, its desktop package and, when
+the app must be replaced, the shell archive, then stops without switching
+anything. `vera update` afterwards switches without downloading again.
+
+When a host is running on another build, `vera update` waits for its running
+sessions to finish before it switches. It prints `Waiting for <titles> to finish
+before updating (up to 30 minutes). Press Ctrl-C to stop waiting.` Ctrl-C, or
+SIGTERM, while it waits stops the update with nothing changed. If sessions are
+still running at the limit, nothing is changed and the message names them:
+`Vera is still busy after 30 minutes: <titles>. Nothing was changed. Run the
+update again when the sessions have finished.` Once the switch has begun,
+signals are ignored and it finishes.
+
+An interrupted `vera update`, whether the terminal closed, the process was
+killed or the machine lost power, leaves either the whole previous pair of host
+release and desktop package or the whole new pair; running `vera update` again
+finishes it. A download that fails, ends early, does not match its checksum or
+runs out of disk changes nothing, and running the update again fetches it
+again. Only one `vera update` or `vera rollback` runs at a time; a second one
+says which process holds the lock and exits.
+
+Clients run the same update with `--json`. `vera update --check --json` prints
+one object and exits 0 whatever the answer: `status` is `up_to_date`,
+`available`, `downloaded` (the release and everything it needs is staged),
+`held` or `unavailable`, with `current_version`, `current_build`,
+`latest_version` and a `message` when there is something to say.
+`vera update --json [--download-only]` prints one object per line: a `phase` of
+`checking`, `downloading` (with `bytes` and `total` when known), `waiting` (with
+the `sessions` that are running, each an `id` and a `title`, and `waited_ms`
+against `limit_ms`) or `switching`, then one last object with `result` set to
+`done`, `up_to_date`, `held`, `downloaded`, `failed` or `cancelled`, a
+`message` when there is one, and `changed`, which is true only when the active
+host and desktop package moved. It exits 1 for `failed` and `cancelled`. A check
+that takes longer than 60 seconds ends `unavailable`, and a run that has not
+begun switching after 40 minutes ends `failed` with nothing changed.
+
 Run `vera update` from an installed release. A checkout or development
 instance is refused and pointed at `bun run install:local`, and the command
 always uses the install prefix of the running release.
