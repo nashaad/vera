@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { socketAndLoopbackTest } from "../support/socket-probe.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 import { recoverHome } from "../../clients/host/launch.ts";
 import { bootResidentHost } from "../../src/host/boot.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
@@ -35,7 +36,7 @@ async function waitFor(check: () => boolean | Promise<boolean>, label: string): 
 socketAndLoopbackTest("startup resets a worker whose identity differs from its record", async () => {
     const root = mkdtempSync(join(tmpdir(), "boot-pool-"));
     const home = join(root, "h");
-    const env = { ...process.env, HOME: root, VERA_HOME: home, VERA_DEV_INSTANCE: "dropwork dev", TMPDIR: root };
+    const env = { ...process.env, HOME: sourceTestHome(root), VERA_HOME: home, VERA_DEV_INSTANCE: "dropwork dev", TMPDIR: root };
     mkdirSync(home);
     writeFileSync(join(home, "config.json"), JSON.stringify({
         schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
@@ -52,6 +53,7 @@ socketAndLoopbackTest("startup resets a worker whose identity differs from its r
     try {
         await waitFor(() => read(workerRecord)?.pid !== undefined && read(hostRecord)?.pid === child.pid, "initial pool");
         const initial = read(workerRecord)!;
+        expect(initial.build_id).toBe("dev");
         workers.add(initial.pid);
         if (child.pid === undefined || !verified(child.pid, home, "vera-host")) throw new Error("Could not verify test host");
         child.kill("SIGKILL");
@@ -69,6 +71,8 @@ socketAndLoopbackTest("startup resets a worker whose identity differs from its r
             return record !== undefined && record.pid !== initial.pid;
         }, "replacement worker");
         const replacement = read(workerRecord)!;
+        expect(replacement.build_id).toBe("dev");
+        expect(read(hostRecord)?.build_id).toBe("dev");
         workers.add(replacement.pid);
         expect(alive(initial.pid)).toBe(false);
         expect(newHost).toBeDefined();
@@ -102,7 +106,7 @@ socketAndLoopbackTest("a host started before a simulated adoption timeout exits 
         schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
         providers: { stub: { protocol: "openai-chat", base_url: "http://127.0.0.1:9/v1", credential: "none" } },
     }));
-    const env = { ...process.env, HOME: root, VERA_HOME: home, VERA_DEV_INSTANCE: "dropwork dev", TMPDIR: root };
+    const env = { ...process.env, HOME: sourceTestHome(root), VERA_HOME: home, VERA_DEV_INSTANCE: "dropwork dev", TMPDIR: root };
     const oldHome = process.env.VERA_HOME;
     process.env.VERA_HOME = home;
     const children: ReturnType<typeof spawn>[] = [];

@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { forceStopResidentHost } from "../../src/host/force-stop.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 
 interface LiveRecord {
     readonly kind: string;
@@ -57,7 +58,7 @@ realProcessTest("a TUI that exits after a busy host stop removes its live record
         providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
     }));
     const env = {
-        PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: root, TMPDIR: root, VERA_HOME: home,
+        PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: sourceTestHome(root), TMPDIR: root, VERA_HOME: home,
         VERA_DEV_INSTANCE: "stopfix dev", TERM: "xterm-256color",
         HTTP_PROXY: "http://127.0.0.1:9", HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "localhost,127.0.0.1,::1",
     };

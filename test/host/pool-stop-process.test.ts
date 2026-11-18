@@ -1,6 +1,7 @@
 import { tmpdir } from "node:os";
 import { expect } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -66,7 +67,7 @@ async function startPool(mode: "plain" | "pool" = "pool", delayReplacement = fal
         providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
     }));
     const child: ChildProcess = spawn(process.execPath, [join(import.meta.dir, "fixtures", "pool-stop-host.ts")], {
-        cwd: process.cwd(), env: { ...process.env, VERA_HOME: home, VERA_DEV_INSTANCE: "stopfix dev", HS9_STOP_MODE: mode,
+        cwd: process.cwd(), env: { ...process.env, HOME: sourceTestHome(home), VERA_HOME: home, VERA_DEV_INSTANCE: "stopfix dev", HS9_STOP_MODE: mode,
             ...(delayReplacement ? { HS9_DELAY_REPLACEMENT: "1" } : {}) }, stdio: "ignore",
     });
     const exited = new Promise<number | null>((resolve) => child.once("close", resolve));
@@ -124,7 +125,7 @@ for (const mode of ["plain", "pool"] as const) {
                     .filter((pid) => Number.isSafeInteger(pid) && pid > 0);
                 const command = Bun.spawn([process.execPath, "clients/cli/main.ts", "host", "stop", ...(force ? ["--force"] : []), "--yes"], {
                     cwd: process.cwd(),
-                    env: { ...process.env, VERA_HOME: fixture.home, VERA_DEV_INSTANCE: "stopfix dev" },
+                    env: { ...process.env, HOME: fixture.home, VERA_HOME: fixture.home, VERA_DEV_INSTANCE: "stopfix dev" },
                     stdout: "pipe", stderr: "pipe",
                 });
                 const [exitCode, stdout, stderr] = await Promise.all([
@@ -158,7 +159,7 @@ for (const mode of ["plain", "pool"] as const) {
                 }
                 const command = Bun.spawn([process.execPath, "clients/cli/main.ts", "host", "stop", ...(force ? ["--force"] : []), "--yes"], {
                     cwd: process.cwd(),
-                    env: { ...process.env, VERA_HOME: fixture.home, VERA_DEV_INSTANCE: "stopfix dev" },
+                    env: { ...process.env, HOME: fixture.home, VERA_HOME: fixture.home, VERA_DEV_INSTANCE: "stopfix dev" },
                     stdout: "pipe", stderr: "pipe",
                 });
                 const [exitCode, stdout, stderr] = await Promise.all([
@@ -204,7 +205,7 @@ for (const mode of ["plain", "pool"] as const) {
 
                 const command = Bun.spawn([process.execPath, "clients/cli/main.ts", "host", "stop", ...(force ? ["--force"] : []), "--yes"], {
                     cwd: process.cwd(),
-                    env: { ...process.env, VERA_HOME: fixture.home, VERA_DEV_INSTANCE: "stopfix dev" },
+                    env: { ...process.env, HOME: fixture.home, VERA_HOME: fixture.home, VERA_DEV_INSTANCE: "stopfix dev" },
                     stdout: "pipe",
                     stderr: "pipe",
                 });
@@ -249,7 +250,7 @@ for (const mode of ["plain", "pool"] as const) {
             await waitFor(() => fixture.requests === 1, "running turn");
             const command = Bun.spawn([process.execPath, "clients/cli/main.ts", "host", "stop", "--force", "--yes"], {
                 cwd: process.cwd(),
-                env: { ...process.env, VERA_HOME: fixture.home, VERA_DEV_INSTANCE: "stopfix dev" },
+                env: { ...process.env, HOME: fixture.home, VERA_HOME: fixture.home, VERA_DEV_INSTANCE: "stopfix dev" },
                 stdout: "pipe", stderr: "pipe",
             });
             const [exitCode, stdout, stderr] = await Promise.all([

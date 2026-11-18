@@ -18,6 +18,7 @@ import { appendRestartRecord, defaultRestartRecordPath, listRestartRecords } fro
 import {
     CRASH_CUT_MESSAGE, CRASH_QUEUED_PROMPT_MESSAGE, readSessionHeader, readSessionTurnState, SessionStore,
 } from "../../src/store/session-store.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 
 interface CrashFixture {
     readonly home: string;
@@ -233,6 +234,8 @@ for (const scenario of ["adopt", "replace", "unready_adoption", "unready_replace
     const release = Promise.withResolvers<void>();
     let restoreWorker: (() => void) | undefined;
     const previousDev = process.env.VERA_DEV_INSTANCE;
+    const previousHome = process.env.HOME;
+    process.env.HOME = sourceTestHome(join(data.home, "user"));
     process.env.VERA_DEV_INSTANCE = "pooldef dev";
     const child = Bun.spawn([process.execPath, "test/host/fixtures/pool-startup-crash-host.ts"], {
         cwd: process.cwd(),
@@ -324,6 +327,7 @@ for (const scenario of ["adopt", "replace", "unready_adoption", "unready_replace
         release.resolve();
         restoreWorker?.();
         if (previousDev === undefined) delete process.env.VERA_DEV_INSTANCE; else process.env.VERA_DEV_INSTANCE = previousDev;
+        if (previousHome === undefined) delete process.env.HOME; else process.env.HOME = previousHome;
         if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
         await child.exited;
         await host?.close();
