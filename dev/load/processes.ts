@@ -3,11 +3,13 @@ import { basename, join } from "node:path";
 import { assertTrialHome, command, log, REPO } from "./common.ts";
 import { readRecordedWorkers } from "../../src/host/pool/worker-records.ts";
 import type { ProfileRuntime } from "./profile.ts";
+import { processStart, type ProcessIdentity } from "./identity.ts";
 
 interface OwnedProcess {
     pid: number;
     role: string;
     home: string;
+    started: string | null;
     child?: ReturnType<typeof Bun.spawn>;
 }
 
@@ -22,6 +24,7 @@ export interface StopMeasurement {
 
 export class ProcessOwner {
     readonly processes: OwnedProcess[] = [];
+    private readonly recordedWorkers = new Set<number>();
     constructor(readonly run: string, readonly home: string) { assertTrialHome(home); }
 
     start(role: string, script: string, extra: Record<string, string> = {}, preload?: string, args: readonly string[] = [], runtime?: ProfileRuntime) {
@@ -38,15 +41,16 @@ export class ProcessOwner {
             stdout: Bun.file(join(this.run, `${role}.stdout`)),
             stderr: Bun.file(join(this.run, `${role}.stderr`)),
         });
-        const owned = { pid: child.pid, role, home: this.home, child };
+        const owned: OwnedProcess = { pid: child.pid, role, home: this.home, started: null, child };
         this.processes.push(owned);
-        log(join(this.run, "pids.ndjson"), { type: "start", pid: child.pid, role, home: this.home, script });
         void child.exited.then((code) => log(join(this.run, "pids.ndjson"), { type: "exit", pid: child.pid, role, code }));
+        owned.started = processStart(child.pid) ?? null;
+        log(join(this.run, "pids.ndjson"), { type: "start", pid: child.pid, role, home: this.home, script });
         return child;
     }
 
-    async discoverDescendants(): Promise<void> {
-        const table = await command(["/bin/ps", "-axo", "pid=,ppid=,command="]);
+    async discoverDescendants(existingTable?: string): Promise<void> {
+        const table = existingTable ?? await command(["/bin/ps", "-axo", "pid=,ppid=,command="]);
         const candidates = table.split("\n").flatMap((line) => {
             const found = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
             return found ? [{ pid: Number(found[1]), parent: Number(found[2]), command: found[3]! }] : [];
@@ -57,20 +61,49 @@ export class ProcessOwner {
             for (const candidate of candidates) {
                 if (this.processes.some((owned) => owned.pid === candidate.pid)
                     || !this.processes.some((owned) => owned.pid === candidate.parent)) continue;
-                if (!candidate.command.includes(REPO)) continue;
-                if (!await this.matches(candidate.pid)) continue;
-                this.processes.push({ pid: candidate.pid, role: "descendant", home: this.home });
+                if (!candidate.command.includes(REPO) || !await this.matches(candidate.parent)) continue;
+                const started = processStart(candidate.pid);
+                if (started === undefined) continue;
+                const parent = await this.parentOf(candidate.pid);
+                if (parent !== candidate.parent || !await this.matches(candidate.parent)) continue;
+                this.processes.push({ pid: candidate.pid, role: "descendant", home: this.home, started });
                 log(join(this.run, "pids.ndjson"), { type: "discovered", ...candidate, home: this.home });
                 changed = true;
             }
         }
     }
 
+    private async inspect(pid: number): Promise<string> {
+        const child = Bun.spawn(["/bin/ps", "-p", String(pid), "-o", "pid="], { stdout: "pipe", stderr: "pipe" });
+        const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+        if (code === 0) return out.trim();
+        if (code === 1 && out.trim() === "" && err.trim() === "") return "";
+        throw new Error(`Could not inspect PID ${pid}: ${err.trim() || `ps exited ${code}`}`);
+    }
+
+    private async parentOf(pid: number): Promise<number | undefined> {
+        const child = Bun.spawn(["/bin/ps", "-p", String(pid), "-o", "ppid="], { stdout: "pipe", stderr: "pipe" });
+        const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+        if (code === 1 && out.trim() === "" && err.trim() === "") return undefined;
+        if (code !== 0 || !/^\d+$/.test(out.trim())) throw new Error(`Cannot inspect parent of PID ${pid}`);
+        return Number(out.trim());
+    }
+
     private async matches(pid: number): Promise<boolean> {
-        try {
-            const text = await command(["/bin/ps", "eww", "-p", String(pid), "-o", "command="]);
-            return text.includes(REPO) && text.includes(`VERA_HOME=${this.home}`) && this.home.includes("/vera-dev/");
-        } catch { return false; }
+        const owned = this.processes.find((entry) => entry.pid === pid);
+        if (owned === undefined || (owned.child !== undefined && owned.child.exitCode !== null)) return false;
+        const started = processStart(pid);
+        if (started === undefined) return false;
+        if (owned.started === null) throw new Error(`Cannot verify start identity of PID ${pid}`);
+        return started === owned.started;
+    }
+
+    identities(): ProcessIdentity[] {
+        const identities = this.processes.map(({ pid, started }) => ({ pid, started }));
+        for (const pid of this.recordedWorkers) {
+            if (!identities.some((entry) => entry.pid === pid)) identities.push({ pid, started: null });
+        }
+        return identities;
     }
 
     async killWorker(pid: number): Promise<void> {
@@ -79,7 +112,10 @@ export class ProcessOwner {
             throw new Error(`Session process ${pid} does not belong to this trial`);
         }
         const commandLine = await command(["/bin/ps", "-p", String(pid), "-o", "command="]);
-        if (!commandLine.includes("--worker-index")) throw new Error(`Process ${pid} is not a session process`);
+        if (!commandLine.includes(REPO) || !commandLine.includes(this.home) || !this.home.includes("/vera-dev/")
+            || !commandLine.includes("--worker-index") || !await this.matches(pid)) {
+            throw new Error(`Session process ${pid} cannot be verified for this trial`);
+        }
         process.kill(pid, "SIGKILL");
         log(join(this.run, "pids.ndjson"), { type: "signal", pid, signal: "SIGKILL" });
     }
@@ -88,6 +124,7 @@ export class ProcessOwner {
         await this.discoverDescendants();
         const host = this.processes.find((process) => process.role === "host");
         const workers = await readRecordedWorkers(this.home);
+        for (const worker of workers) this.recordedWorkers.add(worker.pid);
         const pids = [...new Set([...(host === undefined ? [] : [host.pid]), ...workers.map((worker) => worker.pid)])];
         const started = performance.now();
         const startedWall = Date.now();
@@ -96,9 +133,10 @@ export class ProcessOwner {
         let remaining = pids;
         while (performance.now() < deadline) {
             for (const worker of await readRecordedWorkers(this.home)) {
+                this.recordedWorkers.add(worker.pid);
                 if (!pids.includes(worker.pid)) pids.push(worker.pid);
             }
-            const alive = await Promise.all(pids.map(async (pid) => await this.matches(pid)));
+            const alive = await Promise.all(pids.map(async (pid) => (await this.inspect(pid)) !== ""));
             remaining = pids.filter((_, index) => alive[index]);
             if (remaining.length === 0) break;
             await Bun.sleep(50);
@@ -146,7 +184,14 @@ export class ProcessOwner {
         await Promise.all(this.processes.flatMap((owned) => owned.child ? [owned.child.exited] : []));
         await Bun.sleep(100);
         const survivors: number[] = [];
-        for (const owned of this.processes) if (await this.matches(owned.pid)) survivors.push(owned.pid);
+        for (const owned of this.processes) {
+            if (owned.child !== undefined && owned.child.exitCode !== null) continue;
+            if (await this.inspect(owned.pid)) survivors.push(owned.pid);
+        }
+        for (const worker of await readRecordedWorkers(this.home)) this.recordedWorkers.add(worker.pid);
+        for (const pid of this.recordedWorkers) {
+            if (!survivors.includes(pid) && await this.inspect(pid)) survivors.push(pid);
+        }
         log(join(this.run, "pids.ndjson"), { type: "cleanup", survivors });
         if (survivors.length) throw new Error(`Trial processes survived cleanup: ${survivors.join(", ")}`);
     }
