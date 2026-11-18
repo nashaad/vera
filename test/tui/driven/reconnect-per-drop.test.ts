@@ -300,7 +300,37 @@ test("each drop after a healthy reattach gets one automatic restart", async () =
     }
 }, 15_000);
 
-test("a replacement that dies before a fresh health reply does not loop", async () => {
+test("@core repeated reply-then-drop reconnects stop at the rolling budget", async () => {
+    const initial = controlledClient("initial");
+    const replacements = ["first", "second", "third", "unexpected"].map(controlledClient);
+    let restarts = 0;
+    const session = await startTuiTestSession({
+        home: home(),
+        dependencies: () => ({
+            client: initial.client,
+            reconnectSession: async () => replacements[restarts++]!.client,
+        }),
+    });
+    try {
+        await session.waitForVisiblePane("initial healthy");
+        initial.drop();
+        for (const [index, client] of replacements.slice(0, 3).entries()) {
+            await session.waitForVisiblePane(`${["first", "second", "third"][index]} healthy`);
+            client.drop();
+        }
+        const pane = await session.waitForVisiblePaneWhere(
+            (value) => value.includes("disconnected") || value.includes("unexpected healthy"),
+            "recovery budget exhaustion",
+        );
+        expect(pane).toContain("disconnected");
+        expect(pane).toContain("Ctrl+L");
+        expect(restarts).toBe(3);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("replacements that die before a settings reply spend the same budget", async () => {
     const initial = controlledClient("initial");
     let restarts = 0;
     const session = await startTuiTestSession({
@@ -309,7 +339,7 @@ test("a replacement that dies before a fresh health reply does not loop", async 
             client: initial.client,
             reconnectSession: async () => {
                 restarts += 1;
-                if (restarts > 1) throw new Error("unexpected second restart");
+                if (restarts > 3) throw new Error("unexpected fourth restart");
                 return dyingClient();
             },
         }),
@@ -319,12 +349,12 @@ test("a replacement that dies before a fresh health reply does not loop", async 
         initial.drop();
         const pane = await session.waitForVisiblePaneWhere(
             (value) => value.includes("replacement died before becoming healthy")
-                || value.includes("unexpected second restart"),
+                || value.includes("unexpected fourth restart"),
             "replacement failure",
         );
         expect(pane).toContain("replacement died before becoming healthy");
         expect(pane).toContain("disconnected");
-        expect(restarts).toBe(1);
+        expect(restarts).toBe(3);
     } finally {
         await session.close();
     }
@@ -333,6 +363,7 @@ test("a replacement that dies before a fresh health reply does not loop", async 
 for (const method of ["Ctrl+L", "Reconnect host"] as const) {
     test(`${method} re-arms the automatic restart after recovery`, async () => {
         const initial = controlledClient("initial");
+        const replacements = ["first", "second", "third"].map(controlledClient);
         const manual = controlledClient("manual");
         const next = controlledClient("next");
         const calls: Array<{ readonly confirmWedge?: boolean } | undefined> = [];
@@ -342,15 +373,19 @@ for (const method of ["Ctrl+L", "Reconnect host"] as const) {
                 client: initial.client,
                 reconnectSession: async (_agentId, options) => {
                     calls.push(options);
-                    if (calls.length === 1) throw new Error("host unavailable");
-                    return calls.length === 2 ? manual.client : next.client;
+                    if (options?.confirmWedge === true) return manual.client;
+                    return calls.length <= 3 ? replacements[calls.length - 1]!.client : next.client;
                 },
             }),
         });
         try {
             await session.waitForVisiblePane("initial healthy");
             initial.drop();
-            await session.waitForVisiblePane("host unavailable");
+            for (const [index, client] of replacements.entries()) {
+                await session.waitForVisiblePane(`${["first", "second", "third"][index]} healthy`);
+                client.drop();
+            }
+            await session.waitForVisiblePane("disconnected");
             if (method === "Ctrl+L") {
                 session.sendKey("C-l");
             } else {
@@ -361,13 +396,13 @@ for (const method of ["Ctrl+L", "Reconnect host"] as const) {
                 session.sendKey("Enter");
             }
             await session.waitForVisiblePane("manual healthy");
-            expect(calls).toHaveLength(2);
-            expect(calls[1]?.confirmWedge).toBe(true);
+            expect(calls).toHaveLength(4);
+            expect(calls[3]?.confirmWedge).toBe(true);
 
             manual.drop();
             await session.waitForVisiblePane("next healthy");
-            expect(calls).toHaveLength(3);
-            expect(calls[2]?.confirmWedge).toBeUndefined();
+            expect(calls).toHaveLength(5);
+            expect(calls[4]?.confirmWedge).toBeUndefined();
         } finally {
             await session.close();
         }

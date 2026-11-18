@@ -16,17 +16,20 @@ file, then press Ctrl+P and choose Reconnect host to apply the change.
 
 ## The client lost its host
 
-After a dropped connection that was not a planned stop, Vera makes one
-automatic restart attempt. After a planned stop, the TUI makes no automatic
-attempt; it shows "The host stopped." and waits. If the TUI says disconnected
-or the host stopped, press **Ctrl+L** to restart the host into the same
-conversation. To quit instead, press Ctrl+C twice. Vera prints
-the command to resume this session before it exits.
+After an unplanned dropped connection, the TUI can try automatic recovery up
+to three times per conversation in a rolling minute. If those attempts are
+spent, it stays disconnected; it does not retry merely because the minute
+passes. A later drop outside the window can start recovery again. After a
+planned stop, the TUI makes no automatic attempt; it shows "The host stopped."
+and waits. If the TUI says disconnected or the host stopped, press **Ctrl+L**
+to restart the host into the same conversation. To quit instead, press Ctrl+C
+twice. Vera prints the command to resume this session before it exits.
 
 During automatic recovery, the TUI keeps the conversation visible, shows
 `reconnecting…`, and stops the live turn and tool timers until it reconnects.
 
-Ctrl+L and **Reconnect host** start a host if none runs and reopen this session.
+Ctrl+L and **Reconnect host** clear the automatic recovery count, start a host
+if none runs, and reopen this session.
 If the active release of the installation differs from the TUI's build, either
 action relaunches a TUI started through the `vera` launcher, keeping the
 conversation and draft. Automatic recovery makes the same build check before

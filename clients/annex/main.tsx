@@ -14,6 +14,6 @@ if (pathname.startsWith("/x/")) {
     createRoot(root).render(<ExtensionPageApp path={pathname} />);
 } else {
     const runs = pathname.startsWith("/runs");
-    document.title = runs ? "Vera · Runs" : "Vera · Usage";
+    document.title = runs ? "Vera · Workflow runs" : "Vera · Usage";
     createRoot(root).render(runs ? <RunsApp /> : <UsageApp />);
 }

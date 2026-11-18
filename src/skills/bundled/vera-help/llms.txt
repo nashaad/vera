@@ -251,8 +251,8 @@ When the host is lost, the TUI offers one key to restart into the same conversat
 Reconnect host does not search for a host. The socket in the home's runtime directory is the address, and a socket file on disk is not proof that anything is answering.
 An absent or dead host is started and reattached. A live process behind a silent socket is force-stopped first. A connected conversation asks a healthy host to shut down for replacement; a disconnected conversation attaches to it instead. Home replaces its last host only if that same host still answers, and otherwise attaches to the answering host.
 Replacing a healthy host stops it for every client of the home, so each other attached TUI loses its connection until it reconnects.
-A healthy host that refuses with `busy` is not force-killed. On Home a dialog says to let the other work finish and retry; in a conversation the composer stays usable.
-After a dropped connection Vera makes one automatic restart attempt. That attempt will not force-kill a wedged host and will not replace a healthy one. If it cannot get a host, Reconnect host from Ctrl+P is the next move.
+A healthy host that refuses with `busy` is a guard, not a fault. Other work is using it and it is not force-killed. On Home a dialog says to let the other work finish and retry; in a conversation the composer stays usable.
+After an unplanned dropped connection the TUI can attempt automatic recovery, but stops after repeated failures; it will not force-kill a wedged host or replace a healthy one. Ctrl+L or Reconnect host from Ctrl+P can retry manually.
 During automatic recovery the TUI keeps the conversation visible and stops its live timers.
 A TUI talks only to a host of its own build. If the host comes back as a different build, the TUI stays disconnected, sends it no requests, makes no automatic restart, and says to quit and reopen Vera.
 While a host stop or update waits for running turns, an attached TUI shows the sessions it waits for above the composer.

@@ -775,7 +775,7 @@ model was swapped. Retries and failures show as strips in the column.
 ## Browser
 
 The Browser shows Vera's pages: the pages the annex serves on this machine,
-Usage and Runs, and the pages extensions add. Its top row holds Back, Forward,
+Usage and Workflow runs, and the pages extensions add. Its top row holds Back, Forward,
 the address bar, Reload and Open in your browser. The row under it holds a Home
 button and a tab for each page. Home lists the built-in pages under `Vera` and
 the extension pages under `From extensions`, each with its path, and names the
