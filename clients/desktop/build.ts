@@ -1,6 +1,8 @@
 import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
+import { releaseBuildId } from "../../src/release/build-id.ts";
+import { DESKTOP_BUILD_ID_SYMBOL } from "./src/client-build.ts";
 import { ASSIGNMENT_TASK_FILE } from "./src/model-assignments/task-protocol.ts";
 import { THEME_TASK_FILE } from "./src/theme-import/task-protocol.ts";
 
@@ -10,6 +12,7 @@ const out = join(root, "dist");
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
+const buildId = sourceBuildId();
 const main = await Bun.build({
     entrypoints: [join(root, "src", "main.ts")],
     outdir: out,
@@ -17,6 +20,7 @@ const main = await Bun.build({
     format: "esm",
     external: ["electron"],
     naming: "[name].[ext]",
+    define: buildId === undefined ? {} : { [DESKTOP_BUILD_ID_SYMBOL]: JSON.stringify(buildId) },
 });
 if (!main.success) fail(main.logs);
 
@@ -75,6 +79,16 @@ cpSync(index, join(rendererOut, "index.html"));
 
 // Bundled config code reads provider definitions from this folder.
 cpSync(join(root, "..", "..", "src", "providers", "definitions"), join(out, "definitions"), { recursive: true });
+
+// The id a release packed from this checkout carries, so the installed-build check compares like with like.
+function sourceBuildId(): string | undefined {
+    try {
+        return releaseBuildId(join(root, "..", ".."));
+    } catch (error) {
+        console.warn(`No desktop build id: ${error instanceof Error ? error.message : String(error)}`);
+        return undefined;
+    }
+}
 
 function fail(logs: readonly unknown[]): never {
     for (const log of logs) console.error(log);

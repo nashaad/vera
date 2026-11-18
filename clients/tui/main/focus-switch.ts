@@ -6,7 +6,7 @@ import type { AttachmentReleasePolicy } from "../../../src/host/protocol.ts";
 import { HostReplacementBusyError } from "../../../src/host/discovery.ts";
 import { HostBuildChangedError } from "../../../src/host/reconnecting-agent-client.ts";
 import { HostConnectionClosedError } from "../../../src/host/connection.ts";
-import { InstalledBuildChangedError } from "../installed-build.ts";
+import { InstalledBuildChangedError, installedBuildChangedMessage, installedBuildMismatch } from "../installed-build.ts";
 import { restoreRawInput } from "../terminal-restore.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
 import { isHomeClient } from "../home-client.ts";
@@ -473,10 +473,9 @@ export function beginHostReconnect(rt: TuiRuntime,
     }
     const reconnectDraft = currentDraft(rt);
     if (rt.relaunching !== true) {
-        const clientBuildId = rt.dependencies.clientBuildId;
-        const installedBuildId = rt.dependencies.installedBuildId?.();
-        if (clientBuildId !== undefined && installedBuildId !== undefined && clientBuildId !== installedBuildId) {
-            handleInstalledBuildChange(rt, currentAgentId, clientBuildId, installedBuildId, reconnectDraft, options.failureText);
+        const mismatch = installedBuildMismatch(rt.dependencies.clientBuildId, rt.dependencies.installedBuildId?.());
+        if (mismatch !== undefined) {
+            handleInstalledBuildChange(rt, currentAgentId, mismatch.clientBuildId, mismatch.installedBuildId, reconnectDraft, options.failureText);
             return;
         }
     }
@@ -622,8 +621,7 @@ function refuseInstalledBuildChange(
         await withSessionSwitchDeadline(rt, rt.dependencies.refuseOtherHostBuild?.() ?? Promise.resolve(), () => {});
         if (rt.shuttingDown) return;
         rt.sessionSwitchPending = false;
-        const message = `The installed Vera is now build ${installedBuildId}, and this TUI is build ${clientBuildId}. `
-            + "Quit and reopen Vera to continue.";
+        const message = installedBuildChangedMessage("TUI", { clientBuildId, installedBuildId });
         rt.connectionFailed = true;
         rt.connectionFailure = "installed Vera is a different build";
         rt.hostBuildRefusal = { hostBuildId: undefined };

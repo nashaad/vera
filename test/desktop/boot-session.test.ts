@@ -135,3 +135,41 @@ test("@core a boot session starts once", () => {
         cleanup(helper.root);
     }
 });
+
+test("@core a desktop older than the installed Vera refuses to start the host and says so", async () => {
+    const helper = setup();
+    try {
+        const session = new BootSession(helper.root, (event) => helper.events.push(event), () => ({
+            clientBuildId: "old-build",
+            installedBuildId: "new-build",
+        }));
+        session.start();
+        expect(helper.events).toEqual([
+            { type: "phase", phase: "starting" },
+            {
+                type: "build_changed",
+                message:
+                    "The installed Vera is now build new-build, and this desktop app is build old-build. Quit and reopen Vera to continue.",
+                clientBuildId: "old-build",
+                installedBuildId: "new-build",
+            },
+        ]);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(helper.events).toHaveLength(2);
+    } finally {
+        cleanup(helper.root);
+    }
+});
+
+test("a desktop on the installed build goes on to start the host", async () => {
+    const helper = setup();
+    const session = new BootSession(helper.root, (event) => helper.events.push(event), () => undefined);
+    try {
+        session.start();
+        await helper.waitForQuestion();
+        expect(helper.events.some((event) => event.type === "build_changed")).toBe(false);
+    } finally {
+        session.cancel();
+        cleanup(helper.root);
+    }
+});

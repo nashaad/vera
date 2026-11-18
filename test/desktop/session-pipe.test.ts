@@ -72,10 +72,10 @@ function collect(): { events: DesktopEvent[]; pipe: SessionPipe } {
 const ATTACH_AGENT_A = `${JSON.stringify({
     type: "attach",
     agent_id: "agent-a",
-    requested_capabilities: ["agent.history-paging.v1"],
+    requested_capabilities: ["agent.history-paging.v1", "host.stop-wait.v1"],
 })}\n`;
 
-test("@core watch attaches with the history capability and emits each host line", async () => {
+test("@core watch attaches with the history and stop-wait capabilities and emits each host line", async () => {
     const fake = serve((socket) => {
         socket.write(`${JSON.stringify({ type: "one" })}\n${JSON.stringify({ type: "two" })}\n`);
         socket.write('{"type":"thr');
@@ -91,6 +91,20 @@ test("@core watch attaches with the history capability and emits each host line"
         { type: "session_frame", pane: "companion", agentId: "agent-a", text: `${JSON.stringify({ type: "two" })}\n` },
         { type: "session_frame", pane: "companion", agentId: "agent-a", text: `${JSON.stringify({ type: "three" })}\n` },
     ]);
+});
+
+test("@core a host restart notice reaches the page as a session frame before the watch closes", async () => {
+    const notice = `${JSON.stringify({ type: "host_restarting", build_id: "build-2" })}\n`;
+    const fake = serve((socket) => {
+        socket.write(notice);
+        setTimeout(() => socket.end(), 20);
+    });
+    const { events, pipe } = collect();
+    pipe.connect(fake.path);
+    pipe.watch("agent-a");
+    await until(() => events.length === 2);
+    expect(events[0]).toEqual({ type: "session_frame", pane: "companion", agentId: "agent-a", text: notice });
+    expect(events[1]).toMatchObject({ type: "session_closed", pane: "companion", agentId: "agent-a" });
 });
 
 test("send writes a request line on the open watch", async () => {
@@ -186,7 +200,7 @@ test("a replaced watch emits nothing from its old socket", async () => {
     pipe.watch("agent-b");
     await until(() => fake.received.length === 2);
     expect(fake.received[1]).toBe(
-        `${JSON.stringify({ type: "attach", agent_id: "agent-b", requested_capabilities: ["agent.history-paging.v1"] })}\n`,
+        `${JSON.stringify({ type: "attach", agent_id: "agent-b", requested_capabilities: ["agent.history-paging.v1", "host.stop-wait.v1"] })}\n`,
     );
     fake.sockets[0]?.write(`${JSON.stringify({ type: "stale" })}\n`);
     await settle();

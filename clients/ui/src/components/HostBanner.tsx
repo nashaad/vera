@@ -44,12 +44,12 @@ export function HostBanner({ banner, onAnswer, onReconnect }: HostBannerProps) {
                             No
                         </button>
                     </>
-                ) : (
+                ) : banner.kind === "outdated" ? null : (
                     <>
                         <button type="button" className="button" onClick={onReconnect}>
-                            {banner.kind === "disconnected" ? "Reconnect" : "Try again"}
+                            {banner.kind === "disconnected" || banner.kind === "restarting" ? "Reconnect" : "Try again"}
                         </button>
-                        {banner.kind === "disconnected" ? null : (
+                        {banner.kind === "disconnected" || banner.kind === "restarting" ? null : (
                             <button type="button" className="button" onClick={() => openOverlay("doctor")}>
                                 Run doctor
                             </button>

@@ -103,3 +103,54 @@ test("@core a new ready event replaces the old connection's facts", () => {
     expect(state.ready?.pid).toBe(43);
     expect(state.sessions).toBeUndefined();
 });
+
+test("@core a changed installed build is a warning banner with the refusal text and no host", () => {
+    const message = "The installed Vera is now build new, and this desktop app is build old. Quit and reopen Vera to continue.";
+    const state = run(
+        event(READY),
+        event({ type: "build_changed", message, clientBuildId: "old", installedBuildId: "new" }),
+    );
+    expect(state.phase).toBe("outdated");
+    expect(state.identity).toBeUndefined();
+    expect(bannerFor(state)).toMatchObject({ kind: "outdated", tone: "warning", detail: message });
+    expect(toneOf(state)).toBe("warning");
+});
+
+test("@core a restart notice shows a restarting banner while the host is still attached", () => {
+    const state = run(event(READY), { type: "restarting", buildId: "build-2" });
+    expect(state.phase).toBe("attached");
+    expect(bannerFor(state)).toMatchObject({ kind: "restarting", tone: "info" });
+    expect(bannerFor(state)?.detail).toContain("build-2");
+});
+
+test("@core the restarting banner stays through the loss, the reconnect and the boot phases", () => {
+    const state = run(
+        event(READY),
+        { type: "restarting", buildId: "build-2" },
+        { type: "lost", reason: "The host is not running." },
+    );
+    expect(bannerFor(state)).toMatchObject({ kind: "restarting" });
+    const reconnecting = reduceConnection(state, { type: "reconnecting" });
+    expect(reconnecting.phase).toBe("starting");
+    expect(bannerFor(reconnecting)).toMatchObject({ kind: "restarting" });
+    const waiting = reduceConnection(reconnecting, event({ type: "phase", phase: "waiting" }));
+    expect(bannerFor(waiting)).toMatchObject({ kind: "restarting" });
+});
+
+test("@core the restarting banner ends when the new host is ready or the restart cannot finish", () => {
+    const restarting = run(event(READY), { type: "restarting", buildId: "build-2" }, { type: "reconnecting" });
+    const ready = reduceConnection(restarting, event({ ...READY, pid: 43 } as DesktopEvent));
+    expect(ready.restarting).toBeUndefined();
+    expect(bannerFor(ready)).toBeUndefined();
+    const failed = reduceConnection(restarting, event({ type: "failed", message: "boom" }));
+    expect(bannerFor(failed)).toMatchObject({ kind: "failed" });
+    const outdated = reduceConnection(
+        restarting,
+        event({ type: "build_changed", message: "m", clientBuildId: "old", installedBuildId: "new" }),
+    );
+    expect(bannerFor(outdated)).toMatchObject({ kind: "outdated" });
+});
+
+test("a restart notice with no host attached changes nothing", () => {
+    expect(run({ type: "restarting", buildId: "build-2" })).toEqual(INITIAL_STATE);
+});

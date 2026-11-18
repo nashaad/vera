@@ -100,7 +100,7 @@ function receiveEvent(event: DesktopEvent): void {
         hostSocketPath = event.socketPath;
         pipe.connect(event.socketPath);
         for (const pane of panes) pane.connect(event.socketPath);
-    } else if (event.type === "disconnected" || event.type === "failed") {
+    } else if (event.type === "disconnected" || event.type === "failed" || event.type === "build_changed") {
         hostSocketPath = undefined;
     }
 }

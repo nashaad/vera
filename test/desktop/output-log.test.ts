@@ -55,11 +55,13 @@ test("connection events become log lines; frames and layout commands do not", ()
         { type: "disconnected", reason: "The host is not running." },
         { type: "failed", message: "boom" },
         { type: "missing_cli", message: "No Vera at /x" },
+        { type: "build_changed", message: "Quit and reopen Vera.", clientBuildId: "old", installedBuildId: "new" },
         { type: "frame", text: "{}\n" },
         { type: "command", id: "layout.togglePanel" },
     ] as DesktopEvent[];
     const lines = events.map((event) => describeEvent(event));
-    expect(lines.map((line) => line?.kind)).toEqual(["info", "info", "warning", "warning", "error", "error", undefined, undefined]);
+    expect(lines.map((line) => line?.kind)).toEqual(["info", "info", "warning", "warning", "error", "error", "error", undefined, undefined]);
     expect(lines[1]?.text).toBe("Attached to host 12, build abcdef0, home /h.");
     expect(lines[3]?.text).toBe("Connection lost: The host is not running.");
+    expect(lines[6]?.text).toBe("Quit and reopen Vera.");
 });
