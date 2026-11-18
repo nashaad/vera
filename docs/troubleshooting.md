@@ -27,9 +27,10 @@ During automatic recovery, the TUI keeps the conversation visible, shows
 `reconnecting…`, and stops the live turn and tool timers until it reconnects.
 
 Ctrl+L does what Reconnect host does: it starts a host if none runs and
-reopens this session. If the installed build differs from the
-TUI's build, the TUI relaunches into the installed build and keeps the
-conversation. If the restart fails, the conversation says so and prints
+reopens this session. In a TUI started through the `vera` launcher, if the daily installed
+build differs from the TUI's build, Ctrl+L relaunches the TUI and keeps the
+conversation and draft. Ctrl+L checks the daily installation even when Vera
+runs from a different prefix. If the restart fails, the conversation says so and prints
 `vera resume <id>`.
 
 To stay in the TUI instead, press Ctrl+P and choose **Reconnect host**. It
