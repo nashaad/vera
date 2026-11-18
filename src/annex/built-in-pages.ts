@@ -17,7 +17,7 @@ export const ANNEX_BUILT_IN_PAGES: readonly AnnexBuiltInPage[] = [
     },
     {
         id: "runs",
-        label: "Runs",
+        label: "Workflow runs",
         href: "/runs",
         about: "Workflows that have run in your Vera home, with their steps and cost.",
     },

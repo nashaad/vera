@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { inspectHostLockFile } from "../../src/host/lockfile.ts";
 import { stopWorkerProcess, type WorkerStopIdentity } from "../../src/host/pool/stop-worker.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 
 function workingDirectoryOf(pid: number): string | undefined {
     const listed = spawnSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], { encoding: "utf8" });
@@ -29,7 +30,7 @@ socketTest("@core a host started from a folder that is later deleted runs in its
     }));
     const child = Bun.spawn([process.execPath, resolve("clients/host/main.ts")], {
         cwd: launchFolder,
-        env: { ...process.env, HOME: userHome, VERA_HOME: home, VERA_DEV_INSTANCE: "hoststart dev" },
+        env: { ...process.env, HOME: sourceTestHome(userHome), VERA_HOME: home, VERA_DEV_INSTANCE: "hoststart dev" },
         stdout: "ignore", stderr: "pipe",
     });
     const stderr = new Response(child.stderr).text();

@@ -3,6 +3,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { processIdentityState, signalVerifiedProcess } from "../src/process-group.ts";
+import { sourceTestHome } from "./support/source-test-home.mjs";
 import { testTempBase } from "./support/temp-root.ts";
 
 interface Scenario {
@@ -110,7 +111,7 @@ for (const scenario of scenarios) {
         `;
         const runner = Bun.spawn([process.execPath, "-e", source], {
             cwd: process.cwd(),
-            env: { ...process.env, PATH: `${root}:${process.env.PATH}`, TMPDIR: root, VERA_HOME: join(root, "home"), VERA_DEV_INSTANCE: "hsplit9 dev" },
+            env: { ...process.env, HOME: sourceTestHome(root), PATH: `${root}:${process.env.PATH}`, TMPDIR: root, VERA_HOME: join(root, "home"), VERA_DEV_INSTANCE: "hsplit9 dev" },
             stdout: "pipe",
             stderr: "pipe",
         });

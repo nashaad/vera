@@ -173,7 +173,9 @@ already running, and prints the result.
 The check looks at the home folder, the active release, the host lock, Vera
 processes left without a working host, and recent host start failures. When
 something fails, Vera repairs it in this order and stops at the first step that
-starts a host:
+starts a host. If verified same-build session processes are waiting after a host
+crash, Vera first starts a host to adopt them. If adoption cannot complete,
+the check continues with these steps:
 
 1. Back up the runtime records under `runtime/backups/`, stop this home's
    leftover Vera processes, and clear stale sockets and the host lock. These are
@@ -263,11 +265,14 @@ sockets in place. Run `vera host reset` again after the named process exits.
 
 ## Recover a host connection
 
-**Reconnect host** in the Ctrl+P palette starts a missing host, force-stops one
-that is not answering, and reattaches the conversation. A healthy host is
-restarted while this client is still connected, unless other work is using
-it. Once this client is disconnected, Reconnect host attaches to a healthy
-host instead. See [Troubleshooting](troubleshooting.md#the-client-lost-its-host).
+Choose **Reconnect host** from Ctrl+P on Home or in a conversation. It starts a
+missing host or force-stops one that is not answering. A connected conversation
+reattaches after a healthy host restarts, unless other work is using it. A
+disconnected conversation attaches to an answering host instead. On Home, the
+last host Home reached is restarted when idle; if a different healthy host now
+answers, Home attaches to it instead. Home refreshes its sessions and settings
+without starting a conversation. If the host is busy, a dialog asks you to let
+the work finish and retry. See [Troubleshooting](troubleshooting.md#the-client-lost-its-host).
 
 Ordinary `vera host stop` asks the host to stop once its running turns end.
 It lists the sessions it waits on and refuses new turns until the host stops.

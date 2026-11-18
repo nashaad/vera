@@ -13,9 +13,9 @@ test("@core each of Vera's own pages has a command that opens it in the browser"
 
     const items = buildCommandItems(registry.list(), "darwin");
     expect(items.map((item) => [item.group, item.label])).toEqual([
-        ["Pages", "Runs"],
         ["Pages", "Usage"],
         ["Pages", "Vera's Pages"],
+        ["Pages", "Workflow runs"],
     ]);
     dispose();
     expect(registry.list()).toEqual([]);

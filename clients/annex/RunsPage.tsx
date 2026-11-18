@@ -31,7 +31,7 @@ function RunList({ onOpen }: { readonly onOpen: (id: string) => void }) {
                 ? <p className="note">No workflow runs yet.</p>
                 : (
                     <section className="table-card">
-                        <h2>Runs <span>{rows.value.rows.length}</span></h2>
+                        <h2>Workflow runs <span>{rows.value.rows.length}</span></h2>
                         <div className="table-scroll">
                             <table>
                                 <thead>
@@ -94,7 +94,7 @@ function RunPage({
     return (
         <div className="page">
             <AnnexChrome page="runs" onHome={onBack} />
-            <button className="back" type="button" onClick={onBack}>← Runs</button>
+            <button className="back" type="button" onClick={onBack}>← Workflow runs</button>
             {detail.error !== undefined ? <p className="note">{detail.error}</p> : undefined}
             {detail.value === undefined ? undefined : (
                 <>

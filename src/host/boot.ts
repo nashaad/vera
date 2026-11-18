@@ -1,4 +1,19 @@
-import type { HostLockRecord } from "./lockfile.ts";
+import { HostReplacementBusyError } from "./discovery.ts";
+import {
+    HostBuildMismatchError,
+    HostLockUnreadableError,
+    HostProtocolMismatchError,
+    HostUnresponsiveError,
+    type HostLockRecord,
+} from "./lockfile.ts";
+
+function isDiscoveryRefusal(error: unknown): boolean {
+    return error instanceof HostReplacementBusyError
+        || error instanceof HostBuildMismatchError
+        || error instanceof HostLockUnreadableError
+        || error instanceof HostProtocolMismatchError
+        || error instanceof HostUnresponsiveError;
+}
 
 export type BootStatus = "ok" | "fixed" | "warn" | "failed";
 // "single" runs the host as one process with no session workers.
@@ -42,6 +57,7 @@ export interface BootDependencies {
     // Cheap test for a published, live host; when true the full inspection is skipped.
     hostPublished?(): Promise<boolean>;
     inspect(): Promise<BootInspection>;
+    adopt?(): Promise<HostLockRecord | undefined>;
     // Backs up records, stops this home's leftover processes and clears stale runtime files.
     recover(): Promise<RecoveryResult>;
     start(mode: HostMode): Promise<HostLockRecord>;
@@ -93,7 +109,8 @@ async function publishedHost(deps: BootDependencies): Promise<HostLockRecord | u
     if (deps.hostPublished === undefined || !await deps.hostPublished().catch(() => false)) return undefined;
     try {
         return await deps.start("default");
-    } catch {
+    } catch (error) {
+        if (isDiscoveryRefusal(error)) throw error;
         return undefined;
     }
 }
@@ -123,6 +140,7 @@ async function bootChecked(deps: BootDependencies, locked: boolean): Promise<Hos
             }
             return host;
         } catch (error) {
+            if (isDiscoveryRefusal(error)) throw error;
             checks.push({ label: "Running host", status: "failed", detail: errorText(error) });
             if (!await deps.confirm({ id: "restart_running_host", text: "The running Vera host is not responding properly. Stop it and start a fresh one?" })) {
                 deps.render(checks);
@@ -134,6 +152,24 @@ async function bootChecked(deps: BootDependencies, locked: boolean): Promise<Hos
     }
 
     if (!healthy && needsRepair(inspection)) {
+        if (deps.adopt !== undefined && inspection.releaseProblem === undefined && !inspection.bootLoop) {
+            try {
+                const adopted = await deps.adopt();
+                if (adopted !== undefined) {
+                    if (deps.full === true) {
+                        checks.push({ label: "Session processes", status: "fixed", detail: "Adopted by the new host" });
+                        checks.push({ label: "Host", status: "ok", detail: `PID ${adopted.pid}${adopted.build_id === undefined ? "" : `, build ${adopted.build_id}`}` });
+                        deps.render(checks);
+                    }
+                    return adopted;
+                }
+            } catch (error) {
+                if (isDiscoveryRefusal(error)) throw error;
+                if (deps.full === true) {
+                    checks.push({ label: "Session processes", status: "warn", detail: errorText(error) });
+                }
+            }
+        }
         await recoverInto(deps, checks);
     } else if (healthy) {
         await recoverInto(deps, checks);
@@ -154,6 +190,7 @@ async function bootChecked(deps: BootDependencies, locked: boolean): Promise<Hos
             if (deps.full === true || checks.some((check) => check.status !== "ok")) deps.render(checks);
             return host;
         } catch (error) {
+            if (isDiscoveryRefusal(error)) throw error;
             lastError = error;
             checks.push({ label: attempt.label, status: "failed", detail: errorText(error) });
             await recoverInto(deps, checks);
@@ -166,6 +203,7 @@ async function bootChecked(deps: BootDependencies, locked: boolean): Promise<Hos
             deps.render(checks);
             return host;
         } catch (error) {
+            if (isDiscoveryRefusal(error)) throw error;
             lastError = error;
             checks.push({ label: "Host start, previous release", status: "failed", detail: errorText(error) });
         }
@@ -212,6 +250,7 @@ async function startFromStash(
         try {
             host = await deps.start(mode);
         } catch (error) {
+            if (isDiscoveryRefusal(error)) throw error;
             checks.push({ label: `Host start on fresh runtime${mode === "single" ? ", single process" : ""}`, status: "failed", detail: errorText(error) });
             continue;
         }

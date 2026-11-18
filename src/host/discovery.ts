@@ -61,6 +61,7 @@ export interface EnsureResidentHostOptions {
     ) => Promise<ShutdownForReplacementResponse | undefined>;
     /** Replace a healthy answering host. Manual reconnect sets this. */
     readonly replaceExisting?: boolean;
+    readonly replaceOnlyHost?: Pick<HostLockRecord, "pid" | "started_at">;
     readonly confirmBusyUpgrade?: (
         error:
             | HostProtocolMismatchError
@@ -220,6 +221,13 @@ export async function ensureResidentHost(
         }
         const socketPath = error.socketPath;
         const startedAt = error.startedAt;
+        if (
+            options.replaceOnlyHost !== undefined
+            && (error.pid !== options.replaceOnlyHost.pid
+                || startedAt !== options.replaceOnlyHost.started_at)
+        ) {
+            throw error;
+        }
         const identity = {
             pid: error.pid,
             started_at: startedAt,
@@ -306,7 +314,12 @@ export async function ensureResidentHost(
         return rediscover();
     }
     if (running !== undefined) {
-        if (options.replaceExisting !== true) {
+        if (
+            options.replaceExisting !== true
+            || (options.replaceOnlyHost !== undefined
+                && (running.pid !== options.replaceOnlyHost.pid
+                    || running.started_at !== options.replaceOnlyHost.started_at))
+        ) {
             assertMatchingHostBuild(running);
             return running;
         }

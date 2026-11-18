@@ -16,17 +16,20 @@ file, then press Ctrl+P and choose Reconnect host to apply the change.
 
 ## The client lost its host
 
-After a dropped connection that was not a planned stop, Vera makes one
-automatic restart attempt. After a planned stop, the TUI makes no automatic
-attempt; it shows "The host stopped." and waits. If the TUI says disconnected
-or the host stopped, press **Ctrl+L** to restart the host into the same
-conversation. To quit instead, press Ctrl+C twice. Vera prints
-the command to resume this session before it exits.
+After an unplanned dropped connection, the TUI can try automatic recovery up
+to three times per conversation in a rolling minute. If those attempts are
+spent, it stays disconnected; it does not retry merely because the minute
+passes. A later drop outside the window can start recovery again. After a
+planned stop, the TUI makes no automatic attempt; it shows "The host stopped."
+and waits. If the TUI says disconnected or the host stopped, press **Ctrl+L**
+to restart the host into the same conversation. To quit instead, press Ctrl+C
+twice. Vera prints the command to resume this session before it exits.
 
 During automatic recovery, the TUI keeps the conversation visible, shows
 `reconnecting…`, and stops the live turn and tool timers until it reconnects.
 
-Ctrl+L and **Reconnect host** start a host if none runs and reopen this session.
+Ctrl+L and **Reconnect host** clear the automatic recovery count, start a host
+if none runs, and reopen this session.
 If the active release of the installation differs from the TUI's build, either
 action relaunches a TUI started through the `vera` launcher, keeping the
 conversation and draft. Automatic recovery makes the same build check before
@@ -36,8 +39,11 @@ If a Ctrl+L restart fails, the conversation says so and prints `vera resume <id>
 
 To choose **Reconnect host**, press Ctrl+P. It attaches to or replaces the host
 associated with this Vera home and returns to the same conversation without
-changing the installed build. It is not a slash
-command. Choosing it authorizes that recovery; there is no second prompt.
+changing the installed build. On Home, it refreshes the session list and
+settings without opening a conversation. It replaces only the host Home was
+connected to; if a different healthy host answers, Home attaches to it. It is
+not a slash command. Choosing it authorizes that recovery; there is no second
+prompt.
 
 Every client of a Vera home shares one host. Replacing a healthy host stops it
 for all of them: each other attached TUI loses its connection until it
@@ -53,8 +59,9 @@ reconnects, with Ctrl+L or Reconnect host if it does not do so itself.
 | Healthy and busy, client still connected | Refuse replacement while other work is using it. |
 | Healthy, client already disconnected | Attach to it and reattach the conversation. It is not asked to shut down. |
 
-A busy refusal protects active work. The composer stays usable. Let that work
-finish, or use the deliberate shutdown controls in
+A busy refusal protects active work. The composer stays usable. On Home, a
+dialog asks you to let the work finish and try Reconnect host again. You can
+also use the deliberate shutdown controls in
 [Development instances and process cleanup](runtime-and-worktrees.md).
 
 Reconnect host does not signal a process whose start time the system cannot

@@ -13,6 +13,7 @@ import { releaseManifestPath } from "../../src/release/layout.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import { defaultEnsureHost, stopLeftoverPoolWorkers } from "../../src/release/upgrade.ts";
 import { readPoolWorkerPids } from "../support/pool-worker-pids.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 
 test("an installer stops a verified leftover session process before starting a build", async () => {
     mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
@@ -63,7 +64,10 @@ socketTest("a development pool starts only after a verified old-build session pr
     }));
     const previousHome = process.env.VERA_HOME;
     const previousMarker = process.env.VERA_DEV_INSTANCE;
+    const previousUserHome = process.env.HOME;
+    const manifest = JSON.parse(await readFile(releaseManifestPath(), "utf8"));
     process.env.VERA_HOME = home;
+    process.env.HOME = sourceTestHome(join(home, "user"));
     process.env.VERA_DEV_INSTANCE = "hsplit9 dev";
     const startedAt = new Date().toISOString();
     const old = spawn(process.execPath, ["-e", `
@@ -83,7 +87,6 @@ socketTest("a development pool starts only after a verified old-build session pr
         await writeFile(join(workers, "w0.json"), JSON.stringify({
             id: "w0", pid: old.pid, started_at: startedAt, build_id: "old-build",
         }));
-        const manifest = JSON.parse(await readFile(releaseManifestPath(), "utf8"));
         manifest.build_id = thisProcessBuildId();
         await writeFile(join(releaseRoot, "manifest.json"), JSON.stringify(manifest));
         const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
@@ -119,6 +122,8 @@ socketTest("a development pool starts only after a verified old-build session pr
         await oldExited;
         if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
+        if (previousUserHome === undefined) delete process.env.HOME;
+        else process.env.HOME = previousUserHome;
         if (previousMarker === undefined) delete process.env.VERA_DEV_INSTANCE;
         else process.env.VERA_DEV_INSTANCE = previousMarker;
         await rm(home, { recursive: true, force: true });

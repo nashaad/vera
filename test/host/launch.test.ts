@@ -10,6 +10,7 @@ import {
 } from "../../clients/host/launch.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
+import { childReleaseRoot } from "../../src/release/layout.ts";
 import { seedTestRelease } from "../support/seed-test-release.ts";
 import { socketTest } from "../support/socket-probe.ts";
 
@@ -274,7 +275,8 @@ test("a development instance falls back to the source host when only the install
         process.env.HOME = root;
         process.chdir(root);
         process.env.VERA_DEV_INSTANCE = "ovu30 vera-test";
-        expect(residentHostSpawnSpec()).toEqual({
+        expect(childReleaseRoot(undefined, undefined, join(root, "checkout"))).toBeUndefined();
+        expect(residentHostSpawnSpec(join(root, "unpacked"))).toEqual({
             command: process.execPath,
             args: [residentHostEntrypoint()],
         });

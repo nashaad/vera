@@ -9,6 +9,7 @@ import { stopWorkerProcess, type WorkerStopIdentity } from "../../src/host/pool/
 import { checkRecordIdentity, processIsAlive } from "../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { DEFAULT_SESSION_WORKERS } from "../../src/host/runtime.ts";
+import { sourceTestHome } from "../support/source-test-home.mjs";
 
 interface WorkerRecord extends WorkerStopIdentity {
     readonly host_pid: number;
@@ -27,7 +28,7 @@ async function runHost(workers: number | undefined, args: readonly string[] = []
         ...(workers === undefined ? {} : { host: { workers } }),
     }));
     const child = Bun.spawn([process.execPath, "clients/host/main.ts", ...args], {
-        cwd: process.cwd(), env: { ...process.env, HOME: userHome, VERA_HOME: home, VERA_DEV_INSTANCE: "pooldef dev" },
+        cwd: process.cwd(), env: { ...process.env, HOME: sourceTestHome(userHome), VERA_HOME: home, VERA_DEV_INSTANCE: "pooldef dev" },
         stdout: "ignore", stderr: "pipe",
     });
     const stderr = new Response(child.stderr).text();
@@ -101,7 +102,7 @@ for (const nextCount of [0, 1]) socketTest(`a change to ${nextCount} workers app
     const configPath = join(home, "config.json");
     await writeFile(configPath, JSON.stringify(config));
     const launch = () => Bun.spawn([process.execPath, "clients/host/main.ts"], {
-        cwd: process.cwd(), env: { ...process.env, HOME: userHome, VERA_HOME: home, VERA_DEV_INSTANCE: "pooldef dev" },
+        cwd: process.cwd(), env: { ...process.env, HOME: sourceTestHome(userHome), VERA_HOME: home, VERA_DEV_INSTANCE: "pooldef dev" },
         stdout: "ignore", stderr: "pipe",
     });
     const first = launch();

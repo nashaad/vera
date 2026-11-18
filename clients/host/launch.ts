@@ -48,10 +48,13 @@ import { discoverResetProcesses } from "../../src/host/reset-discovery.ts";
 import { runHostReset } from "../../src/host/reset.ts";
 import { realResetSystem } from "../../src/host/reset-system.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
+import { requestHostIdentity, type HostIdentity } from "../../src/host/protocol.ts";
 import { openFilesUnder, restoreRuntimeStash, stashRuntime } from "../../src/host/runtime-stash.ts";
 import { forceStopResidentHost, gracefulStopResidentHost } from "../../src/host/force-stop.ts";
 import { homeFilesystemProblem } from "../../src/host/home-filesystem.ts";
 import { targetPidIsAncestor } from "../../src/host/process-ancestry.ts";
+import type { WorkerRecord, WorkerRecordScan } from "../../src/host/pool/worker-record.ts";
+import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import { acquireHostStartupClaim, HostStartupInProgressError } from "../../src/host/startup-claim.ts";
 import { hostEnvironmentProblem, hostLaunchEnvironment } from "../../src/host/host-environment.ts";
 import { cliHostRequester } from "../../src/host/requester.ts";
@@ -119,6 +122,26 @@ export async function findOrStartResidentHost(
     const host = await bootResidentHost({
         hostPublished: async () => (await lockfile.read()) !== undefined,
         inspect: () => inspectHome(),
+        adopt: async () => {
+            const workers = await adoptableWorkers();
+            if (workers === undefined) return undefined;
+            const { inspectWorkerRecords } = await import("../../src/host/pool/worker-record.ts");
+            pool = true;
+            const host = await startNamingCause(() => ensureResidentHost({
+                ...options,
+                requester,
+                lockfile,
+                startHost: () => spawnDetachedResidentHost(true, "default", releaseRoot),
+            }));
+            const deadline = performance.now() + 30_000;
+            while (performance.now() < deadline && processIsAlive(host.pid)) {
+                const current = await inspectWorkerRecords(home, thisProcessBuildId(), { removeStale: false }).catch(() => undefined);
+                const identity = await requestHostIdentity(host.socket_path);
+                if (adoptionComplete(host, identity, current, workers)) return host;
+                await Bun.sleep(100);
+            }
+            throw new Error("Session processes could not be adopted");
+        },
         recover: () => recoverHome(requester),
         start: (mode) => startNamingCause(() => ensureResidentHost({
             ...options,
@@ -148,6 +171,54 @@ export async function findOrStartResidentHost(
     });
     remember(host);
     return host;
+}
+
+function adoptionComplete(
+    host: HostLockRecord,
+    identity: HostIdentity | undefined,
+    current: WorkerRecordScan | undefined,
+    workers: readonly WorkerRecord[],
+): boolean {
+    if (identity?.pid !== host.pid) return false;
+    if (host.worker_count === undefined || identity.workers_ready !== host.worker_count) return false;
+    if (current === undefined) return false;
+    return workers.every((worker) => current.recoverable.some(({ record }) =>
+        record.id === worker.id && record.pid === worker.pid && record.started_at === worker.started_at
+        && record.host_pid === host.pid));
+}
+
+async function adoptableWorkers(): Promise<readonly WorkerRecord[] | undefined> {
+    if (loadOptionalVeraConfig()?.host?.workers === 0) return undefined;
+    const discovery = await discoverResetProcesses(realResetSystem());
+    if (discovery.hostAnswer !== undefined) return undefined;
+    if (discovery.unproven.length > 0) return undefined;
+    const clients = [
+        process.pid,
+        ...discovery.candidates.filter((candidate) => candidate.role === "client").map((candidate) => candidate.pid),
+    ];
+    for (const candidate of discovery.candidates) {
+        if (candidate.role === "client") continue;
+        if (candidate.role === "worker") continue;
+        if (candidate.role === "watchdog"
+            && clients.some((pid) => targetPidIsAncestor(pid, { currentPid: candidate.pid }) === true)) continue;
+        return undefined;
+    }
+    const { inspectWorkerRecords } = await import("../../src/host/pool/worker-record.ts");
+    const scan = await inspectWorkerRecords(discovery.home, thisProcessBuildId(), { removeStale: false });
+    if (scan.recoverable.length === 0) return undefined;
+    if (scan.pending.length > 0) return undefined;
+    if (scan.stale.length > 0) return undefined;
+    const workers = scan.recoverable.map(({ record }) => record);
+    if (workers.some((record) => processIsAlive(record.host_pid))) return undefined;
+    const previousHost = discovery.lock.state === "valid" ? discovery.lock.record.pid : undefined;
+    if (previousHost !== undefined && workers.some((record) => record.host_pid !== previousHost)) return undefined;
+    const candidates = discovery.candidates.filter((candidate) => candidate.role === "worker");
+    if (candidates.length !== workers.length) return undefined;
+    if (candidates.some((candidate) => !workers.some((record) => record.pid === candidate.pid))) return undefined;
+    const { occupiedWorkerSockets } = await import("../../src/host/pool/worker-sockets.ts");
+    const sockets = await occupiedWorkerSockets(discovery.home, 0);
+    if (sockets.some((socket) => !workers.some((record) => record.socket_path === socket.path))) return undefined;
+    return workers;
 }
 
 async function inspectHome(): Promise<BootInspection> {
@@ -221,7 +292,7 @@ export class HostStartFailedError extends Error {
 }
 
 // Same steps as 'vera host reset --yes': back up, stop this home's processes by pid and start time, clear runtime files.
-async function recoverHome(requester: HostRequester): Promise<{ ok: boolean; changed: boolean; lines: string[] }> {
+export async function recoverHome(requester: HostRequester): Promise<{ ok: boolean; changed: boolean; lines: string[] }> {
     // Stopping a host this command runs under would end the command and its session.
     const discovery = await discoverResetProcesses(realResetSystem());
     const own = discovery.candidates.find((candidate) => candidate.role !== "client" && targetPidIsAncestor(candidate.pid) === true);

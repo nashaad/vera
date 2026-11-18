@@ -20,6 +20,7 @@ import {
     type ModelAdapter,
     type ModelRequest,
 } from "../../src/model/types.ts";
+import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { socketTest } from "../support/socket-probe.ts";
 
@@ -123,12 +124,20 @@ socketTest(
         const toolLoop = Array.from({ length: 40 }, (_, index) =>
             bashToolResponse("true", `bash-${index}`)
         );
+        const thirdRequest = deferred();
+        let thirdRequestSignal: AbortSignal | undefined;
+        const loopingAdapter = new GatedAdapter(toolLoop, async (call, signal) => {
+            if (call !== 2) return;
+            thirdRequestSignal = signal;
+            thirdRequest.resolve();
+            await onceAborted(signal);
+        });
+        let adapterCount = 0;
         const host = await startResidentHost({
             config,
-            createAdapter: () => new FauxAdapter(toolLoop, {
-                chunkSize: 1,
-                delayMs: 30,
-            }),
+            createAdapter: () => adapterCount++ === 0
+                ? loopingAdapter
+                : new FauxAdapter([textResponse("ready again")]),
             ...paths,
         });
         try {
@@ -145,9 +154,8 @@ socketTest(
             expect((await client.receive()).type).toBe("history");
             await client.send({ type: "prompt", content: "keep polling" });
             const eventLog = join(paths.eventLogDirectory, "looping.jsonl");
-            await waitFor(async () =>
-                await countEvents(eventLog, "tool_execution_finished") >= 2
-            );
+            await thirdRequest.promise;
+            expect(await countEvents(eventLog, "tool_execution_finished")).toBe(2);
 
             // Release detaches before it closes; the abort must survive that.
             const released = await Promise.race([
@@ -155,14 +163,30 @@ socketTest(
                 Bun.sleep(3000).then(() => "timed out" as const),
             ]);
             expect(released).toMatchObject({ outcome: "stopped" });
+            expect(thirdRequestSignal?.aborted).toBe(true);
             const atAcknowledgement = await countEvents(
                 eventLog,
                 "model_request",
             );
+            expect(atAcknowledgement).toBe(3);
             await Bun.sleep(200);
             expect(await countEvents(eventLog, "model_request"))
                 .toBe(atAcknowledgement);
-            expect(atAcknowledgement).toBeLessThan(toolLoop.length);
+            expect(host.registry.find("looping")).toBeUndefined();
+
+            const sessionPath = join(paths.sessionDirectory, "looping.jsonl");
+            const store = await SessionStore.openReadOnly(sessionPath);
+            try {
+                expect(store.messages().at(-1)).toMatchObject({
+                    role: "assistant",
+                    stopReason: "aborted",
+                });
+            } finally {
+                await store.closeReadOnly();
+            }
+            await host.registry.resume({ sessionPath });
+            expect(await promptAttachedAgent(paths.socketPath, "looping", "continue"))
+                .toBe("ready again");
         } finally {
             await host.close();
             await rm(root, { recursive: true, force: true });

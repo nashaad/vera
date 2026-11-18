@@ -26,6 +26,7 @@ async function withPool(run: (pool: PoolFixture) => Promise<readonly number[]>):
     mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
     const home = await mkdtemp(join(tmpdir(), "vera-dev", "h7br-"));
     const webRoot = join(home, "web");
+    const extension = join(home, "request-extension");
     const requests: string[] = [];
     const stub = Bun.serve({
         hostname: "127.0.0.1", port: 0,
@@ -37,7 +38,7 @@ async function withPool(run: (pool: PoolFixture) => Promise<readonly number[]>):
             const lastUser = decoded.messages?.findLastIndex((message) => message.role === "user") ?? -1;
             const createArtifact = JSON.stringify(decoded.messages?.[lastUser]).includes("Create a crow artifact");
             const answered = decoded.messages?.slice(lastUser + 1).some((message) => message.role === "tool") === true;
-            const content = body.includes("Phase 1") ? "1: Repaired the crow mast" : "The crow received the comment.";
+            const content = body.includes("Repair the mast") ? "Repaired the crow mast" : "The crow received the comment.";
             const delta = createArtifact && !answered
                 ? { role: "assistant", tool_calls: [{ index: 0, id: "artifact", type: "function", function: {
                     name: "artifact_write", arguments: JSON.stringify({ name: "raid", markdown: "# Crow map" }),
@@ -52,17 +53,34 @@ async function withPool(run: (pool: PoolFixture) => Promise<readonly number[]>):
     let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
     let workerPids: readonly number[] = [];
     try {
-        await mkdir(webRoot);
+        await Promise.all([mkdir(webRoot), mkdir(extension)]);
         await Promise.all([
             writeFile(join(webRoot, "index.html"), "<!doctype html><title>Vera</title>"),
             writeFile(join(webRoot, "main.js"), ""),
             writeFile(join(webRoot, "styles.css"), ""),
+            writeFile(join(extension, "vera.extension.json"), JSON.stringify({
+                id: "test.host-request", version: "1.0.0", sdk: "1", entrypoint: "./extension.ts",
+                capabilities: ["requests.handle", "model.oneshot"],
+            })),
+            writeFile(join(extension, "extension.ts"), `
+                export function activate(vera) {
+                    vera.requests.handle("describe", async (payload, { signal }) => {
+                        const result = await vera.model.oneshot({
+                            assignment: "snappy",
+                            messages: [{ role: "user", text: payload.task }],
+                            signal,
+                        });
+                        return { task: payload.task, answer: result.text };
+                    });
+                }
+            `),
         ]);
         host = await startResidentHost({
             home, webRoot, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
             config: {
                 schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "ask", curated_models_url: "",
                 providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
+                extensions: [{ path: extension, enabled: true, config: {} }],
                 model_assignments: { snappy: { models: [{ name: "crow", provider: "stub", model: "stub-model" }] } },
             },
         });
@@ -88,15 +106,16 @@ function running(pid: number): boolean {
     try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-socketAndLoopbackTest("the host serves recap label requests in pool mode", async () => {
+socketAndLoopbackTest("the host serves extension requests and model calls in pool mode", async () => {
     await withPool(async ({ socket, requests, create }) => {
         const agent = await create();
         const workerPid = (await requestHostIdentity(agent.location!.socket_path))!.pid;
-        const result = await requestExtensionThroughHost(socket, "vera.recap", "label", {
-            earlier: [], phases: [{ prompts: ["Repair the mast"], done: [], files: [], commits: [] }],
+        const result = await requestExtensionThroughHost(socket, "test.host-request", "describe", {
+            task: "Repair the mast",
         }, AbortSignal.timeout(10_000));
-        expect(result).toEqual(["Repaired the crow mast"]);
+        expect(result).toEqual({ task: "Repair the mast", answer: "Repaired the crow mast" });
         expect(requests).toHaveLength(1);
+        expect(requests[0]).toContain("Repair the mast");
         return [workerPid];
     });
 }, 30_000);

@@ -17,6 +17,9 @@ import type { ReadyAgentLocation } from "./agent-start-client.ts";
 import { sameWorkIndex, type WorkIndexSnapshot } from "./work-index.ts";
 
 const RECONNECT_DEADLINE_MS = 5_000;
+const RECONNECT_INITIAL_DELAY_MS = 250;
+const RECONNECT_MAX_DELAY_MS = 5_000;
+const RECONNECT_STABLE_ATTACHMENT_MS = 30_000;
 const RECONNECT_DELAYS_MS = [0, 50, 100, 200];
 const STARTING_RETRY_DELAY_MS = 1_000;
 const BUILD_CHECK_DELAYS_MS = [0, 50, 100, 200];
@@ -134,6 +137,9 @@ export function createReconnectingAgentClient(
     let closed = false;
     let receiving = false;
     let reconnectInFlight: Promise<AttachedAgentClient> | undefined;
+    let reconnects = 0;
+    let reconnectDeadline: AbortSignal | undefined;
+    let stabilityTimer: ReturnType<typeof setTimeout> | undefined;
     let terminalFailureDelivered = false;
     const lifecycle = new AbortController();
     const pendingPrivateRequests = new Set<string>();
@@ -246,8 +252,6 @@ export function createReconnectingAgentClient(
                 throw new Error("Agent attachment already has a pending receive");
             }
             receiving = true;
-            let reconnects = 0;
-            let reconnectDeadline: AbortSignal | undefined;
             try {
                 while (!closed) {
                     try {
@@ -263,6 +267,7 @@ export function createReconnectingAgentClient(
                         if (closed || signal?.aborted === true || terminalFailureDelivered) {
                             throw error;
                         }
+                        clearStabilityTimer();
                         if (policy.failOnDisconnect === true && current.closed && !current.failed
                             && (stoppedByNotice || policy.retryDirectDisconnect?.() !== true)) {
                             throw error;
@@ -279,15 +284,10 @@ export function createReconnectingAgentClient(
                             reconnectDeadline,
                             ...(signal === undefined ? [] : [signal]),
                         ]);
-                        if (reconnects > 0) {
-                            const delays = policy.delaysMs ?? RECONNECT_DELAYS_MS;
-                            const retryDelay = Math.max(25, delays[Math.min(reconnects, delays.length - 1)] ?? 0);
-                            await delay(retryDelay, retrySignal);
-                        }
-                        reconnects += 1;
                         reconnectInFlight = retryReconnect(error, retrySignal);
                         try {
                             current = await reconnectInFlight;
+                            startStabilityTimer(current);
                         } finally {
                             reconnectInFlight = undefined;
                         }
@@ -311,6 +311,7 @@ export function createReconnectingAgentClient(
                 throw new Error("Host does not support attachment release");
             }
             closed = true;
+            clearStabilityTimer();
             lifecycle.abort(new Error("Agent attachment is released"));
             stopBackgroundAgentUpdates();
             stopWorkIndexUpdates();
@@ -321,6 +322,7 @@ export function createReconnectingAgentClient(
         async detach(): Promise<void> {
             if (closed) return;
             closed = true;
+            clearStabilityTimer();
             lifecycle.abort(new Error("Agent attachment is detached"));
             stopBackgroundAgentUpdates();
             stopWorkIndexUpdates();
@@ -331,6 +333,7 @@ export function createReconnectingAgentClient(
         close(): void {
             if (!closed) {
                 closed = true;
+                clearStabilityTimer();
                 lifecycle.abort(new Error("Agent attachment is closed"));
                 stopBackgroundAgentUpdates();
                 stopWorkIndexUpdates();
@@ -346,6 +349,23 @@ export function createReconnectingAgentClient(
     };
 
     return client;
+
+    function clearStabilityTimer(): void {
+        if (stabilityTimer !== undefined) clearTimeout(stabilityTimer);
+        stabilityTimer = undefined;
+    }
+
+    function startStabilityTimer(attached: AttachedAgentClient): void {
+        clearStabilityTimer();
+        stabilityTimer = setTimeout(() => {
+            stabilityTimer = undefined;
+            if (!closed && current === attached && !attached.closed) {
+                reconnects = 0;
+                reconnectDeadline = undefined;
+            }
+        }, RECONNECT_STABLE_ATTACHMENT_MS);
+        stabilityTimer.unref?.();
+    }
 
     function publishStopWait(event: HostStopWaitEvent): void {
         if (event.type === "host_stop_wait") {
@@ -409,16 +429,8 @@ export function createReconnectingAgentClient(
 
     async function retryReconnect(
         originalError: unknown,
-        signal?: AbortSignal,
+        reconnectSignal: AbortSignal,
     ): Promise<AttachedAgentClient> {
-        const deadline = AbortSignal.timeout(
-            policy.deadlineMs ?? RECONNECT_DEADLINE_MS,
-        );
-        const reconnectSignal = AbortSignal.any([
-            lifecycle.signal,
-            deadline,
-            ...(signal === undefined ? [] : [signal]),
-        ]);
         let afterSequence = !current.failed && current.supportsHostCapability(
                 HOST_CAPABILITY_AGENT_ATTACH_RESUME,
             )
@@ -426,18 +438,24 @@ export function createReconnectingAgentClient(
             : undefined;
         let lastError = originalError;
         current.close();
-        const delays = policy.delaysMs ?? RECONNECT_DELAYS_MS;
-        for (let attempt = 0; policy.delaysMs === undefined
-            || attempt < delays.length; attempt += 1) {
-            const delayMs = delays[Math.min(attempt, delays.length - 1)] ?? 0;
+        while (policy.delaysMs === undefined || reconnects < policy.delaysMs.length) {
             if (closed) throw new Error("Agent attachment is closed");
-            reconnectSignal.throwIfAborted();
-            if (delayMs > 0) await delay(delayMs, reconnectSignal);
+            const delayMs = policy.delaysMs?.[reconnects]
+                ?? (reconnects === 0 ? 0 : Math.min(
+                    RECONNECT_INITIAL_DELAY_MS * 2 ** (reconnects - 1),
+                    RECONNECT_MAX_DELAY_MS,
+                ));
             try {
+                if (reconnectDeadline?.aborted === true) break;
+                reconnectSignal.throwIfAborted();
+                if (delayMs > 0) await delay(delayMs, reconnectSignal);
+                reconnectSignal.throwIfAborted();
+                reconnects += 1;
                 const next = await attach(afterSequence, reconnectSignal);
-                if (closed) {
+                if (closed || reconnectSignal.aborted) {
                     next.close();
-                    throw lifecycle.signal.reason;
+                    reconnectSignal.throwIfAborted();
+                    throw new Error("Agent attachment is closed");
                 }
                 stopBackgroundAgentUpdates();
                 stopBackgroundAgentUpdates = subscribeToBackgroundAgentUpdates(next);
@@ -471,6 +489,8 @@ export function createReconnectingAgentClient(
                 return next;
             } catch (error) {
                 if (closed || lifecycle.signal.aborted) throw error;
+                if (reconnectDeadline?.aborted === true) break;
+                if (reconnectSignal.aborted) throw error;
                 if (error instanceof HostBuildChangedError) throw error;
                 if (error instanceof AgentAttachError && error.reason === "history_paging_required") throw error;
                 if (afterSequence !== undefined

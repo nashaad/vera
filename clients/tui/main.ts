@@ -545,6 +545,12 @@ function tuiContextSnapshot(
     };
 }
 
+export interface TuiReconnectOptions {
+    readonly replaceExisting?: boolean;
+    readonly confirmWedge?: boolean;
+    readonly attachOnly?: boolean;
+}
+
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
     /** How Outrider is found and run. Supplied by a test that has no binary on the machine. */
@@ -618,12 +624,9 @@ export interface TuiDependencies {
     ) => Promise<SessionSearchResults>;
     readonly reconnectSession?: (
         agentId: string,
-        options?: {
-            readonly replaceExisting?: boolean;
-            readonly confirmWedge?: boolean;
-            readonly attachOnly?: boolean;
-        },
+        options?: TuiReconnectOptions,
     ) => Promise<TuiAgentClient>;
+    readonly reconnectHome?: (options?: TuiReconnectOptions) => Promise<void>;
     readonly onSessionEntered?: (agentId: string) => void;
     readonly initialDraft?: TuiDraft;
     readonly startupNotices?: readonly string[];
@@ -659,6 +662,7 @@ export interface TuiDependencies {
     readonly loginProvider?: (
         providerId: string,
         onBrowserUnavailable: (url: string) => void,
+        onAuthorizationUrl?: (url: string) => void,
     ) => Promise<void>;
     readonly flightRecorder?: TuiFlightRecorder;
     readonly createRenderer?: () => Promise<CliRenderer>;
@@ -836,6 +840,27 @@ export async function startConfiguredTui(
                 loadPoolFile({ projectRoot: process.cwd() }).issues,
             ),
         ];
+        const reconnectHost = async (options?: TuiReconnectOptions, home = false, currentAgentId?: string): Promise<void> => {
+            const replaceExisting = options?.replaceExisting === true;
+            const confirmWedge = options?.confirmWedge === true;
+            await refuseOtherHostBuild(clientBuildId);
+            if (options?.attachOnly === true) return;
+            assertInstalledBuild(clientBuildId, installedBuildId());
+            host = await findOrStartResidentHost({
+                requester: hostRequester(
+                    "tui",
+                    replaceExisting ? "reconnect host" : "automatic reconnect",
+                    currentAgentId === undefined ? undefined : { id: currentAgentId },
+                ),
+                confirmBusyUpgrade: confirmWedge
+                    ? confirmManualReconnectUpgrade
+                    : () => false,
+                ...(replaceExisting ? { replaceExisting: true } : {}),
+                ...(home && replaceExisting
+                    ? { replaceOnlyHost: { pid: host.pid, started_at: host.started_at } }
+                    : {}),
+            });
+        };
         const exit = await startTui({
             client,
             initialDraft: restored?.draft,
@@ -900,21 +925,10 @@ export async function startConfiguredTui(
             searchSessions: async (query) =>
                 searchSessionsThroughHost(await pairedSocket(), query),
             reconnectSession: async (currentAgentId, options) => {
-                // Manual reconnect confirms a wedge. Auto-restart after a drop does not. A busy host must refuse.
-                const replaceExisting = options?.replaceExisting === true;
-                const confirmWedge = options?.confirmWedge === true;
-                await refuseOtherHostBuild(clientBuildId);
-                if (options?.attachOnly === true) return attach(currentAgentId);
-                assertInstalledBuild(clientBuildId, installedBuildId());
-                host = await findOrStartResidentHost({
-                    requester: hostRequester("tui", replaceExisting ? "reconnect host" : "automatic reconnect", { id: currentAgentId }),
-                    confirmBusyUpgrade: confirmWedge
-                        ? confirmManualReconnectUpgrade
-                        : () => false,
-                    ...(replaceExisting ? { replaceExisting: true } : {}),
-                });
+                await reconnectHost(options, false, currentAgentId);
                 return attach(currentAgentId);
             },
+            reconnectHome: (options) => reconnectHost(options, true),
             onSessionEntered: rememberSession,
             trashSession: async (sessionId) =>
                 trashSessionThroughHost(await pairedSocket(), sessionId),
@@ -1089,7 +1103,6 @@ export async function startTui(
     // The restart notice ends once this TUI is attached to a host again.
     rt.relaunching = undefined;
     rt.plannedHostStop = undefined;
-    // One automatic host restart per drop. Clear only after the reconnected session is idle, or a dying worker loops.
     rt.hostReconnectAttempted = false;
     // agent_failed already arrived; the later stream close is not a dropped host.
     rt.agentFailedThisAttachment = false;
@@ -1518,6 +1531,7 @@ export async function startTui(
         rt.startConfiguredClientExtensionHost,
         (registry) => {
             rt.clientExtensionRegistry = registry;
+            if (rt.shuttingDown) return;
             refreshKeymap(rt);
             if (registry === undefined) {
                 rt.extensionMentions = [];

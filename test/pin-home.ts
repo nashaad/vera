@@ -11,5 +11,6 @@ const TEST_VERA_HOME = join(TEST_TEMP_ROOT.path, "home");
 process.env.VERA_HOME = TEST_VERA_HOME;
 process.env.VERA_TEST_HOME = TEST_VERA_HOME;
 process.env.HOME = TEST_USER_HOME;
+delete process.env.VERA_DEV_INSTANCE;
 
 export { TEST_TEMP_BASE, TEST_TEMP_ROOT, TEST_USER_HOME, TEST_VERA_HOME };

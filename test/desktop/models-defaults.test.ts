@@ -56,7 +56,7 @@ describe("Defaults copy", () => {
         expect(usedByText(unsetJobs, "extra")).toBe("Used by classifier.");
         const classifierSet = view(slot({ id: "reviewer", bound: true, declared: [big] }));
         expect(usedByText(classifierSet, "extra")).toBeUndefined();
-        expect(usedByText(classifierSet, "snappy")).toBe("Used by titles and recaps.");
+        expect(usedByText(classifierSet, "snappy")).toBe("Used by titles.");
     });
 
     test("the clearing row says what clearing means", () => {

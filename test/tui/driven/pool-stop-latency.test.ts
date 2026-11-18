@@ -14,6 +14,7 @@ import { processIsAlive } from "../../../src/host/process-identity.ts";
 import { requestHostIdentity } from "../../../src/host/protocol.ts";
 import { attachReconnectingAgent } from "../../../src/host/reconnecting-agent-client.ts";
 import { startTuiTestSession, type TuiTestSession } from "../../support/tui-harness.ts";
+import { sourceTestHome } from "../../support/source-test-home.mjs";
 
 async function until(check: () => boolean | Promise<boolean>, label: string): Promise<void> {
     const deadline = Date.now() + 15_000;
@@ -52,7 +53,7 @@ for (const force of [false, true]) {
         }));
         const host = spawn(process.execPath, [join(import.meta.dir, "../../host/fixtures/pool-stop-host.ts")], {
             cwd: process.cwd(),
-            env: { ...process.env, VERA_HOME: home, VERA_DEV_INSTANCE: "stopfix dev", HS9_STOP_MODE: "pool" },
+            env: { ...process.env, HOME: sourceTestHome(root), VERA_HOME: home, VERA_DEV_INSTANCE: "stopfix dev", HS9_STOP_MODE: "pool" },
             stdio: "ignore",
         });
         const exited = new Promise<number | null>((resolve) => host.once("close", resolve));
@@ -90,7 +91,7 @@ for (const force of [false, true]) {
             await until(() => requests === 1, "model request");
             const command = Bun.spawn([process.execPath, "clients/cli/main.ts", "host", "stop", ...(force ? ["--force"] : []), "--yes"], {
                 cwd: process.cwd(),
-                env: { ...process.env, VERA_HOME: home, VERA_DEV_INSTANCE: "stopfix dev" },
+                env: { ...process.env, HOME: root, VERA_HOME: home, VERA_DEV_INSTANCE: "stopfix dev" },
                 stdout: "pipe", stderr: "pipe",
             });
             const commandResult = Promise.all([
