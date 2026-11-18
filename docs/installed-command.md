@@ -31,12 +31,14 @@ Run `bun run install:local` from the checkout you want to install. It packs and
 verifies the release first. With no host running, or a host already on that
 build, it activates the release at once. From a terminal, when a host on a
 different build is running, the install waits for its running turns, stops it,
-and activates the release. The next `vera` starts the new host. An attached
-TUI shows that the host stopped. With the daily installation, press Ctrl+L in a TUI started through the
-`vera` launcher to restart into the new build with the conversation and draft.
-Reconnect host, or Ctrl+L without the launcher, can start the old build; stop
-that host before reopening Vera to use the new build. Ctrl+L checks the daily
-installation even when Vera runs from a different prefix.
+and activates the release. After activation it checks for a host of another
+build and stops it when idle. The next `vera` starts the new host. An attached
+TUI shows that the host stopped. Press Ctrl+L or choose Reconnect host in a TUI
+started through the `vera` launcher to restart into the active build with the
+conversation and draft. Without the launcher, the TUI refuses to restart when
+its build differs from the active release; quit and reopen Vera. A running host
+of another build is identified as the host instead. Each TUI checks
+the installation it runs from, including a private prefix.
 
 Inside a Vera session, or with `VERA_HOT_UPDATE=1`, an install with a host on
 another build uses a handoff. The host holds new turns while it waits, then
