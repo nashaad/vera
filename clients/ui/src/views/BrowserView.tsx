@@ -151,12 +151,11 @@ export function BrowserView({ visible }: ViewProps) {
                     </button>
                 )}
                 <BrowserCommands hasPage={visible && page !== undefined} onError={setError} />
-            </div>
-            <div className="browser-controls">
-                <label>
-                    <button type="button" role="switch" className="appearance-switch" aria-label="Browser tools" aria-checked={native?.toolsEnabled ?? false} disabled={!(native?.toolsAvailable ?? false)} onClick={() => void nativeCommand("tools", !native?.toolsEnabled)}>
+                <label className="browser-tools-switch">
+                    <button type="button" role="switch" className="appearance-switch" aria-label="Browser tools" aria-checked={native?.toolsEnabled ?? false} title={`Browser tools ${native?.toolsEnabled ? "on" : "off"}`} disabled={!(native?.toolsAvailable ?? false)} onClick={() => void nativeCommand("tools", !native?.toolsEnabled)}>
                         <span className="appearance-switch-knob" />
-                    </button> Browser tools {native?.toolsEnabled ? "on" : "off"}
+                    </button>
+                    <span className="browser-tools-label">Browser tools {native?.toolsEnabled ? "on" : "off"}</span>
                 </label>
             </div>
             {error === undefined ? null : <p role="alert" className="view-note">{error}</p>}
