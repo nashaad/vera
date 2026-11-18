@@ -2,10 +2,10 @@
 
 ## Select or draw
 
-Open a session and a page in the desktop's Browser pane. The pointer button at
-the right of the address bar opens the annotation toolbar on the page. It works
-on sites and Vera's annex pages. In Files, open an HTML file and choose Preview;
-the pointer beside the preview opens the same toolbar.
+Open a session and a website in the desktop's Browser pane. The pointer button
+at the right of the address bar opens the annotation toolbar on the page. In
+Files, open an HTML file and choose Preview; the pointer beside the preview
+opens the same toolbar. Vera's pages do not have annotation.
 
 Select element outlines the element under the pointer. Click to keep that
 selection. Use Pen for freehand marks, Shapes for a line, arrow, rectangle,

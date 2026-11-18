@@ -106,6 +106,13 @@ export async function press(app, key, modifiers = []) {
 
 export const MODIFIER = process.platform === "darwin" ? "meta" : "control";
 
+export async function waitForAnnexPages(page, app) {
+    await press(app, "K", [MODIFIER]);
+    await page.getByRole("textbox", { name: "Command palette" }).fill("Artifacts");
+    await page.locator('[data-command="page.extension.%2Fx%2Fvera.artifacts%2Fartifacts"]').waitFor({ timeout: 45_000 });
+    await page.keyboard.press("Escape");
+}
+
 // Playwright's close waits for the app's exit event, which a quit occasionally never delivers.
 // After the bound, the app's own process group is killed; nothing else is signalled.
 const CLOSE_LIMIT_MS = 15_000;

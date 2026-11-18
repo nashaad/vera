@@ -429,17 +429,16 @@ Declare it in the manifest:
 ```
 
 The page appears in the annex sidebar under its label, at
-`/x/acme.hoard/loot`, and as a tab in the desktop's Browser. Your host code can link to it with
+`/x/acme.hoard/loot`. Your host code can link to it with
 `vera.annex.pageUrl("loot")`, which is `undefined` while the annex is down.
 The address stays the same across host restarts, so a link you send out
 keeps working.
 
 Add `"pane": true` to a page's entry to give it a place of its own in the
-desktop. The window then lists the page by its label as a sidebar entry that
-opens it in the main area, and as a kind of right pane tab, up to three at a
-time, beside Review and Files. The page stays in the Browser too. A link to the
-page in the transcript, whether in a reply or in a tool notice, opens in that
-pane.
+desktop. The window lists it by its label as a sidebar entry and a right pane
+kind, with up to three tabs. Links to the page in a reply or tool notice open
+in that pane. A page without a pane, or one beyond the available pane kinds,
+opens in the system browser.
 
 The `server` module runs in the annex and exports `activatePage(page)`:
 
@@ -485,8 +484,8 @@ markdown artifacts an agent writes, with comments you leave in the margin.
 
 A tool can return a notice that the transcript shows under its run, even when
 the run is collapsed. Give the notice a `link` and the desktop draws a card
-with the page's icon and your title, which opens the page in its pane or in a
-Browser tab when you click it. The text of the notice is still what the
+with the page's icon and your title, which opens the page in its pane or in
+the system browser when you click it. The text of the notice is still what the
 terminal shows. The `link` and the notice never reach the model.
 
 ```ts

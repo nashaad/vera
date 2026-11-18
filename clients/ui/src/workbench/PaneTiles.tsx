@@ -1,11 +1,11 @@
 import { useState, type KeyboardEvent } from "react";
 import { pageAt } from "../browser/address.ts";
 import { BROWSER_CONTAINER, openAddressInTab } from "../browser/open.ts";
+import { openAnnexAddress } from "../browser/annex-address.ts";
 import { useRecents, type RecentPage } from "../browser/recents.ts";
 import { typedAddress } from "../browser/url.ts";
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
 import { usePageLinks } from "../pagepane/PageLinks.tsx";
-import { openAnnexPath } from "../pagepane/open.ts";
 import { canOpenTab } from "../layout/resolve.ts";
 import { paneEntry } from "../registry/core.ts";
 import { ContainerIcon } from "./ContainerIcon.tsx";
@@ -28,11 +28,8 @@ export function PaneTiles() {
         && (item.kind === "browser" ? canOpenTab(layout, BROWSER_CONTAINER) : pageAt(item.target, annex?.pages ?? []) !== undefined));
     const address = canOpenTab(layout, BROWSER_CONTAINER) ? typedAddress(query) : undefined;
     const pick = (item: RecentPage): void => {
+        if (openAnnexAddress(workbench, annex, item.target)) return;
         if (item.kind === "browser") void openAddressInTab(dispatch, item.target);
-        else {
-            const page = pageAt(item.target, annex?.pages ?? []);
-            if (page !== undefined) openAnnexPath(workbench, page, item.target);
-        }
     };
     const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
         if (event.key === "Escape") {
@@ -46,7 +43,10 @@ export function PaneTiles() {
         } else if (event.key === "Enter") {
             const item = focused ? selectedRecent(matches, selected) : undefined;
             if (item !== undefined) { event.preventDefault(); pick(item); }
-            else if (address !== undefined) { event.preventDefault(); void openAddressInTab(dispatch, address); }
+            else if (address !== undefined) {
+                event.preventDefault();
+                if (!openAnnexAddress(workbench, annex, query)) void openAddressInTab(dispatch, address);
+            }
         }
     };
     return (

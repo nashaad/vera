@@ -1,5 +1,8 @@
 import type { BrowserRequest } from "../../../../extensions/desktop-browser/arguments.ts";
 import { BrowserPane } from "./pane.ts";
+import { BLOCKED_ANNEX_OPEN_ERROR } from "./origin-guard.ts";
+
+export const NO_WEB_PAGE_ERROR = "No web page is open in the Browser pane. Vera's own pages such as Usage cannot be controlled here. Use open with a URL.";
 
 interface AxNode {
     readonly ignored?: boolean;
@@ -26,11 +29,16 @@ export class BrowserCdp {
             }
             this.refs.clear();
             this.contextId = undefined;
-            await this.pane.navigate(request.url);
+            try {
+                await this.pane.navigate(request.url);
+            } catch (error) {
+                if (error instanceof Error && /ERR_BLOCKED_BY_CLIENT/.test(error.message)) throw new Error(BLOCKED_ANNEX_OPEN_ERROR);
+                throw error;
+            }
             return { output: `Opened ${request.url}` };
         }
         const contents = this.pane.current();
-        if (contents === undefined || contents.isDestroyed()) throw new Error("Open a browser tab first.");
+        if (contents === undefined || contents.isDestroyed()) throw new Error(NO_WEB_PAGE_ERROR);
         if (this.contentsId !== contents.id) {
             this.refs.clear();
             this.contextId = undefined;

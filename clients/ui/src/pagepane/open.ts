@@ -1,4 +1,3 @@
-import { openBrowserTab, BROWSER_CONTAINER } from "../browser/open.ts";
 import type { LayoutAction } from "../layout/reducer.ts";
 import { canOpenTab, findContainer, type ResolvedLayout } from "../layout/resolve.ts";
 import { showToast } from "../overlays/toasts.ts";
@@ -45,23 +44,12 @@ export function openPageTab(host: PageHost, page: AnnexPage, path: string): Page
     return "shown";
 }
 
-// Opens a listed annex page: in its own pane when it has one, else in a Browser tab, else in the system browser.
+// Opens a built-in page or an available extension pane in the right pane. Other annex pages use the system browser.
 export function openAnnexPath(host: PageHost, page: AnnexPage, path: string): void {
-    if (page.pane === true) {
-        const own = findContainer(host.layout, pageKindId(page.path));
-        if (own !== undefined && own.shown) {
-            if (openPageTab(host, page, path) === "full") showToast(pageTabsFull(page.label), "danger");
-            return;
-        }
-    }
-    const browser = findContainer(host.layout, BROWSER_CONTAINER);
-    if (browser === undefined || !browser.shown) {
-        void window.veraDesktop?.openAnnexPage(path);
+    const own = findContainer(host.layout, pageKindId(page.path));
+    if (own !== undefined && own.shown && own.location === "rightPane") {
+        if (openPageTab(host, page, path) === "full") showToast(pageTabsFull(page.label), "danger");
         return;
     }
-    if (!canOpenTab(host.layout, BROWSER_CONTAINER)) {
-        showToast(pageTabsFull(browser.title), "danger");
-        return;
-    }
-    openBrowserTab(host.dispatch, { entry: path });
+    void window.veraDesktop?.openAnnexPage(path);
 }

@@ -1,3 +1,4 @@
+import { ANNEX_BUILT_IN_PAGES } from "../../../../src/annex/built-in-pages.ts";
 import type { AnnexPage } from "../protocol/bridge.ts";
 import type { PaneKind } from "../registry/core.ts";
 
@@ -18,20 +19,30 @@ export function pagePathOfKind(kind: string): string | undefined {
     return path?.startsWith("/") ? path : undefined;
 }
 
-// The pages an extension gave their own pane, which the pane kinds and the sidebar both list. Vera's own pages never have one.
+export function builtInPages(pages: readonly AnnexPage[]): readonly AnnexPage[] {
+    return ANNEX_BUILT_IN_PAGES.map((builtin) => pages.find((page) => page.path === builtin.href) ?? {
+        label: builtin.label,
+        path: builtin.href,
+    });
+}
+
+// Extension panes have their own cap. Built-in page kinds do not count toward it.
 export function extensionPages(pages: readonly AnnexPage[]): readonly AnnexPage[] {
     return pages.filter((page) => page.pane === true && page.extensionId !== undefined).slice(0, PAGE_KIND_LIMIT);
 }
 
-// One kind for each of those pages. Its tabs are saved with the layout.
+export function panePages(pages: readonly AnnexPage[]): readonly AnnexPage[] {
+    return [...builtInPages(pages), ...extensionPages(pages)];
+}
+
+// One kind for each available app page. Its tabs are saved with the layout.
 export function pageKinds(pages: readonly AnnexPage[]): readonly PaneKind[] {
-    return extensionPages(pages)
-        .map((page) => ({
-            id: pageKindId(page.path),
-            title: page.label,
-            icon: "page",
-            maxTabs: PAGE_TAB_LIMIT,
-        }));
+    return panePages(pages).map((page) => ({
+        id: pageKindId(page.path),
+        title: page.label,
+        icon: "page",
+        maxTabs: PAGE_TAB_LIMIT,
+    }));
 }
 
 export function sameKinds(left: readonly PaneKind[], right: readonly PaneKind[]): boolean {

@@ -105,8 +105,9 @@ let stopping = false;
 let activeTheme: ThemeChoice = DEFAULT_THEME;
 // Set from the ready event; cleared on disconnect, failure, a new boot, or app stop.
 let hostSocketPath: string | undefined;
-// The annex base URL from the last page list the window read; the browser frame may only load from it.
+// The annex base URL from the last page list the window read; app frames may only load from it.
 let annexUrl: string | undefined;
+let annexReadVersion = 0;
 let browserPane: BrowserPane | undefined;
 let browserGateway: BrowserGateway | undefined;
 
@@ -171,6 +172,9 @@ function receiveEvent(event: DesktopEvent): void {
         sessionPanes.connect(event.socketPath);
     } else if (event.type === "disconnected" || event.type === "failed") {
         hostSocketPath = undefined;
+        annexReadVersion += 1;
+        annexUrl = undefined;
+        browserPane?.setAnnexUrl(undefined);
         browserGateway?.stop();
     }
 }
@@ -178,6 +182,9 @@ function receiveEvent(event: DesktopEvent): void {
 function startBoot(): void {
     boot?.cancel();
     hostSocketPath = undefined;
+    annexReadVersion += 1;
+    annexUrl = undefined;
+    browserPane?.setAnnexUrl(undefined);
     browserGateway?.stop();
     pipe.close();
     sessionPanes.close();
@@ -214,6 +221,9 @@ function shutdown(): void {
     browserGateway?.stop();
     pageCommands.stop();
     localPreviews.clear();
+    annexReadVersion += 1;
+    annexUrl = undefined;
+    browserPane?.setAnnexUrl(undefined);
     browserPane?.dispose();
     browserPane = undefined;
     boot?.cancel();
@@ -281,7 +291,7 @@ function createWindow(): BrowserWindow {
     });
     created.webContents.on("render-process-gone", () => { pageCommands.stop(); localPreviews.clear(); });
     created.webContents.on("will-navigate", (event) => event.preventDefault());
-    // The right pane's browser frame stays on the annex; links elsewhere go nowhere.
+    // App and preview frames cannot navigate to other origins.
     created.webContents.on("will-frame-navigate", (event) => {
         if (event.isMainFrame) return;
         if (!onAnnex(event.url) && !localPreviews.owns(event.url)) event.preventDefault();
@@ -664,8 +674,11 @@ ipcMain.handle(CHANNELS.folderCustomizations, (event, workspace: unknown) => {
 });
 ipcMain.handle(CHANNELS.annexPages, async (event) => {
     if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
+    const version = ++annexReadVersion;
     const result = await readAnnexPages(hostSocketPath);
-    if (result.ok) annexUrl = result.url;
+    if (version !== annexReadVersion) return { ok: false, reason: "The host is not running." };
+    annexUrl = result.ok ? result.url : undefined;
+    browserPane?.setAnnexUrl(annexUrl);
     return result;
 });
 ipcMain.handle(CHANNELS.annexOpen, async (event, path: unknown): Promise<boolean> => {

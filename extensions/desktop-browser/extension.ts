@@ -6,7 +6,7 @@ import type { VeraExtensionApi, VeraExtensionToolResult } from "../../src/sdk/ex
 import type { JsonValue } from "../../src/sdk/hooks.ts";
 import { parseBrowserRequest, type BrowserRequest } from "./arguments.ts";
 
-const DESCRIPTION = "Use the desktop Browser pane. Open an http or https URL, read page text and accessibility refs, click or type by ref, scroll, go back, or take a screenshot. Read the page before using refs.";
+const DESCRIPTION = "Use the desktop Browser pane. Open an http or https URL, read page text and accessibility refs, click or type by ref, scroll, go back, or take a screenshot. Read the page before using refs. It cannot control Vera's own pages such as Usage. If a tool named browser is also available, ask the user once which browser to use before the first call, and keep the answer for this conversation.";
 const MAX_IMAGE = 800_000;
 const MAX_PENDING = 8;
 

@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState, type KeyboardEvent } from "react";
 
+import { isAnnexPath, resolveAddress } from "../browser/address.ts";
+import { openAnnexAddress } from "../browser/annex-address.ts";
 import { openAddressInTab, BROWSER_CONTAINER } from "../browser/open.ts";
 import { typedAddress } from "../browser/url.ts";
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
@@ -7,6 +9,7 @@ import { PlusIcon } from "../components/Icons.tsx";
 import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import { useMenuDismiss } from "../composer/useMenuDismiss.ts";
 import { canOpenTab, findContainer, type ResolvedContainer } from "../layout/resolve.ts";
+import { usePageLinks } from "../pagepane/PageLinks.tsx";
 import { paneEntry } from "../registry/core.ts";
 import { ContainerIcon } from "./ContainerIcon.tsx";
 import { useWorkbench } from "./context.tsx";
@@ -19,7 +22,9 @@ type Row =
 // The "+" in the right pane's top row. Its popover lists the kinds of tab, and a typed web address
 // comes first as a Browser tab. Every pick opens a new tab.
 export function PaneLauncher() {
-    const { layout, dispatch, run } = useWorkbench();
+    const workbench = useWorkbench();
+    const { layout, dispatch, run } = workbench;
+    const { annex } = usePageLinks();
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [focus, setFocus] = useState(0);
@@ -32,7 +37,10 @@ export function PaneLauncher() {
     const platform = window.veraDesktop?.platform ?? "";
     const needle = query.trim().toLowerCase();
     const browser = findContainer(layout, BROWSER_CONTAINER);
-    const address = browser !== undefined && canOpenTab(layout, BROWSER_CONTAINER) && typedAddress(query) !== undefined ? query.trim() : undefined;
+    const annexAddress = annex !== undefined && isAnnexPath(resolveAddress(query, annex.url));
+    const address = browser !== undefined && (annexAddress || canOpenTab(layout, BROWSER_CONTAINER)) && typedAddress(query) !== undefined
+        ? query.trim()
+        : undefined;
     const rows: Row[] = [
         ...(address === undefined || browser === undefined ? [] : [{ kind: "address", address, container: browser } as const]),
         ...layout.locations.rightPane.containers
@@ -43,7 +51,9 @@ export function PaneLauncher() {
 
     const pick = (row: Row): void => {
         setOpen(false);
-        if (row.kind === "address") void openAddressInTab(dispatch, row.address);
+        if (row.kind === "address") {
+            if (!openAnnexAddress(workbench, annex, row.address)) void openAddressInTab(dispatch, row.address);
+        }
         else if (!canOpenTab(layout, row.container.id)) return;
         else {
             const { command } = paneEntry(row.container.id, row.container);

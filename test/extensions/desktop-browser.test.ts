@@ -31,6 +31,8 @@ describe("desktop browser requests", () => {
                 tools: { register: (spec: VeraExtensionToolSpec) => { tool = spec; } },
             } as unknown as VeraExtensionApi;
             activate(api);
+            expect(tool!.description).toContain("It cannot control Vera's own pages such as Usage.");
+            expect(tool!.description).toContain("If a tool named browser is also available, ask the user once which browser to use before the first call, and keep the answer for this conversation.");
             const signal = new AbortController().signal;
             const settings = handlers.get("settings")!;
             expect(await settings({}, { signal })).toEqual({ enabled: false });

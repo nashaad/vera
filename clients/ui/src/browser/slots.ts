@@ -1,14 +1,12 @@
 import { useSyncExternalStore } from "react";
 
-import { browse, START, step, type BrowserHistory } from "./address.ts";
 import type { BrowserState } from "./native-types.ts";
 
 // The slot of a Browser view that is not a right pane tab, such as one moved to the panel.
 export const CONTAINER_SLOT = "container";
 
 export interface Slot {
-    readonly history: BrowserHistory;
-    // The shell page this slot shows; none while it shows one of Vera's own pages.
+    // The shell page this slot shows, if one has been opened.
     readonly page: number | undefined;
 }
 
@@ -20,7 +18,7 @@ export interface SlotStore {
     readonly claims: number;
 }
 
-export const EMPTY_SLOT: Slot = { history: START, page: undefined };
+export const EMPTY_SLOT: Slot = { page: undefined };
 
 const EMPTY_STORE: SlotStore = { slots: new Map(), native: undefined, claims: 0 };
 
@@ -36,7 +34,7 @@ function set(next: SlotStore): void {
 function withSlot(key: string, change: Partial<Slot>): void {
     const current = store.slots.get(key) ?? EMPTY_SLOT;
     const next = { ...current, ...change };
-    if (next.history === current.history && next.page === current.page && store.slots.has(key)) return;
+    if (next.page === current.page && store.slots.has(key)) return;
     set({ ...store, slots: new Map(store.slots).set(key, next) });
 }
 
@@ -47,8 +45,6 @@ export const browserSlots = {
         return () => listeners.delete(listener);
     },
     slot: (key: string): Slot => store.slots.get(key) ?? EMPTY_SLOT,
-    browse: (key: string, entry: string): void => withSlot(key, { history: browse(browsedFrom(key), entry) }),
-    step: (key: string, by: -1 | 1): void => withSlot(key, { history: step(browsedFrom(key), by) }),
     bind: (key: string, page: number): void => withSlot(key, { page }),
     unbind: (key: string): void => withSlot(key, { page: undefined }),
     drop: (keys: readonly string[]): void => {
@@ -66,10 +62,6 @@ export const browserSlots = {
     release: (): void => set({ ...store, claims: Math.max(0, store.claims - 1) }),
     reset: (): void => set(EMPTY_STORE),
 };
-
-function browsedFrom(key: string): BrowserHistory {
-    return browserSlots.slot(key).history;
-}
 
 export function useSlotStore(): SlotStore {
     return useSyncExternalStore(browserSlots.subscribe, browserSlots.get);

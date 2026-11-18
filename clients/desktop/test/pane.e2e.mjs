@@ -8,7 +8,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 
 import { configureFauxHome, until } from "./faux-home.mjs";
-import { MODIFIER, press, startTrial } from "./trial.mjs";
+import { MODIFIER, press, startTrial, waitForAnnexPages } from "./trial.mjs";
 
 const provider = createServer((request, response) => {
     request.resume();
@@ -45,6 +45,7 @@ async function boot() {
     page = await app.firstWindow();
     await page.waitForSelector(".app[data-sessions]", { timeout: 45_000 });
     await trial.waitForHost();
+    await waitForAnnexPages(page, app);
 }
 
 async function shoot(name) {
@@ -139,7 +140,7 @@ try {
     await until("the page's title on the tab", async () => (await tabsOf("core.browser").first().innerText()).includes("Crow page"));
     if (await tabsOf("core.browser").count() !== 1) throw new Error("The address opened more than one tab.");
 
-    // A tile or a pick of Browser opens a tab with no page; a page of Vera's own reuses it.
+    // A Browser pick opens an empty tab; Usage opens alongside it as an app page.
     await openKind("core.browser");
     await until("two Browser tabs", async () => (await tabsOf("core.browser").count()) === 2);
     await press(app, "K", [MODIFIER]);
@@ -149,6 +150,7 @@ try {
     await page.keyboard.press("Enter");
     await page.locator("[data-location=\"rightPane\"] iframe.browser-frame").waitFor({ timeout: 30_000 });
     if (await tabsOf("core.browser").count() !== 2) throw new Error("A page of Vera's own opened a third Browser tab.");
+    if (await tabsOf("page:/usage").count() !== 1) throw new Error("Usage did not open its own pane tab.");
     if (await webPages() !== 1) throw new Error("A page of Vera's own closed the web page.");
 
     // Closing the tab that holds a page closes the page.

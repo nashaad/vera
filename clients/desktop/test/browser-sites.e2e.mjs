@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
-import { MODIFIER, press, startTrial } from "./trial.mjs";
+import { MODIFIER, press, startTrial, waitForAnnexPages } from "./trial.mjs";
 
 const seen = [];
 let calls = 0;
@@ -77,9 +77,10 @@ try {
     page = await app.firstWindow();
     await page.waitForSelector('.app[data-sessions="0"]', { timeout: 45_000 });
     await trial.waitForHost();
+    await waitForAnnexPages(page, app);
     await press(app, "K", [MODIFIER]);
-    await page.locator('input[aria-label="Command palette"]').fill("Usage");
-    await page.locator('input[aria-label="Command palette"]').press("Enter");
+    await page.locator('input[aria-label="Command palette"]').fill("Open a web page");
+    await page.locator('[data-command="page.openBrowser"]').click();
     let pane = page.locator('[data-location="rightPane"]');
     let address = pane.getByRole("textbox", { name: "Address" });
     await address.waitFor();
@@ -182,9 +183,11 @@ try {
     app.process().stderr?.on("data", (chunk) => process.stderr.write(chunk));
     page = await app.firstWindow();
     await page.waitForSelector('.app[data-sessions]', { timeout: 45_000 });
+    await trial.waitForHost();
+    await waitForAnnexPages(page, app);
     await press(app, "K", [MODIFIER]);
-    await page.locator('input[aria-label="Command palette"]').fill("Usage");
-    await page.locator('input[aria-label="Command palette"]').press("Enter");
+    await page.locator('input[aria-label="Command palette"]').fill("Open a web page");
+    await page.locator('[data-command="page.openBrowser"]').click();
     pane = page.locator('[data-location="rightPane"]');
     address = pane.getByRole("textbox", { name: "Address" });
     await address.waitFor();

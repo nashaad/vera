@@ -44,7 +44,7 @@ export function App() {
     useWindowEvidence(state, log);
     const visible = useVisibility();
     const unavailable = useMemo(() => unavailableContainers(visible), [visible]);
-    const { annex, kinds: pageKinds } = useAnnexPanes(state.ready?.pid);
+    const { annex, kinds: pageKinds } = useAnnexPanes(state.phase === "attached" ? state.ready : undefined);
     const { loaded: layoutLoaded, layout, dispatch, run, commands } = useLayout(unavailable, pageKinds);
     const rightPaneEmpty = layout.locations.rightPane.all.length === 0;
     const panelEmpty = layout.locations.panel.all.length === 0;

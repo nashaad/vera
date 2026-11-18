@@ -2,13 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { browserSlots } from "../../clients/ui/src/browser/slots.ts";
 import { defaultLayout, MAX_TABS, type LayoutState } from "../../clients/ui/src/layout/model.ts";
 import { reduceLayout, type LayoutAction } from "../../clients/ui/src/layout/reducer.ts";
 import { canOpenTab, resolveLayout, type ResolvedLayout } from "../../clients/ui/src/layout/resolve.ts";
 import { currentToasts } from "../../clients/ui/src/overlays/toasts.ts";
 import { annexLink, splitAddresses } from "../../clients/ui/src/pagepane/links.ts";
 import { noticePage, noticeTarget } from "../../clients/ui/src/pagepane/notices.ts";
+import { openAnnexAddress } from "../../clients/ui/src/browser/annex-address.ts";
 import { extensionPages, PAGE_KIND_LIMIT, PAGE_TAB_LIMIT, pageKindId, pageKinds, pagePathOfKind, sameKinds } from "../../clients/ui/src/pagepane/kinds.ts";
 import { openAnnexPath, openPageTab, pageTabsFull, type PageHost } from "../../clients/ui/src/pagepane/open.ts";
 import { pageTabs } from "../../clients/ui/src/pagepane/store.ts";
@@ -38,7 +38,6 @@ const NOTICE_PATH = `${NEST.path}?session=s1&artifact=raid`;
 afterEach(() => {
     pageTabs.reset();
     tabDots.reset();
-    browserSlots.reset();
     Reflect.deleteProperty(globalThis, "window");
 });
 
@@ -62,22 +61,28 @@ function harness(kinds = pageKinds(ANNEX.pages)) {
 
 const tabsOf = (host: PageHost, kind: string) => host.layout.locations.rightPane.tabs.filter((tab) => tab.container.id === kind);
 
-test("@core only pages that ask for a pane become pane kinds, titled with the page's label", () => {
+test("@core built-in pages and extension pages with panes become separate page kinds", () => {
     const kinds = pageKinds(ANNEX.pages);
-    expect(kinds).toEqual([{ id: NEST_KIND, title: "Nests", icon: "page", maxTabs: PAGE_TAB_LIMIT }]);
+    expect(kinds).toEqual([
+        { id: pageKindId("/usage"), title: "Usage", icon: "page", maxTabs: PAGE_TAB_LIMIT },
+        { id: pageKindId("/runs"), title: "Runs", icon: "page", maxTabs: PAGE_TAB_LIMIT },
+        { id: NEST_KIND, title: "Nests", icon: "page", maxTabs: PAGE_TAB_LIMIT },
+    ]);
+    expect(pageKinds([]).map((kind) => kind.title)).toEqual(["Usage", "Runs"]);
     expect(pagePathOfKind(NEST_KIND)).toBe(NEST.path);
     expect(pagePathOfKind(CORE_CONTAINERS.browser)).toBeUndefined();
-    expect(pageKinds([{ label: "Usage", path: "/usage", pane: true }])).toEqual([]);
+    expect(pageKinds([{ label: "Other", path: "/other", pane: true }])).toHaveLength(2);
 });
 
-test("a host that lists many paned pages gets a bounded set of kinds, and the same kinds compare equal", () => {
+test("extension page kinds are capped separately from built-in page kinds", () => {
     const many = Array.from({ length: PAGE_KIND_LIMIT + 4 }, (_, index): AnnexPage => ({
         label: `Page ${index}`,
         path: `/x/vera.many/p${index}`,
         extensionId: "vera.many",
         pane: true,
     }));
-    expect(pageKinds(many)).toHaveLength(PAGE_KIND_LIMIT);
+    expect(pageKinds(many)).toHaveLength(PAGE_KIND_LIMIT + 2);
+    expect(pageKinds([...many, USAGE])).toHaveLength(PAGE_KIND_LIMIT + 2);
     expect(sameKinds(pageKinds(ANNEX.pages), pageKinds([...ANNEX.pages]))).toBe(true);
     expect(sameKinds(pageKinds(ANNEX.pages), [])).toBe(false);
     expect(sameKinds(pageKinds(ANNEX.pages), pageKinds([{ ...NEST, label: "Renamed" }]))).toBe(false);
@@ -88,7 +93,7 @@ test("@core a page kind registers like a core kind and leaves with its remover, 
     expect(PANE_KINDS.some((kind) => pagePathOfKind(kind.id) !== undefined)).toBe(false);
     const contributions = new ContributionRegistry();
     registerCoreContributions(contributions);
-    const remove = registerPaneKind(contributions, pageKinds(ANNEX.pages)[0]!);
+    const remove = registerPaneKind(contributions, pageKinds(ANNEX.pages).find((kind) => kind.id === NEST_KIND)!);
     const container = contributions.snapshot().containers.find((candidate) => candidate.id === NEST_KIND);
     expect(container).toMatchObject({ title: "Nests", icon: "page", location: "rightPane", maxTabs: PAGE_TAB_LIMIT });
     expect(contributions.keepsTabsOut(NEST_KIND)).toBe(false);
@@ -134,23 +139,79 @@ test("at its tab limit a page opens on the pane's last tab instead of adding one
     expect(pageTabs.get(tabs.at(-1)!.id)).toBe(`${NEST.path}?id=new`);
 });
 
-test("@core a link to a page with a pane opens that pane, and any other annex link opens a Browser tab", () => {
+test("@core app pages open in their own kinds and non-pane pages use the system browser", () => {
+    const opened: string[] = [];
+    Object.assign(globalThis, { window: { veraDesktop: { openAnnexPage: (path: string) => void opened.push(path) } } });
     const host = harness();
+    openAnnexPath(host, USAGE, `${USAGE.path}?session=s1`);
+    expect(tabsOf(host, pageKindId(USAGE.path))).toHaveLength(1);
+    expect(pageTabs.get(tabsOf(host, pageKindId(USAGE.path))[0]!.id)).toBe(`${USAGE.path}?session=s1`);
+
     openAnnexPath(host, NEST, `${NEST.path}?id=7`);
     expect(tabsOf(host, NEST_KIND)).toHaveLength(1);
     expect(tabsOf(host, CORE_CONTAINERS.browser)).toHaveLength(0);
 
     openAnnexPath(host, PLAIN, PLAIN.path);
-    const browserTab = tabsOf(host, CORE_CONTAINERS.browser)[0];
-    expect(browserTab).toBeDefined();
-    expect(browserSlots.slot(browserTab!.id).history.entries.at(-1)).toBe(PLAIN.path);
+    expect(opened).toEqual([PLAIN.path]);
     expect(tabsOf(host, NEST_KIND)).toHaveLength(1);
 });
 
-test("a page with a pane falls back to the Browser while its pane kind is not registered", () => {
+test("@core annex addresses route by their resolved path, with unknown annex paths using system fallback", () => {
+    const opened: string[] = [];
+    Object.assign(globalThis, { window: { veraDesktop: { openAnnexPage: (path: string) => void opened.push(path) } } });
+    const host = harness();
+    expect(openAnnexAddress(host, ANNEX, `${ANNEX.url}usage?session=s1`)).toBe(true);
+    const usage = tabsOf(host, pageKindId(USAGE.path))[0];
+    expect(usage).toBeDefined();
+    expect(pageTabs.get(usage!.id)).toBe("/usage?session=s1");
+    expect(openAnnexAddress(host, ANNEX, `${ANNEX.url}unknown?x=1`)).toBe(true);
+    expect(opened).toEqual(["/unknown?x=1"]);
+    expect(openAnnexAddress(host, ANNEX, "https://example.com/path")).toBe(false);
+});
+
+test("@core loopback addresses are blocked until retried after the annex origin is known", () => {
+    const opened: string[] = [];
+    Object.assign(globalThis, { window: { veraDesktop: { openAnnexPage: (path: string) => void opened.push(path) } } });
+    const host = harness();
+    for (const address of [
+        "http://127.0.0.1:8372/usage",
+        "localhost:8372/runs",
+        "http://[::1]:8372/usage",
+        "http://[::ffff:127.0.0.1]:8372/usage",
+        "http://vera.localhost.:8372/usage",
+        "http://127.1:8372/usage",
+    ]) {
+        expect(openAnnexAddress(host, undefined, address)).toBe(true);
+    }
+    expect(openAnnexAddress(host, undefined, "/usage")).toBe(true);
+    expect(openAnnexAddress(host, undefined, "https://example.com/usage")).toBe(false);
+    expect(openAnnexAddress(host, undefined, "https://localhost.example.com/usage")).toBe(false);
+    expect(host.layout.locations.rightPane.tabs).toHaveLength(0);
+    expect(opened).toEqual([]);
+
+    expect(openAnnexAddress(host, ANNEX, "http://127.0.0.1:9999/usage")).toBe(false);
+    expect(openAnnexAddress(host, ANNEX, "http://localhost:8372/usage")).toBe(true);
+    expect(tabsOf(host, pageKindId(USAGE.path))).toHaveLength(1);
+});
+
+test("a page whose kind is not registered opens in the system browser", () => {
+    const opened: string[] = [];
+    Object.assign(globalThis, { window: { veraDesktop: { openAnnexPage: (path: string) => void opened.push(path) } } });
     const host = harness([]);
     openAnnexPath(host, NEST, NEST.path);
-    expect(tabsOf(host, CORE_CONTAINERS.browser)).toHaveLength(1);
+    expect(opened).toEqual([NEST.path]);
+});
+
+test("a hidden or moved page kind uses the system browser", () => {
+    const opened: string[] = [];
+    Object.assign(globalThis, { window: { veraDesktop: { openAnnexPage: (path: string) => void opened.push(path) } } });
+    const hidden = harness();
+    hidden.dispatch({ type: "setContainerHidden", container: NEST_KIND, hidden: true });
+    openAnnexPath(hidden, NEST, `${NEST.path}?id=1`);
+    const moved = harness();
+    moved.dispatch({ type: "moveContainer", container: NEST_KIND, location: "panel" });
+    openAnnexPath(moved, NEST, `${NEST.path}?id=2`);
+    expect(opened).toEqual([`${NEST.path}?id=1`, `${NEST.path}?id=2`]);
 });
 
 test("a link goes to the system browser when neither pane is available", () => {
@@ -192,6 +253,12 @@ test("an address in running text ends before the punctuation that closes the sen
         { kind: "url", url: "http://127.0.0.1:8372/x/vera.nests/nests?id=1" },
         { kind: "text", text: ". Done" },
     ]);
+    expect(splitAddresses("Open http://[::1]:8372/usage?days=7.")).toEqual([
+        { kind: "text", text: "Open " },
+        { kind: "url", url: "http://[::1]:8372/usage?days=7" },
+        { kind: "text", text: "." },
+    ]);
+    expect(annexLink("http://[::1]:8372/usage?days=7", ANNEX)).toEqual({ page: USAGE, path: "/usage?days=7" });
     expect(splitAddresses("no address here")).toEqual([{ kind: "text", text: "no address here" }]);
 });
 
@@ -282,14 +349,15 @@ test("@core an annex address in a reply opens the page in the window and other l
     expect(before).not.toContain("data-page-link");
 });
 
-test("@core a notice link names a listed page with a pane and carries its query to the page's path", () => {
+test("@core a notice link names an available app page and carries its query to the page's path", () => {
     expect(noticeTarget(LINK, ANNEX)).toEqual({ page: NEST, path: NOTICE_PATH });
     expect(noticeTarget({ title: "Nests", page: NEST.path }, ANNEX)?.path).toBe(NEST.path);
     expect(noticeTarget({ ...LINK, query: { q: "a b&c" } }, ANNEX)?.path).toBe(`${NEST.path}?q=a+b%26c`);
     expect(noticeTarget({ ...LINK, page: PLAIN.path }, ANNEX)).toBeUndefined();
-    expect(noticeTarget({ ...LINK, page: USAGE.path }, ANNEX)).toBeUndefined();
+    expect(noticeTarget({ ...LINK, page: USAGE.path }, ANNEX)).toEqual({ page: USAGE, path: NOTICE_PATH.replace(NEST.path, USAGE.path) });
     expect(noticeTarget({ ...LINK, page: "/x/vera.nests/missing" }, ANNEX)).toBeUndefined();
     expect(noticeTarget(LINK, undefined)).toBeUndefined();
+    expect(noticeTarget({ ...LINK, page: USAGE.path }, undefined)).toBeUndefined();
 });
 
 test("@core a first link notice adds the page's tab behind the shown tab and marks it changed", () => {
@@ -384,7 +452,7 @@ test("@core a page tab is saved with the layout", () => {
     const restored = parseLayout(JSON.parse(JSON.stringify(saved)))!;
     const withKind = new ContributionRegistry();
     registerCoreContributions(withKind);
-    registerPaneKind(withKind, pageKinds(ANNEX.pages)[0]!);
+    registerPaneKind(withKind, pageKinds(ANNEX.pages).find((kind) => kind.id === NEST_KIND)!);
     expect(resolveLayout(restored, withKind.snapshot()).locations.rightPane.tabs.map((tab) => tab.container.id)).toEqual([CORE_CONTAINERS.files, NEST_KIND]);
 
     // Until the host lists the page again its tab is out of sight, not lost.

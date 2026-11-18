@@ -3,7 +3,6 @@ import { afterEach, expect, test } from "bun:test";
 import { browserUrl, typedAddress, URL_LIMIT } from "../../clients/ui/src/browser/url.ts";
 import { reconcile } from "../../clients/ui/src/browser/reconcile.ts";
 import { browserSlots, CONTAINER_SLOT, EMPTY_SLOT } from "../../clients/ui/src/browser/slots.ts";
-import { currentEntry, START } from "../../clients/ui/src/browser/address.ts";
 import { LAYOUT_COMMANDS, registerLayoutCommands } from "../../clients/ui/src/commands/layout-commands.ts";
 import { acceleratorKeys, paneShortcuts, PANE_SHORTCUTS } from "../../clients/ui/src/commands/keys.ts";
 import { CommandRegistry } from "../../clients/ui/src/commands/registry.ts";
@@ -74,22 +73,18 @@ test("a slot with no view is forgotten and its page closes", () => {
     expect(plan.adopt).toEqual([]);
 });
 
-test("slots keep their own history and page, and an equal read changes nothing", () => {
+test("slots keep their own web pages, and an equal read changes nothing", () => {
     expect(browserSlots.slot("a")).toBe(EMPTY_SLOT);
-    browserSlots.browse("a", "/usage");
-    browserSlots.browse("b", "/runs");
-    expect(currentEntry(browserSlots.slot("a").history)).toBe("/usage");
-    expect(currentEntry(browserSlots.slot("b").history)).toBe("/runs");
-    expect(currentEntry(browserSlots.slot(CONTAINER_SLOT).history)).toBe(currentEntry(START));
-    browserSlots.step("a", -1);
-    expect(currentEntry(browserSlots.slot("a").history)).toBe("");
     browserSlots.bind("a", 4);
+    browserSlots.bind("b", 5);
     expect(browserSlots.slot("a").page).toBe(4);
+    expect(browserSlots.slot("b").page).toBe(5);
+    expect(browserSlots.slot(CONTAINER_SLOT).page).toBeUndefined();
     browserSlots.unbind("a");
     expect(browserSlots.slot("a").page).toBeUndefined();
     browserSlots.drop(["a", "missing"]);
     expect(browserSlots.slot("a")).toBe(EMPTY_SLOT);
-    expect(currentEntry(browserSlots.slot("b").history)).toBe("/runs");
+    expect(browserSlots.slot("b").page).toBe(5);
 
     const native = { pages: [], active: null } as unknown as Parameters<typeof browserSlots.read>[0];
     let heard = 0;

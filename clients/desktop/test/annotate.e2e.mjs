@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
-import { MODIFIER, press, startTrial } from "./trial.mjs";
+import { MODIFIER, press, startTrial, waitForAnnexPages } from "./trial.mjs";
 
 const prompt = "Describe this selection";
 const requests = [];
@@ -54,6 +54,7 @@ try {
     page = await app.firstWindow();
     await page.waitForSelector('.app[data-sessions="0"]', { timeout: 45_000 });
     await trial.waitForHost();
+    await waitForAnnexPages(page, app);
 
     const composer = page.locator(".composer-input");
     await composer.fill("Start the annotation test session");
@@ -64,8 +65,8 @@ try {
 
     await press(app, "K", [MODIFIER]);
     const palette = page.locator('input[aria-label="Command palette"]');
-    await palette.fill("Usage");
-    await palette.press("Enter");
+    await palette.fill("Open a web page");
+    await page.locator('[data-command="page.openBrowser"]').click();
     const pane = page.locator('[data-location="rightPane"]');
     const address = pane.getByRole("textbox", { name: "Address" });
     await address.waitFor();
@@ -529,74 +530,20 @@ try {
     await evaluateFixture("document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title=\"Close\"]').click()");
     await until("annotation mode closed by toolbar", async () => !(await evaluateFixture("Boolean(document.querySelector('[data-vera-annotation]'))")));
 
-    await address.fill("usage");
-    await address.press("Enter");
-    const annexFrame = pane.locator('iframe.browser-frame[title="Usage"]');
-    await annexFrame.waitFor({ timeout: 15_000 });
-    const annexPage = page.frameLocator('iframe.browser-frame[title="Usage"]');
-    await annexPage.locator(".page .toolbar .seg").first().waitFor({ timeout: 30_000 });
-    const annexTarget = annexPage.locator(".page .toolbar .seg button").first();
-    await annexTarget.waitFor({ timeout: 10_000 });
-    const targetBox = await annexTarget.evaluate((element) => {
-        const rect = element.getBoundingClientRect();
-        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-    });
-    const captureCount = await page.locator(".page-capture-chip").count();
-    const annexCommand = trigger.click();
-    await annexPage.locator("[data-vera-annotation]").waitFor({ timeout: 15_000 });
-    if (!(await annexTarget.evaluate(() => document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title="Add to chat"]').hidden))) throw new Error('Another document inherited the native page draft.');
-    await annexTarget.evaluate((element) => {
-        const rect = element.getBoundingClientRect();
-        const x = rect.x + rect.width / 2;
-        const y = rect.y + rect.height / 2;
-        document.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: x, clientY: y }));
-        document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, clientX: x, clientY: y }));
-        document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: x, clientY: y }));
-    });
-    await annexTarget.evaluate((element) => {
-        const shadow = document.querySelector("[data-vera-annotation]").shadowRoot;
-        const toolbar = shadow.querySelector('[role="toolbar"]');
-        toolbar.querySelector('button[title="Shapes"]').click();
-        toolbar.querySelector('button[title="Rectangle"]').click();
-        const rect = element.getBoundingClientRect();
-        const start = { x: rect.left + 8, y: rect.top + 8 };
-        const end = { x: rect.left + 36, y: rect.top + 24 };
-        document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, clientX: start.x, clientY: start.y }));
-        document.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: end.x, clientY: end.y }));
-        document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: end.x, clientY: end.y }));
-        toolbar.querySelector('button[title="Add to chat"]').click();
-    });
-    await annexCommand;
-    const annexChip = page.locator(".page-capture-chip").last();
-    await annexChip.waitFor({ timeout: 10_000 });
-    await until("annex screenshot chip to finish attaching", async () => await annexChip.getAttribute("data-attaching") === "false");
-    await annexChip.locator(".chip-x").focus();
-    const annexCard = annexChip.locator(".context-pop");
-    await annexCard.locator("img").waitFor({ timeout: 10_000 });
-    const annexImageSize = await annexCard.locator("img").evaluate((image) => ({ width: image.naturalWidth, height: image.naturalHeight }));
-    const widthScale = annexImageSize.width / targetBox.width;
-    const heightScale = annexImageSize.height / targetBox.height;
-    if (annexImageSize.width < 1 || annexImageSize.height < 1 || widthScale < 0.8 || widthScale > 2.2 || heightScale < 0.8 || heightScale > 2.2) {
-        throw new Error(`Annex screenshot dimensions ${annexImageSize.width}x${annexImageSize.height} do not match the selected ${targetBox.width}x${targetBox.height} element.`);
-    }
-    await annexChip.locator(".chip-x").click();
-    await annexChip.waitFor({ state: "detached", timeout: 5_000 });
-    const annexDraft = await annexTarget.evaluate(() => document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('canvas').toDataURL());
-    await annexTarget.evaluate(() => document.querySelector('[data-vera-annotation]').shadowRoot.querySelector('button[title="Close"]').click());
-    await annexPage.locator('[data-vera-annotation]').waitFor({ state: 'detached' });
-    await until('annex reopen ready', async () => await trigger.isEnabled());
-    await trigger.click();
-    await annexPage.locator('[data-vera-annotation]').waitFor();
-    const annexRestored = await annexTarget.evaluate(() => {
-        const s = document.querySelector('[data-vera-annotation]').shadowRoot;
-        const canvas = s.querySelector('canvas');
-        return { image: canvas.toDataURL(), width: canvas.width, height: canvas.height, tag: s.querySelector('.tag').textContent, addHidden: s.querySelector('button[title="Add to chat"]').hidden };
-    });
-    if (annexRestored.image !== annexDraft) throw new Error('Annex frame lost its draft across reopen: ' + JSON.stringify({ ...annexRestored, image: annexRestored.image.length, before: annexDraft.length }));
+    await press(app, "K", [MODIFIER]);
+    await page.locator('input[aria-label="Command palette"]').fill("Usage");
+    await page.locator(".palette-row", { hasText: "Usage" }).first().click();
+    await pane.locator("iframe").waitFor({ timeout: 15_000 });
+    if (await pane.getByRole("button", { name: "Select element" }).count() !== 0) throw new Error("The Usage page exposes Browser annotation controls.");
+    if (await pane.getByRole("textbox", { name: "Address" }).count() !== 0) throw new Error("Usage opened in the Browser instead of as an app page.");
+    await press(app, "K", [MODIFIER]);
+    await page.locator('input[aria-label="Command palette"]').fill("Open a web page");
+    await page.locator('[data-command="page.openBrowser"]').click();
+    await address.waitFor();
     await address.fill(`http://127.0.0.1:${fixture.address().port}/`);
     await address.press('Enter');
-    await annexFrame.waitFor({ state: 'detached', timeout: 10_000 });
-    await until('annex frame command released on replacement', async () => await app.evaluate(({ BrowserWindow }) => !BrowserWindow.getAllWindows()[0].webContents.debugger.isAttached()));
+    await until("Browser address loaded after Usage", async () => (await browserContents()) !== undefined);
+    await until('Browser command released after page routing', async () => await app.evaluate(({ BrowserWindow }) => !BrowserWindow.getAllWindows()[0].webContents.debugger.isAttached()));
     await until('annotation trigger available after frame replacement', async () => await trigger.isEnabled());
     await until('replacement native page ready', async () => (await browserContents()) !== undefined);
     contentsId = await browserContents();

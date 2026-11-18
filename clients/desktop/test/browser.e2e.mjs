@@ -1,11 +1,7 @@
-// Browser test for the desktop right pane: Vera's pages load from the annex under one tab row,
-// the annex drops its own menu there, and the palette and /usage open pages in it.
-// Needs the built annex page: bun run pack:web. Run with: node clients/desktop/test/browser.e2e.mjs
-
 import { createServer } from "node:http";
 
 import { configureFauxHome, until } from "./faux-home.mjs";
-import { MODIFIER, press, startTrial } from "./trial.mjs";
+import { MODIFIER, press, startTrial, waitForAnnexPages } from "./trial.mjs";
 
 const provider = createServer((request, response) => {
     request.resume();
@@ -13,17 +9,50 @@ const provider = createServer((request, response) => {
     response.end(JSON.stringify({ data: [{ id: "crow-0" }] }));
 });
 
-let siteLoads = 0;
 const site = createServer((request, response) => {
-    if (request.url !== "/") { response.writeHead(204); response.end(); return; }
-    siteLoads += 1;
+    if (request.url === "/redirect") {
+        response.writeHead(302, { location: `http://localhost:${annexPort}/usage?from=redirect` });
+        response.end();
+        return;
+    }
+    if (request.url === "/embed") {
+        response.writeHead(200, { "content-type": "text/html" });
+        response.end(`<iframe src="http://[::1]:${annexPort}/runs"></iframe>`);
+        return;
+    }
     response.writeHead(200, { "content-type": "text/html" });
-    response.end(`<title>Reload fixture</title><p>Load ${siteLoads}</p>`);
+    response.end(`<title>Allowed website</title><a href="/redirect">redirect</a><a id="annex-link" href="http://localhost:${annexPort}/usage">annex</a><button id="annex-popup" onclick="window.open('http://localhost:${annexPort}/runs')">popup</button>`);
 });
+let annexPort;
 
 const trial = startTrial();
 let failed = false;
+let app;
 let page;
+
+async function openPalette(page, app, query) {
+    await press(app, "K", [MODIFIER]);
+    const palette = page.getByRole("textbox", { name: "Command palette" });
+    await palette.fill(query);
+    return palette;
+}
+
+async function openNative(url, page, app) {
+    const pane = page.locator('[data-location="rightPane"]');
+    const tab = pane.locator('[role="tab"][data-container="core.browser"]').first();
+    if (await tab.count() > 0) {
+        await tab.click();
+        await until("Browser tab selected", async () => await tab.getAttribute("data-active") === "true");
+    } else {
+        await openPalette(page, app, "Open a web page");
+        await page.locator('[data-command="page.openBrowser"]').click();
+    }
+    const address = pane.getByRole("textbox", { name: "Address" });
+    await address.waitFor();
+    await address.fill(url);
+    await address.press("Enter");
+    return pane;
+}
 
 try {
     await Promise.all([
@@ -31,173 +60,196 @@ try {
         new Promise((resolve) => site.listen(0, "127.0.0.1", resolve)),
     ]);
     configureFauxHome(trial.home, provider.address().port);
-
-    const app = await trial.launch();
-    // Open in your browser must not reach the real browser during a test.
-    await app.evaluate(({ shell }) => {
-        globalThis.openedExternally = [];
-        shell.openExternal = async (url) => {
-            globalThis.openedExternally.push(url);
+    app = await trial.launch();
+    page = await app.firstWindow();
+    await page.waitForSelector('.app[data-sessions="0"]', { timeout: 45_000 });
+    await trial.waitForHost();
+    let discovered;
+    await until("annex available for the trial", async () => {
+        discovered = await page.evaluate(() => window.veraDesktop.readAnnexPages());
+        return discovered.ok;
+    });
+    await app.evaluate(({ ipcMain }) => {
+        const handler = ipcMain._invokeHandlers.get("vera:annex-pages");
+        if (handler === undefined) throw new Error("The annex page handler is not registered.");
+        const waiting = [];
+        let released = false;
+        ipcMain.removeHandler("vera:annex-pages");
+        ipcMain.handle("vera:annex-pages", async (event) => {
+            const answer = await handler(event);
+            if (released) return answer;
+            return new Promise((resolve) => waiting.push(() => resolve(answer)));
+        });
+        globalThis.pendingAnnexReads = () => waiting.length;
+        globalThis.holdAnnexReads = () => { released = false; };
+        globalThis.releaseAnnexReads = () => {
+            released = true;
+            for (const resolve of waiting.splice(0)) resolve();
         };
     });
-    page = await app.firstWindow();
-    await page.waitForSelector(".app[data-sessions=\"0\"]", { timeout: 45_000 });
-    await trial.waitForHost();
-    await app.evaluate(({ BrowserWindow }) => {
-        globalThis.shellNavigations = 0;
-        BrowserWindow.getAllWindows()[0].webContents.on("did-start-navigation", (_event, _url, _inPlace, main) => { if (main) globalThis.shellNavigations += 1; });
-    });
-    const composer = page.locator(".composer-input");
-    await composer.fill("draft survives reload");
-    await press(app, "R", [MODIFIER]);
-    await press(app, "R", [MODIFIER, "shift"]);
-    if (await composer.inputValue() !== "draft survives reload") throw new Error("No-page shortcut lost the draft.");
+    await page.reload();
+    await page.waitForSelector('.app[data-sessions="0"]', { timeout: 45_000 });
+    await until("annex read held", async () => await app.evaluate(() => globalThis.pendingAnnexReads() > 0));
 
-    const pane = page.locator("[data-location=\"rightPane\"]");
-    const frame = pane.locator("iframe.browser-frame");
-    const address = pane.getByRole("textbox", { name: "Address" });
-    const back = pane.getByRole("button", { name: "Back" });
-    const forward = pane.getByRole("button", { name: "Forward" });
-    const inFrame = page.frameLocator("[data-location=\"rightPane\"] iframe.browser-frame");
-    const showing = async (label) => {
-        await until(`the ${label} page in the browser`, async () => (await frame.count()) === 1 && (await frame.getAttribute("title")) === label);
+    const pane = page.locator('[data-location="rightPane"]');
+    const earlyUsageUrl = new URL("/usage?attempt=early", discovered.url).href;
+    const siteUrl = `http://127.0.0.1:${site.address().port}/`;
+    await press(app, "B", [MODIFIER, "alt"]);
+    const tileSearch = pane.locator('[data-pane-tiles] input[aria-label="Search panes"]');
+    await tileSearch.waitFor();
+    await tileSearch.fill(earlyUsageUrl);
+    await tileSearch.press("Enter");
+    await openNative(earlyUsageUrl, page, app);
+    await page.locator("[data-pane-launcher]").click();
+    const launcherSearch = page.locator('[role="listbox"][aria-label="New tab"] input[aria-label="Search panes"]');
+    await launcherSearch.fill(siteUrl);
+    await launcherSearch.press("Enter");
+    await page.waitForTimeout(250);
+    const earlyState = await page.evaluate(() => window.veraDesktop.browser("state"));
+    if (earlyState.tabs.length !== 0) throw new Error("An unknown-origin loopback address created a native Browser tab.");
+    await app.evaluate(() => globalThis.releaseAnnexReads());
+    await waitForAnnexPages(page, app);
+    if ((await page.evaluate(() => window.veraDesktop.browser("state"))).tabs.length !== 0) throw new Error("An early loopback address opened after the annex was read.");
+    if (await pane.locator("iframe:visible").count() !== 0) throw new Error("An early annex address opened without being retried.");
+    await openNative(earlyUsageUrl, page, app);
+    await pane.locator('iframe[title="Usage"]:visible').waitFor({ timeout: 15_000 });
+    const retriedUrl = await pane.locator('iframe[title="Usage"]:visible').getAttribute("src");
+    if (!retriedUrl?.includes("attempt=early")) throw new Error(`The retried annex address loaded ${retriedUrl}.`);
+
+    await app.evaluate(() => globalThis.holdAnnexReads());
+    await page.evaluate(() => window.veraDesktop.reconnect());
+    await until("annex read held after reconnect", async () => await app.evaluate(() => globalThis.pendingAnnexReads() > 0));
+    await openPalette(page, app, "Artifacts");
+    await until("old annex command removed after reconnect", async () => await page.locator('[data-command="page.extension.%2Fx%2Fvera.artifacts%2Fartifacts"]').count() === 0);
+    await page.keyboard.press("Escape");
+    await openNative(earlyUsageUrl, page, app);
+    await openNative(siteUrl, page, app);
+    if ((await page.evaluate(() => window.veraDesktop.browser("state"))).tabs.length !== 0) throw new Error("A loopback address opened while the annex was being rediscovered.");
+    if (await pane.locator('iframe[title="Usage"]:visible').count() !== 0) throw new Error("The stale annex page opened during reconnect.");
+    await app.evaluate(() => globalThis.releaseAnnexReads());
+    await waitForAnnexPages(page, app);
+    if ((await page.evaluate(() => window.veraDesktop.browser("state"))).tabs.length !== 0) throw new Error("A reconnect address opened without being retried.");
+    await openNative(earlyUsageUrl, page, app);
+    await pane.locator('iframe[title="Usage"]:visible').waitFor({ timeout: 15_000 });
+
+    const openPage = async (label, expectedPath) => {
+        await openPalette(page, app, label);
+        await page.locator(".palette-row", { hasText: label }).first().click();
+        const frame = pane.locator("iframe:visible").first();
+        await frame.waitFor({ timeout: 15_000 });
+        await pane.getByRole("button", { name: "Reload" }).waitFor();
+        if (await pane.getByRole("textbox", { name: "Address" }).count() !== 0) throw new Error(`${label} opened in the Browser instead of as a Vera page.`);
+        if (await pane.getByRole("button", { name: "Select element" }).count() !== 0) throw new Error(`${label} offers Browser annotation controls.`);
+        const source = await frame.getAttribute("src");
+        if (new URL(source ?? "about:blank").pathname !== expectedPath) throw new Error(`${label} loaded ${source}, expected ${expectedPath}.`);
     };
 
-    await press(app, "K", [MODIFIER]);
-    await page.getByRole("textbox", { name: "Command palette" }).fill("internet");
-    await page.locator('[data-command="page.openBrowser"]').click();
-    await until("new Browser address focused", async () => address.evaluate((input) => document.activeElement === input));
-
-    // The palette lists Vera's pages in their own group and opens one in the right pane.
-    await press(app, "K", [MODIFIER]);
-    await page.waitForSelector(".palette[data-overlay=\"palette\"]");
-    await page.keyboard.type("Usage");
-    await until("Usage under Pages", async () => (await page.locator(".palette-row", { hasText: "Usage" }).count()) > 0);
-    await page.keyboard.press("Enter");
-    await pane.waitFor({ timeout: 10_000 });
-    await showing("Usage");
-    const src = await frame.getAttribute("src");
-    if (!/^http:\/\/127\.0\.0\.1:\d+\/usage$/.test(src ?? "")) throw new Error(`The Usage frame loads ${src}.`);
-    const host = new URL(src).host;
-    await until("the address bar", async () => (await address.inputValue()) === `${host}/usage`);
-
-    await press(app, "K", [MODIFIER]);
-    await page.getByRole("textbox", { name: "Command palette" }).fill("browser");
-    await page.locator('[data-command="page.openBrowser"]').click();
-    await until("existing Browser address selected", async () => address.evaluate((input) => document.activeElement === input && input.selectionStart === 0 && input.selectionEnd === input.value.length));
-    await showing("Usage");
-
-    // The annex page renders inside the frame without its own menu.
-    await inFrame.locator(".page .toolbar .seg").first().waitFor({ timeout: 30_000 });
-    await inFrame.locator("body").evaluate(() => { window.reloadSentinel = true; });
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send("vera:event", { type: "command", id: "page.reload.native" }));
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    if (!await inFrame.locator("body").evaluate(() => window.reloadSentinel === true)) throw new Error("Stale native reload targeted the annex.");
-    await composer.focus();
+    await openPage("Usage", "/usage");
+    const usageFrame = pane.locator("iframe:visible").first();
+    await usageFrame.evaluate((frame) => { frame.dataset.reloadProof = "before"; });
     await press(app, "R", [MODIFIER]);
-    await until("annex shortcut reload", async () => await inFrame.locator("body").evaluate(() => window.reloadSentinel !== true).catch(() => false));
-    if (await composer.inputValue() !== "draft survives reload") throw new Error("Annex shortcut lost the draft.");
-    if (await inFrame.locator(".nav-toggle").count() !== 0) throw new Error("The framed annex page still shows its menu.");
-    const tabs = await pane.locator("nav[aria-label=\"Vera's pages\"] .browser-tab").allInnerTexts();
-    // The included artifacts extension adds a page after the built-in ones.
-    if (tabs.slice(1).join() !== "Usage,Runs,Artifacts") throw new Error(`The tab row shows ${tabs.join(", ")}.`);
-    if ((await pane.locator("nav[aria-label=\"Vera's pages\"] .browser-tab[aria-current=\"page\"]").innerText()) !== "Usage") throw new Error("The Usage tab is not marked current.");
+    await until("shortcut reloads the active app page", async () => await usageFrame.getAttribute("data-reload-proof") === null);
+    const usageUrl = await usageFrame.getAttribute("src");
+    if (usageUrl === null) throw new Error("The Usage page has no frame URL.");
+    const usage = new URL(usageUrl);
+    annexPort = Number(usage.port);
 
-    // The frame stays on the annex.
-    const frameUrls = () => page.frames().slice(1).map((candidate) => candidate.url());
-    await inFrame.locator("body").evaluate(() => window.location.assign("http://127.0.0.1:1/"));
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    if (frameUrls().join() !== `http://${host}/usage`) throw new Error(`The frame left the annex for another loopback port: ${frameUrls().join(", ")}`);
-    // The window's frame-src refuses addresses off loopback before the guard sees them, so the
-    // frame shows an error page and Reload brings the page back.
-    await inFrame.locator("body").evaluate(() => window.location.assign("http://example.com/"));
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    if (frameUrls().some((url) => url.includes("example.com"))) throw new Error(`The frame loaded another site: ${frameUrls().join(", ")}`);
-    await pane.getByRole("button", { name: "Reload" }).click();
-    await until("the Usage page back after Reload", async () => frameUrls().join() === `http://${host}/usage`);
-    await inFrame.locator(".page .toolbar .seg").first().waitFor({ timeout: 30_000 });
+    await openPage("Runs", "/runs");
+    await openPage("Artifacts", "/x/vera.artifacts/artifacts");
 
-    // Open in your browser hands the page to the system browser.
-    await pane.getByRole("button", { name: "Open in your browser" }).click();
-    await until("the page handed to the system browser", async () => (await app.evaluate(() => globalThis.openedExternally)).join() === `http://${host}/usage`);
+    const directUrl = `http://127.0.0.1:${annexPort}/usage?session=fixture&artifact=example`;
+    const browserPane = await openNative(directUrl, page, app);
+    await until("typed Vera URL returned to the app page", async () => await browserPane.locator("iframe:visible").count() === 1);
+    const appPageUrl = await browserPane.locator("iframe:visible").getAttribute("src");
+    if (!appPageUrl?.includes("session=fixture") || !appPageUrl.includes("artifact=example")) throw new Error(`The typed app URL lost its query: ${appPageUrl}`);
+    if (await browserPane.getByRole("textbox", { name: "Address" }).count() !== 0) throw new Error("A typed Vera URL remained in the Browser.");
+    if (await browserPane.getByRole("button", { name: "Select element" }).count() !== 0) throw new Error("A Vera page offers annotation controls.");
 
-    // Home lists the built-in pages, then extension pages.
-    await pane.getByRole("button", { name: "All of Vera's pages" }).click();
-    await pane.locator(".browser-start").waitFor();
-    const start = await pane.locator(".browser-start").innerText();
-    for (const expected of ["Vera", "Usage", "Runs", "From extensions", "Artifacts", "/x/", `Served on this machine at ${host}`]) {
-        if (!start.includes(expected)) throw new Error(`The start page does not say ${expected}: ${start}`);
-    }
-    if (await pane.getByRole("button", { name: "Open in your browser" }).isEnabled()) throw new Error("Open in your browser is on for the start page.");
-    await pane.locator(".browser-link", { hasText: "Runs" }).click();
-    await showing("Runs");
-    await inFrame.locator(".page").first().waitFor({ timeout: 30_000 });
-    if (await inFrame.locator(".nav-toggle").count() !== 0) throw new Error("The framed Runs page still shows its menu.");
-
-    // An extension page loads in the same frame.
-    await pane.locator(".browser-tab", { hasText: "Artifacts" }).click();
-    await showing("Artifacts");
-    if (!/\/x\/[^/]+\/artifacts$/.test(await frame.getAttribute("src") ?? "")) throw new Error(`The Artifacts frame loads ${await frame.getAttribute("src")}.`);
-    await inFrame.locator("body *").first().waitFor({ timeout: 30_000 });
-    await back.click();
-    await showing("Runs");
-
-    // Back and forward walk Usage, Home, Runs and Artifacts.
-    await back.click();
-    await pane.locator(".browser-start").waitFor();
-    await back.click();
-    await showing("Usage");
-    await forward.click();
-    await pane.locator(".browser-start").waitFor();
-    await forward.click();
-    await showing("Runs");
-    await forward.click();
-    await showing("Artifacts");
-    if (await forward.isEnabled()) throw new Error("Forward is on at the newest page.");
-
-    // The address bar takes a page's name.
-    await address.fill("usage");
-    await address.press("Enter");
-    await showing("Usage");
-    await address.fill("/nowhere");
-    await address.press("Enter");
-    await pane.getByText("The annex serves nothing at /nowhere").waitFor();
-
-    // /usage in the composer opens the page in the browser.
-    await pane.getByRole("button", { name: "All of Vera's pages" }).click();
-    await pane.locator(".browser-start").waitFor();
-    const input = page.locator(".composer-input");
-    await input.fill("/usage");
-    await input.press("Enter");
-    await showing("Usage");
-    if ((await input.inputValue()) !== "") throw new Error("/usage left its text in the box.");
-
-    await address.fill(`http://127.0.0.1:${site.address().port}/`);
-    await address.press("Enter");
-    await until("native page", () => siteLoads === 1);
-    let targetId;
-    await until("native page navigation", async () => {
-        targetId = await app.evaluate(({ BrowserWindow }, port) => BrowserWindow.getAllWindows()[0].contentView.children.find((view) => view.webContents?.getURL().includes(`:${port}/`))?.webContents.id, site.address().port);
-        return targetId !== undefined;
+    const childUrls = async () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children
+        .map((child) => child.webContents?.getURL()).filter(Boolean));
+    await app.evaluate(({ session }) => {
+        globalThis.blockedAnnexRequests = [];
+        globalThis.completedBrowserRequests = [];
+        const requests = session.fromPartition("vera-browser").webRequest;
+        requests.onErrorOccurred((details) => {
+            if (details.error.includes("BLOCKED")) globalThis.blockedAnnexRequests.push(details.url);
+        });
+        requests.onCompleted((details) => globalThis.completedBrowserRequests.push(details.url));
     });
-    await composer.fill("native reload draft");
-    await press(app, "R", [MODIFIER]);
-    await until("native reload from composer", () => siteLoads === 2);
-    await app.evaluate(({ webContents }, { id, modifier }) => {
-        const contents = webContents.fromId(id);
-        contents.sendInputEvent({ type: "keyDown", keyCode: "R", modifiers: [modifier] });
-        contents.sendInputEvent({ type: "keyUp", keyCode: "R", modifiers: [modifier] });
-    }, { id: targetId, modifier: MODIFIER });
-    await until("native reload from site", () => siteLoads === 3);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    if (siteLoads !== 3) throw new Error(`Native shortcut fired more than once: ${siteLoads}`);
-    if (await composer.inputValue() !== "native reload draft") throw new Error("Native shortcut lost the draft.");
-    if (await app.evaluate(() => globalThis.shellNavigations) !== 0) throw new Error("Shortcut navigated the shell.");
+    const wasBlocked = (path) => app.evaluate((_electron, value) => globalThis.blockedAnnexRequests.some((url) => url.includes(value)), path);
+    const wasCompleted = (path) => app.evaluate((_electron, value) => globalThis.completedBrowserRequests.some((url) => url.includes(value)), path);
+    for (const url of [
+        `http://127.0.0.1:${annexPort}/usage`,
+        `http://localhost:${annexPort}/runs`,
+        `http://[::1]:${annexPort}/usage`,
+    ]) {
+        await openNative(url, page, app);
+        await page.waitForTimeout(400);
+        if ((await childUrls()).some((candidate) => candidate.includes(new URL(url).host))) throw new Error(`The native Browser loaded an annex alias: ${url}`);
+    }
+    await openNative(siteUrl, page, app);
+    let siteId;
+    await until("unrelated loopback site in the Browser", async () => {
+        siteId = await app.evaluate(({ BrowserWindow }, port) => BrowserWindow.getAllWindows()[0].contentView.children.find((child) => child.webContents?.getURL().includes(`:${port}/`))?.webContents.id, site.address().port);
+        return siteId !== undefined;
+    });
+    const nativeText = (expression) => app.evaluate(({ webContents }, args) => webContents.fromId(args.id)?.executeJavaScript(args.expression), { id: siteId, expression });
+    await until("website document loaded", async () => await nativeText("document.title") === "Allowed website");
+    await nativeText("document.querySelector('#annex-link').click()");
+    await until("link request blocked", () => wasBlocked("/usage"));
+    if (await wasCompleted("/usage")) throw new Error("A website link completed an annex request.");
+
+    await openNative(siteUrl, page, app);
+    await until("website restored for redirect coverage", async () => app.evaluate(({ BrowserWindow }, port) => BrowserWindow.getAllWindows()[0].contentView.children.some((child) => child.webContents?.getURL().includes(`:${port}/`)), site.address().port), 5_000);
+    siteId = await app.evaluate(({ BrowserWindow }, port) => BrowserWindow.getAllWindows()[0].contentView.children.find((child) => child.webContents?.getURL().includes(`:${port}/`))?.webContents.id, site.address().port);
+    await nativeText("location.href = '/redirect'");
+    await until("redirect request blocked", () => wasBlocked("/usage?from=redirect"));
+    if (await wasCompleted("/usage?from=redirect")) throw new Error("A redirected annex request completed.");
+
+    await openNative(siteUrl, page, app);
+    await until("website restored for popup coverage", async () => app.evaluate(({ BrowserWindow }, port) => BrowserWindow.getAllWindows()[0].contentView.children.some((child) => child.webContents?.getURL().includes(`:${port}/`)), site.address().port));
+    siteId = await app.evaluate(({ BrowserWindow }, port) => BrowserWindow.getAllWindows()[0].contentView.children.find((child) => child.webContents?.getURL().includes(`:${port}/`))?.webContents.id, site.address().port);
+    await nativeText("document.querySelector('#annex-popup').click()");
+    await until("popup request blocked", () => wasBlocked("/runs"));
+    await until("popup tab reconciled", async () => await pane.locator('[role="tab"][data-container="core.browser"]').count() === 2);
+    if (await wasCompleted("/runs")) throw new Error("A popup completed an annex request.");
+
+    await openNative(siteUrl, page, app);
+    await until("website restored for embedded coverage", async () => app.evaluate(({ BrowserWindow }, port) => BrowserWindow.getAllWindows()[0].contentView.children.some((child) => child.webContents?.getURL().includes(`:${port}/`)), site.address().port));
+    siteId = await app.evaluate(({ BrowserWindow }, port) => BrowserWindow.getAllWindows()[0].contentView.children.find((child) => child.webContents?.getURL().includes(`:${port}/`))?.webContents.id, site.address().port);
+    await app.evaluate(() => { globalThis.blockedAnnexRequests = []; });
+    await nativeText("location.href = '/embed'");
+    await until("embedded site document", async () => await nativeText("document.querySelector('iframe') !== null").catch(() => false));
+    await until("embedded request blocked", () => wasBlocked("/runs"));
+    if (await wasCompleted("/runs")) throw new Error("An embedded annex request completed.");
+    const history = await page.evaluate(() => JSON.parse(localStorage.getItem("vera.desktop.browser-history") ?? "[]"));
+    if (history.some((entry) => new URL(entry.url).port === String(annexPort))) throw new Error("A blocked annex request entered Browser history.");
+
+    const pagesCommand = await openPalette(page, app, "Vera's Pages");
+    await pagesCommand.press("Enter");
+    const picker = page.getByRole("dialog", { name: "Vera's Pages" });
+    await picker.waitFor();
+    const filter = picker.getByRole("textbox", { name: "Vera's Pages" });
+    for (const label of ["Usage", "Runs", "Artifacts"]) {
+        await filter.fill(label);
+        if (await picker.locator(".palette-row", { hasText: label }).count() === 0) throw new Error(`Vera's Pages picker does not include ${label}.`);
+    }
+    await page.keyboard.press("Escape");
+    await press(app, "B", [MODIFIER, "alt"]);
+    await until("right pane closes", async () => await page.locator('[data-location="rightPane"]').count() === 0);
+    for (const label of ["Usage", "Runs", "Artifacts"]) {
+        if (await page.locator(`iframe[title="${label}"]`).count() !== 0) throw new Error(`${label} remained loaded after closing the pane.`);
+    }
     console.log("browser e2e passed");
 } catch (error) {
     failed = true;
     console.error(error);
-    if (page !== undefined) console.error("Pane text:", await page.locator("[data-location=\"rightPane\"]").first().innerText().catch(() => "unreadable"));
+    if (page !== undefined) {
+        console.error("Pane text:", await page.locator('[data-location="rightPane"]').first().innerText().catch(() => "unreadable"));
+        console.error("Browser state:", await page.evaluate(() => window.veraDesktop.browser("state")).catch(() => undefined));
+        console.error("Address:", await page.getByRole("textbox", { name: "Address" }).inputValue().catch(() => undefined));
+    }
+    if (app !== undefined) console.error("Views:", await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.map((child) => ({ url: child.webContents?.getURL(), visible: child.getVisible() }))).catch(() => undefined));
 } finally {
     await trial.cleanup();
     provider.closeAllConnections();

@@ -5,6 +5,7 @@ import { BROWSER_TAB_LIMIT, type BrowserBounds, type BrowserState } from "../../
 import { browserUrl, URL_LIMIT } from "../../../ui/src/browser/url.ts";
 import { BROWSER_HISTORY_COMMAND } from "../../../ui/src/commands/keys.ts";
 import { shortcutCommand } from "../shortcuts.ts";
+import { BLOCKED_ANNEX_OPEN_ERROR, BrowserOriginGuard } from "./origin-guard.ts";
 
 function isWebUrl(value: string): boolean {
     try { return ["http:", "https:"].includes(new URL(value).protocol); } catch { return false; }
@@ -16,6 +17,7 @@ export class BrowserPane {
     private nextId = 1;
     private bounds: BrowserBounds | undefined;
     private browsingSession: Electron.Session | undefined;
+    private readonly originGuard = new BrowserOriginGuard();
 
     constructor(
         private readonly window: BrowserWindow,
@@ -26,6 +28,9 @@ export class BrowserPane {
     private session(): Electron.Session {
         if (this.browsingSession !== undefined) return this.browsingSession;
         const browserSession = session.fromPartition("vera-browser");
+        browserSession.webRequest.onBeforeRequest((details, callback) => {
+            callback({ cancel: this.originGuard.blocks(details.url) });
+        });
         browserSession.setPermissionCheckHandler(() => false);
         browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
         browserSession.on("will-download", (_event, item) => {
@@ -46,6 +51,10 @@ export class BrowserPane {
                 forward: view.webContents.navigationHistory.canGoForward(),
             })),
         };
+    }
+
+    setAnnexUrl(value: string | undefined): void {
+        this.originGuard.setAnnexUrl(value);
     }
 
     open(value?: string): number | undefined {
@@ -73,7 +82,7 @@ export class BrowserPane {
         });
         const record = (): void => {
             const url = view.webContents.getURL();
-            if (isWebUrl(url) && url.length <= URL_LIMIT) this.loaded(url, (view.webContents.getTitle() || url).slice(0, 200));
+            if (isWebUrl(url) && url.length <= URL_LIMIT && !this.originGuard.blocks(url)) this.loaded(url, (view.webContents.getTitle() || url).slice(0, 200));
         };
         view.webContents.on("did-finish-load", record);
         view.webContents.on("did-navigate-in-page", (_event, _url, mainFrame) => { if (mainFrame) record(); });
@@ -149,6 +158,7 @@ export class BrowserPane {
         const url = browserUrl(value);
         const contents = this.current();
         if (url === undefined || contents === undefined) throw new Error("That address cannot be opened.");
+        if (this.originGuard.blocks(url)) throw new Error(BLOCKED_ANNEX_OPEN_ERROR);
         await contents.loadURL(url);
     }
 

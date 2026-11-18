@@ -8,14 +8,14 @@ export interface AnnexLink {
 }
 
 // Full loopback addresses with a port, the only bare text that can name the annex.
-export const ANNEX_ADDRESS = String.raw`https?:\/\/(?:127\.0\.0\.1|localhost|vera\.localhost):\d+\/[^\s<>"'\x60)\]]*`;
+export const ANNEX_ADDRESS = String.raw`https?:\/\/(?:127\.0\.0\.1|localhost|vera\.localhost|\[::1\]):\d+\/[^\s<>"'\x60)\]]*`;
 const TRAILING_PUNCTUATION = /[.,;:!?]+$/;
 
 // The listed page a full address names on this host's annex, or undefined for anything else, so a link
 // to another site, a bare path or a path no page serves keeps the behavior it had.
 export function annexLink(address: string, annex: AnnexPagesAnswer | undefined): AnnexLink | undefined {
     if (annex === undefined || !/^https?:\/\//.test(address)) return undefined;
-    const path = resolveAddress(address, annex.url, annex.pages);
+    const path = resolveAddress(address, annex.url);
     if (!isAnnexPath(path)) return undefined;
     const page = pageAt(path, annex.pages);
     return page === undefined ? undefined : { page, path };

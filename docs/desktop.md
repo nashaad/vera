@@ -261,7 +261,7 @@ collapses it. The right pane works differently, described below. The main area
 is not a location for views.
 
 The right pane holds tabs. A tab is one open copy of a kind of pane: Review,
-Plan, Files, Browser, Chat or Subagents, or a page an extension gives a pane. The kinds come from one list, and the tiles, the
+Plan, Files, Browser, Chat or Subagents, or a page supplied by Vera or an extension. The kinds come from one list, and the tiles, the
 launcher, the tab strip and the saved layout all follow it. The top row holds the
 tabs, a `+` button, and at the right the button that closes the pane. A tab shows
 its kind's icon and title, or the page's title for a Browser tab, and has a close
@@ -360,8 +360,8 @@ Seven views ship with the app:
 - Review, Plan and Files, each in its own container that opens as right pane
   tabs, follow the open session; see Session tools. Each can be shown or hidden in
   Settings > Show.
-- Browser, in its own container that opens as right pane tabs, opens sites and
-  Vera's pages, one page per tab; see Browser.
+- Browser, in its own container that opens as right pane tabs, holds websites;
+  see Browser.
 - Chat, in its own container that opens as right pane tabs, shows one session's
   conversation with its own composer; see Chat tabs.
 - Output, in the bottom panel, lists the app's own connection events: attaching,
@@ -546,7 +546,7 @@ right. Under each message:
 - A tool that returns a link to a page, as `artifact_write` and `artifact_edit`
   do, shows a card under its run: the page's icon, the title the tool gave and a
   chevron. The card shows whether or not the run line is open, and clicking it
-  opens that page in its pane, or in a Browser tab when the page has none. A
+  opens that page in its pane, or in the right pane when the page has no pane. A
   notice without a link shows its text, with any address to one of Vera's pages
   opening the same way. The terminal shows the notice's text and ignores the link.
 - While the turn runs, the plan it wrote shows as a checklist under the newest
@@ -760,7 +760,7 @@ Slash commands:
   turn runs they say `Extension commands are available when the agent is idle`
   and your line goes back into the box. A skill or extension command named like
   a built-in is left out of the menu.
-- `/usage` opens the Usage page in the Browser.
+- `/usage` opens the Usage page in the right pane.
 - The terminal commands `/animations`, `/import`, `/extension` and
   `/reload-extensions` are listed with a muted `Not implemented yet`. Running one
   shows `/name: Not implemented yet` under the box and sends nothing.
@@ -1138,16 +1138,14 @@ empty one; the launcher also opens a typed web address in a new Browser tab. The
 command palette's `Open a web page` opens the Browser or selects its most recent
 tab and focuses its address bar. A tab shows the page's title in the strip, and
 closing the tab closes the page. A
-Browser tab that has no site open shows the pages the annex serves on this
-machine: Usage, Runs and pages extensions add. Home lists those pages and their
-paths. A Vera page shows without the annex's own menu and title.
+Browser tabs hold websites only.
 
 At most 12 Browser tabs are open at once. At that point the Browser tile and the
 launcher's Browser row are disabled, and a site that asks for another window is
 refused.
 
-Enter an address for a site, or a Vera page's name or path such as `/runs`.
-Open in your browser opens the current page in the system browser. Back and
+Enter a website address in the Browser. Open in your browser opens the current
+website in the system browser. Back and
 Forward move through the current tab. Browser tabs share cookies, site storage
 and cache in memory while the desktop is open. Tabs, sign-ins and site data do
 not survive closing the desktop. Site recents and saved captures remain in the
@@ -1167,21 +1165,18 @@ Vera opens gets its own Browser tab. You can watch and take over in the pane. Se
 [Browser use](browser-use.md).
 
 A link to one of Vera's pages in a reply or a tool notice opens inside the window.
-A page that has its own pane opens there: in the tab already on that address, else
-in a new tab, else in the page's last tab when the pane is full, and the right pane
-opens if it was closed. Any other page opens in a Browser tab, or in the system
-browser when the Browser is hidden. Links to other sites are not opened.
+A page that has its own pane opens there. Other pages open in the right pane when
+available, or in the system browser when there is no pane or it cannot take
+another page. Links to websites are not opened.
 
-The command palette's Pages group opens Home as `Vera's Pages` or a page by its
-name, and `/usage` in the composer opens Usage; each uses the most recent Browser
-tab that shows no site, or opens a new tab, and never replaces a site. When the
-host is not running or the annex is down, the Browser says so. When only the
-extension list fails, the built-in pages still open and Home says why.
+The command palette's Pages group lists Vera's pages. `/usage` opens Usage in
+the right pane. Usage and Runs have Reload and Open in your browser.
 
 The pointer button at the right of the address bar opens the included browser
-annotation tool for the open session. Select an element or draw on the page,
-then choose Add to chat to include a screenshot with your next message.
-It works on sites and Vera's annex pages; see [Browser annotation](browser-annotation.md).
+annotation tool for the open session. Select an element or draw on a website,
+then choose Add to chat to include a screenshot with your next message. Vera's
+pages do not have annotation; Files HTML Preview still supports it. See
+[Browser annotation](browser-annotation.md).
 
 ## Finding the host
 
@@ -1870,13 +1865,9 @@ session menu without a sheet, waiting for the result line. From a sidebar row's
 and forward between them, hides and shows the tree, unpins it from the
 right-click menu, clones it and closes the copy.
 
-The browser test opens Usage from the command palette and checks the frame
-loads it from the annex without the annex's menu, that the tabs are Usage, Runs
-and the included Artifacts page, and that the frame stays on the annex when a
-page tries to leave it. It hands the page to a stubbed system browser, opens
-Runs from Home and Artifacts from its tab, walks Back and Forward, types a
-page's name, an outside address and an unknown path into the address bar, and
-opens Usage with `/usage` from the composer.
+The Browser tests check that websites open in Browser and that Usage, Runs
+and Artifacts open in app page panes. They exercise typed app-page addresses,
+annotation controls and blocked annex requests from Browser.
 
 The artifact pane test opens the Artifacts page from its sidebar entry and checks
 it loads in the main area without a query, then checks its tile and launcher

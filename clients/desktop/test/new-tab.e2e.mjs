@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { configureFauxHome, until } from "./faux-home.mjs";
-import { MODIFIER, press, startTrial } from "./trial.mjs";
+import { MODIFIER, press, startTrial, waitForAnnexPages } from "./trial.mjs";
 
 const provider = createServer((request, response) => {
     request.resume();
@@ -22,6 +22,7 @@ try {
     let page = await app.firstWindow();
     await page.waitForSelector(".app[data-sessions]", { timeout: 45_000 });
     await trial.waitForHost();
+    await waitForAnnexPages(page, app);
     const base = `http://127.0.0.1:${site.address().port}`;
     await page.evaluate((baseUrl) => localStorage.setItem("vera.desktop.pane-recents", JSON.stringify([
         { kind: "annex", target: "/x/vera.artifacts/artifacts", title: "Artifacts" },

@@ -126,6 +126,11 @@ try {
     check(mainSrc !== null && mainSrc.endsWith(PATH) && !mainSrc.includes("?"), `The main area frame loads ${mainSrc}.`);
     check(await entry().getAttribute("data-active") === "true", "The entry is not marked as the page shown.");
     await page.frameLocator('main[data-page="extension"] iframe.browser-frame').getByText("No artifacts yet").waitFor({ timeout: 30_000 });
+    const mainFrame = page.locator('main[data-page="extension"] iframe.browser-frame');
+    await mainFrame.evaluate((element) => { element.dataset.reloadProof = "before"; });
+    await page.locator('main[data-page="extension"] button[data-page-reload]').focus();
+    await press(app, "R", [MODIFIER]);
+    await until("main page shortcut reload", async () => await mainFrame.getAttribute("data-reload-proof") === null);
     check(await page.locator('[data-switcher="rightPane"] [data-tab]').count() === 0, "Opening the page from the sidebar opened a pane tab.");
     await page.locator('[data-page="home"]').click();
 

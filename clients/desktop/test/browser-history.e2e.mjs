@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
-import { MODIFIER, press, startTrial } from "./trial.mjs";
+import { MODIFIER, press, startTrial, waitForAnnexPages } from "./trial.mjs";
 
 const toolResults = [];
 const provider = createServer((request, response) => {
@@ -46,18 +46,15 @@ try {
     page = await app.firstWindow();
     await page.waitForSelector('.app[data-sessions="0"]', { timeout: 45_000 });
     await trial.waitForHost();
+    await waitForAnnexPages(page, app);
 
     await press(app, "K", [MODIFIER]);
     const palette = page.locator('input[aria-label="Command palette"]');
-    await palette.fill("Usage");
-    await palette.press("Enter");
+    await palette.fill("Open a web page");
+    await page.locator('[data-command="page.openBrowser"]').click();
     const pane = page.locator('[data-location="rightPane"]');
     const address = pane.getByRole("textbox", { name: "Address" });
     await address.waitFor();
-    await until("Vera page recent recorded", async () => {
-        const recents = await page.evaluate(() => JSON.parse(localStorage.getItem("vera.desktop.pane-recents") ?? "[]"));
-        return recents.some((item) => item.kind === "annex" && item.target === "/usage");
-    });
     const browserTools = pane.getByRole("switch", { name: "Browser tools" });
     await until("browser tools ready", async () => await browserTools.isEnabled());
     if (await browserTools.isChecked()) throw new Error("Browser tools started enabled.");
@@ -83,7 +80,9 @@ try {
     if (!(await readSite("document.cookie")).includes("history-trial=preserved") || (await readSite("localStorage.getItem('history-trial')")) !== "preserved") throw new Error("Local page storage was not initialized.");
 
     const historyButton = pane.getByRole("button", { name: "History", exact: true });
-    await historyButton.click();
+    await press(app, "K", [MODIFIER]);
+    await page.locator('input[aria-label="Command palette"]').fill("Show Browser History");
+    await page.locator('input[aria-label="Command palette"]').press("Enter");
     const history = pane.getByRole("region", { name: "History" });
     await history.waitFor();
     const search = history.getByRole("searchbox", { name: "Search history" });
@@ -121,9 +120,11 @@ try {
     app = await trial.launch();
     page = await app.firstWindow();
     await page.waitForSelector('.app[data-sessions]', { timeout: 45_000 });
+    await trial.waitForHost();
+    await waitForAnnexPages(page, app);
     await press(app, "K", [MODIFIER]);
-    await page.locator('input[aria-label="Command palette"]').fill("Usage");
-    await page.locator('input[aria-label="Command palette"]').press("Enter");
+    await page.locator('input[aria-label="Command palette"]').fill("Open a web page");
+    await page.locator('[data-command="page.openBrowser"]').click();
     const relaunchedPane = page.locator('[data-location="rightPane"]');
     const relaunchedAddress = relaunchedPane.getByRole("textbox", { name: "Address" });
     await relaunchedAddress.waitFor();
@@ -142,10 +143,9 @@ try {
     await shortcutSearch.fill("Tool opened page");
     await until("tool history survived relaunch", async () => await relaunchedEntries.count() === 1 && (await relaunchedEntries.first().innerText()).includes("Tool opened page"));
     await shortcutSearch.fill("");
-    await until("browser and Vera page recents exist before clear", async () => {
+    await until("browser recent exists before clear", async () => {
         const recents = await page.evaluate(() => JSON.parse(localStorage.getItem("vera.desktop.pane-recents") ?? "[]"));
-        return recents.some((item) => item.kind === "annex" && item.target === "/usage")
-            && recents.some((item) => item.kind === "browser" && item.target === recentPage);
+        return recents.some((item) => item.kind === "browser" && item.target === recentPage);
     });
     const clear = relaunchedHistory.getByRole("button", { name: "Clear", exact: true });
     await relaunchedHistoryButton.click();
@@ -167,9 +167,9 @@ try {
     await until("native page shortcut focused Clear", async () => await clear.evaluate((button) => button === document.activeElement));
     await page.keyboard.press("Enter");
     await until("history removed from storage", async () => await page.evaluate(() => localStorage.getItem("vera.desktop.browser-history") === null));
-    await until("browser recent removed and annex recent retained", async () => {
+    await until("browser recent removed", async () => {
         const recents = await page.evaluate(() => JSON.parse(localStorage.getItem("vera.desktop.pane-recents") ?? "[]"));
-        return recents.some((item) => item.kind === "annex") && recents.every((item) => item.kind !== "browser");
+        return recents.every((item) => item.kind !== "browser");
     });
     await until("cleared history shown", async () => await relaunchedHistory.locator("button.browser-history-entry").count() === 0
         && await relaunchedHistory.getByText("No history found.").count() === 1);

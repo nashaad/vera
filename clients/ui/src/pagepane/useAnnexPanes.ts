@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { AnnexPagesAnswer } from "../protocol/bridge.ts";
 import type { PaneKind } from "../registry/core.ts";
+import type { ReadyFacts } from "../state/connection.ts";
 import { pageKinds, sameKinds } from "./kinds.ts";
 
 // The annex starts a moment after the host does, so a read that fails is tried again a few times.
@@ -9,16 +10,17 @@ const RETRY_DELAYS_MS: readonly number[] = [500, 1_500, 4_000];
 
 // Reads the pages the host's annex serves when the window attaches to a host, and the pane kinds the
 // extension pages among them ask for. The kinds array changes only when the set of kinds does.
-export function useAnnexPanes(hostPid: number | undefined): {
+export function useAnnexPanes(ready: ReadyFacts | undefined): {
     readonly annex: AnnexPagesAnswer | undefined;
     readonly kinds: readonly PaneKind[];
 } {
-    const [annex, setAnnex] = useState<AnnexPagesAnswer | undefined>(undefined);
+    const [read, setRead] = useState<{ readonly ready: ReadyFacts; readonly annex: AnnexPagesAnswer } | undefined>(undefined);
+    const annex = read !== undefined && read.ready === ready ? read.annex : undefined;
     const kinds = useRef<readonly PaneKind[]>([]);
 
     useEffect(() => {
         const bridge = window.veraDesktop;
-        if (hostPid === undefined || bridge === undefined) return;
+        if (ready === undefined || bridge === undefined) return;
         let live = true;
         let timer: ReturnType<typeof setTimeout> | undefined;
         const read = (attempt: number): void => {
@@ -29,7 +31,7 @@ export function useAnnexPanes(hostPid: number | undefined): {
             bridge.readAnnexPages().then(
                 (result) => {
                     if (!live) return;
-                    if (result.ok) setAnnex(result);
+                    if (result.ok) setRead({ ready, annex: result });
                     else retry();
                 },
                 retry,
@@ -40,7 +42,7 @@ export function useAnnexPanes(hostPid: number | undefined): {
             live = false;
             clearTimeout(timer);
         };
-    }, [hostPid]);
+    }, [ready]);
 
     const next = pageKinds(annex?.pages ?? []);
     if (!sameKinds(kinds.current, next)) kinds.current = next;

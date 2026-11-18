@@ -3,7 +3,7 @@ import type { AnnexPage, AnnexPagesAnswer } from "../protocol/bridge.ts";
 import { tabDots } from "../workbench/tabDots.ts";
 import { canOpenTab } from "../layout/resolve.ts";
 import type { PageHost } from "./open.ts";
-import { pageKindId } from "./kinds.ts";
+import { pageKindId, panePages } from "./kinds.ts";
 import { pageTabs } from "./store.ts";
 
 // A page's annex path with the query a link carries.
@@ -18,11 +18,11 @@ export interface NoticeTarget {
     readonly path: string;
 }
 
-// The page a notice's link names, as the annex lists it. Anything else, such as a link to a page
-// without a pane, is not a target.
+// The page a notice's link names, as the annex lists it. Pages without an app pane are not targets.
 export function noticeTarget(link: NoticeLink, annex: AnnexPagesAnswer | undefined): NoticeTarget | undefined {
-    const page = annex?.pages.find((candidate) => candidate.path === link.page);
-    if (page === undefined || page.pane !== true) return undefined;
+    if (annex === undefined) return undefined;
+    const page = panePages(annex.pages).find((candidate) => candidate.path === link.page);
+    if (page === undefined) return undefined;
     return { page, path: pagePathWithQuery(page, link.query) };
 }
 
