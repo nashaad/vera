@@ -173,7 +173,7 @@ test("a second stop in the same TUI names the current waiting session", async ()
         const pane = await session.waitForVisiblePane("Waiting for second-session.");
         expect(pane).not.toContain("Waiting for first-session.");
         session.sendKey("Enter");
-        await session.waitForVisiblePaneWhere((text) => !text.includes("Vera is stopping."), "stop card dismissed");
+        await session.waitForVisiblePaneWhere((text) => !text.includes("Vera stops when running turns finish."), "stop card dismissed");
         expect(cuts).toBe(0);
     } finally {
         await session.close();

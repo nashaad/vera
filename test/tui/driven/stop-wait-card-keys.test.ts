@@ -84,7 +84,11 @@ test("Down then Enter on the stop-wait card cuts once and releases nothing", asy
     const session = await startWithQueuedPrompt("vera-tui-card-down-");
     try {
         openCard();
-        await session.waitForVisiblePane("Vera is stopping");
+        const pane = await session.waitForVisiblePane("Vera stops when running turns finish.");
+        expect(pane).toContain("1. Keep waiting");
+        expect(pane).toContain("2. Stop it now");
+        expect(pane).not.toContain("recommended");
+        expect(pane).not.toContain("Other");
         const before = sent.length;
         session.sendKey("Down");
         session.sendKey("Enter");
@@ -104,11 +108,11 @@ test("Enter alone with a draft keeps waiting and leaves the draft in the compose
         session.sendText("draft text");
         await session.waitForVisiblePane("draft text");
         openCard();
-        await session.waitForVisiblePane("Vera is stopping");
+        await session.waitForVisiblePane("Vera stops when running turns finish.");
         const before = sent.length;
         session.sendKey("Enter");
         await session.waitForVisiblePaneWhere(
-            (pane) => !pane.includes("Vera is stopping"),
+            (pane) => !pane.includes("Vera stops when running turns finish."),
             "card closed",
         );
         await session.settle(200);
@@ -121,19 +125,43 @@ test("Enter alone with a draft keeps waiting and leaves the draft in the compose
     }
 }, 20_000);
 
+test("typing while the card is open cannot submit a freeform answer", async () => {
+    const session = await startWithQueuedPrompt("vera-tui-card-typed-");
+    try {
+        session.sendText("draft text");
+        await session.waitForVisiblePane("draft text");
+        openCard();
+        await session.waitForVisiblePane("Vera stops when running turns finish.");
+        const before = sent.length;
+        session.sendText("lets stop");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePaneWhere(
+            (text) => !text.includes("Vera stops when running turns finish."),
+            "card closed",
+        );
+        expect(pane).toContain("draft text");
+        expect(pane).not.toContain("lets stop");
+        expect(cuts).toBe(0);
+        expect(sent.slice(before)).not.toContain("prompt");
+        expect(sent.slice(before)).not.toContain("release_queued_prompts");
+    } finally {
+        await session.close();
+    }
+}, 20_000);
+
 test("Stop it now with a draft cuts once and leaves the draft in the composer", async () => {
     const session = await startWithQueuedPrompt("vera-tui-card-stop-draft-");
     try {
         session.sendText("draft text");
         await session.waitForVisiblePane("draft text");
         openCard();
-        await session.waitForVisiblePane("Vera is stopping");
+        await session.waitForVisiblePane("Vera stops when running turns finish.");
         const before = sent.length;
         session.sendKey("Down");
         session.sendKey("Enter");
         await until(() => cuts === 1, "one cut");
         await session.waitForVisiblePaneWhere(
-            (pane) => !pane.includes("Vera is stopping"),
+            (pane) => !pane.includes("Vera stops when running turns finish."),
             "card closed",
         );
         await session.settle(200);
@@ -150,11 +178,11 @@ test("Escape closes the stop-wait card and sends nothing", async () => {
     const session = await startWithQueuedPrompt("vera-tui-card-escape-");
     try {
         openCard();
-        await session.waitForVisiblePane("Vera is stopping");
+        await session.waitForVisiblePane("Vera stops when running turns finish.");
         const before = sent.length;
         session.sendKey("Escape");
         await session.waitForVisiblePaneWhere(
-            (pane) => !pane.includes("Vera is stopping"),
+            (pane) => !pane.includes("Vera stops when running turns finish."),
             "card closed",
         );
         await session.settle(200);

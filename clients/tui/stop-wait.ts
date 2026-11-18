@@ -74,13 +74,15 @@ export function closeStopWaitCard(card: TuiStopWaitCard): TuiStopWaitCard {
 
 function stopWaitCardTitle(wait: TuiStopWait): string {
     const first = wait.waitingOn[0];
-    const waitingFor = first === undefined ? "" : ` Waiting for ${first.name ?? first.session_id}.`;
+    const more = wait.waitingOn.length - 1;
+    const waitingFor = first === undefined
+        ? ""
+        : ` Waiting for ${first.name ?? first.session_id}${more > 0 ? ` and ${more} more` : ""}.`;
     return wait.kind === "update"
-        ? `Updating to ${wait.targetBuildId}.${waitingFor}`
-        : `Vera is stopping.${waitingFor}`;
+        ? `Vera updates to ${wait.targetBuildId} when running turns finish.${waitingFor}`
+        : `Vera stops when running turns finish.${waitingFor}`;
 }
 
-// The card reuses the question view. Keep waiting is first and recommended, so Enter keeps the wait.
 export function stopWaitCardUpdate(
     wait: TuiStopWait | undefined,
     card: TuiStopWaitCard | undefined,
@@ -93,12 +95,10 @@ export function stopWaitCardUpdate(
         request: {
             type: "user_question",
             question: stopWaitCardTitle(wait),
+            allowCustom: false,
+            allowNotes: false,
             choices: [
-                {
-                    id: STOP_WAIT_KEEP_CHOICE,
-                    label: "Keep waiting",
-                    recommended: true,
-                },
+                { id: STOP_WAIT_KEEP_CHOICE, label: "Keep waiting" },
                 { id: STOP_WAIT_STOP_CHOICE, label: "Stop it now" },
             ],
         },

@@ -89,7 +89,7 @@ realProcessTest("a TUI that exits after a busy host stop removes its live record
             cwd: process.cwd(), env, stdout: "pipe", stderr: "pipe",
         });
         const result = Promise.all([command.exited, new Response(command.stdout).text(), new Response(command.stderr).text()]);
-        await until(() => pane().includes("Vera is stopping."), "stop dialog");
+        await until(() => pane().includes("Vera stops when running turns finish."), "stop dialog");
         gate.resolve();
         const [exitCode, , stderr] = await result;
         expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
