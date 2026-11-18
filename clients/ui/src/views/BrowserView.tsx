@@ -1,6 +1,7 @@
-import { useEffect, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 
 import { annexHost, currentEntry, displayAddress, isAnnexPath, pageAt, resolveAddress } from "../browser/address.ts";
+import { addressRequestVersion, subscribeAddressRequest, takeAddressRequest } from "../browser/address-request.ts";
 import { historyRequestVersion, subscribeHistoryRequest, takeHistoryRequest } from "../browser/history-request.ts";
 import { nativeCommand } from "../browser/native.ts";
 import { openAddressIn, showAnnexIn } from "../browser/open.ts";
@@ -22,6 +23,8 @@ const PLACEHOLDER = "Search Vera's pages or enter an address";
 export function BrowserView({ visible }: ViewProps) {
     const tab = usePaneTab();
     const key = tab ?? CONTAINER_SLOT;
+    const addressRef = useRef<HTMLInputElement>(null);
+    const addressRequest = useSyncExternalStore(subscribeAddressRequest, addressRequestVersion, addressRequestVersion);
     const { connection } = useViewEnvironment();
     const slot = useSlot(key);
     const { native } = useSlotStore();
@@ -37,6 +40,12 @@ export function BrowserView({ visible }: ViewProps) {
     const historyRequest = useSyncExternalStore(subscribeHistoryRequest, historyRequestVersion, historyRequestVersion);
     const surface = useNativeSurface(visible && !historyOpen && page !== undefined);
     usePublishTabTitle(page?.title);
+
+    useEffect(() => {
+        if (!visible || !takeAddressRequest(key)) return;
+        addressRef.current?.focus();
+        addressRef.current?.select();
+    }, [visible, key, addressRequest]);
 
     useEffect(() => {
         if (!visible || !takeHistoryRequest()) return;
@@ -97,6 +106,7 @@ export function BrowserView({ visible }: ViewProps) {
                     <ArrowRightIcon />
                 </button>
                 <input
+                    ref={addressRef}
                     className="browser-address"
                     aria-label="Address"
                     value={typed ?? (page === undefined ? displayAddress(entry, annex?.url) : page.url)}

@@ -154,9 +154,10 @@ function matchItem(item: PaletteItem, words: readonly string[]): { readonly rank
         }
         if (best === undefined) return undefined;
         total += best.score;
-        const labelText = item.labelSearchText ?? item.label;
+        const searchOffset = item.labelSearchText === undefined ? -1 : item.label.lastIndexOf(item.labelSearchText);
+        const labelText = searchOffset === -1 ? item.label : item.labelSearchText!;
         const labelMatch = fuzzyMatch(word, labelText);
-        const labelOffset = item.labelSearchText === undefined ? 0 : item.label.lastIndexOf(labelText);
+        const labelOffset = searchOffset === -1 ? 0 : searchOffset;
         if (labelMatch !== undefined && labelOffset !== -1) {
             for (const index of labelMatch.indices) indices.add(labelOffset + index);
         }

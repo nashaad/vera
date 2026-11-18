@@ -63,6 +63,11 @@ try {
         await until(`the ${label} page in the browser`, async () => (await frame.count()) === 1 && (await frame.getAttribute("title")) === label);
     };
 
+    await press(app, "K", [MODIFIER]);
+    await page.getByRole("textbox", { name: "Command palette" }).fill("internet");
+    await page.locator('[data-command="page.openBrowser"]').click();
+    await until("new Browser address focused", async () => address.evaluate((input) => document.activeElement === input));
+
     // The palette lists Vera's pages in their own group and opens one in the right pane.
     await press(app, "K", [MODIFIER]);
     await page.waitForSelector(".palette[data-overlay=\"palette\"]");
@@ -75,6 +80,12 @@ try {
     if (!/^http:\/\/127\.0\.0\.1:\d+\/usage$/.test(src ?? "")) throw new Error(`The Usage frame loads ${src}.`);
     const host = new URL(src).host;
     await until("the address bar", async () => (await address.inputValue()) === `${host}/usage`);
+
+    await press(app, "K", [MODIFIER]);
+    await page.getByRole("textbox", { name: "Command palette" }).fill("browser");
+    await page.locator('[data-command="page.openBrowser"]').click();
+    await until("existing Browser address selected", async () => address.evaluate((input) => document.activeElement === input && input.selectionStart === 0 && input.selectionEnd === input.value.length));
+    await showing("Usage");
 
     // The annex page renders inside the frame without its own menu.
     await inFrame.locator(".page .toolbar .seg").first().waitFor({ timeout: 30_000 });

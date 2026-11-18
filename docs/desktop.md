@@ -1134,8 +1134,10 @@ model was swapped. Retries and failures show as strips in the column.
 The Browser opens sites in the right pane, one page to a tab. Each Browser tab has
 a top row of Back, Forward, the address bar, Reload and Open in your browser. A
 site popup opens in a new Browser tab, and `+` or the Browser tile opens a new,
-empty one; the launcher also opens a typed web address in a new Browser tab. A
-tab shows the page's title in the strip, and closing the tab closes the page. A
+empty one; the launcher also opens a typed web address in a new Browser tab. The
+command palette's `Open a web page` opens the Browser or selects its most recent
+tab and focuses its address bar. A tab shows the page's title in the strip, and
+closing the tab closes the page. A
 Browser tab that has no site open shows the pages the annex serves on this
 machine: Usage, Runs and pages extensions add. Home lists those pages and their
 paths. A Vera page shows without the annex's own menu and title.
