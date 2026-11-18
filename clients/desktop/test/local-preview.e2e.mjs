@@ -1,9 +1,10 @@
-import { existsSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import sharp from "sharp";
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
 import { MODIFIER, press, startTrial } from "./trial.mjs";
+import { captureSizeMatches, registeredDifference } from "./capture-comparison.mjs";
 
 const html = '<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="style.css"><script type="module" src="app.js"></script><main><img src="pixel.svg"><p class="eyebrow">THE CROW’S LOG</p><h1 id="target">Initial crow</h1><p>Notes from the northern watch.</p><a href="second.html">Read the next entry</a></main>';
 const requests = [];
@@ -61,12 +62,55 @@ try {
     const folder = join(trial.home, "runtime", "sessions", `${sessionId}.jsonl.files`);
     await until("the initial files", () => calls >= 6 && existsSync(join(folder, "index.html")) && readFileSync(join(folder, "index.html"), "utf8") === html);
     const realFolder = realpathSync(folder);
+    mkdirSync(join(folder, "nested"));
+    writeFileSync(join(folder, "nested", "note.txt"), "nested note");
     await until("the first turn", async () => (await page.locator(".send-button").getAttribute("data-mode")) === "send");
     await page.getByRole("button", { name: "Toggle Right Pane" }).click();
     await page.locator('[data-pane-launcher]').click();
     await page.locator('[data-pane-option="core.files"]').click();
+    if (await page.locator('[data-sash="Files tree"]').count()) throw new Error("Divider appeared without a file");
+    await page.locator('.file-folder', { hasText: 'nested' }).click();
+    await page.locator('.file-entry', { hasText: 'note.txt' }).waitFor();
     await page.locator('.file-entry', { hasText: 'index.html' }).click();
     await page.locator('.file-preview-lines', { hasText: 'Initial crow' }).waitFor();
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1840, 1000));
+    const sash = page.locator('[data-sash="Files tree"]');
+    const tree = page.locator('.files-tree');
+    const width = async () => (await tree.boundingBox()).width;
+    const drag = async (delta) => {
+        const box = await sash.boundingBox();
+        await page.mouse.move(box.x, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + delta, box.y + box.height / 2, { steps: 8 });
+        await page.mouse.up();
+    };
+    const initial = await width();
+    await drag(-80);
+    const wider = await width();
+    if (wider < initial + 30) throw new Error(`Tree did not grow: ${initial}, ${wider}`);
+    await drag(120);
+    const narrower = await width();
+    if (narrower > wider - 70) throw new Error(`Tree did not shrink: ${wider}, ${narrower}`);
+    await sash.press('ArrowLeft');
+    if (Math.abs(await width() - narrower - 16) > 2) throw new Error('Keyboard resize failed');
+    const retained = await width();
+    await page.getByRole('button', { name: 'Browse files' }).click();
+    if (await sash.count()) throw new Error('Hidden tree retained divider');
+    await page.getByRole('button', { name: 'Browse files' }).click();
+    if (Math.abs(await width() - retained) > 2 || !await page.locator('.file-entry', { hasText: 'note.txt' }).isVisible()) throw new Error('Tree state was lost');
+    await page.locator('.file-entry', { hasText: 'note.txt' }).click();
+    await page.locator('.file-preview-lines', { hasText: 'nested note' }).waitFor();
+    if (Math.abs(await width() - retained) > 2) throw new Error('File switch lost tree width');
+    await page.locator('.file-entry', { hasText: 'index.html' }).click();
+    await page.locator('.file-preview-lines', { hasText: 'Initial crow' }).waitFor();
+    await drag(-2000);
+    if (Math.abs(await width() - Number(await sash.getAttribute('aria-valuemax'))) > 2) throw new Error('Maximum was not clamped');
+    await drag(2000);
+    if (Math.abs(await width() - Number(await sash.getAttribute('aria-valuemin'))) > 2) throw new Error('Minimum was not clamped');
+    const resetBox = await sash.boundingBox();
+    await page.mouse.dblclick(resetBox.x, resetBox.y + resetBox.height / 2);
+    if (Math.abs(await width() - initial) > 2) throw new Error('Reset did not restore default');
+    await drag(-50);
     await composer.fill("source draft");
     await press(app, "R", [MODIFIER]);
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -79,6 +123,73 @@ try {
     if (await frame.locator("body").getAttribute("data-script") !== "loaded") throw new Error("Relative script did not run");
     if (await frame.locator("#target").evaluate((element) => getComputedStyle(element).color) !== "rgb(20, 40, 60)") throw new Error("Relative CSS did not load");
     if (!await frame.locator("img").evaluate((image) => image.complete && image.naturalWidth === 8)) throw new Error("Relative image did not load");
+    const assertLabels = async () => {
+        const result = await page.locator('.local-preview-controls').evaluate((element) => {
+            const preview = element.closest('.file-preview').getBoundingClientRect().width;
+            const lines = Array.from(element.querySelectorAll('.right-seg-option')).map((button) => {
+                const range = document.createRange();
+                range.selectNodeContents(button);
+                return range.getClientRects().length;
+            });
+            return { preview, lines };
+        });
+        if (result.preview < 159 || result.lines.some((lines) => lines !== 1)) throw new Error(`Ordinary preview labels wrapped: ${JSON.stringify(result)}`);
+        console.log(`Single-line preview labels: ${JSON.stringify(result)}`);
+    };
+    await assertLabels();
+    {
+        const visual = async () => {
+            await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
+            await page.mouse.move(20, 20);
+            const box = await page.locator('.files-view').boundingBox();
+            return page.screenshot({ clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 420) } });
+        };
+        const before = process.env.VERA_PREVIEW_PROOF ? await visual() : undefined;
+        const prior = await width();
+        await drag(80);
+        await until('visual tree narrowed', async () => await width() < prior - 30);
+        await assertLabels();
+        if (before !== undefined) {
+            const after = await visual();
+            const a = await sharp(before).metadata();
+            const b = await sharp(after).metadata();
+            await sharp({ create: { width: a.width + b.width, height: Math.max(a.height, b.height), channels: 4, background: '#ffffff' } })
+                .composite([{ input: before, left: 0, top: 0 }, { input: after, left: a.width, top: 0 }]).png().toFile(`${process.env.VERA_PREVIEW_PROOF}-stitched.png`);
+        }
+        await drag(-80);
+    }
+    await drag(-2000);
+    for (const size of ['normal', 'large', 'tight']) {
+        if (size === 'large') await page.locator('.files-view').evaluate((element) => element.style.setProperty('--vera-font-size-label', '20px'));
+        if (size === 'tight') {
+            await page.locator('.files-split').evaluate((element) => { element.style.width = '220px'; });
+            await until('tight split measured', async () => Number(await sash.getAttribute('aria-valuemax')) < 100);
+        }
+        await page.getByRole('button', { name: 'Source', exact: true }).click();
+        await page.locator('.file-preview-lines', { hasText: 'Initial crow' }).waitFor();
+        await page.getByRole('button', { name: 'Preview', exact: true }).click();
+        await frame.locator('#target').waitFor();
+        await page.getByRole('button', { name: 'Reload', exact: true }).click();
+        await frame.locator('#target').waitFor();
+        const fit = await page.locator('.local-preview-controls').evaluate((element) => {
+            const preview = element.closest('.file-preview').getBoundingClientRect();
+            return Array.from(element.querySelectorAll('button')).every((button) => {
+                const rect = button.getBoundingClientRect();
+                return rect.left >= preview.left - 1 && rect.right <= preview.right + 1;
+            });
+        });
+        if (!fit) throw new Error(`Preview controls overflow at ${size} text`);
+        if (size === 'normal') await assertLabels();
+        await page.getByRole('button', { name: 'Select element' }).click();
+        await until(`${size} narrow annotation`, async () => await frame.locator('[data-vera-annotation]').count() === 1);
+        await page.getByRole('button', { name: 'Source', exact: true }).click();
+        await page.locator('.file-preview-lines', { hasText: 'Initial crow' }).waitFor();
+        await page.getByRole('button', { name: 'Preview', exact: true }).click();
+        await frame.locator('#target').waitFor();
+    }
+    await page.locator('.files-view').evaluate((element) => element.style.removeProperty('--vera-font-size-label'));
+    await page.locator('.files-split').evaluate((element) => element.style.removeProperty('width'));
+    await until('split restored', async () => Number(await sash.getAttribute('aria-valuemax')) > 100);
     await page.evaluate(() => {
         const preview = document.querySelector('iframe[title="File preview"]');
         const decoy = document.createElement("iframe");
@@ -96,6 +207,25 @@ try {
     await target.click({ force: true });
     const zooms = [1, 1, 1.25, 0.8];
     let headingReference;
+    let overlayReference;
+    const captureGeometry = [];
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1100, 800));
+    await until('narrow split fits', async () => await page.locator('.files-split').evaluate((element) => {
+        const parent = element.getBoundingClientRect();
+        const preview = element.querySelector('.file-preview').getBoundingClientRect();
+        const tree = element.querySelector('.files-tree').getBoundingClientRect();
+        return preview.width >= 0 && tree.width >= 0 && preview.right <= tree.left + 1 && tree.right <= parent.right + 1;
+    }));
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 900));
+    await until('restored preview width', async () => (await page.locator('iframe[title="File preview"]').boundingBox()).width > 0);
+    const selectedWidth = await width();
+    await drag(40);
+    await until('live selection resized', async () => Math.abs(await width() - selectedWidth) > 20);
+    if (await frame.locator('[data-vera-annotation]').count() !== 1) throw new Error('Annotation tools closed during resize');
+    await until('selection remains active', async () => await frame.locator('[data-vera-annotation]').evaluate((element) => {
+        const button = element.shadowRoot.querySelector('button[title="Add to chat"]');
+        return button && !button.disabled && button.getClientRects().length > 0;
+    }));
     const initialFrame = await page.locator('iframe[title="File preview"]').boundingBox();
     for (const [index, zoom] of zooms.entries()) {
         if (index === 1) {
@@ -118,7 +248,29 @@ try {
             previousLayout = layout;
             return stableFrames >= 3;
         });
-        if (index === 0) headingReference = await sharp(await target.screenshot()).resize(200, 100).removeAlpha().raw().toBuffer();
+        captureGeometry.push({ target: await target.boundingBox(), frame: await page.locator('iframe[title="File preview"]').boundingBox(), shellZoom: await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.getZoomFactor()) });
+        if (index === 0) {
+            const visible = await target.screenshot();
+            overlayReference = await sharp(visible).resize(200, 100).removeAlpha().raw().toBuffer();
+            const overlay = frame.locator('[data-vera-annotation]');
+            const previous = await overlay.evaluate((element) => ['.hover', '.tag', '.toolbar'].map((selector) => {
+                const child = element.shadowRoot.querySelector(selector);
+                const display = child.style.display;
+                child.style.display = 'none';
+                return display;
+            }));
+            let clean;
+            try {
+                clean = await target.screenshot();
+            } finally {
+                await overlay.evaluate((element, displays) => ['.hover', '.tag', '.toolbar'].forEach((selector, i) => { element.shadowRoot.querySelector(selector).style.display = displays[i]; }), previous);
+            }
+            headingReference = await sharp(clean).resize(200, 100).removeAlpha().raw().toBuffer();
+            if (process.env.VERA_PREVIEW_PROOF) {
+                writeFileSync(`${process.env.VERA_PREVIEW_PROOF}-reference-overlay.png`, visible);
+                writeFileSync(`${process.env.VERA_PREVIEW_PROOF}-reference-clean.png`, clean);
+            }
+        }
         await until("Add available", async () => await frame.locator('[data-vera-annotation]').evaluate((element) => {
             const button = element.shadowRoot.querySelector('button[title="Add to chat"]');
             return button && !button.disabled && button.getClientRects().length > 0;
@@ -126,6 +278,7 @@ try {
         await frame.locator('[data-vera-annotation]').evaluate((element) => element.shadowRoot.querySelector('button[title="Add to chat"]').click());
         await until(`capture ${index + 1}`, async () => await page.locator('.page-capture-chip[data-attaching="false"]').count() === index + 1);
     }
+    if (process.env.VERA_PREVIEW_PROOF) writeFileSync(`${process.env.VERA_PREVIEW_PROOF}-geometry.json`, JSON.stringify(captureGeometry, null, 2));
     await page.locator('iframe[name="browser-decoy"]').evaluate((element) => element.remove());
     if (process.env.VERA_PREVIEW_PROOF) await page.screenshot({ path: `${process.env.VERA_PREVIEW_PROOF}-annotated.png` });
     await composer.fill("CHANGE PREVIEW");
@@ -147,16 +300,21 @@ try {
         if (ink < 500 || ink > 6500) throw new Error(`Capture ${index + 1} has unexpected heading ink: ${ink}`);
         if (reference === undefined) {
             let difference = 0;
-            for (let i = 0; i < pixels.length; i += 1) difference += Math.abs(headingReference[i] - pixels[i]);
+            let overlayDifference = 0;
+            for (let i = 0; i < pixels.length; i += 1) {
+                difference += Math.abs(headingReference[i] - pixels[i]);
+                overlayDifference += Math.abs(overlayReference[i] - pixels[i]);
+            }
+            console.log(`First capture mean difference: clean=${difference / pixels.length}, overlay=${overlayDifference / pixels.length}`);
             if (difference / pixels.length > 15) throw new Error("The first capture does not match the unzoomed heading");
             reference = pixels;
             referenceSize = size;
             continue;
         }
-        if (Math.abs(size.width / referenceSize.width - zooms[index]) > 0.04 || Math.abs(size.height / referenceSize.height - zooms[index]) > 0.04) throw new Error(`Capture ${index + 1} has the wrong dimensions`);
-        let difference = 0;
-        for (let i = 0; i < pixels.length; i += 1) difference += Math.abs(reference[i] - pixels[i]);
-        if (difference / pixels.length > 15) throw new Error(`Capture ${index + 1} does not match the heading: ${difference / pixels.length}`);
+        if (!captureSizeMatches(size, referenceSize, zooms[index])) throw new Error(`Capture ${index + 1} has the wrong dimensions`);
+        const comparison = registeredDifference(reference, pixels);
+        console.log(`Capture ${index + 1} registration: ${JSON.stringify(comparison)}`);
+        if (comparison.error > 15) throw new Error(`Capture ${index + 1} does not match the heading: ${comparison.error}`);
     }
     await until("the edit", () => readFileSync(join(folder, "index.html"), "utf8").includes("Changed crow"));
     await composer.fill("preview reload draft");
