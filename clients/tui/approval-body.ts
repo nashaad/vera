@@ -1,6 +1,7 @@
 import { structuredPatch } from "diff";
 
 import type { ToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
+import { tuiKeyChordLabel } from "./keymap.ts";
 import { tuiDisplayPath } from "./state.ts";
 
 export type TuiApprovalTone = "text" | "muted" | "path" | "add" | "del";
@@ -34,7 +35,7 @@ export function tuiApprovalBody(
     return {
         lines: [
             ...lines.slice(0, TUI_APPROVAL_BODY_LINES),
-            { text: `… ${hidden} more lines · Ctrl+R expand`, tone: "muted" },
+            { text: `… ${hidden} more lines · ${tuiKeyChordLabel("expand_call")} expand`, tone: "muted" },
         ],
         hidden,
     };

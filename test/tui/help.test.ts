@@ -136,6 +136,25 @@ test("help paste filters the open page", async () => {
     }
 });
 
+test("help lists the approval bindings", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 30 });
+    const view = createTuiHelpView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    try {
+        view.update({ ...page("keys"), query: "Approvals" });
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("Tell Vera what to do instead");
+        expect(frame).toContain("Show the whole call being approved");
+        expect(frame).toContain("Approvals");
+        expect(frame).toContain("Ctrl+R");
+        expect(frame).toContain("tab");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("help renders the menu, general guidance, and extension attribution", async () => {
     const setup = await createTestRenderer({ width: 100, height: 30 });
     const view = createTuiHelpView(setup.renderer);

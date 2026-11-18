@@ -10,6 +10,11 @@ import {
     tuiApprovalHint,
     type TuiApprovalSession,
 } from "../../clients/tui/approval.ts";
+import {
+    activeTuiKeymap,
+    installTuiKeymap,
+    tuiBindingId,
+} from "../../clients/tui/keymap.ts";
 import type {
     ToolApprovalUiRequestUpdate,
 } from "../../src/engine/protocol.ts";
@@ -254,6 +259,9 @@ test("Tab opens the typed answer and Escape returns to the list", async () => {
         expect(view.handleKey(request, { name: "tab" })).toEqual({ handled: true });
         expect(setup.renderer.currentFocusedRenderable?.id)
             .toBe("approval-notes");
+        expect(view.handleKey(request, { name: "tab" })).toEqual({ handled: true });
+        expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
+        expect(view.handleKey(request, { name: "tab" })).toEqual({ handled: true });
         expect(view.handleKey(request, { name: "escape" })).toEqual({ handled: true });
         expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
         // A subagent's call has no typed answer, so Tab stays on the list.
@@ -265,6 +273,73 @@ test("Tab opens the typed answer and Escape returns to the list", async () => {
         view.handleKey(child, { name: "tab" });
         expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
     } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("modified approval chords pass through to their global owners", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 22, kittyKeyboard: true });
+    const view = createTuiApprovalView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(longRequest(), ask);
+    view.focus();
+
+    try {
+        const cases = [
+            { key: { name: "tab", shift: true }, owner: "dials.open" },
+            { key: { name: "tab", ctrl: true }, owner: undefined },
+            { key: { name: "r", ctrl: true, option: true }, owner: undefined },
+        ];
+        for (const { key, owner } of cases) {
+            expect(tuiBindingId("global", key)).toBe(owner);
+            expect(view.handleKey(longRequest(), key)).toEqual({ handled: false });
+            expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
+        }
+        expect(view.handleKey(longRequest(), { name: "tab" })).toEqual({ handled: true });
+        for (const { key } of cases) {
+            expect(view.handleKey(longRequest(), key)).toEqual({ handled: false });
+            expect(setup.renderer.currentFocusedRenderable?.id).toBe("approval-notes");
+        }
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("approval follows installed binding changes", async () => {
+    const original = activeTuiKeymap();
+    const setup = await createTestRenderer({ width: 100, height: 22, kittyKeyboard: true });
+    const view = createTuiApprovalView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(longRequest(), ask);
+    view.focus();
+
+    try {
+        installTuiKeymap(original.map((binding) => {
+            if (binding.id === "approval_notes") return { ...binding, keys: ["ctrl+j"] };
+            if (binding.id === "expand_call") return { ...binding, keys: ["ctrl+k"] };
+            return binding;
+        }));
+        const multiline = requestWithCommand(
+            Array.from({ length: 25 }, (_, index) => `echo crow-${index}`).join("\n"),
+            "multiline-request",
+        );
+        expect(renderTuiApproval(multiline, ask)).toContain("Ctrl+K expand");
+        expect(tuiApprovalHint(multiline)).toContain("Ctrl+J tell Vera");
+        expect(view.handleKey(longRequest(), { name: "tab" })).toEqual({ handled: false });
+        expect(view.handleKey(longRequest(), { name: "j", ctrl: true })).toEqual({ handled: true });
+        expect(setup.renderer.currentFocusedRenderable?.id).toBe("approval-notes");
+        expect(view.handleKey(longRequest(), { name: "r", ctrl: true })).toEqual({ handled: false });
+        expect(view.handleKey(longRequest(), { name: "k", ctrl: true })).toEqual({ handled: true });
+        await setup.flush();
+        expect(setup.captureCharFrame()).toContain("Ctrl+K collapse");
+        expect(view.handleKey(longRequest(), { name: "j", ctrl: true })).toEqual({ handled: true });
+        expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
+        await setup.flush();
+        expect(setup.captureCharFrame()).toContain("Ctrl+J to tell Vera what to do instead");
+    } finally {
+        installTuiKeymap(original);
         setup.renderer.destroy();
     }
 });

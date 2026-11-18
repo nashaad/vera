@@ -571,6 +571,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "tab notes",
     },
     {
+        id: "approval_notes",
+        keys: ["tab"],
+        scope: "approval",
+        description: "Tell Vera what to do instead",
+        hint: "Tab to tell Vera what to do instead",
+    },
+    {
         id: "expand_call",
         keys: ["ctrl+r"],
         scope: "approval",

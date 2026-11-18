@@ -226,6 +226,43 @@ test("Tab opens a line to type in and Enter denies with what was typed", async (
     }
 });
 
+test("Ctrl+R expands and collapses the call on the list and in the line", async () => {
+    const update: ToolApprovalUiRequestUpdate = {
+        ...request,
+        requestId: "long-call",
+        request: {
+            ...request.request,
+            toolCall: {
+                ...request.request.toolCall,
+                input: { command: Array.from({ length: 25 }, (_, i) => `echo crow-${i}`).join("\n") },
+            },
+        },
+    };
+    const { setup, view } = await openView(100, 22);
+    try {
+        view.update(update, ask);
+        view.focus();
+        await setup.flush();
+        expect(setup.captureCharFrame()).toContain("Ctrl+R expand");
+        expect(view.handleKey(update, { name: "r", ctrl: true })).toEqual({ handled: true });
+        await setup.flush();
+        expect(setup.captureCharFrame()).toContain("Ctrl+R collapse");
+        expect(view.handleKey(update, { name: "r", ctrl: true })).toEqual({ handled: true });
+        await setup.flush();
+        expect(setup.captureCharFrame()).toContain("Ctrl+R expand");
+        expect(view.handleKey(update, { name: "tab" })).toEqual({ handled: true });
+        expect(view.handleKey(update, { name: "r", ctrl: true })).toEqual({ handled: true });
+        await setup.flush();
+        expect(setup.captureCharFrame()).toContain("Ctrl+R collapse");
+        expect(view.handleKey(update, { name: "r", ctrl: true })).toEqual({ handled: true });
+        await setup.flush();
+        expect(setup.captureCharFrame()).toContain("Ctrl+R expand");
+        expect(view.handleKey(update, { name: "q", ctrl: true })).toEqual({ handled: false });
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("Escape in the line goes back to the answers without answering", async () => {
     const { setup, view } = await openView();
     try {
