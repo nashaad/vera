@@ -72,11 +72,16 @@ test("a restart notice after an idle stop still reconnects", async () => {
     const initial = controlledClient("First crow voyage");
     const recovered = controlledClient("Crow voyage after restart");
     let restarts = 0;
+    let attachOnly: unknown;
     const session = await startTuiTestSession({
         home: mkdtempSync(join(tmpdir(), "vera-idle-restart-")),
         dependencies: () => ({
             client: initial.client,
-            reconnectSession: async () => { restarts += 1; return recovered.client; },
+            reconnectSession: async (_agentId, options) => {
+                restarts += 1;
+                attachOnly = Reflect.get(options ?? {}, "attachOnly");
+                return recovered.client;
+            },
         }),
     });
     try {
@@ -86,7 +91,41 @@ test("a restart notice after an idle stop still reconnects", async () => {
         initial.drop();
         await session.waitForVisiblePane("Crow voyage after restart");
         expect(restarts).toBe(1);
+        expect(attachOnly).toBeUndefined();
     } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("@core a pending relaunch reconnects without starting an old host", async () => {
+    const initial = controlledClient("First crow voyage");
+    const recovered = controlledClient("Crow voyage after restart");
+    let starts = 0;
+    let attempts = 0;
+    let releaseRelaunch: (() => void) | undefined;
+    const relaunch = new Promise<void>((resolve) => { releaseRelaunch = resolve; });
+    const session = await startTuiTestSession({
+        home: mkdtempSync(join(tmpdir(), "vera-relaunch-reconnect-")),
+        dependencies: () => ({
+            client: initial.client,
+            relaunchTui: async () => { await relaunch; },
+            reconnectSession: async (_agentId, options) => {
+                attempts += 1;
+                if (Reflect.get(options ?? {}, "attachOnly") !== true) starts += 1;
+                return recovered.client;
+            },
+        }),
+    });
+    try {
+        await session.waitForVisiblePane("First crow voyage");
+        initial.notice({ type: "host_stop_wait_cleared", reason: "stopped" });
+        initial.notice({ type: "host_restarting", build_id: "next-build" });
+        initial.drop();
+        await session.waitForVisiblePane("Crow voyage after restart");
+        expect(attempts).toBe(1);
+        expect(starts).toBe(0);
+    } finally {
+        releaseRelaunch?.();
         await session.close();
     }
 }, 15_000);

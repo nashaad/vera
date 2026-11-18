@@ -24,7 +24,7 @@ function recordingFlightRecorder(
             events.push(event);
         },
         sessionEntered: () => {},
-        close: () => {},
+        close: async () => {},
     };
 }
 

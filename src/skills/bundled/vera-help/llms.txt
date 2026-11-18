@@ -54,7 +54,7 @@ Restarting the TUI does not run edited checkout code. Neither does Reconnect hos
 To run edited checkout code under the installed `vera` command, run `bun run install:local` from that checkout to pack, verify, and activate the build.
 Run `vera rollback` to make the release that was active before the last install or rollback the active release again.
 Run `vera update` from an installed Vera to install the newest release; `vera update --check` reports whether a newer release exists.
-Inside a Vera session, `vera rollback` to a release that supports the handoff returns at once like an update; for an older release, run it from a terminal outside Vera. `bun run install:local` inside a Vera session returns at once, and the new build takes over when the running turns end.
+A terminal `vera update` or `bun run install:local` with a host on another build waits for running turns, stops the host and activates the new release; the next `vera` starts it if no host has been restarted. Inside a Vera session, or with `VERA_HOT_UPDATE=1`, the host hands off to the new build when running turns end. Inside a session, rollback to a release that supports handoff also returns at once; for an older release, run it from a terminal outside Vera.
 You have one home at `~/.vera`. There is no profile flag and no runtime-directory switch, and `VERA_HOME` relocates the whole tree for tests and development instances rather than selecting one day to day.
 Use development instances to test a branch. Install only when intentionally promoting a tested build to daily use.
 A development instance registers a pointer to its home in `~/.vera-dev/instances/`, and `bun run dev:sweep` stops processes in those homes that are two days old or older. The installed daily Vera never registers and is never swept.
@@ -256,8 +256,8 @@ After a dropped connection Vera makes one automatic restart attempt. That attemp
 During automatic recovery the TUI keeps the conversation visible and stops its live timers.
 A TUI talks only to a host of its own build. If the host comes back as a different build, the TUI stays disconnected, sends it no requests, makes no automatic restart, and says to quit and reopen Vera.
 While a host stop or update waits for running turns, an attached TUI shows the sessions it waits for above the composer.
-When an update moves the host to a new build, the TUI restarts into that build in the same terminal and keeps its unsent draft.
-Rollback does the same when the retained release supports the handoff; for older releases, quit and reopen Vera after rollback.
+A terminal cold update leaves an attached TUI stopped. Ctrl+L in a TUI started through the daily `vera` launcher restarts into the active build with the conversation and draft; Reconnect host, or Ctrl+L without the launcher, can restart the old host. Ctrl+L checks the daily installation even when Vera runs from another prefix.
+During a handoff, a TUI started through the `vera` launcher restarts into the new build in the same terminal and keeps its unsent draft. Rollback uses a handoff when the retained release supports it; for older releases, quit and reopen Vera after rollback.
 If provider settings changed but discovery still shows stale models, refresh the catalog and verify the provider endpoint. Restarting the TUI alone cannot repair stale host-held provider state.
 Use `/usage` for local session usage and cost, plus current ChatGPT subscription limits when connected. It reads session files and Python workflow runs from the current Vera home and uses the saved ChatGPT sign-in to check subscription limits. Workflow calls count toward the totals only. The page keeps the same address for this Vera home across host restarts, and Chrome and Firefox also reach it at `vera.localhost` on that port. Manual: `docs/usage.md`.
 

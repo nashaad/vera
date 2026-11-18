@@ -24,7 +24,7 @@ export interface TuiFlightRecorder {
     readonly logPath: string;
     record(event: TuiFlightEvent): void;
     sessionEntered(sessionId: string): void;
-    close(reason: string): void;
+    close(reason: string): Promise<void>;
 }
 
 export interface TuiFlightRecorderOptions {
@@ -39,6 +39,7 @@ const HEARTBEAT_INTERVAL_MS = 1_000;
 const FLUSH_INTERVAL_MS = 250;
 const STALL_RECORD_MS = 500;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
+const WATCHDOG_EXIT_TIMEOUT_MS = 1_000;
 
 export function createTuiFlightRecorder(
     options: TuiFlightRecorderOptions = {},
@@ -55,6 +56,7 @@ export function createTuiFlightRecorder(
     const pid = options.pid ?? process.pid;
     let sessionId: string | undefined;
     let closed = false;
+    let shutdown: Promise<void> | undefined;
     let prepared = false;
     let queuedLines: string[] = [];
     let flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -167,16 +169,42 @@ export function createTuiFlightRecorder(
             record({ type: "session_attached" });
         },
         close(reason) {
-            if (closed) return;
+            if (shutdown !== undefined) return shutdown;
             record({ type: "client_exited", reason });
             flush();
             closed = true;
             clearInterval(heartbeat);
             process.off("uncaughtExceptionMonitor", onUncaught);
             process.off("unhandledRejection", onUnhandled);
-            watchdog?.kill();
+            shutdown = watchdog === undefined
+                ? Promise.resolve()
+                : stopWatchdog(watchdog);
+            return shutdown;
         },
     };
+}
+
+async function stopWatchdog(watchdog: Pick<Bun.Subprocess, "kill" | "exited">): Promise<void> {
+    watchdog.kill("SIGTERM");
+    if (await waitForWatchdogExit(watchdog)) return;
+    watchdog.kill("SIGKILL");
+    if (!await waitForWatchdogExit(watchdog)) {
+        throw new Error("TUI watchdog did not exit after SIGKILL.");
+    }
+}
+
+async function waitForWatchdogExit(watchdog: Pick<Bun.Subprocess, "kill" | "exited">): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            watchdog.exited.then(() => true),
+            new Promise<boolean>((resolve) => {
+                timer = setTimeout(() => resolve(false), WATCHDOG_EXIT_TIMEOUT_MS);
+            }),
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 function prepareLog(path: string): void {

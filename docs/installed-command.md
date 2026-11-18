@@ -28,19 +28,25 @@ The launcher should be `~/.local/bin/vera`. It follows the active release:
 ## Activate a new release
 
 Run `bun run install:local` from the checkout you want to install. It packs and
-verifies the release first. With no host running, the release becomes active at
-once. With a host running, the installer leaves `current` where it is and asks
-the host to move to the new release when its running turns end. The host holds
-new turns while it waits, then moves `current` and starts the new release's
-host as it exits. From a terminal the install waits and prints what the host
-waits on. An attached TUI shows the update build and the sessions it waits for.
-When the host moves, a TUI started through the `vera` launcher restarts into
-the new build in the same terminal and keeps its unsent draft. A TUI started
-without the launcher shows the notice and stays attached. From inside a Vera
-session the install returns at once with a line that the update happens when
-running turns end. If the new host does not start, the previous release is made
-active again and its host is started. A second install that arrives while an
-earlier update still waits is refused until that update finishes.
+verifies the release first. With no host running, or a host already on that
+build, it activates the release at once. From a terminal, when a host on a
+different build is running, the install waits for its running turns, stops it,
+and activates the release. The next `vera` starts the new host. An attached
+TUI shows that the host stopped. With the daily installation, press Ctrl+L in a TUI started through the
+`vera` launcher to restart into the new build with the conversation and draft.
+Reconnect host, or Ctrl+L without the launcher, can start the old build; stop
+that host before reopening Vera to use the new build. Ctrl+L checks the daily
+installation even when Vera runs from a different prefix.
+
+Inside a Vera session, or with `VERA_HOT_UPDATE=1`, an install with a host on
+another build uses a handoff. The host holds new turns while it waits, then
+activates the new release and starts its host. A terminal command waits and
+prints the sessions it waits for; a command inside a session returns when the
+host accepts it. An attached TUI shows the update and waiting sessions. A TUI
+started through the `vera` launcher restarts into the new build in the same
+terminal and keeps its unsent draft. If the new host does not start, the
+host attempts to restore the previous release and its host. A second update is refused while
+one is pending.
 
 `--prefix DIR` chooses a test installation prefix. The daily prefix is
 `$HOME/.local`. A test prefix stops and starts only the host of the home that
@@ -57,6 +63,8 @@ from a terminal outside Vera.
 
 ## Update from a release
 
+`vera update` honors `VERA_RELEASES_API` and `VERA_RELEASES_DOWNLOAD_BASE` as described in [Installation](installation.md).
+
 Run `vera update` from an installed Vera to download and install the newest
 GitHub release for your platform. `vera update <version>` installs that
 version instead. `vera update --check` prints the running version and the
@@ -72,9 +80,9 @@ release list exceeds the page limit, it prints the notes gathered and a link
 to the releases page for the rest. It
 verifies the tarball's SHA-256 checksum and refuses musl Linux. It unpacks into
 a staging directory inside the install prefix's `releases` directory and does
-not move `current`, `rollback`, or the running host before the handoff. A
+not move `current`, `rollback`, or the running host before activation. A
 failed download, checksum, or unpack leaves the previous release untouched.
-Once the handoff begins it follows the same rules as
+Activation follows the same rules as
 [Activate a new release](#activate-a-new-release).
 
 Run `vera update` from an installed release. A checkout or development
@@ -86,7 +94,7 @@ always uses the install prefix of the running release.
 `vera rollback` makes the previous release active again, without packing or
 using the network. When the previous release supports the handoff, rollback
 waits for running turns and restarts an open TUI in the same terminal with its
-session and unsent draft, as an update does. For an older release, rollback
+session and unsent draft, as a handoff does. For an older release, rollback
 stops the host and starts the restored release's host; an open TUI says to quit
 and reopen Vera. Failure leaves the
 release that was active before. Rollback uses the running installation's
