@@ -1513,6 +1513,7 @@ export async function startTui(
         rt.startConfiguredClientExtensionHost,
         (registry) => {
             rt.clientExtensionRegistry = registry;
+            if (rt.shuttingDown) return;
             refreshKeymap(rt);
             if (registry === undefined) {
                 rt.extensionMentions = [];
