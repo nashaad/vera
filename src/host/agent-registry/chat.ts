@@ -1,5 +1,5 @@
-import { cp, mkdir, realpath, rm, stat } from "node:fs/promises";
-import { dirname } from "node:path";
+import { cp, mkdir, opendir, realpath, rm, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { chatFolderPath, isChatFolder } from "../../store/chat-folder.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 
@@ -53,7 +53,13 @@ export async function copyChatFolder(source: string, destinationSessionPath: str
     await mkdir(folder, { mode: 0o700 });
     try {
         if (await folderExists(source)) {
-            await cp(source, folder, { recursive: true, force: false, errorOnExist: true });
+            for await (const entry of await opendir(source)) {
+                await cp(join(source, entry.name), join(folder, entry.name), {
+                    recursive: true,
+                    force: false,
+                    errorOnExist: true,
+                });
+            }
         }
         return { cwd: await realpath(folder), created: true };
     } catch (error) {
