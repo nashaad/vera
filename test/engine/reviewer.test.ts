@@ -134,6 +134,7 @@ test("reviewer routes try models in order only when one is unavailable", async (
         reason: "Fallback approved the routine action.",
         riskLevel: "low",
         userAuthorization: "medium",
+        model: { provider: "ollama", model: "fallback" },
     });
     expect(adapter.requests.map((next) => [
         next.provider,
@@ -267,13 +268,20 @@ test("two-tier reviewer settings can name a second-pass model", async () => {
     const review = createRoutedToolReviewer(adapter, {
         models: [{ model: "review-model" }],
         twoTier: true,
-        escalationModel: { model: "second-model" },
+        escalationModel: {
+            provider: "strong-provider",
+            model: "second-model",
+        },
     });
 
     const decision = await review(request, new AbortController().signal);
 
     expect(decision.decision).toBe("allow");
     expect(decision.escalated).toBe(true);
+    expect(decision.model).toEqual({
+        provider: "strong-provider",
+        model: "second-model",
+    });
     expect(adapter.requests.map((next) => next.model)).toEqual([
         "review-model",
         "second-model",
@@ -350,6 +358,7 @@ test("a well formed allow passes through with its scoring", async () => {
         reason: "Read-only listing of a sibling project.",
         riskLevel: "low",
         userAuthorization: "unknown",
+        model: { model: "test" },
     });
 });
 
@@ -609,6 +618,7 @@ test("a fenced assessment object is accepted", async () => {
         reason: "Deletes a home directory.",
         riskLevel: "critical",
         userAuthorization: "unknown",
+        model: { model: "test" },
     });
 });
 

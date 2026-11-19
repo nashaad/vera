@@ -17,6 +17,7 @@ import { installTestProcessGuard } from "./self-terminate-guard.ts";
 export function createTuiAutoReviewDependencies(
     home: string,
     decision: "allow" | "deny" | "timeout" = "allow",
+    options: { readonly mediateDenial?: boolean } = {},
 ): TuiDependencies {
     const source = { provider: "faux", api: "scripted", model: "test" } as const;
     const responses: AssistantMessage[] = [
@@ -48,8 +49,29 @@ export function createTuiAutoReviewDependencies(
         "off",
         {
             approvalMode: "auto",
+            sessionPath: join(home, "auto-review-session.jsonl"),
         },
         {
+            ...(options.mediateDenial ? {
+                mediateReviewDecision: async ({ review, workspace }) => ({
+                    reason: review.reason,
+                    options: {
+                        restrictedChoices: true,
+                        allowNotes: false,
+                        review: {
+                            decision: "deny",
+                            reason: review.reason,
+                            riskLevel: review.riskLevel,
+                            model: "test-classifier",
+                        },
+                        workspace,
+                        pendingLimit: {
+                            key: "classifier-denial",
+                            max: 16,
+                        },
+                    },
+                }),
+            } : {}),
             reviewToolCall: async () => {
                 writeFileSync(
                     join(home, "auto-review-invoked"),

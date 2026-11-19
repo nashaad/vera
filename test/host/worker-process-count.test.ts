@@ -6,8 +6,14 @@ import type { SessionStore } from "../../src/store/session-store.ts";
 
 test("@core worker boundary accepts only valid process count notifications", () => {
     const counts: Array<{ ownerId: string; count: number }> = [];
+    const pipe: JsonPipe = {
+        closed: new Promise<void>(() => {}),
+        request: async () => { throw new Error("Unexpected pipe request"); },
+        notify: () => { throw new Error("Unexpected pipe notification"); },
+        close: () => {},
+    };
     const server = createWorkerBoundaryServer({
-        pipe: {} as JsonPipe,
+        pipe,
         store: {} as SessionStore,
         services: {},
         onProcessCountChanged: (ownerId, count) => counts.push({ ownerId, count }),

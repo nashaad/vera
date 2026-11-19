@@ -336,6 +336,8 @@ export interface RunTurnState {
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly permissionRules?: readonly PermissionRule[];
     readonly reviewToolCall?: ReviewToolCall;
+    readonly mediateReviewDecision?: import("./loop-services.ts").MediateReviewDecision;
+    readonly requestMediatedApproval?: import("./loop-services.ts").RequestMediatedApproval;
     readonly reviewToolCallForProfile?: (
         profile: string,
         request: Parameters<ReviewToolCall>[0],
@@ -771,6 +773,15 @@ export async function runHeadlessLoop(
             bindCompaction: () => owned.compaction,
             readToolResults: () => owned.toolResults,
             readPolicy: () => policy().subagentPolicy ?? {},
+            ...(boundary.mediateReviewDecision === undefined ? {} : {
+                mediateReviewDecision: boundary.mediateReviewDecision,
+            }),
+            ...(boundary.relayToolApproval === undefined ? {} : {
+                relayToolApproval: (update, sourceAgentId, sourceTask, signal) =>
+                    inbound.withPausedTurnClock(() => boundary.relayToolApproval!(
+                        update, sourceAgentId, sourceTask, signal,
+                    )),
+            }),
             ...(boundary.loadContextualContributions === undefined ? {} : {
                 loadContextualContributions:
                     boundary.loadContextualContributions,
@@ -925,6 +936,12 @@ export async function runHeadlessLoop(
         get permissionModes() { return policy().permissionModes; },
         get permissionRules() { return policy().permissionRules; },
         reviewToolCall,
+        ...(boundary.mediateReviewDecision === undefined ? {} : {
+            mediateReviewDecision: boundary.mediateReviewDecision,
+        }),
+        ...(boundary.requestMediatedApproval === undefined ? {} : {
+            requestMediatedApproval: boundary.requestMediatedApproval,
+        }),
         reviewToolCallForProfile: createReviewerProfileRouter(
             reviewToolCall,
             adapter,
@@ -2951,7 +2968,7 @@ async function executePreparedTool(
                     && review.failure !== undefined
                     && review.failure.kind !== "undescribed"
                     && !signal.aborted;
-                if (!asksInstead) {
+                if (review.decision !== "deny" && !asksInstead) {
                     state.events.emit({
                         type: "tool_review_decided",
                         toolCall: hookCall,
@@ -2962,24 +2979,59 @@ async function executePreparedTool(
                     });
                 }
                 if (review.decision === "deny") {
-                    const interrupt = breaker.record("deny");
-                    return {
-                        result: {
-                            ...deniedByPolicy(
-                                state,
-                                toolCall,
-                                `${review.reason}\n\n${REVIEW_REJECTION_INSTRUCTIONS}`,
-                                undefined,
-                                "reviewer",
-                            ),
-                            classifierOutcome: {
-                                kind: "denied",
-                                riskLevel: review.riskLevel,
-                                reason: review.reason,
+                    const mediation = await state.mediateReviewDecision?.({
+                        review,
+                        toolCall: hookCall,
+                        workspace: state.toolRuntime.workspace,
+                        approvalMode,
+                        ...(state.chatFolder === true ? { chat: true as const } : {}),
+                    });
+                    let approved = false;
+                    if (mediation !== undefined && !signal.aborted) {
+                        const ask = state.requestMediatedApproval
+                            ?? state.inbound.requestToolApproval.bind(state.inbound);
+                        const approval = await state.inbound.withPausedTurnClock(() => ask(
+                            hookCall,
+                            mediation.reason,
+                            {
+                                ...mediation.options,
+                                timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
+                                signal,
                             },
-                        },
-                        ...(interrupt === undefined ? {} : { interrupt: { detail: interrupt } }),
-                    };
+                        ));
+                        approved = approval.behavior === "allow" && !signal.aborted;
+                    }
+                    state.events.emit({
+                        type: "tool_review_decided",
+                        toolCall: hookCall,
+                        decision: "deny",
+                        reason: review.reason,
+                        riskLevel: review.riskLevel,
+                        userAuthorization: review.userAuthorization,
+                        ...(approved ? { effectiveAuthorization: "approved_once" as const } : {}),
+                    });
+                    if (approved) {
+                        breaker.record("allow");
+                    } else {
+                        const interrupt = breaker.record("deny");
+                        return {
+                            result: {
+                                ...deniedByPolicy(
+                                    state,
+                                    toolCall,
+                                    `${review.reason}\n\n${REVIEW_REJECTION_INSTRUCTIONS}`,
+                                    undefined,
+                                    "reviewer",
+                                ),
+                                classifierOutcome: {
+                                    kind: "denied",
+                                    riskLevel: review.riskLevel,
+                                    reason: review.reason,
+                                },
+                            },
+                            ...(interrupt === undefined ? {} : { interrupt: { detail: interrupt } }),
+                        };
+                    }
                 }
                 if (review.decision === "unavailable") {
                     if (asksInstead && review.failure !== undefined) {
@@ -3002,7 +3054,7 @@ async function executePreparedTool(
                                 },
                             };
                     }
-                } else {
+                } else if (review.decision === "allow") {
                     breaker.record("allow");
                     const reviewedGrants = reviewedGrantProposals(permission);
                     if (reviewedGrants.length > 0 && state.addPermissionGrants !== undefined) {

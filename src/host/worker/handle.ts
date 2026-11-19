@@ -364,6 +364,9 @@ function capabilitiesOf(
         invokeSkill: services.router?.invokeSkill !== undefined,
         updateApprovalMode: services.updateApprovalMode !== undefined,
         reviewToolCall: services.reviewToolCall !== undefined,
+        mediateReviewDecision: services.mediateReviewDecision !== undefined,
+        requestMediatedApproval: services.requestMediatedApproval !== undefined,
+        relayToolApproval: services.relayToolApproval !== undefined,
         applyHostToolEffect: services.applyToolEffect !== undefined,
         requestMissingSubagentConfiguration:
             services.requestMissingSubagentConfiguration !== undefined,

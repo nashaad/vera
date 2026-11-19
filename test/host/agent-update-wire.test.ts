@@ -395,6 +395,9 @@ test("a classifier review carries the call's args when the host sends them", () 
 
     expect(parseAgentUpdate(review)).toEqual(review);
     expect(parseAgentUpdate(older)).toEqual(older);
+    expect(parseAgentUpdate({ ...review, effectiveAuthorization: "approved_once" }))
+        .toMatchObject({ effectiveAuthorization: "approved_once" });
+    expect(parseAgentUpdate({ ...review, effectiveAuthorization: "standing" })).toBeUndefined();
     expect(parseAgentUpdate({ ...review, args: "rm -rf ~/crows-nest" })).toBeUndefined();
 });
 
@@ -1115,8 +1118,22 @@ test("host wire accepts approvals with or without folder facts", () => {
         request: { ...approval.request, workspace: "/work/project", chat: false },
     };
     expect(parseAgentUpdate(project)).toEqual(project);
+    const reviewed = {
+        ...approval,
+        request: {
+            ...approval.request,
+            review: { decision: "deny", reason: "Risky", riskLevel: "high", model: "r/m" },
+            allowNotes: false,
+            restrictedChoices: true,
+        },
+    } as const;
+    expect(parseAgentUpdate(reviewed)).toEqual(reviewed);
 
     for (const bad of [
+        { allowNotes: true },
+        { review: { decision: "allow", reason: "Risky", riskLevel: "high" } },
+        { review: { decision: "deny", reason: "", riskLevel: "high" } },
+
         { workspace: "" },
         { workspace: 7 },
         { chat: "yes" },

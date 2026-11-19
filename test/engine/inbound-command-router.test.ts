@@ -3327,6 +3327,73 @@ test("a refused selection still publishes the permission change it left behind",
     router.finishTurn();
 });
 
+test("classifier approvals reject notes, enforce pending limits, and release capacity", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
+    const options = {
+        timeoutMs: 1_000,
+        restrictedChoices: true as const,
+        allowNotes: false as const,
+        review: {
+            decision: "deny" as const,
+            reason: "Risky command.",
+            riskLevel: "high" as const,
+            model: "reviewer/model",
+        },
+        pendingLimit: { key: "classifier-denial", max: 1 },
+    };
+    const first = router.requestToolApproval(
+        bashToolCall("echo one"), "Risky command.", options,
+    );
+    const firstRequest = await channel.client.receive();
+    expect(firstRequest).toMatchObject({
+        request: { review: options.review, allowNotes: false, restrictedChoices: true },
+    });
+    expect(await router.requestToolApproval(
+        bashToolCall("echo two"), "Risky command.", options,
+    )).toMatchObject({ behavior: "deny" });
+
+    if (firstRequest.type !== "ui_request") throw new Error("Expected approval request");
+    channel.client.send({
+        type: "ui_response",
+        requestId: firstRequest.requestId,
+        response: { type: "tool_approval", decision: "deny", notes: "forged note" },
+    });
+    expect(await Promise.race([first.then(() => "settled"), Bun.sleep(10).then(() => "pending")]))
+        .toBe("pending");
+    channel.client.send({
+        type: "ui_response",
+        requestId: firstRequest.requestId,
+        response: { type: "tool_approval", decision: "allow_always" },
+    });
+    expect(await Promise.race([first.then(() => "settled"), Bun.sleep(10).then(() => "pending")]))
+        .toBe("pending");
+    channel.client.send({
+        type: "ui_response",
+        requestId: firstRequest.requestId,
+        response: { type: "tool_approval", decision: "allow_once" },
+    });
+    expect(await first).toEqual({ behavior: "allow" });
+    expect(await channel.client.receive()).toMatchObject({
+        type: "ui_request_closed",
+        requestId: firstRequest.requestId,
+    });
+
+    const next = router.requestToolApproval(
+        bashToolCall("echo three"), "Risky command.", options,
+    );
+    const nextRequest = await channel.client.receive();
+    if (nextRequest.type !== "ui_request") throw new Error("Expected approval request");
+    channel.client.send({
+        type: "ui_response",
+        requestId: nextRequest.requestId,
+        response: { type: "tool_approval", decision: "deny" },
+    });
+    expect(await next).toMatchObject({ behavior: "deny" });
+});
+
 test("a refused selection that changed nothing publishes no permission change", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();

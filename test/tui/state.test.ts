@@ -4827,6 +4827,29 @@ test("a stored tool row carries its entry id", () => {
     expect(tool?.kind === "tool" ? tool.entryId : undefined).toBe("m-1#0");
 });
 
+test("an approved-once classifier denial stays visible without a withheld result", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "tool_review",
+        tool: "bash",
+        args: { command: "echo safe" },
+        decision: "deny",
+        reason: "Classifier refused the call.",
+        riskLevel: "high",
+        userAuthorization: "low",
+        effectiveAuthorization: "approved_once",
+        seq: 1,
+    });
+
+    expect(state.entries.some((entry) =>
+        entry.kind === "review"
+        && entry.text.includes("Classifier denied bash")
+        && entry.text.includes("authorization: approved once")
+    )).toBe(true);
+    expect(state.entries.some((entry) => entry.kind === "tool_header" && entry.text.includes("CLASSIFIER DENIED")))
+        .toBe(false);
+    expect(state.unansweredReviewTool).toBeUndefined();
+});
+
 test("the TUI state tolerates a reasoning progress update without showing it", () => {
     const state = createTuiState();
     const next = applyAgentUpdate(state, {

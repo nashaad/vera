@@ -37,11 +37,17 @@ export type ToolReviewUserAuthorization = "unknown" | "low" | "medium" | "high";
 
 export type ToolReviewFailure = Omit<ClassifierFailure, "tool">;
 
+export interface ToolReviewModel {
+    readonly provider?: string;
+    readonly model: string;
+}
+
 export interface ToolReviewDecision {
     readonly decision: "allow" | "deny" | "unavailable";
     readonly reason: string;
     readonly riskLevel: ToolReviewRiskLevel;
     readonly userAuthorization: ToolReviewUserAuthorization;
+    readonly model?: ToolReviewModel;
     readonly escalated?: boolean;
     // Set when the classifier itself failed; a cancelled review leaves it unset.
     readonly failure?: ToolReviewFailure;
@@ -380,7 +386,15 @@ export function createToolReviewer(
                 history = [...baseHistory, question, message];
                 seen = nextSeen;
             }
-            return decision;
+            return {
+                ...decision,
+                model: {
+                    ...(options.provider === undefined
+                        ? {}
+                        : { provider: options.provider }),
+                    model: options.model,
+                },
+            };
         } finally {
             if (onTrunk) {
                 trunkBusy = false;

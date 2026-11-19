@@ -14,6 +14,7 @@ import {
     type SessionCreationMetadata,
 } from "../store/session-store.ts";
 import type { ReviewLog } from "./review-log.ts";
+import type { MediateReviewDecision } from "./loop-services.ts";
 import { EngineEventBus } from "./events.ts";
 import { accessModeUnderAgent } from "../agents/access.ts";
 import type { AgentDefinition } from "../agents/definition.ts";
@@ -125,6 +126,7 @@ export interface CreateSubagentEffectApplierOptions {
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly reviewLog?: ReviewLog;
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
+    readonly mediateReviewDecision?: MediateReviewDecision;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly permissionRules?: readonly PermissionRule[];
     readonly loadAgent?: (
@@ -423,6 +425,7 @@ export interface RunSubagentOptions {
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly reviewLog?: ReviewLog;
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
+    readonly mediateReviewDecision?: MediateReviewDecision;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly permissionRules?: readonly PermissionRule[];
     readonly selectedAgent?: AgentSnapshot;
@@ -715,6 +718,9 @@ export function createSubagentSpawner(
                 ...(options.readReviewer === undefined
                     ? {}
                     : { readReviewer: options.readReviewer }),
+                ...(options.mediateReviewDecision === undefined
+                    ? {}
+                    : { mediateReviewDecision: options.mediateReviewDecision }),
                 ...(permissionModes === undefined ? {} : { permissionModes }),
                 ...(permissionRules === undefined ? {} : { permissionRules }),
                 ...(selected === undefined ? {} : { selectedAgent: selected }),
@@ -895,6 +901,9 @@ export async function runSubagent(
             offerTools: options.offerTools ?? true,
             loadOptionalContext: options.loadOptionalContext ?? true,
             reviewToolCall,
+            ...(options.mediateReviewDecision === undefined
+                ? {}
+                : { mediateReviewDecision: options.mediateReviewDecision }),
             reviewToolCallForProfile: createReviewerProfileRouter(
                 reviewToolCall,
                 options.adapter,

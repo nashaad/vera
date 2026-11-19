@@ -132,6 +132,14 @@ export interface ToolApprovalOptions {
     readonly sourceTask?: string;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
     readonly restrictedChoices?: true;
+    readonly review?: {
+        readonly decision: "deny";
+        readonly reason: string;
+        readonly riskLevel: "low" | "medium" | "high" | "critical";
+        readonly model?: string;
+    };
+    readonly allowNotes?: false;
+    readonly pendingLimit?: { readonly key: string; readonly max: number };
     readonly workspace?: string;
     readonly chat?: boolean;
 }
@@ -157,6 +165,8 @@ interface PendingApproval {
     readonly onAbort?: () => void;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
     readonly restrictedChoices?: true;
+    readonly allowNotes?: false;
+    readonly pendingLimitKey?: string;
 }
 
 export interface UserQuestionOptions {
@@ -484,6 +494,15 @@ export class InboundCommandRouter {
         const durationMs = clock.finish();
         if (this.activeTurnClock === clock) this.activeTurnClock = undefined;
         return durationMs;
+    }
+
+    async withPausedTurnClock<T>(work: () => Promise<T>): Promise<T> {
+        const clock = this.pauseActiveTurnClock();
+        try {
+            return await work();
+        } finally {
+            clock?.resume();
+        }
     }
 
     async startTurn(): Promise<InboundTurn> {
@@ -1159,6 +1178,18 @@ export class InboundCommandRouter {
             return Promise.resolve(abortedDenial());
         }
 
+        if (options.pendingLimit !== undefined) {
+            const { key, max } = options.pendingLimit;
+            if (key.length === 0 || !Number.isSafeInteger(max) || max <= 0) {
+                return Promise.resolve(noClientDenial());
+            }
+            let matching = 0;
+            for (const pending of this.pendingApprovals.values()) {
+                if (pending.pendingLimitKey === key) matching += 1;
+            }
+            if (matching >= max) return Promise.resolve(noClientDenial());
+        }
+
         const requestId = randomUUID();
         const result = new Promise<ToolApprovalResult>((resolve) => {
             const timer = setTimeout(() => {
@@ -1182,6 +1213,10 @@ export class InboundCommandRouter {
                 ...(options.restrictedChoices === true
                     ? { restrictedChoices: true as const }
                     : {}),
+                ...(options.allowNotes === false ? { allowNotes: false as const } : {}),
+                ...(options.pendingLimit === undefined
+                    ? {}
+                    : { pendingLimitKey: options.pendingLimit.key }),
                 ...(options.signal === undefined
                     ? {}
                     : {
@@ -1221,6 +1256,8 @@ export class InboundCommandRouter {
                 ...(options.restrictedChoices === true
                     ? { restrictedChoices: true as const }
                     : {}),
+                ...(options.review === undefined ? {} : { review: { ...options.review } }),
+                ...(options.allowNotes === false ? { allowNotes: false as const } : {}),
                 ...(options.workspace === undefined
                     ? {}
                     : { workspace: options.workspace }),
@@ -2418,6 +2455,9 @@ export class InboundCommandRouter {
         ) {
             const pending = this.pendingApprovals.get(command.requestId)!;
             const decision = command.response.decision;
+            if (pending.allowNotes === false && command.response.notes !== undefined) {
+                return;
+            }
             if (
                 pending.restrictedChoices === true
                 && (decision === "allow_similar" || decision === "allow_always")

@@ -88,6 +88,7 @@ import * as registrySubagent from "./agent-registry/subagent.ts";
 import { trustNoticeSubscriber } from "./trust-notice.ts";
 import { blockedSessionMessage, isSessionBlockedSync } from "./session-block.ts";
 import { createSessionBlockLatch, type SessionBlockLatch } from "./session-block-latch.ts";
+import { mediateReviewDecision } from "./review-decision-mediation.ts";
 
 // A worker that does not confirm the cut in time keeps running; the cut reports it as failed.
 const STOP_CUT_ACK_TIMEOUT_MS = 2000;
@@ -1197,6 +1198,7 @@ export class AgentRegistry {
                 ? {}
                 : { reviewer: this.options.reviewer }),
             readReviewer: () => this.readReviewer(),
+            mediateReviewDecision,
             ...(this.options.reviewers === undefined
                 ? {}
                 : { reviewers: this.options.reviewers }),
@@ -1322,6 +1324,15 @@ export class AgentRegistry {
                         ),
                     }),
                 readReviewer: () => this.readReviewer(),
+                mediateReviewDecision,
+                requestMediatedApproval: (call, reason, options) => {
+                    const inbound = entry.workerOwnerRouter ?? entry.inbound;
+                    return inbound === undefined
+                        ? Promise.resolve({ behavior: "deny" as const, reason: "" })
+                        : inbound.requestToolApproval(call, reason, options);
+                },
+                relayToolApproval: (update, sourceAgentId, sourceTask, signal) =>
+                    this.relayChildToolApproval(entry, update, sourceAgentId, sourceTask, signal),
                 ...(this.options.reviewLog === undefined
                     ? {}
                     : { reviewLog: this.options.reviewLog }),

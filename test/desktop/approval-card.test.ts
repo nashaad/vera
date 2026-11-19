@@ -106,6 +106,25 @@ describe("the choices", () => {
         expect(html).toContain("subagent child-12");
     });
 
+    test("a classifier denial shows its reason above the choices and offers no typed answer", () => {
+        const html = render({
+            ...shellWrite,
+            restrictedChoices: true,
+            allowNotes: false,
+            review: { decision: "deny", model: "reviewer-model", riskLevel: "high", reason: "The action is unsafe." },
+        });
+        const reason = "The classifier, reviewer-model, denied this. High risk: The action is unsafe.";
+        expect(html).toContain(reason);
+        expect(html.indexOf(reason)).toBeLessThan(html.indexOf("data-choice="));
+        expect(count(html, reason)).toBe(1);
+        expect(html).toContain("Yes, this time");
+        expect(html).toContain(">No<");
+        expect(html).not.toContain("Yes, for this chat");
+        expect(html).not.toContain("always allow");
+        expect(html).not.toContain("Or tell Vera what to do instead");
+        expect(html).not.toContain("<input");
+    });
+
     test("a request from a subagent, by agent or by task, has no answer box", () => {
         for (const source of [{ sourceAgentId: "child-1234567890" }, { sourceTask: "check the logs" }]) {
             const html = render({ ...shellWrite, ...source });

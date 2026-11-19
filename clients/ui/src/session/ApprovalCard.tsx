@@ -1,6 +1,7 @@
 import { useId, useState, type JSX } from "react";
 
 import { alwaysAllowWords } from "../../../shared/approval-answers.ts";
+import { approvalReviewText } from "../../../shared/approval-review.ts";
 import { approvalHeadline, type HeadlineGrant } from "../../../shared/approval-headline.ts";
 import { shortenPath } from "../components/homePath.ts";
 import { ChevronRightIcon, WarningIcon } from "../components/Icons.tsx";
@@ -68,7 +69,7 @@ export function ApprovalCard({
                 answer.switchToAuto === true,
             ),
         }));
-    const typed = answered || subagent
+    const typed = answered || subagent || request.allowNotes === false
         ? undefined
         : { placeholder: NOTES_PLACEHOLDER, submitLabel: "Send", maxLength: NOTES_LIMIT, onSubmit: (text: string) => onDecide("deny", text) };
     const remembers = answers.some((answer) =>
@@ -93,6 +94,7 @@ export function ApprovalCard({
                 </>
             )}
             close={{ label: "Deny", title: "Deny (Esc)", onClose: () => onDecide("deny") }}
+            {...(request.review === undefined ? {} : { intro: <p>{approvalReviewText(request.review)}</p> })}
             rows={rows}
             {...(typed === undefined ? {} : { typed })}
             footer={answered ? <div className="request-outcome" data-decision={outcome}>{OUTCOME_TEXT[outcome]}</div> : null}
@@ -155,7 +157,7 @@ function Fold({ request, shell, preview, folder, open: startsOpen, rememberWords
     const [open, setOpen] = useState(startsOpen);
     const bodyId = useId();
     const command = shell ? stringField(request.input, "command") : undefined;
-    const hasReason = request.reason.length > 0;
+    const hasReason = request.review === undefined && request.reason.length > 0;
     const hasWarning = request.warning.length > 0;
     if (command === undefined && preview === null && folder === undefined && !hasReason && !hasWarning && rememberWords === undefined) return null;
     return (

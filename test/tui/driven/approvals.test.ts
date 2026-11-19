@@ -18,6 +18,7 @@ import {
     createTuiQuestionDependencies,
 } from "../../support/tui-question-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
+import { SessionStore } from "../../../src/store/session-store.ts";
 
 test("auto reviews a boundary crossing without asking the user", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-auto-review-"));
@@ -93,6 +94,108 @@ test("a classifier denial stays in the transcript after the turn ends", async ()
         expect(pane.split("Scuttles the ship")).toHaveLength(2);
         expect(pane).not.toContain("Ran  env");
         expect(pane.indexOf("CLASSIFIER DENIED")).toBeLessThan(pane.indexOf("AUTO REVIEW COMPLETED"));
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("a denied classifier action can be approved once and persists as a normal result", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-denial-yes-"));
+    const sessionPath = join(home, "auto-review-session.jsonl");
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 24,
+        dependencies: () => createTuiAutoReviewDependencies(home, "deny", {
+            mediateDenial: true,
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("run the routine command");
+        session.sendKey("Enter");
+
+        const pane = await session.waitForVisiblePane("1 Yes, this time");
+        expect(pane.replaceAll("┃", " ").replaceAll(/\s+/g, " ")).toContain(
+            "Scuttles the ship, which the user never asked for.",
+        );
+        expect(pane).toContain("2 No");
+        expect(pane).not.toContain("3 ");
+        expect(pane).not.toContain("Tab to tell Vera what to do instead");
+        expect(pane).not.toContain("always allow");
+
+        session.sendKey("1");
+        const completed = await session.waitForVisiblePane("AUTO REVIEW COMPLETED");
+        expect(completed).toContain("Ran  env AUTO_REVIEW=ran");
+        expect(completed).not.toContain("CLASSIFIER DENIED");
+        expect(completed).not.toContain("Did not run");
+
+        const reopened = await SessionStore.open(sessionPath);
+        const toolResults = reopened.messages().filter((message) =>
+            message.role === "tool_result"
+                && message.toolCallId === "auto-reviewed-command"
+        );
+        expect(toolResults).toHaveLength(1);
+        const result = toolResults[0];
+        expect(result?.role).toBe("tool_result");
+        if (result?.role === "tool_result") {
+            expect(result.isError).toBe(false);
+            expect(result.classifierOutcome).toBeUndefined();
+            expect(result.content.map((part) => part.text ?? "").join(" "))
+                .toContain("AUTO_REVIEW=ran");
+        }
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("a denied classifier action refused by the user persists its denial", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-denial-no-"));
+    const sessionPath = join(home, "auto-review-session.jsonl");
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 24,
+        dependencies: () => createTuiAutoReviewDependencies(home, "deny", {
+            mediateDenial: true,
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("run the routine command");
+        session.sendKey("Enter");
+
+        const pane = await session.waitForVisiblePane("1 Yes, this time");
+        expect(pane.replaceAll("┃", " ").replaceAll(/\s+/g, " ")).toContain(
+            "Scuttles the ship, which the user never asked for.",
+        );
+        expect(pane).toContain("2 No");
+        expect(pane).not.toContain("3 ");
+        expect(pane).not.toContain("Tab to tell Vera what to do instead");
+
+        session.sendKey("2");
+        const completed = await session.waitForVisiblePane("AUTO REVIEW COMPLETED");
+        expect(completed).toContain("CLASSIFIER DENIED");
+        expect(completed).toContain("Did not run");
+        expect(readFileSync(join(home, "auto-review-invoked"), "utf8"))
+            .toBe("denied\n");
+
+        const reopened = await SessionStore.open(sessionPath);
+        const result = reopened.messages().find((message) =>
+            message.role === "tool_result"
+                && message.toolCallId === "auto-reviewed-command"
+        );
+        expect(result?.role).toBe("tool_result");
+        if (result?.role === "tool_result") {
+            expect(result.isError).toBe(true);
+            expect(result.classifierOutcome).toEqual({
+                kind: "denied",
+                riskLevel: "critical",
+                reason: "Scuttles the ship, which the user never asked for.",
+            });
+        }
     } finally {
         await session.close();
     }

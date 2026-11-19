@@ -69,11 +69,20 @@ the action's own tool row has the full command. An action shows no reason when
 the classifier gave none. Ctrl+T opens or closes every list along with
 the tool details. The count and its list are not saved, so a reopened
 conversation does not show them.
-A denial shows as a **CLASSIFIER DENIED** error that names the tool, the risk
-level and the classifier's reason. The action's own row reads **Did not run**
-over the full command, and the reason shows once, in the error under it. The
-turn goes on, so the model can try another way. The denial is saved with the
-conversation, so a reopened conversation shows it too:
+In auto mode, a classifier denial asks whether to run the action once. The
+approval shows the classifier model when known, the risk and reason, and offers
+only **Yes, this time** and **No**. It accepts no typed feedback and creates no
+permission grant. **Yes, this time** runs that exact action, resets the denial
+streak, and records the ordinary result in the conversation history.
+
+**No**, no answer within 60 seconds, or a run without an approver, such as
+`vera -p`, leaves the classifier denial in effect and the turn continues. The
+terminal's action row reads **Did not run**, followed by a **CLASSIFIER DENIED**
+error with the risk and reason. A subagent request follows the existing approval
+relay. A detached resident waits as it does for other approvals. At most 16
+denial approval cards can be pending in one session; further denials remain
+denied without a prompt. The denial is saved with the conversation, so a
+reopened terminal conversation shows it too:
 
 ```text
 Did not run

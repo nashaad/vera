@@ -364,6 +364,11 @@
     margin-top: 0;
 }
 
+.choice-card .request-intro {
+    padding: 0 var(--request-inset) calc(var(--vera-space) * 2);
+    color: var(--vera-text-dim);
+}
+
 .choice-card .request-choices {
     gap: 0;
 }
