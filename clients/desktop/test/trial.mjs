@@ -19,8 +19,12 @@ export const OUT_OF_SIGHT = ["-r", join(root, "clients", "desktop", "test", "out
 // Counts utility processes by service name from the start of main; see globalThis.utilityStarts.
 export const COUNT_PROCESSES = ["-r", join(root, "clients", "desktop", "test", "count-processes.cjs")];
 
+export function desktopTestTempRoot() {
+    return process.platform === "win32" ? tmpdir() : "/tmp";
+}
+
 export function startTrial() {
-    const trialRoot = mkdtempSync(join(tmpdir(), "vera-desktop-e2e-"));
+    const trialRoot = mkdtempSync(join(desktopTestTempRoot(), "vera-desktop-e2e-"));
     const home = join(trialRoot, ".vera");
     const userHome = sourceTestHome(join(trialRoot, "user"));
     const bun = process.env.VERA_DESKTOP_BUN

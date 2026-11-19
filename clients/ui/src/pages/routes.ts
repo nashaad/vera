@@ -53,12 +53,39 @@ export interface RouterState {
 export type RouterAction =
     | { readonly type: "navigate"; readonly route: Route }
     | { readonly type: "back" }
-    | { readonly type: "forward" };
+    | { readonly type: "forward" }
+    | { readonly type: "reset" };
 
 // Back and forward remember this many pages; older ones fall off the start.
 export const HISTORY_LIMIT = 50;
 
 export const INITIAL_ROUTER: RouterState = { history: [{ kind: "home" }], cursor: 0 };
+export const SESSION_ROUTE_STORAGE_KEY = "vera.desktop.current-session-route";
+
+export function parseSessionRoute(value: string | null): SessionRoute | undefined {
+    if (value === null) return undefined;
+    try {
+        const parsed: unknown = JSON.parse(value);
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+        const route = parsed as Record<string, unknown>;
+        if (route.kind !== "session" || typeof route.agentId !== "string" || route.agentId.length === 0 || typeof route.title !== "string") return undefined;
+        if (route.workspace !== undefined && typeof route.workspace !== "string") return undefined;
+        if (route.chat !== undefined && typeof route.chat !== "boolean") return undefined;
+        return {
+            kind: "session",
+            agentId: route.agentId,
+            title: route.title,
+            ...(typeof route.workspace === "string" ? { workspace: route.workspace } : {}),
+            ...(typeof route.chat === "boolean" ? { chat: route.chat } : {}),
+        };
+    } catch {
+        return undefined;
+    }
+}
+
+export function serializeSessionRoute(route: Route): string | undefined {
+    return route.kind === "session" ? JSON.stringify(route) : undefined;
+}
 
 export const PAGE_TITLES: Readonly<Record<PageKind, string>> = {
     home: "New Chat",
@@ -100,8 +127,14 @@ export function canGoForward(state: RouterState): boolean {
     return state.cursor < state.history.length - 1;
 }
 
+export function initialRouterState(route: SessionRoute | undefined): RouterState {
+    return route === undefined ? INITIAL_ROUTER : { history: [route], cursor: 0 };
+}
+
 export function reduceRouter(state: RouterState, action: RouterAction): RouterState {
     switch (action.type) {
+        case "reset":
+            return INITIAL_ROUTER;
         case "back":
             return canGoBack(state) ? { ...state, cursor: state.cursor - 1 } : state;
         case "forward":

@@ -118,7 +118,10 @@ window.
   list the page, the page says so. The row is filled while the page is shown.
 - A session page opens when you pick a row in the Sessions view, on Work, on
   Search or on a workspace or device page. Its title is the session's title, as
-  its sidebar row shows it. It is described under Session view.
+  its sidebar row shows it. It is described under Session view. A desktop window
+  reload restores the open session page when that session still exists;
+  otherwise it opens New Chat. Other main-area pages start at New Chat after a
+  window reload.
 - Customize shows what Vera loads for a session in one folder: skills, agents,
   extensions, instruction files and memory files. A menu picks the folder; it
   starts on the folder of the session last open, and lists no chats. The page
@@ -1045,9 +1048,10 @@ when work is running, the context pill and the session menu.
 
 The context pill shows how full the context window is, as a percent when the
 model's window is known and as a token count otherwise. Before the first
-measurement it shows a dash. Under Auto the pill is not drawn until the
-session has reported its context use, or while the session is stopped; Context
-use On draws it always and Off never. It opens a popover with the total, whether it was
+measurement it shows a dash, except while a session is opening, when the label
+is blank. Under Auto the pill is not drawn until the session has reported its
+context use, or while the session is stopped; Context use On draws it always
+and Off never. It opens a popover with the total, whether it was
 measured or estimated, a bar split into the system prompt parts, tool
 definitions, the conversation, anything else the total holds (`Other`) and free
 space, a mark where automatic compaction starts, and the token count it starts
