@@ -1,10 +1,10 @@
 import { requestExtensionThroughHost } from "../../../../src/host/extension-request-client.ts";
-import { parseBrowserRequest } from "../../../../extensions/desktop-browser/arguments.ts";
-import { BROWSER_TOOLS_OFF, BROWSER_TOOLS_OFF_TEXT } from "../../../../extensions/desktop-browser/failure.ts";
+import { parseBrowserRequest } from "../../../../extensions/builtin-browser/arguments.ts";
+import { BROWSER_TOOLS_OFF, BROWSER_TOOLS_OFF_TEXT } from "../../../../extensions/builtin-browser/failure.ts";
 import type { JsonValue } from "../../../../src/sdk/hooks.ts";
 import type { BrowserCdp } from "./cdp.ts";
 
-const EXTENSION = "vera.desktop-browser";
+const EXTENSION = "vera.builtin-browser";
 
 export class BrowserGateway {
     private controller: AbortController | undefined;

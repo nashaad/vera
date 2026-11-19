@@ -1,4 +1,4 @@
-import type { BrowserRequest } from "../../../../extensions/desktop-browser/arguments.ts";
+import type { BrowserRequest } from "../../../../extensions/builtin-browser/arguments.ts";
 import { BrowserPane } from "./pane.ts";
 import { BLOCKED_ANNEX_OPEN_ERROR } from "./origin-guard.ts";
 

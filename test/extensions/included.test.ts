@@ -6,6 +6,7 @@ import { startClientExtensionRegistry } from "../../src/extensions/client-regist
 import { loadExtensionManifest } from "../../src/extensions/manifest.ts";
 import { mergeExtensionScopes } from "../../src/extensions/discovery.ts";
 import { configuredTuiClientExtensions } from "../../clients/tui/client-extension-host.ts";
+import { buildExtensionCatalog, HOST_EXTENSION_IDS } from "../../src/host/pool/extension-catalog.ts";
 import type { VeraExtensionConfig } from "../../src/config.ts";
 
 const ids = (entries: readonly VeraExtensionConfig[]): string[] =>
@@ -67,6 +68,18 @@ test("included host extensions start with a bounded Explorer and no command hook
     });
     try {
         expect(failures).toEqual([]);
+        const oldBrowserId = ["vera.desktop", "browser"].join("-");
+        const includedIds = includedExtensions().map((extension) => extension.id);
+        const catalog = buildExtensionCatalog(registry);
+        expect(includedIds.filter((id) => id === "vera.builtin-browser")).toHaveLength(1);
+        expect(includedIds).not.toContain(oldBrowserId);
+        expect(HOST_EXTENSION_IDS.has("vera.builtin-browser")).toBe(true);
+        expect(HOST_EXTENSION_IDS.has(oldBrowserId)).toBe(false);
+        expect(catalog.extensionOrder).toContain("vera.builtin-browser");
+        expect(catalog.extensionOrder).not.toContain(oldBrowserId);
+        expect(catalog.toolCatalog.filter(({ extensionId, tool }) =>
+            extensionId === "vera.builtin-browser" && tool.definition.name === "builtin_browser")).toHaveLength(1);
+        expect(catalog.toolCatalog.some(({ extensionId }) => extensionId === oldBrowserId)).toBe(false);
         expect(registry.agents().find((entry) => entry.name === "explorer"))
             .toMatchObject({
                 tools: ["read", "grep", "list"],
