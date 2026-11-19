@@ -565,15 +565,17 @@ test("session picker threads an async subagent under its parent", async () => {
     ], "parent", false, new Date("2026-07-20T20:02:00.000Z"));
 
     expect(state.options.map((option) => option.sessionId))
-        .toEqual([undefined, "child", undefined, "parent"]);
+        .toEqual([undefined, "parent", "child"]);
     expect(state.options[1]).toMatchObject({
-        activity: "",
-        group: "ACTIVE",
-    });
-    expect(state.options[3]).toMatchObject({
         activity: "open",
         group: "IDLE",
         current: true,
+    });
+    expect(state.options[2]).toMatchObject({
+        activity: "working",
+        group: "IDLE",
+        depth: 1,
+        sessionWorking: true,
     });
     const frame = await pickerFrame(state);
     expect(frame).toContain("Coordinate parser work");

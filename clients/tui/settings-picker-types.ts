@@ -170,6 +170,7 @@ export interface TuiSettingsPickerOption {
     readonly rowMeta?: DialogMeta;
     readonly sessionId?: string;
     readonly sessionName?: string;
+    readonly sessionWorking?: boolean;
     readonly activity?: string;
     readonly workspace?: string;
     readonly sizeBytes?: number;

@@ -1,3 +1,4 @@
+import { sessionRootIds } from "../../../../src/session-roots.ts";
 import type { SessionRow } from "./sessions.ts";
 
 export interface SessionEntry {
@@ -87,20 +88,10 @@ function groupActiveSessions(rows: readonly SessionRow[], pins: readonly string[
     const pinned = pinnedRows(rows, pins);
     const pinnedIds = new Set(pinned.map((row) => row.id));
     const byId = new Map(rows.map((row) => [row.id, row]));
-    // The row a session is listed under: the nearest pinned ancestor, else the top parent among
-    // all listed rows. A pinned row, a row with no listed parent and a row in a loop lead their own.
+    const roots = sessionRootIds(rows, (row) => row.parentId, (row) => pinnedIds.has(row.id));
     const topOf = (row: SessionRow): SessionRow => {
-        if (pinnedIds.has(row.id)) return row;
-        let current = row;
-        const seen = new Set<string>([row.id]);
-        for (;;) {
-            const parent = current.parentId === undefined ? undefined : byId.get(current.parentId);
-            if (parent === undefined) return current;
-            if (pinnedIds.has(parent.id)) return parent;
-            if (seen.has(parent.id)) return row;
-            seen.add(parent.id);
-            current = parent;
-        }
+        const root = roots.get(row.id);
+        return root === undefined || root === row.id ? row : byId.get(root) ?? row;
     };
     const nestedUnder = new Map<string, SessionRow[]>();
     const leadersByKey = new Map<string, SessionRow[]>();

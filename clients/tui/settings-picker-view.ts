@@ -6,7 +6,6 @@ import { extensionPickerButtons, renderExtensionPicker } from "./extension-picke
 import { handleVerificationKey } from "./model-verification.ts";
 import { screenPickerKey } from "./settings-picker-keys.ts";
 import { renderTuiActivityAnimation, tuiShimmerChunks } from "./activity-pulse.ts";
-import { WORKING_GROUP } from "./workspace-panel.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
 import { localRuntimeStatusLines } from "./local-runtime-status.ts";
 import { TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
@@ -1437,7 +1436,7 @@ export function renderListPickerRows(
                 ...(state.kind === "session" && row.option.section !== undefined
                     ? (firstHeading ? (firstHeading = false, {}) : { spaced: true })
                     : {}),
-                ...(state.kind === "session" && row.option.group === WORKING_GROUP
+                ...(state.kind === "session" && row.option.sessionWorking === true
                         && row.option.section === undefined
                     ? { labelId: shimmerTitleId(row.option, row.index === state.selectedIndex) }
                     : {}),
