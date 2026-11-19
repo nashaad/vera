@@ -416,6 +416,7 @@ export interface TuiPendingModelChoice {
     /** Absent when the choice came from the switcher, which has no pane to return to. */
     readonly modelPaneState?: TuiSettingsPickerState;
     readonly assignment?: ModelAssignmentId;
+    readonly reviewerSlot?: TuiReviewerSlot;
 }
 
 export interface TuiExtensionPickerState {
@@ -491,6 +492,7 @@ export type TuiSettingsPickerSelection =
         readonly slot: TuiReviewerSlot;
         readonly provider?: string;
         readonly model?: string;
+        readonly reasoningEffort?: ModelReasoningEffort;
     }
     | { readonly kind: "pool_verify_scope"; readonly onlyUnverified: boolean; readonly provider?: string }
     | {

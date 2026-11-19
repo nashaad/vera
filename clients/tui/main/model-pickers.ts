@@ -10,7 +10,6 @@ import { updateTuiSettingsPickerSearch } from "../settings-picker.ts";
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { lastGoodConfigNotice, readLastGoodConfig } from "./last-good-config.ts";
 import type { ModelAssignmentId, ModelAssignmentRow } from "../../../src/config/model-assignments.ts";
-import type { ModelSettingsPatch } from "../../../src/engine/model-settings.ts";
 import { addedModel, assignModelToAll, assignmentRefusal, assignmentRows, modelRefusal, needsFavorite, writeAssignmentEdit, type AssignmentEdit, type EditedAssignment } from "../../../src/model/assignment-edits.ts";
 import type { ReasoningLevel, ReasoningLevelId } from "../../../src/model/catalog-shape.ts";
 import { levelsForModel } from "../../../src/model/catalog-view.ts";
@@ -68,40 +67,6 @@ export function openReviewerPicker(rt: TuiRuntime,
     );
     renderState(rt);
     focusActiveSurface(rt);
-}
-
-export function reviewerPatchFor(rt: TuiRuntime, 
-    selection: { slot: TuiReviewerSlot; provider?: string; model?: string },
-): ModelSettingsPatch["reviewer"] {
-    const chosen = selection.model === undefined ? undefined : {
-        model: selection.model,
-        ...(selection.provider === undefined
-            ? {}
-            : { provider: selection.provider }),
-    };
-    const current = rt.state.modelSettings?.reviewerDefault;
-    if (selection.slot === "primary") {
-        if (chosen === undefined) return null;
-        return {
-            primary: chosen,
-            ...(current?.fallback === undefined
-                ? {}
-                : { fallback: current.fallback }),
-        };
-    }
-    if (current?.mode !== "fixed" || current.primary === undefined) {
-        return undefined;
-    }
-    return { primary: current.primary, fallback: chosen ?? null };
-}
-
-export function reviewerToast(rt: TuiRuntime, 
-    selection: { slot: TuiReviewerSlot; provider?: string; model?: string },
-): string {
-    if (selection.model === undefined) {
-        return selection.slot === "primary" ? "session model" : "no failsafe";
-    }
-    return selection.slot === "primary" ? selection.model : `failsafe ${selection.model}`;
 }
 
 export function openModelPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState): void {
@@ -314,8 +279,13 @@ function withKeptSearch(
     return index === -1 ? searched : { ...searched, selectedIndex: index };
 }
 
+interface AssignmentPickerOptions {
+    readonly keepFavorite?: boolean;
+}
+
 export function bindModelAssignmentFromPicker(rt: TuiRuntime, 
     selection: AssignmentEdit,
+    options: AssignmentPickerOptions = {},
 ): string | undefined {
     const files = { projectRoot: process.cwd() };
     const refusal = assignmentRefusal(selection, files);
@@ -324,7 +294,7 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
     try {
         edited = writeAssignmentEdit(selection, currentModelAssignmentRows(rt), files);
         requestAgentSettings(rt, focusedAgentClient(rt));
-        if (addedModel(selection) !== undefined) {
+        if (options.keepFavorite !== false && addedModel(selection) !== undefined) {
             keepAssignedModel(rt, selection.provider ?? "", selection.model as string);
         }
     } catch (error) {
@@ -345,7 +315,9 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
             ? `Subagent policy updated: ${edited.models.length} assigned, parent fallback ${
                 edited.allowSelf ? "on" : "off"
             }.`
-            : `${label} → ${
+            : selection.failsafe === true && selection.model === undefined
+            ? `${label} failsafe unset. The conversation model is unchanged.`
+            : `${label}${selection.failsafe === true ? " failsafe" : ""} → ${
                 selection.reasoningEffort === undefined
                     ? selection.model
                     : `${selection.model} (${selection.reasoningEffort})`

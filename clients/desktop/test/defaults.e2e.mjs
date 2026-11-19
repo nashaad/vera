@@ -23,11 +23,20 @@ const RAVEN = {
     default_level: "high",
     pricing: { input: 2, output: 8 },
 };
+const FINCH = {
+    id: "crow-2",
+    label: "Finch",
+    context_window: 32000,
+    tool_support: true,
+    levels: [{ id: "medium", label: "Medium" }, { id: "low", label: "Low" }],
+    default_level: "medium",
+    pricing: { input: 2, output: 8 },
+};
 
 const provider = createServer((request, response) => {
     if (request.method === "GET" && request.url.endsWith("/models")) {
         response.writeHead(200, { "content-type": "application/json" });
-        response.end(JSON.stringify({ data: [{ id: "crow-0" }, { id: "crow-1" }] }));
+        response.end(JSON.stringify({ data: [{ id: "crow-0" }, { id: "crow-1" }, { id: "crow-2" }] }));
         return;
     }
     request.resume();
@@ -50,7 +59,7 @@ const names = (slot) => (assignments()[slot]?.models ?? []).map((entry) => `${en
 
 try {
     await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
-    configureFauxHome(trial.home, provider.address().port, "auto", [RAVEN]);
+    configureFauxHome(trial.home, provider.address().port, "auto", [RAVEN, FINCH]);
     const elsewhere = join(trial.trialRoot, "elsewhere");
     mkdirSync(elsewhere, { recursive: true });
 
@@ -97,6 +106,52 @@ try {
         return (reply.settings?.pooled ?? []).map((entry) => `${entry.provider}/${entry.model}`);
     });
     await until("Raven among the favorites", async () => (await pooled()).includes("faux-0/crow-1"));
+
+    // Classifier model choice opens an effort step; Escape returns to models without writing.
+    const reviewer = () => assignments().reviewer?.models ?? [];
+    const readAssignments = () => page.evaluate(async () => window.veraDesktop.readAssignments());
+    await button("Classifier").click();
+    await picker.locator("input").fill("raven");
+    await picker.locator(".slot-pick", { hasText: "Raven" }).click();
+    await picker.locator("[aria-label='Reasoning effort']").waitFor();
+    const classifierLevels = await picker.locator(".slot-pick-effort-choice").allTextContents();
+    if (classifierLevels.map((level) => level.replace(/ \((?:default|selected)\)/, "")).join() !== "Max,Extra High,High,Medium,Low") {
+        throw new Error(`The classifier offered unsupported effort levels: ${classifierLevels.join(", ")}`);
+    }
+    if (reviewer()[0]?.model !== "crow-0") throw new Error("Choosing a classifier model persisted before effort selection.");
+    await page.keyboard.press("Escape");
+    await until("classifier model selection after effort Escape", async () => await picker.getAttribute("data-step") === "model");
+    if (reviewer()[0]?.model !== "crow-0") throw new Error("Escape from effort selection changed the classifier.");
+    await picker.locator(".slot-pick", { hasText: "Raven" }).click();
+    await picker.getByRole("button", { name: "Medium" }).click();
+    await toast("Classifier now uses Raven at medium effort");
+    await until("classifier effort persisted", async () => reviewer()[0]?.model === "crow-1" && reviewer()[0]?.reasoning_effort === "medium");
+    const reloaded = await readAssignments();
+    if (!reloaded.ok || reloaded.slots.find((slot) => slot.id === "reviewer")?.declared[0]?.effort !== "medium") {
+        throw new Error("Reading assignments did not return the saved classifier effort.");
+    }
+
+    // A failsafe uses the same explicit effort step, while a model without levels saves directly.
+    await row("Failsafe").locator(".slot-btn").click();
+    await picker.locator("input").fill("finch");
+    await picker.locator(".slot-pick", { hasText: "Finch" }).click();
+    await picker.locator("[aria-label='Reasoning effort']").waitFor();
+    const failsafeLevels = await picker.locator(".slot-pick-effort-choice").allTextContents();
+    if (failsafeLevels.map((level) => level.replace(/ \((?:default|selected)\)/, "")).join() !== "Medium,Low") {
+        throw new Error(`The failsafe offered unsupported effort levels: ${failsafeLevels.join(", ")}`);
+    }
+    await picker.locator(".slot-pick-effort-choice", { hasText: /^Low/ }).click();
+    await toast("The failsafe is now Finch");
+    await until("failsafe effort persisted", async () => reviewer()[1]?.model === "crow-2" && reviewer()[1]?.reasoning_effort === "low");
+
+    // Switching the classifier to a model without reasoning levels saves directly and keeps its failsafe.
+    await button("Classifier").click();
+    await picker.locator("input").fill("crow");
+    await picker.locator(".slot-pick", { hasText: "Crow" }).click();
+    await toast("Classifier now uses Crow");
+    await until("classifier without effort saved and failsafe retained", async () =>
+        reviewer()[0]?.model === "crow-0" && reviewer()[0]?.reasoning_effort === undefined
+        && reviewer()[1]?.model === "crow-2" && reviewer()[1]?.reasoning_effort === "low");
 
     // Clearing Compaction leaves it on Eco, which now runs Raven.
     await button("Compaction").click();
@@ -162,13 +217,16 @@ try {
         }));
     }
     console.log(`assignment reads took ${timings.map((ms) => Math.round(ms)).join(", ")} ms`);
+    await until("the measured assignment processes to stop", async () => (await taskProcesses(app)).running === 0);
 
     console.log("defaults e2e passed");
 } catch (error) {
     failed = true;
     console.error(error);
     console.error("Assignments:", JSON.stringify(assignments(), null, 1));
-    if (page !== undefined) console.error("Page text:", await page.locator(".app").first().innerText().catch(() => "unreadable"));
+    if (page !== undefined) {
+        console.error("Page text:", await page.locator(".app").first().innerText().catch(() => "unreadable"));
+    }
 } finally {
     await trial.cleanup();
     provider.closeAllConnections();

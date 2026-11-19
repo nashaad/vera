@@ -9,7 +9,7 @@ import { focusedAgentClient, modelSettingsForOpenPicker } from "../main/agents-d
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
-import { bindModelAssignmentFromPicker, bindModelToAllAssignments, connectProvider, homeNeedsProvider, isModelShortlisted, modelLevelFacts, modelPickerActionOptions, openConfigureEditor, openAssignAllPicker, openModelAssignmentPicker, openProviderEditForm, openProviderPicker, reviewerPatchFor, reviewerToast } from "../main/model-pickers.ts";
+import { bindModelAssignmentFromPicker, bindModelToAllAssignments, connectProvider, homeNeedsProvider, isModelShortlisted, modelLevelFacts, modelPickerActionOptions, openConfigureEditor, openAssignAllPicker, openModelAssignmentPicker, openProviderEditForm, openProviderPicker } from "../main/model-pickers.ts";
 import { enterWizardInstallStep, enterWizardModelStep } from "../main/onboarding-wizard-ops.ts";
 import { openSettingsMenuTarget } from "../main/palette-jump.ts";
 import { MODEL_DEFAULTS_TITLE, finishConfigurationPicker, forgetProvider, modelDefaultsOptions, openProviderEndpointForm, openRequestOptionsEditor, openSettingsDestination } from "../main/provider-forms.ts";
@@ -689,18 +689,29 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             );
             return;
         } else if (selection.kind === "reviewer") {
-            const patch = reviewerPatchFor(rt, selection);
-            if (patch === undefined) {
-                showStatusNotice(rt, "Choose a primary classifier first");
-            } else {
-                requestModelSettingsChange(rt, 
-                    { reviewer: patch },
-                    `classifier → ${reviewerToast(rt, selection)}`,
-                    `the ${selection.slot === "primary"
-                        ? "classifier"
-                        : "failsafe classifier"}`,
-                    rt.settingsPickerAgent,
-                );
+            let bindingError: string | undefined;
+            try {
+                if (previousPicker?.kind === "reviewer"
+                    && selection.provider !== undefined && selection.model !== undefined
+                    && startClassifierEffortStep(rt, previousPicker, selection.provider, selection.model, selection.slot)) return;
+                if (selection.model !== undefined && selection.provider !== undefined
+                    && verifiesBeforeAssigning(rt, transition, previousPicker, selection.provider, selection.model)) return;
+                bindingError = bindModelAssignmentFromPicker(rt, {
+                    assignment: "reviewer",
+                    ...(selection.provider === undefined ? {} : { provider: selection.provider }),
+                    ...(selection.model === undefined ? {} : { model: selection.model }),
+                    ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
+                    ...(selection.slot === "fallback" ? { failsafe: true } : {}),
+                }, { keepFavorite: false });
+            } catch (error) {
+                bindingError = configReadFailure(error);
+            }
+            if (bindingError !== undefined) {
+                rt.settingsPicker = previousPicker;
+                showStatusNotice(rt, bindingError);
+                renderState(rt);
+                focusActiveSurface(rt);
+                return;
             }
         } else if (selection.kind === "pool_verify_scope") {
             startPoolVerifySweep(rt, selection.onlyUnverified, selection.provider);
@@ -759,6 +770,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         } else if (selection.kind === "model_assignment") {
             let bindingError: string | undefined;
             try {
+                if (selection.assignment === "reviewer" && previousPicker?.kind === "model_assignment"
+                    && selection.provider !== undefined && selection.model !== undefined
+                    && startClassifierEffortStep(rt, previousPicker, selection.provider, selection.model, "primary")) return;
                 if (selection.model !== undefined && selection.provider !== undefined
                     && selection.remove !== true && selection.clear !== true && selection.allowSelf === undefined
                     && verifiesBeforeAssigning(rt, transition, previousPicker, selection.provider, selection.model)) return;
@@ -852,6 +866,33 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         requestAgentSettings(rt, focusedAgentClient(rt));
     }
     renderState(rt);
+}
+
+function startClassifierEffortStep(
+    rt: TuiRuntime,
+    previous: TuiSettingsPickerState,
+    provider: string,
+    model: string,
+    slot: "primary" | "fallback",
+): boolean {
+    const facts = modelLevelFacts(rt, provider, model);
+    if (facts === undefined || facts.levels.length === 0) return false;
+    const current = currentModelAssignmentRows(rt)
+        .find((row) => row.assignment === "reviewer")?.declared[slot === "primary" ? 0 : 1];
+    const currentEffort = current?.provider === provider && current.model === model
+        ? current.reasoning_effort
+        : undefined;
+    rt.settingsPicker = startTuiReasoningPicker(facts.levels, facts.defaultLevel, currentEffort, {
+        provider,
+        model,
+        modelPaneState: previous,
+        ...(previous.kind === "reviewer" ? { reviewerSlot: slot } : { assignment: "reviewer" }),
+    });
+    rt.composer.blur();
+    rt.settingsPickerView.update(rt.settingsPicker);
+    rt.settingsPickerView.focus();
+    renderState(rt);
+    return true;
 }
 
 function beginSessionPreviewLoad(rt: TuiRuntime, path: string): void {
