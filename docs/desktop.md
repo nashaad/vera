@@ -118,7 +118,10 @@ window.
   list the page, the page says so. The row is filled while the page is shown.
 - A session page opens when you pick a row in the Sessions view, on Work, on
   Search or on a workspace or device page. Its title is the session's title, as
-  its sidebar row shows it. It is described under Session view.
+  its sidebar row shows it. It is described under Session view. A desktop window
+  reload restores the open session page when that session still exists;
+  otherwise it opens New Chat. Other main-area pages start at New Chat after a
+  window reload.
 - Customize shows what Vera loads for a session in one folder: skills, agents,
   extensions, instruction files and memory files. A menu picks the folder; it
   starts on the folder of the session last open, and lists no chats. The page

@@ -133,6 +133,25 @@ try {
     const flashes = await page.evaluate(() => window.flashes);
     if (flashes.length > 0) throw new Error(`Switching sessions flashed: ${JSON.stringify([...new Set(flashes)])}`);
 
+    const routeKey = "vera.desktop.current-session-route";
+    await page.reload();
+    await page.waitForSelector(`.transcript-scroll[data-session="${keptId}"] >> text=${REPLY}`, { timeout: LONG_TIMEOUT });
+    const restoredRoute = await page.evaluate((key) => {
+        const value = window.sessionStorage.getItem(key);
+        return value === null ? null : JSON.parse(value);
+    }, routeKey);
+    if (restoredRoute?.kind !== "session" || restoredRoute.agentId !== keptId) {
+        throw new Error(`The open session route was not restored: ${JSON.stringify(restoredRoute)}`);
+    }
+
+    await page.evaluate(({ key, route }) => window.sessionStorage.setItem(key, JSON.stringify(route)), {
+        key: routeKey,
+        route: { kind: "session", agentId: "missing-session-on-reload", title: "Missing session" },
+    });
+    await page.reload();
+    await page.locator('main[data-page="home"]').waitFor({ timeout: LONG_TIMEOUT });
+    await page.waitForFunction((key) => window.sessionStorage.getItem(key) === null, routeKey, { timeout: LONG_TIMEOUT });
+
     // The host lists the folder by its real path, which differs from the temp path where /var is a link.
     const vanishedPath = realpathSync(vanished);
     rmSync(vanished, { recursive: true, force: true });

@@ -6,9 +6,12 @@ import {
     currentRoute,
     HISTORY_LIMIT,
     INITIAL_ROUTER,
+    initialRouterState,
     lastSession,
+    parseSessionRoute,
     reduceRouter,
     routeTitle,
+    serializeSessionRoute,
     sessionPlace,
     type PageKind,
     type RouterState,
@@ -74,4 +77,17 @@ test("a session route names a folder or a chat, never a chat's internal folder",
     expect(sessionPlace("/p/crow", false)).toEqual({ workspace: "/p/crow" });
     expect(sessionPlace("", false)).toEqual({});
     expect(sessionPlace("/h/runtime/sessions/c.jsonl.files", true)).toEqual({ chat: true });
+});
+
+test("@core only a valid session route is restored from window storage", () => {
+    const route = { kind: "session", agentId: "a1", title: "Crow map", workspace: "/work/nest" } as const;
+    const stored = serializeSessionRoute(route);
+    expect(stored).toBe(JSON.stringify(route));
+    expect(parseSessionRoute(stored ?? null)).toEqual(route);
+    expect(initialRouterState(parseSessionRoute(stored ?? null))).toEqual({ history: [route], cursor: 0 });
+    expect(canGoBack(initialRouterState(route))).toBe(false);
+    expect(serializeSessionRoute({ kind: "work" })).toBeUndefined();
+    expect(parseSessionRoute(JSON.stringify({ kind: "work" }))).toBeUndefined();
+    expect(parseSessionRoute("{")).toBeUndefined();
+    expect(reduceRouter(initialRouterState(route), { type: "reset" })).toBe(INITIAL_ROUTER);
 });
