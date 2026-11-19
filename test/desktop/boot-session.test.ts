@@ -10,7 +10,7 @@ const FAKE_BOOT = `
 import { appendFileSync } from "node:fs";
 appendFileSync(process.env.FAKE_KIND_FILE, process.env.VERA_HOST_REQUESTER_KIND ?? "");
 console.log(JSON.stringify({ type: "check", label: "fake", status: "ok" }));
-console.log(JSON.stringify({ type: "question", id: "q1", text: "Restart the host?" }));
+console.log(JSON.stringify({ type: "question", id: "stop_answering_host", text: "Restart the host?" }));
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
     for (const line of chunk.split("\\n")) {
@@ -79,6 +79,7 @@ test("@core the desktop sends only the answer the person picked", async () => {
     try {
         session.start();
         const id = await helper.waitForQuestion();
+        expect(id).toBe("stop_answering_host");
         expect(readFileSync(helper.kindFile, "utf8")).toBe("desktop");
         session.answer(id, true);
         await waitForAnswer(helper.answerFile, "true");

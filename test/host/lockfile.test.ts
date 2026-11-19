@@ -7,6 +7,7 @@ import {
     readdirSync,
     rmSync,
     statSync,
+    unlinkSync,
     writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -18,6 +19,7 @@ import {
     defaultHostSocketPath,
     HostLockUnreadableError,
     HostProtocolMismatchError,
+    publishHostLockIfAbsent,
     readHostLockRecordFile,
 } from "../../src/host/lockfile.ts";
 import {
@@ -49,6 +51,48 @@ test("host atomically publishes one private lockfile", async () => {
     expect(statSync(join(path, "..")).mode & 0o777).toBe(0o700);
     expect(readdirSync(join(path, ".."))).toEqual(["host.json"]);
     expect(await lockfile.read()).toEqual(record);
+});
+
+test("host publishes a missing lock only once and keeps an existing lock", async () => {
+    const path = temporaryLockPath();
+    const lockfile = createTestLockfile(path);
+    const record = await lockfile.publish();
+    unlinkSync(path);
+
+    const results = await Promise.all([
+        publishHostLockIfAbsent(path, record),
+        publishHostLockIfAbsent(path, { ...record, pid: record.pid + 1 }),
+    ]);
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(
+        results[0] ? record : { ...record, pid: record.pid + 1 },
+    );
+    expect(readdirSync(join(path, "..")).filter((name) => name.endsWith(".tmp")))
+        .toEqual([]);
+});
+
+test("host does not publish a missing lock after its final check fails", async () => {
+    const path = temporaryLockPath();
+    const lockfile = createTestLockfile(path);
+    const record = await lockfile.publish();
+    unlinkSync(path);
+
+    const published = await publishHostLockIfAbsent(path, record, async () => false);
+
+    expect(published).toBe(false);
+    expect(existsSync(path)).toBe(false);
+    expect(readdirSync(join(path, ".."))).toEqual([]);
+});
+
+test("restoring a lock does not recreate its removed directory", async () => {
+    const path = temporaryLockPath();
+    const record = await createTestLockfile(path).publish();
+    const directory = join(path, "..");
+    rmSync(directory, { recursive: true });
+
+    await expect(publishHostLockIfAbsent(path, record)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(existsSync(directory)).toBe(false);
 });
 
 socketTest(

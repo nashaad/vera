@@ -2244,8 +2244,9 @@ async function runBoot(
                     onWaiting: (pid) => line({ type: "waiting", holder_pid: pid ?? null }),
                     render: () => {},
                     confirm: async (question) => {
+                        const stopAnsweringHost = question.id === "stop_answering_host";
                         line({ type: "question", id: question.id, text: question.text });
-                        return parseBootAnswer(await readStdinLine());
+                        return parseBootAnswer(await readStdinLine(), stopAnsweringHost);
                     },
                 }
                 : { full: true, render: (checks) => { output.write(renderBootBox(checks)); } },
@@ -2270,9 +2271,9 @@ async function runBoot(
     }
 }
 
-// A GUI answers a question with one line: yes, no, or {"answer": true|false}. A closed stdin means yes, so Vera still starts.
-export function parseBootAnswer(text: string | undefined): boolean {
-    if (text === undefined) return true;
+// A GUI answers a question with one line: yes, no, or {"answer": true|false}.
+export function parseBootAnswer(text: string | undefined, requireYes = false): boolean {
+    if (text === undefined) return !requireYes;
     const trimmed = text.trim();
     try {
         const value = JSON.parse(trimmed) as unknown;
@@ -2282,6 +2283,6 @@ export function parseBootAnswer(text: string | undefined): boolean {
         }
     } catch {
     }
-    return !/^(n|no)$/i.test(trimmed);
+    return requireYes ? /^(y|yes)$/i.test(trimmed) : !/^(n|no)$/i.test(trimmed);
 }
 

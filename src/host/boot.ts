@@ -53,10 +53,18 @@ export interface RecoveryResult {
     readonly lines: readonly string[];
 }
 
+export interface BootHostIdentity {
+    readonly pid: number;
+    readonly started_at: string;
+}
+
 export interface BootDependencies {
     // Cheap test for a published, live host; when true the full inspection is skipped.
     hostPublished?(): Promise<boolean>;
+    hostAnswer(): Promise<BootHostIdentity | undefined>;
     inspect(): Promise<BootInspection>;
+    now?(): number;
+    wait?(delayMs: number): Promise<void>;
     adopt?(): Promise<HostLockRecord | undefined>;
     // Backs up records, stops this home's leftover processes and clears stale runtime files.
     recover(): Promise<RecoveryResult>;
@@ -80,7 +88,7 @@ export interface BootDependencies {
 }
 
 export interface BootQuestion {
-    readonly id: "restart_running_host" | "stash_runtime" | "keep_fresh_runtime";
+    readonly id: "restart_running_host" | "stop_answering_host" | "stash_runtime" | "keep_fresh_runtime";
     readonly text: string;
 }
 
@@ -124,12 +132,25 @@ async function bootChecked(deps: BootDependencies, locked: boolean): Promise<Hos
     }
     const inspection = await deps.inspect();
     const healthy = inspection.hostAnswers && inspection.lock === "live";
+    const missingLock = inspection.hostAnswers && inspection.lock === "absent";
     if (!healthy && inspection.startBlocker !== undefined) {
         const { label, error } = inspection.startBlocker;
         checks.push(...describe(inspection), { label, status: "failed", detail: errorText(error).split("\n")[0]! });
         if (deps.full === true) deps.render(checks);
         throw error;
     }
+    if (missingLock) {
+        const host = await waitForPublishedHost(deps);
+        if (host !== undefined) {
+            if (deps.full === true) {
+                checks.push(...describe({ ...inspection, lock: "live" }));
+                checks.push({ label: "Host", status: "ok", detail: `PID ${host.pid}${host.build_id === undefined ? "" : `, build ${host.build_id}`}` });
+                deps.render(checks);
+            }
+            return host;
+        }
+    }
+    let approvedHost: BootHostIdentity | undefined;
     if (healthy) {
         try {
             const host = await deps.start("default");
@@ -142,16 +163,20 @@ async function bootChecked(deps: BootDependencies, locked: boolean): Promise<Hos
         } catch (error) {
             if (isDiscoveryRefusal(error)) throw error;
             checks.push({ label: "Running host", status: "failed", detail: errorText(error) });
+            const answeringHost = await deps.hostAnswer();
             if (!await deps.confirm({ id: "restart_running_host", text: "The running Vera host is not responding properly. Stop it and start a fresh one?" })) {
                 deps.render(checks);
                 throw new BootFailedError(checks, error);
             }
+            approvedHost = answeringHost;
         }
     } else {
-        checks.push(...describe(inspection));
+        checks.push(...describe(inspection).filter((check) => !missingLock || check.label !== "Host lock"));
     }
 
-    if (!healthy && needsRepair(inspection)) {
+    if (missingLock) {
+        await recoverInto(deps, checks, { missingLock: true });
+    } else if (!healthy && needsRepair(inspection)) {
         if (deps.adopt !== undefined && inspection.releaseProblem === undefined && !inspection.bootLoop) {
             try {
                 const adopted = await deps.adopt();
@@ -172,7 +197,7 @@ async function bootChecked(deps: BootDependencies, locked: boolean): Promise<Hos
         }
         await recoverInto(deps, checks);
     } else if (healthy) {
-        await recoverInto(deps, checks);
+        await recoverInto(deps, checks, { approvedHost });
     }
     if (inspection.releaseProblem !== undefined) {
         await rollbackInto(deps, checks);
@@ -287,6 +312,19 @@ async function rollBackStash(
     }
 }
 
+async function waitForPublishedHost(deps: BootDependencies): Promise<HostLockRecord | undefined> {
+    const now = deps.now ?? (() => performance.now());
+    const wait = deps.wait ?? ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
+    const deadline = now() + 3_000;
+    for (;;) {
+        const host = await publishedHost(deps);
+        if (host !== undefined) return host;
+        const remaining = deadline - now();
+        if (remaining <= 0) return undefined;
+        await wait(Math.min(100, remaining));
+    }
+}
+
 function needsRepair(inspection: BootInspection): boolean {
     return inspection.orphans > 0 || inspection.lock === "stale" || inspection.lock === "damaged"
         || (inspection.lock === "live" && !inspection.hostAnswers) || inspection.bootLoop;
@@ -315,7 +353,9 @@ function describe(inspection: BootInspection): BootCheck[] {
         ? { label: "Release", status: "ok" }
         : { label: "Release", status: "failed", detail: inspection.releaseProblem });
     const lock: Record<BootInspection["lock"], BootCheck> = {
-        absent: { label: "Host lock", status: "ok", detail: "no host running" },
+        absent: inspection.hostAnswers
+            ? { label: "Host lock", status: "failed", detail: "missing while a host answers" }
+            : { label: "Host lock", status: "ok", detail: "no host running" },
         live: { label: "Host lock", status: inspection.hostAnswers ? "ok" : "failed", detail: inspection.hostAnswers ? undefined : "names a live process that does not answer" },
         stale: { label: "Host lock", status: "failed", detail: "names a process that has exited" },
         damaged: { label: "Host lock", status: "failed", detail: "unreadable" },
@@ -333,7 +373,30 @@ function describe(inspection: BootInspection): BootCheck[] {
     return checks;
 }
 
-async function recoverInto(deps: BootDependencies, checks: BootCheck[]): Promise<void> {
+async function recoverInto(
+    deps: BootDependencies,
+    checks: BootCheck[],
+    options: {
+        readonly approvedHost?: BootHostIdentity;
+        readonly missingLock?: boolean;
+    } = {},
+): Promise<void> {
+    let approved = options.approvedHost;
+    for (;;) {
+        const host = await deps.hostAnswer();
+        if (host === undefined || (host.pid === approved?.pid && host.started_at === approved.started_at)) break;
+        if (options.missingLock === true) {
+            checks.push({ label: "Host lock", status: "failed", detail: `missing while host PID ${host.pid} answers` });
+        }
+        const text = options.missingLock === true
+            ? `Vera host PID ${host.pid} is running but its lock file is missing. Stop it and start a fresh one?`
+            : `Vera host PID ${host.pid} is running. Stop it and start a fresh one?`;
+        if (!await deps.confirm({ id: "stop_answering_host", text })) {
+            deps.render(checks);
+            throw new BootFailedError(checks, new Error(`Host PID ${host.pid} was left running. Run vera host reset to reset this home.`));
+        }
+        approved = host;
+    }
     deps.clearBootFailures();
     try {
         const result = await deps.recover();
@@ -369,8 +432,11 @@ export function renderBootBox(checks: readonly BootCheck[], width = 72): string 
     }
     const failed = checks.some((check) => check.status === "failed") && !checks.some((check) => check.label.startsWith("Host start") && check.status === "ok");
     const repaired = checks.some((check) => check.status === "fixed" || check.status === "failed");
+    const recovered = checks.some((check) => check.label === "Recovery");
     lines.push("", failed
-        ? "Vera could not start. Records were backed up under runtime/backups."
+        ? recovered
+            ? "Vera could not start. Records were backed up under runtime/backups."
+            : "Vera could not start. No recovery was run."
         : repaired ? "Vera repaired its startup and is continuing." : "Vera is running.");
     const top = `+${"-".repeat(width - 2)}+`;
     return [top, ...lines.map((line) => `| ${line.padEnd(inner)} |`), top, ""].join("\n");
