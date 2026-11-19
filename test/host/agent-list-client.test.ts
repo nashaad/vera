@@ -43,6 +43,7 @@ socketTest(
         try {
             const agents = await listAgentsThroughHost(socketPath);
             expect(agents[0]).toEqual({
+                archived: false,
                 id: "agent-1",
                 workspace: "/work/one",
                 session_path: "/sessions/agent-1.jsonl",
