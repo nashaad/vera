@@ -13,62 +13,53 @@
 }
 
 .browser {
+    container-type: inline-size;
     display: flex;
     flex-direction: column;
     height: 100%;
     min-height: 0;
 }
 
-.browser-controls {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--vera-space);
-    padding: var(--vera-space);
-    font-size: var(--vera-font-size-label);
-}
-
-.browser-controls label {
+.browser-tools-switch {
     display: inline-flex;
+    flex: 0 0 auto;
     align-items: center;
     gap: var(--vera-space);
+    font-size: var(--vera-font-size-label);
+    white-space: nowrap;
 }
 
-.browser-controls .appearance-switch:hover:not(:disabled) {
+.browser-tools-switch .appearance-switch {
+    --browser-switch-unit: min(var(--vera-space), calc(1lh / 3.5), calc(var(--vera-font-size) / 3.25));
+    container-type: inline-size;
+    width: calc(var(--browser-switch-unit) * 6);
+    height: calc(var(--browser-switch-unit) * 3.5);
+}
+
+.browser-tools-switch .appearance-switch-knob {
+    top: 0;
+    bottom: 0;
+    left: calc(var(--browser-switch-unit) * 0.375);
+    width: calc(var(--browser-switch-unit) * 2.25);
+    height: calc(var(--browser-switch-unit) * 2.25);
+    margin-block: auto;
+}
+
+.browser-tools-switch .appearance-switch[aria-checked="true"] .appearance-switch-knob {
+    transform: translateX(calc(100cqi - var(--browser-switch-unit) * 0.75 - 100%));
+}
+
+.browser-tools-switch .appearance-switch:hover:not(:disabled) {
     border-color: var(--vera-text-muted);
 }
 
-.browser-controls .appearance-switch:disabled {
+.browser-tools-switch .appearance-switch:disabled {
     opacity: 0.6;
     cursor: default;
 }
 
-.browser-controls button:not(.appearance-switch) {
-    height: calc(var(--vera-row-height) * 0.8);
-    padding: 0 calc(var(--vera-space) * 3);
-    color: var(--vera-text);
-    background: transparent;
-    border: thin solid var(--vera-border-input);
-    border-radius: var(--vera-radius);
-    cursor: pointer;
-    transition: background var(--vera-motion), border-color var(--vera-motion);
-}
-
-.browser-controls button:not(.appearance-switch):hover:not(:disabled) {
-    background: var(--vera-surface-hover);
-}
-
-.browser-controls button:not(.appearance-switch):disabled {
-    color: var(--vera-text-disabled);
-    cursor: default;
-}
-
-.browser-controls button:not(.appearance-switch):focus-visible {
-    outline: thin solid var(--vera-focus);
-    outline-offset: calc(var(--vera-space) / 2);
-}
-
 .browser-bar {
+    container-type: inline-size;
     display: flex;
     flex: 0 0 auto;
     align-items: center;
@@ -80,6 +71,25 @@
 /* A merged view's actions button floats over the bar's right end. */
 .view[data-merged="true"] .browser-bar {
     padding-right: calc(var(--vera-space) * 6.5);
+}
+
+@container (max-width: 20lh) {
+    .browser-bar {
+        gap: 0;
+        padding-left: var(--vera-space);
+    }
+
+    .view[data-merged="true"] .browser-bar {
+        padding-right: calc(var(--vera-space) * 5.5);
+    }
+
+    .browser-bar .icon-button {
+        width: min(calc(var(--vera-space) * 5), calc(var(--vera-font-size) * 1.35));
+    }
+
+    .browser-tools-label {
+        display: none;
+    }
 }
 
 .browser-bar .icon-button:disabled {

@@ -58,6 +58,7 @@ function menuItems(entry: Found, place: DesktopMenuPlace): readonly DesktopMenuI
         items.push({
             command: command.command,
             title: listed.title ?? command.title,
+            ...(command.page === undefined ? {} : { page: true as const }),
             ...(listed.description === undefined ? {} : { description: listed.description }),
             ...(listed.button === undefined ? {} : { button: listed.button }),
             ...(listed.icon === undefined ? {} : { icon: listed.icon }),

@@ -21,6 +21,8 @@ interface FrameTree {
 interface FrameSurface extends PageRectangle {
     readonly url: string;
     readonly name: string;
+    readonly identity?: Electron.WebFrameMain;
+    readonly allowed?: (url: string) => boolean;
 }
 
 interface PageWorld {
@@ -160,8 +162,13 @@ export class PageCommandService {
                         text = `Local source file: ${path.slice(0, 4096)}\n${text}`.slice(0, 16384);
                     }
                     const { x, y, width, height } = result.rect;
-                    if (x + width > world.offset.width || y + height > world.offset.height) throw new Error("The page could not be read.");
-                    const rect = { x: Math.ceil(x + world.offset.x), y: Math.ceil(y + world.offset.y), width: Math.floor(width), height: Math.floor(height) };
+                    const measured = frame === undefined ? undefined : await browserFrame(contents, frame.allowed ?? (() => false), frame.name);
+                    if (frame !== undefined && (measured === undefined || frame.identity === undefined || measured.identity !== frame.identity)) throw new Error("The page could not be read.");
+                    const current = measured ?? world.offset;
+                    if (x + width > current.width || y + height > current.height) throw new Error("The page could not be read.");
+                    const zoom = frame === undefined ? 1 : contents.getZoomFactor();
+                    const rect = { x: Math.ceil((x + current.x) * zoom), y: Math.ceil((y + current.y) * zoom), width: Math.floor(width * zoom), height: Math.floor(height * zoom) };
+                    if (rect.width < 1 || rect.height < 1) throw new Error("The page could not be read.");
                     const image = await contents.capturePage(rect, { stayHidden: true, stayAwake: true });
                     if (wasCanceled) return { ok: true, kind: "closed" };
                     const path = await savePastedImage(directory, image.toPNG(), "image/png");
@@ -203,5 +210,5 @@ export async function browserFrame(contents: WebContents, allowed: (url: string)
     if (![value.x, value.y, value.width, value.height].every((part) => typeof part === "number" && Number.isFinite(part) && part >= 0 && part <= 10000)) return undefined;
     const matches = contents.mainFrame.framesInSubtree.filter((candidate) => candidate.name === value.name && sameOrigin(candidate.url, value.url as string));
     if (matches.length !== 1 || !allowed(matches[0]!.url)) return undefined;
-    return { ...value, url: matches[0]!.url } as unknown as FrameSurface;
+    return { ...value, url: matches[0]!.url, identity: matches[0], allowed } as unknown as FrameSurface;
 }

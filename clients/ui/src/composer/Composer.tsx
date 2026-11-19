@@ -1,3 +1,4 @@
+import type { DraftCaptureOwner } from "./draft-capture-owner.ts";
 import type { DesktopBridge, SessionPane } from "../protocol/bridge.ts";
 import type { SessionWatch } from "../session/model.ts";
 import type { AgentStart } from "../session/agentGate.ts";
@@ -23,6 +24,8 @@ export interface SessionComposerProps {
 export interface NewChatComposerProps {
     readonly mode: "new";
     readonly bridge: DesktopBridge;
+    readonly active?: boolean;
+    readonly captureOwner?: DraftCaptureOwner;
     // The folder the new session starts in until another is chosen.
     readonly folder?: string;
 }

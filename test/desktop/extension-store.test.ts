@@ -234,9 +234,9 @@ test("@core an included page-only extension surfaces its command and browser men
     const store = storeFor(home, included);
     expect(store.entries()).toMatchObject([
         { id: "crow.page", included: false, commands: [], menus: { browser: [] } },
-        { id: "vera.page", included: true, commands: [{ id: "vera.page.select", title: "Select element" }], menus: { browser: [{ command: "vera.page.select", title: "Select element", icon: "pointer" }] } },
+        { id: "vera.page", included: true, commands: [{ id: "vera.page.select", title: "Select element" }], menus: { browser: [{ command: "vera.page.select", title: "Select element", icon: "pointer", page: true }] } },
     ]);
-    expect(store.menu("browser")).toEqual([{ command: "vera.page.select", title: "Select element", icon: "pointer" }]);
+    expect(store.menu("browser")).toEqual([{ command: "vera.page.select", title: "Select element", icon: "pointer", page: true }]);
     expect(store.pageScript("vera.page.select")).toBe("document.body;\n");
     expect(store.pageScript("crow.page.select")).toBeUndefined();
 });

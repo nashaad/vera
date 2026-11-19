@@ -1127,8 +1127,9 @@ the file marked: a bar with its path under the folder, then its text with line
 numbers. The window reads at most the first 256 KB and says so when the file is
 longer. A folder, a file that is not text and a file that is gone each show one
 line saying so. The arrows in the bar step back and forward through the files
-opened, up to the last 50, and `Browse files` hides or shows the tree. An open
-file is read again when a turn ends. An HTML file offers Source and Preview.
+opened, up to the last 50, and `Browse files` hides or shows the tree. Drag the
+divider to resize the tree, use the arrow keys while it is focused, or double-click
+it to restore its default width. An open file is read again when a turn ends. An HTML file offers Source and Preview.
 Preview renders it beside the tree, including relative assets in the session's
 folder. The pointer selects or draws on the page and adds a screenshot and file
 details to the session's composer. Reload reads the file again after a change;

@@ -1,9 +1,10 @@
 // Shared setup for desktop e2e runs: a throwaway VERA_HOME and a launcher for the
-// built app. Stopping only ever signals the host recorded under that home.
+// built app. The host is stopped through its identity-checked protocol.
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
 
@@ -98,19 +99,8 @@ export function startTrial() {
 
     async function cleanup() {
         for (const app of apps) await closeApp(app);
-        const pid = hostPid();
-        if (pid !== undefined) {
-            let command;
-            try {
-                command = execFileSync("ps", ["eww", "-p", String(pid), "-o", "command="], { encoding: "utf8" });
-            } catch {
-                command = "";
-            }
-            if (command && !command.split(/\s+/).includes(`VERA_HOME=${home}`)) {
-                throw new Error("Trial host identity could not be verified; refusing to signal it.");
-            }
-            if (command) await stopProcess(pid);
-        }
+        if (hostPid() !== undefined) await stopTrialHost(home);
+        if (hostPid() !== undefined) throw new Error("Trial host remains alive; retaining its home.");
         rmSync(trialRoot, { recursive: true, force: true });
     }
 
@@ -149,20 +139,51 @@ async function closeApp(app) {
     throw new Error("Trial app did not exit; refusing to signal an unverified process group.");
 }
 
-async function stopProcess(pid) {
-    try {
-        process.kill(pid, "SIGTERM");
-    } catch (error) {
-        if (error.code !== "ESRCH") throw error;
-        return;
+function hostRequest(socketPath, request, terminal, timeout = 3000) {
+    return new Promise((resolve, reject) => {
+        const socket = createConnection(socketPath);
+        let buffer = "";
+        const timer = setTimeout(() => finish(new Error("Host request timed out")), timeout);
+        const finish = (error, result) => {
+            clearTimeout(timer);
+            socket.destroy();
+            if (error) reject(error); else resolve(result);
+        };
+        socket.setEncoding("utf8");
+        socket.once("connect", () => socket.write(`${JSON.stringify(request)}\n`));
+        socket.on("data", (chunk) => {
+            buffer += chunk;
+            if (buffer.length > 4096) return finish(new Error("Host reply too large"));
+            for (;;) {
+                const newline = buffer.indexOf("\n");
+                if (newline < 0) break;
+                const line = buffer.slice(0, newline);
+                buffer = buffer.slice(newline + 1);
+                try {
+                    const result = JSON.parse(line);
+                    if (terminal(result)) return finish(undefined, result);
+                } catch (error) { return finish(error); }
+            }
+        });
+        socket.once("error", (error) => finish(error));
+        socket.once("end", () => finish(new Error("Host closed before reply")));
+    });
+}
+
+async function stopTrialHost(home) {
+    const record = JSON.parse(readFileSync(join(home, "runtime", "host.json"), "utf8"));
+    const path = typeof record.socket_path === "string" ? relative(home, record.socket_path) : "";
+    if (!Number.isInteger(record.pid) || record.pid <= 0 || typeof record.started_at !== "string" || Number.isNaN(Date.parse(record.started_at)) || !path || path.startsWith("..") || isAbsolute(path)) throw new Error("Invalid trial host lock");
+    const identity = await hostRequest(record.socket_path, { type: "host_identity" }, (result) => result.type === "host_identity");
+    if (identity.pid !== record.pid || identity.started_at !== record.started_at || !Number.isInteger(identity.protocol_version)) throw new Error("Trial host identity mismatch");
+    const response = await hostRequest(record.socket_path, { type: "shutdown_if_idle", pid: identity.pid, started_at: identity.started_at, requester_protocol_version: identity.protocol_version }, () => true);
+    if (response.type !== "shutdown_if_idle_accepted") {
+        const stopped = await hostRequest(record.socket_path, { type: "stop_host", pid: identity.pid, started_at: identity.started_at }, (result) => result.type !== "stop_host_waiting", 15000);
+        if (stopped.type !== "stop_host_stopped") throw new Error(`Graceful stop refused: ${JSON.stringify(stopped)}`);
     }
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-        try {
-            process.kill(pid, 0);
-        } catch {
-            return;
-        }
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+        try { process.kill(record.pid, 0); } catch (error) { if (error.code === "ESRCH") return; throw error; }
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    throw new Error("Trial host did not exit after SIGTERM.");
+    throw new Error("Trial host did not exit after graceful shutdown.");
 }

@@ -52,7 +52,8 @@ describe("built-in browser requests", () => {
             const signal = new AbortController().signal;
             const settings = handlers.get("settings")!;
             expect(await settings({}, { signal })).toEqual({ enabled: false });
-            expect((await tool!.run({ input: { action: "read" }, workspace: root, signal })).isError).toBe(true);
+            const disabled = await tool!.run({ input: { action: "read" }, workspace: root, signal });
+            expect(disabled).toMatchObject({ isError: true, presentation: { kind: "tool_notice", action: "open_browser" } });
             expect(await settings({ enabled: true }, { signal })).toEqual({ enabled: true });
             expect(JSON.parse(readFileSync(join(root, "settings.json"), "utf8"))).toEqual({ enabled: true });
             expect(statSync(join(root, "settings.json")).mode & 0o777).toBe(0o600);
@@ -67,6 +68,14 @@ describe("built-in browser requests", () => {
             expect(job.request.action).toBe("read");
             expect(await handlers.get("reply")!({ id: job.id, output: "A crow" }, { signal })).toBe(true);
             expect(await running).toEqual({ output: "A crow" });
+            const queued = tool!.run({ input: { action: "read" }, workspace: root, signal });
+            await handlers.get("settings")!({ enabled: false }, { signal });
+            expect(await queued).toEqual(disabled);
+            await handlers.get("settings")!({ enabled: true }, { signal });
+            const dispatched = tool!.run({ input: { action: "read" }, workspace: root, signal });
+            const queuedJob = await handlers.get("poll")!({}, { signal }) as { id: string };
+            await handlers.get("reply")!({ id: queuedJob.id, error: disabled.output, errorCode: "browser_tools_off" }, { signal });
+            expect(await dispatched).toEqual(disabled);
             await handlers.get("settings")!({ enabled: false }, { signal });
             await handlers.get("settings")!({ enabled: true }, { signal });
             const waiting = handlers.get("poll")!({}, { signal });

@@ -514,12 +514,14 @@ test("@core host wire carries a tool notice's page link, live and in history, an
     const presentation = {
         kind: "tool_notice" as const,
         text: "Artifact page",
+        action: "open_browser" as const,
         link: { title: "Raid", page: "/x/vera.artifacts/artifacts", query: { session: "s1", artifact: "raid" } },
     };
     const live = { type: "tool_presentation" as const, tool: "artifact_write", presentation, seq: 1 };
     expect(parseAgentUpdate(live)).toEqual(live);
     const history = { type: "history" as const, entries: [{ kind: "presentation" as const, presentation }], seq: 1 };
     expect(parseAgentUpdate(history)).toEqual(history);
+    expect(parseAgentUpdate({ ...live, presentation: { ...presentation, action: "page.openBrowser" } })).toBeUndefined();
     for (const link of [
         { ...presentation.link, title: "" },
         { ...presentation.link, page: "not a path!" },

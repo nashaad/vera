@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 
 import { configureFauxHome, until } from "./faux-home.mjs";
-import { MODIFIER, press, startTrial } from "./trial.mjs";
+import { MODIFIER, press, startTrial, waitForAnnexPages } from "./trial.mjs";
 
 const server = createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/html" });
@@ -39,6 +39,7 @@ try {
     page = await app.firstWindow();
     await page.waitForSelector('.app[data-sessions]', { timeout: 45_000 });
     host = await trial.waitForHost();
+    await waitForAnnexPages(page, app);
     await press(app, "B", [MODIFIER, "alt"]);
     await page.locator('[data-pane-tile="core.browser"]').click();
     const address = page.getByRole("textbox", { name: "Address" });

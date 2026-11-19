@@ -27,6 +27,25 @@ function trial() {
     return { gateway, pending, changes };
 }
 
+test("@core a disabled queued browser request returns a classified refusal", async () => {
+    const replies: JsonValue[] = [];
+    let first = true;
+    const request: typeof requestExtensionThroughHost = async (_socket, _extension, name, payload, signal) => {
+        if (name === "settings") return { enabled: false };
+        if (name === "reply") { replies.push(payload); return true; }
+        if (first) { first = false; return { id: "job", request: { action: "read" } }; }
+        return await new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    };
+    let revealed = false;
+    const gateway = new BrowserGateway({} as BrowserCdp, () => { revealed = true; }, () => {}, request);
+    gateway.start("trial");
+    try {
+        for (let i = 0; i < 100 && replies.length === 0; i++) await Bun.sleep(1);
+        expect(replies).toEqual([{ id: "job", error: "Browser tools are off. Open Browser in the right pane, turn on the Browser tools switch, then try again.", errorCode: "browser_tools_off" }]);
+        expect(revealed).toBe(false);
+    } finally { gateway.stop(); }
+});
+
 test("@core gateway keeps the enabled setting when availability is lost", async () => {
     const { gateway, pending, changes } = trial();
     try {

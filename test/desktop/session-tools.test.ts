@@ -101,6 +101,17 @@ describe("presentations", () => {
         }
     });
 
+    test("notice action and link survive live and history decoding", () => {
+        const presentation = { kind: "tool_notice", text: "Browser tools are off", action: "open_browser", link: { title: "Raid", page: "/x/a/b" } };
+        const live = line({ type: "tool_presentation", tool: "builtin_browser", presentation });
+        expect(live).toMatchObject({ presentation });
+        const history = line({ type: "history", entries: [{ kind: "presentation", presentation }] });
+        expect(history).toMatchObject({ entries: [{ presentation }] });
+        const unknown = line({ type: "tool_presentation", tool: "builtin_browser", presentation: { ...presentation, action: "other" } });
+        expect(unknown).toMatchObject({ presentation: { kind: "tool_notice", text: presentation.text, link: presentation.link } });
+        expect(JSON.stringify(unknown)).not.toContain("action");
+    });
+
     test("a presentation of an unknown kind does not parse", () => {
         expect(parseSessionLine(JSON.stringify({ type: "tool_presentation", tool: "edit", presentation: { kind: "chart" } })))
             .toBeUndefined();

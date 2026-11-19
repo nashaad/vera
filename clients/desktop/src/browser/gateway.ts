@@ -1,5 +1,6 @@
 import { requestExtensionThroughHost } from "../../../../src/host/extension-request-client.ts";
 import { parseBrowserRequest } from "../../../../extensions/desktop-browser/arguments.ts";
+import { BROWSER_TOOLS_OFF, BROWSER_TOOLS_OFF_TEXT } from "../../../../extensions/desktop-browser/failure.ts";
 import type { JsonValue } from "../../../../src/sdk/hooks.ts";
 import type { BrowserCdp } from "./cdp.ts";
 
@@ -92,7 +93,7 @@ export class BrowserGateway {
                 const request = isRecord(raw) ? parseBrowserRequest(raw) : undefined;
                 let result: Record<string, unknown>;
                 if (request === undefined) result = { error: "Invalid browser request." };
-                else if (!this.enabled) result = { error: "Browser tools are off in the desktop window." };
+                else if (!this.enabled) result = { error: BROWSER_TOOLS_OFF_TEXT, errorCode: BROWSER_TOOLS_OFF };
                 else {
                     this.reveal();
                     try { result = await this.cdp.run(request); }

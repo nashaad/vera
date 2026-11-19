@@ -1089,9 +1089,12 @@ test("@core TUI draws a tool notice's text and leaves its link to other clients"
         kind: "tool_notice" as const,
         text: "Artifact page: http://127.0.0.1:8372/x/vera.artifacts/artifacts?session=s1&artifact=raid",
         link: { title: "Raid", page: "/x/vera.artifacts/artifacts", query: { session: "s1", artifact: "raid" } },
+        action: "open_browser" as const,
     };
     const live = applyAgentUpdate(createTuiState(), { type: "tool_presentation", tool: "artifact_write", presentation, seq: 1 });
+    const replayed = applyAgentUpdate(createTuiState(), { type: "history", entries: [{ kind: "presentation", presentation }], seq: 1 });
     expect(live.entries).toEqual([{ kind: "notice", text: presentation.text }]);
+    expect(replayed.entries).toEqual(live.entries);
     expect(plainText(renderTuiEntry(live.entries[0]!))).toBe(presentation.text);
 });
 

@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { VeraExtensionApi, VeraExtensionToolResult } from "../../src/sdk/extensions.ts";
 import type { JsonValue } from "../../src/sdk/hooks.ts";
 import { parseBrowserRequest, type BrowserRequest } from "./arguments.ts";
+import { BROWSER_TOOLS_OFF, BROWSER_TOOLS_OFF_TEXT } from "./failure.ts";
 
 const DESCRIPTION = "Use the built-in browser, the Browser pane in the Vera desktop window. Open an http or https URL, read page text and accessibility refs, click or type by ref, scroll, go back, or take a screenshot. Read the page before using refs. It cannot control Vera's own pages such as Usage. If a tool named browser is also available, ask the user once which browser to use before the first call, and keep the answer for this conversation.";
 const MAX_IMAGE = 800_000;
@@ -37,7 +38,7 @@ export function activate(vera: VeraExtensionApi): void {
         if (isRecord(payload) && typeof payload.enabled === "boolean") {
             setEnabled(payload.enabled);
             if (!payload.enabled) for (const job of jobs.values()) {
-                job.finish({ error: "Browser tools are off in the desktop window." });
+                job.finish({ error: BROWSER_TOOLS_OFF_TEXT, errorCode: BROWSER_TOOLS_OFF });
             }
         }
         return { enabled: enabled() };
@@ -113,8 +114,9 @@ export function activate(vera: VeraExtensionApi): void {
         run: async ({ input, signal }): Promise<VeraExtensionToolResult> => {
             const request = parseBrowserRequest(input);
             if (request === undefined) return { output: "Invalid browser request.", isError: true };
-            if (!enabled()) return { output: "Browser tools are off in the desktop window.", isError: true };
+            if (!enabled()) return browserToolsOff();
             const result = await dispatch(request, signal);
+            if (result.errorCode === BROWSER_TOOLS_OFF) return browserToolsOff();
             if (typeof result.error === "string") return { output: result.error.slice(0, 1000), isError: true };
             if (request.action === "screenshot" && typeof result.image === "string") {
                 if (result.image.length > MAX_IMAGE || !/^[A-Za-z0-9+/=]+$/.test(result.image)) return { output: "Screenshot is too large.", isError: true };
@@ -128,6 +130,14 @@ export function activate(vera: VeraExtensionApi): void {
             return { output: typeof result.output === "string" ? result.output.slice(0, 30_000) : "Browser returned no result." };
         },
     });
+}
+
+function browserToolsOff(): VeraExtensionToolResult {
+    return {
+        output: BROWSER_TOOLS_OFF_TEXT,
+        isError: true,
+        presentation: { kind: "tool_notice", text: BROWSER_TOOLS_OFF_TEXT, action: "open_browser" },
+    };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

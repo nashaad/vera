@@ -322,6 +322,11 @@ test("@core a tool notice's link names the extension's own page and leaves as th
         }
     };
 
+    expect(await run({ kind: "tool_notice", text: "Board page", action: "open_browser", link: link("board") })).toMatchObject({
+        isError: false,
+        presentation: { kind: "tool_notice", action: "open_browser", link: { page: "/x/link.extension/board" } },
+    });
+    expect(await run({ kind: "tool_notice", text: "Bad action", action: "https://example.org" })).toMatchObject({ isError: true });
     expect(await run({ kind: "tool_notice", text: "Board page", link: link("board") })).toMatchObject({
         isError: false,
         output: "model output",

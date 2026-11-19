@@ -247,7 +247,8 @@ export function parsePresentation(value: unknown): Presentation | undefined {
         case "tool_notice": {
             const text = str(value.text);
             const link = noticeLink(value.link);
-            return text === undefined ? undefined : { kind: "tool_notice", text, ...(link === undefined ? {} : { link }) };
+            const action = value.action === "open_browser" ? value.action : undefined;
+            return text === undefined ? undefined : { kind: "tool_notice", text, ...(link === undefined ? {} : { link }), ...(action === undefined ? {} : { action }) };
         }
         default:
             return undefined;

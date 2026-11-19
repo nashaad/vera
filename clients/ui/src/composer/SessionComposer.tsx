@@ -7,17 +7,18 @@ import { useSessionModels } from "../models/useSessionModels.ts";
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import { subscribeDrafts, takeDraft } from "../session/drafts.ts";
 import { stepAgentGate } from "../session/agentGate.ts";
-import { takePendingPrompt, type PendingPrompt } from "../session/pendingPrompt.ts";
+import { hasPendingPrompt, setPendingPrompt, takePendingPrompt, type PendingPrompt } from "../session/pendingPrompt.ts";
 import { useSlowOpening } from "../session/useSlowOpening.ts";
 import { abortCommand, releaseQueuedCommand, withdrawQueuedCommand } from "../session/wire.ts";
 import type { SessionComposerProps } from "./Composer.tsx";
 import { ApprovalPill } from "./ApprovalPill.tsx";
+import type { DraftCaptureRecipient } from "./draft-capture-recipient.ts";
 import { ComposerBox } from "./ComposerBox.tsx";
 import { ContextChips } from "./ContextChips.tsx";
 import { pathsOfFiles } from "./files.ts";
 import { ImageChips } from "./ImageChips.tsx";
 import { PageCaptureChip } from "./PageCaptureChip.tsx";
-import { imageLabel, imageState, readyAttachments } from "./images.ts";
+import { IMAGE_LIMIT, imageLabel, imageState, readyAttachments } from "./images.ts";
 import { appendPageCaptureText, subscribePageCaptures, type PageCapture } from "./page-captures.ts";
 import { freshRequestId, sendPrompt, type SentPrompt } from "./requests.ts";
 import { NO_ANSWER } from "./slash/run.ts";
@@ -54,6 +55,15 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
     const [autoSend, setAutoSend] = useState(false);
     const [preparing, setPreparing] = useState(false);
     const lastSent = useRef<SentPrompt | undefined>(undefined);
+    const captureHandoff = useRef<DraftCaptureRecipient | undefined>(undefined);
+    const pendingFirst = useRef<PendingPrompt | undefined>(undefined);
+    const [captureReady, setCaptureReady] = useState(() => !hasPendingPrompt(agentId));
+    const finishCaptureHandoff = useCallback(() => {
+        const recipient = captureHandoff.current;
+        captureHandoff.current = undefined;
+        recipient?.complete();
+        setCaptureReady(true);
+    }, []);
     const withdrawing = useRef<string | undefined>(undefined);
     const input = useRef<HTMLTextAreaElement>(null);
     const [landed, setLanded] = useState(0);
@@ -78,25 +88,30 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
     const onRefused = useCallback((reason: string) => {
         setNotice(reason);
         setAutoSend(false);
-    }, []);
+        finishCaptureHandoff();
+    }, [finishCaptureHandoff]);
     const { images, add, remove, clear } = useSessionImages(send, watch.images, onRefused);
     const previousImages = useRef(images);
     const selected = useFiles(bridge, folder, chat, images.length, add, setNotice);
-    useEffect(() => {
-        if (pane !== "main") return undefined;
-        return subscribePageCaptures(agentId, (capture) => {
-            const [image] = add([capture.path]);
-            if (image !== undefined) {
-                setPageCaptures((current) => [...current, { key: image.requestId, number: image.number, capture }]);
-            }
-        });
-    }, [agentId, add, pane]);
+    const attachmentCount = useRef(0);
+    attachmentCount.current = images.length + selected.files.length;
     useEffect(() => {
         if (previousImages.current === images) return;
         previousImages.current = images;
         const imageIds = new Set(images.map((image) => image.requestId));
         setPageCaptures((current) => current.filter((capture) => imageIds.has(capture.key)));
     }, [images]);
+    useEffect(() => {
+        if (pane !== "main" || !captureReady) return undefined;
+        return subscribePageCaptures(agentId, (capture) => {
+            if (attachmentCount.current >= IMAGE_LIMIT) return;
+            const [image] = add([capture.path]);
+            if (image !== undefined) {
+                attachmentCount.current += 1;
+                setPageCaptures((current) => [...current, { key: image.requestId, number: image.number, capture }]);
+            }
+        });
+    }, [agentId, add, pane, captureReady]);
     const ready = readyAttachments(images, watch.images);
     const models = useSessionModels(bridge, watch, send, folder);
     const slash = useSlashMenu({
@@ -149,13 +164,15 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
     const startPending = useCallback((pending: PendingPrompt): void => {
         if (pending.slashCommand !== true && pending.images.length === 0 && (pending.files?.length ?? 0) === 0) {
             lastSent.current = sendPrompt(send, pending.text);
+            pendingFirst.current = undefined;
+            finishCaptureHandoff();
             return;
         }
         setText(pending.text);
         if (pending.images.length > 0) add(pending.images);
         selected.replace(pending.files ?? []);
         setAutoSend(true);
-    }, [send, add, selected.replace]);
+    }, [send, add, selected.replace, finishCaptureHandoff]);
 
     // A prompt that was held and not sent goes back into the box with what was attached to it.
     const restorePending = useCallback((pending: PendingPrompt, reason: string): void => {
@@ -163,7 +180,10 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
         setText(pending.text);
         if (pending.images.length > 0) add(pending.images);
         selected.replace(pending.files ?? []);
-    }, [add, selected.replace]);
+        attachmentCount.current = pending.images.length + (pending.files?.length ?? 0);
+        pendingFirst.current = undefined;
+        finishCaptureHandoff();
+    }, [add, selected.replace, finishCaptureHandoff]);
     const restoreLatest = useRef(restorePending);
     restoreLatest.current = restorePending;
 
@@ -186,6 +206,8 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
         if (!attached) return;
         const pending = takePendingPrompt(agentId);
         if (pending === undefined) return;
+        pendingFirst.current = pending;
+        captureHandoff.current = pending.captureRecipient;
         if (pending.agent === undefined) {
             proceed(pending);
             return;
@@ -211,7 +233,10 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
 
     useEffect(() => () => {
         if (agentGate.current !== undefined) clearTimeout(agentGate.current.timer);
-    }, []);
+        if (pendingFirst.current?.captureRecipient !== undefined) setPendingPrompt(agentId, pendingFirst.current);
+        captureHandoff.current?.complete();
+        captureHandoff.current = undefined;
+    }, [agentId]);
 
     useEffect(() => {
         const gate = modelGate.current;
@@ -252,9 +277,12 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
         setNotice(undefined);
         setText("");
         lastSent.current = sendPrompt(send, sentContent, ready.attachmentIds);
+        pendingFirst.current = undefined;
         clear();
         setPageCaptures([]);
         selected.clear();
+        attachmentCount.current = 0;
+        finishCaptureHandoff();
     };
 
     useEffect(() => {

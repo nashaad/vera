@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +14,6 @@ import { startTrial } from "./trial.mjs";
 
 const trial = startTrial();
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const apps = [];
 const pidFile = join(trial.trialRoot, "crow.pid");
 const prompt = "Start the crow trial command";
 const provider = createServer((request, response) => {
@@ -136,7 +135,6 @@ try {
     if (hostBuild !== "e2e") throw new Error(`Trial host used build ${hostBuild}, expected e2e.`);
     const agent = await seed();
     const app = await trial.launch();
-    apps.push(app.process());
     const page = await app.firstWindow();
     await attach(page, agent);
 
@@ -172,7 +170,6 @@ try {
     if (!alive(pid)) throw new Error("Keep running stopped the background command.");
 
     const second = await trial.launch();
-    apps.push(second.process());
     const secondPage = await second.firstWindow();
     await attach(secondPage, agent);
     await second.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
@@ -186,29 +183,12 @@ try {
     failed = true;
     console.error(error);
 } finally {
-    for (const child of apps) {
-        try {
-            if (child.exitCode === null && child.signalCode === null) {
-                const exited = new Promise((resolveExit) => child.once("exit", resolveExit));
-                child.kill("SIGTERM");
-                await Promise.race([exited, new Promise((resolveExit) => setTimeout(resolveExit, 5_000))]);
-                if (child.exitCode === null && child.signalCode === null) {
-                    child.kill("SIGKILL");
-                    await exited;
-                }
-            }
-        } catch (error) {
-            failed = true;
-            console.error(error);
-        }
-    }
-    if (host !== undefined && host.exitCode === null && host.signalCode === null) {
-        host.kill("SIGTERM");
-        await Promise.race([hostExited, new Promise((resolveExit) => setTimeout(resolveExit, 5_000))]);
-        if (host.exitCode === null && host.signalCode === null) {
-            host.kill("SIGKILL");
-            await hostExited;
-        }
+    try {
+        await trial.cleanup();
+        if (hostExited !== undefined) await hostExited;
+    } catch (error) {
+        failed = true;
+        console.error(`Trial retained at ${trial.trialRoot}:`, error);
     }
     provider.closeAllConnections();
     await new Promise((resolve) => provider.close(resolve));
@@ -216,6 +196,5 @@ try {
         failed = true;
         console.error(`Trial cleanup left process ${pid} running.`);
     }
-    rmSync(trial.trialRoot, { recursive: true, force: true });
 }
 process.exit(failed ? 1 : 0);
