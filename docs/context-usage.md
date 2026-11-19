@@ -54,14 +54,16 @@ Everything in the INSTRUCTIONS section is sent with every request: home and
 project rules, `AGENTS.md`, `AGENTS.local.md`, the selected agent's
 instructions, and the skill catalog. Memory files are not loaded, so they add
 nothing to it. When that total reaches 8,000 estimated tokens, `/context` shows
-a red line under INSTRUCTIONS with the total and the biggest source, and Vera
-shows one short notice after the first reply in a conversation, plus the same
-sentence as a brief overlay that types on quickly, then a tick. Press Escape to
-close it when no dialog is open; otherwise it clears after a few seconds. The
-numbers match the Instructions row and the section heading. While the red line
-shows, the per-file size warnings are hidden. Trim or split the biggest source
-to clear it. The notice appears again in a new or resumed conversation while the
-total stays over.
+a red line under INSTRUCTIONS with the total and the biggest source. In the
+TUI, Vera shows one short notice after a measured reply, plus the same sentence
+as a brief overlay that types on quickly, then a tick. Press Escape to close it
+when no dialog is open; otherwise it clears after a few seconds. The numbers
+match the Instructions row and the section heading. While the red line shows,
+the per-file size warnings are hidden. Trim or split the biggest source to
+clear it. The TUI notice does not repeat when you reattach, resume, or restart
+the host while its warning record is retained. Vera keeps the 500 newest warning
+records, so an older conversation can show the notice again after its record is
+pruned.
 
 ### Change the instruction budget
 

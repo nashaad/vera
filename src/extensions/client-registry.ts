@@ -228,7 +228,7 @@ export type ClientExtensionHostRequest = (
 
 export interface ClientExtensionContextAdapter {
     sources?(signal: AbortSignal): Promise<import("../customize/types.ts").CustomizationCatalog>;
-    current(): VeraClientContextSnapshot;
+    current(agent?: VeraClientAgentRef): VeraClientContextSnapshot;
 }
 
 export interface ClientExtensionComposeAdapter {
@@ -1065,10 +1065,17 @@ async function activateClientExtension(
         }
         return options.experimentalTui;
     };
-    const readContext = (): VeraClientContextSnapshot => {
+    const readContext = (agent?: VeraClientAgentRef): VeraClientContextSnapshot => {
         requireAvailable();
         requireCapability(CLIENT_CONTEXT_CAPABILITY);
-        return options.context?.current() ?? { availability: "unavailable" };
+        if (agent !== undefined && (typeof agent !== "object" || agent === null
+            || typeof agent.agentId !== "string" || agent.agentId.trim().length === 0)) {
+            throw new Error("Client context requires an agent ID");
+        }
+        const snapshot = agent === undefined
+            ? options.context?.current()
+            : options.context?.current({ agentId: agent.agentId });
+        return snapshot ?? { availability: "unavailable" };
     };
     const requireCompose = (): ClientExtensionComposeAdapter => {
         requireAvailable();
@@ -1732,8 +1739,8 @@ async function activateClientExtension(
                 if (options.context?.sources === undefined) throw new Error("This client cannot browse sources");
                 return structuredClone(await options.context.sources(signal ?? invocationSignal.getStore() ?? new AbortController().signal));
             },
-            current(): VeraClientContextSnapshot {
-                return structuredClone(readContext());
+            current(agent?: VeraClientAgentRef): VeraClientContextSnapshot {
+                return structuredClone(readContext(agent));
             },
         }),
         thread: Object.freeze({

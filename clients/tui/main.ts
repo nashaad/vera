@@ -139,6 +139,7 @@ import {
     createTuiClientExtensionHostStarter,
 } from "./client-extension-host.ts";
 import { captureTuiExtensionComposeTarget, type TuiExtensionComposeTarget } from "./client-extension-compose.ts";
+import { tuiContextStateForAgent } from "./client-extension-context.ts";
 import {
     clientExtensionReloadFailed,
     clientExtensionReloadStarted,
@@ -1282,10 +1283,21 @@ export async function startTui(
             currentModelSettings: () => focusedAgentState(rt).modelSettings,
             readSources: (signal) => requestCustomizationSources(rt, signal),
             requestExtension: rt.dependencies.requestExtension,
-            currentContext: () => tuiContextSnapshot(
-                focusedAgentState(rt).context,
-                focusedAgentState(rt).modelSettings,
-            ),
+            currentContext: (agent) => {
+                const sidebar = rt.hostedSidebar.pane;
+                const state = agent === undefined
+                    ? focusedAgentState(rt)
+                    : tuiContextStateForAgent(
+                        agent,
+                        { agentId: rt.client.agentId, state: rt.state },
+                        sidebar === undefined
+                            ? undefined
+                            : { agentId: sidebar.agentId, state: sidebar.state.state },
+                    );
+                return state === undefined
+                    ? { availability: "unavailable" }
+                    : tuiContextSnapshot(state.context, state.modelSettings);
+            },
             compose: {
                 capture(): TuiExtensionComposeTarget | undefined {
                     const target = rt.extensionAgentTarget.getStore()?.target;

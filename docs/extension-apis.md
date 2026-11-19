@@ -50,6 +50,23 @@ host does while the client is still connected.
 | `vera.thread.loadEarlier(signal?)` | `client.thread.read` | Loads the next older part of the conversation. Resolves at once when none is left. |
 | `vera.ui.reveal(target)` | `client.ui.reveal` | Loads earlier history as needed and scrolls to an entry, or to the end. Resolves to whether it landed. |
 | `vera.ui.registerNoticeRenderer(render)` | `client.ui.notice` | Puts a notice your host half raised with facts into one line. See [Word a notice](#word-a-notice). |
+| `vera.context.current(agent?)` | `client.context.read` | Reads a local context snapshot for the focused or a visible agent. See [Read a context snapshot](#read-a-context-snapshot). |
+
+### Read a context snapshot
+
+`context.current()` reads the focused conversation's latest local context
+snapshot without a host request. Pass an agent reference to read a visible
+agent instead, regardless of focus. `agents.visible()` requires the
+`client.agents` capability.
+
+```ts
+const focused = vera.context.current();
+const main = vera.agents.visible().find((agent) => agent.pane === "main");
+const mainContext = main === undefined ? undefined : vera.context.current(main);
+```
+
+In the TUI, a reference to an agent that is not visible returns a snapshot
+with `availability: "unavailable"`. The returned snapshot is a copy.
 
 ### Read the transcript
 
