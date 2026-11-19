@@ -659,6 +659,7 @@ export function createTuiModelSwitcherView(
                     label: entry.row.label,
                     note: `· ${switcherRowProvider(entry.row)}`,
                     ...(meta === undefined ? {} : { meta }),
+                    showCursor: true,
                     active: entry.index === state.selectedIndex,
                     current: modelSwitcherKey(entry.row) === state.current,
                     ...dialogRowPointer(view.pointer, entry.index),
