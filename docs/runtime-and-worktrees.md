@@ -202,8 +202,11 @@ question is marked `[Y]`, Enter means yes. Without a terminal, every question
 is answered yes, so Vera still starts, with one exception. When a host still
 answers but its lock file is missing, or when a repair after a failed start
 would stop a host that still answers, the question is answered no: boot fails,
-leaves the host running and names `vera host reset`. A host that holds its lock
-but does not respond properly is still restarted.
+leaves the host running and names `vera host reset`. The host a start has just
+launched is not such a case: a lock published in the last half minute is
+treated as a host that is still starting, and the check waits for it and
+attaches instead of asking. Only when that host has been up longer and still
+does not answer is it treated as unresponsive and restarted when you agree.
 
 When an open TUI reconnects, startup checks with a repair or warning appear as
 one notice in the TUI instead. The checks are also recorded in its client

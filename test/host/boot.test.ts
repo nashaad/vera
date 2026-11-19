@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { BootFailedError, bootResidentHost, renderBootBox, type BootCheck, type BootDependencies, type BootInspection, type BootQuestion, type HostMode } from "../../src/host/boot.ts";
-import { HostReplacementBusyError } from "../../src/host/discovery.ts";
+import { HostReplacementBusyError, HostStartDeadlineError } from "../../src/host/discovery.ts";
 import { HostBuildMismatchError, HostLockUnreadableError, HostProtocolMismatchError, HostUnresponsiveError, type HostLockRecord } from "../../src/host/lockfile.ts";
 
 const clean: BootInspection = { home: "/h/.vera", hostAnswers: false, lock: "absent", orphans: 0, unproven: 0, bootLoop: false };
@@ -107,6 +107,78 @@ test("an answering host with a missing lock is recovered when the user agrees", 
     });
     expect(started.pid).toBe(52);
     expect(calls).toEqual(["inspect", "ask:stop_answering_host", "recover", "start:default"]);
+});
+
+test("@core a host still starting when the first wait ends is attached instead of being stopped", async () => {
+    const startedAt = new Date().toISOString();
+    let published = false;
+    let inspects = 0;
+    const { deps, calls, rendered } = harness(clean, [
+        () => { published = true; throw new HostStartDeadlineError(); },
+        host(51),
+    ]);
+    const started = await bootResidentHost({
+        ...deps,
+        hostPublished: async () => published,
+        hostAnswer: async () => published ? { pid: 51, started_at: startedAt } : undefined,
+        inspect: async () => {
+            calls.push("inspect");
+            inspects += 1;
+            return inspects === 1
+                ? clean
+                : { ...clean, lock: "live" as const, hostAnswers: false, hostStartedAt: startedAt };
+        },
+    });
+    expect(started.pid).toBe(51);
+    expect(calls).toEqual(["inspect", "start:default", "inspect", "start:default"]);
+    expect(calls).not.toContain("ask:stop_answering_host");
+    expect(rendered).toEqual([]);
+});
+
+test("@core a host that finished starting before the next look is attached", async () => {
+    const startedAt = new Date().toISOString();
+    let published = false;
+    let inspects = 0;
+    const { deps, calls } = harness(clean, [
+        () => { published = true; throw new HostStartDeadlineError(); },
+        host(51),
+    ]);
+    const started = await bootResidentHost({
+        ...deps,
+        hostPublished: async () => published,
+        hostAnswer: async () => ({ pid: 51, started_at: startedAt }),
+        inspect: async () => {
+            calls.push("inspect");
+            inspects += 1;
+            return inspects === 1
+                ? clean
+                : { ...clean, lock: "live" as const, hostAnswers: true, hostStartedAt: startedAt };
+        },
+    });
+    expect(started.pid).toBe(51);
+    expect(calls).toEqual(["inspect", "start:default", "inspect", "start:default"]);
+    expect(calls).not.toContain("ask:stop_answering_host");
+});
+
+test("@core a live host older than the cold-start window is still confirmed before recovery", async () => {
+    const startedAt = new Date(Date.now() - 5 * 60_000).toISOString();
+    let inspects = 0;
+    const { deps, calls } = harness(clean, [() => { throw new HostStartDeadlineError(); }], {
+        answers: { stop_answering_host: false },
+    });
+    await expect(bootResidentHost({
+        ...deps,
+        hostAnswer: async () => ({ pid: 51, started_at: startedAt }),
+        inspect: async () => {
+            calls.push("inspect");
+            inspects += 1;
+            return inspects === 1
+                ? clean
+                : { ...clean, lock: "live" as const, hostAnswers: false, hostStartedAt: startedAt };
+        },
+    })).rejects.toThrow("vera host reset");
+    expect(calls).toContain("ask:stop_answering_host");
+    expect(calls).not.toContain("recover");
 });
 
 test("@core a host that starts answering after inspection is not recovered after a start failure", async () => {
