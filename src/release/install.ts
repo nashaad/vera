@@ -1,5 +1,6 @@
 import { activateRelease } from "./activate.ts";
 import { reconcileColdHost } from "./cold-host-reconcile.ts";
+import { exitAt } from "./exit-at.ts";
 import { currentReleaseBuildId, launcherPath } from "./layout.ts";
 import type { ReleaseManifest } from "./manifest.ts";
 import {
@@ -52,6 +53,16 @@ export interface ActivatedInstall {
 
 export type InstallOutcome = ActivatedInstall | HandOffOutcome;
 
+// Stopping the host from inside one of its sessions would end the command too, so that case keeps the hand-off.
+export function isHotUpdate(live: HostLockRecord, hotHandOff?: boolean): boolean {
+    return hotHandOff ?? (targetPidIsAncestor(live.pid) === true || process.env.VERA_HOT_UPDATE === "1");
+}
+
+// True when moving to buildId stops the running host and waits for its turns first.
+export function updateStopsHost(live: HostLockRecord | undefined, buildId: string): live is HostLockRecord {
+    return live !== undefined && live.build_id !== buildId && !isHotUpdate(live);
+}
+
 const startHostForInstall: StartHost = (releaseRoot, recorder) =>
     defaultEnsureHost(releaseRoot, { operation: "install", recorder });
 
@@ -73,6 +84,7 @@ export async function installRelease(options: InstallReleaseOptions): Promise<In
             await stopLeftoverPoolWorkers(veraHomeDirectory());
         }
         activateRelease(packed.releaseRoot, prefix);
+        exitAt("install:activated");
         await reconcileColdHost(prefix, readLiveHost, options.stopHost ?? stopResidentHostWhenIdle);
         return {
             kind: "activated",
@@ -84,15 +96,15 @@ export async function installRelease(options: InstallReleaseOptions): Promise<In
     }
     assertPrefixMayManageHost(prefix, "install");
     const insideSession = targetPidIsAncestor(live.pid) === true;
-    // Stopping the host from inside one of its sessions would end this command too, so that case keeps the hand-off.
-    const hot = options.hotHandOff ?? (insideSession || process.env.VERA_HOT_UPDATE === "1");
-    if (!hot) {
+    if (!isHotUpdate(live, options.hotHandOff)) {
         const stopped = await stopForColdUpdate(live, options, report);
         if (stopped !== undefined) return stopped;
+        exitAt("install:host-stopped");
         if ((await readRecordedWorkers(veraHomeDirectory())).length > 0) {
             await stopLeftoverPoolWorkers(veraHomeDirectory());
         }
         activateRelease(packed.releaseRoot, prefix);
+        exitAt("install:activated");
         await reconcileColdHost(prefix, readLiveHost, options.stopHost ?? stopResidentHostWhenIdle);
         report(`Installed ${buildId}. The next 'vera' starts it and runs the startup check.`);
         return {

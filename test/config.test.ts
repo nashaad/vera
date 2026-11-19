@@ -62,6 +62,25 @@ test("Vera config persists and clears the global context limit", () => {
         .not.toHaveProperty("context_limit");
 });
 
+test("@core a settings save through the config writer keeps the update mode", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "anthropic/example-model",
+        updates: { mode: "automatic" },
+    }));
+
+    expect(loadVeraConfig({ path }).model).toBe("anthropic/example-model");
+    updateVeraConfigDefaults({ model: "anthropic/other-model" }, { path });
+    updateVeraConfigDefaults({ context_limit: 100_000 }, { path });
+
+    const saved = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    expect(saved.model).toBe("anthropic/other-model");
+    expect(saved.updates).toEqual({ mode: "automatic" });
+    expect(loadVeraConfig({ path }).model).toBe("anthropic/other-model");
+});
+
 test("Vera config loads named provider instances", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({

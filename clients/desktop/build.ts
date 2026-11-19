@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { CATALOG_TASK_FILE } from "./src/extension-catalog/task-protocol.ts";
 import { DESKTOP_MANIFEST_FILENAME, parseDesktopManifest } from "../ui/src/extensions/manifest.ts";
 import { EXTENSION_TASK_FILE } from "./src/extension-install/task-protocol.ts";
+import { releaseBuildId } from "../../src/release/build-id.ts";
+import { DESKTOP_BUILD_ID_SYMBOL } from "./src/client-build.ts";
 import { ASSIGNMENT_TASK_FILE } from "./src/model-assignments/task-protocol.ts";
+import { UPDATE_TASK_FILE } from "./src/update/task-protocol.ts";
 
 const root = import.meta.dir;
 
@@ -13,9 +16,11 @@ function argument(name: string): string | undefined {
     return at === -1 ? undefined : process.argv[at + 1];
 }
 
-// `--out <folder>` builds an app folder of its own; `--catalog-url <url>` fixes the extension catalog this build reads.
+// `--out <folder>` builds an app folder of its own; `--catalog-url <url>` fixes the extension catalog this build reads;
+// `--build-id <id>` stamps the build the desktop compares with the installed release (default: this checkout's build id).
 const appFolder = argument("--out") ?? root;
 const catalogUrl = argument("--catalog-url");
+const buildId = argument("--build-id") ?? sourceBuildId();
 const out = join(appFolder, "dist");
 if (appFolder !== root) {
     mkdirSync(appFolder, { recursive: true });
@@ -25,6 +30,9 @@ if (appFolder !== root) {
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
+const define: Record<string, string> = {};
+if (catalogUrl !== undefined) define.__VERA_CATALOG_URL__ = JSON.stringify(catalogUrl);
+if (buildId !== undefined) define[DESKTOP_BUILD_ID_SYMBOL] = JSON.stringify(buildId);
 const main = await Bun.build({
     entrypoints: [join(root, "src", "main.ts")],
     outdir: out,
@@ -32,7 +40,7 @@ const main = await Bun.build({
     format: "esm",
     external: ["electron"],
     naming: "[name].[ext]",
-    define: catalogUrl === undefined ? {} : { __VERA_CATALOG_URL__: JSON.stringify(catalogUrl) },
+    define,
 });
 if (!main.success) fail(main.logs);
 
@@ -51,6 +59,7 @@ const TASKS = [
     { entry: join(root, "src", "model-assignments", "worker.ts"), file: ASSIGNMENT_TASK_FILE },
     { entry: join(root, "src", "extension-install", "worker.ts"), file: EXTENSION_TASK_FILE },
     { entry: join(root, "src", "extension-catalog", "worker.ts"), file: CATALOG_TASK_FILE },
+    { entry: join(root, "src", "update", "worker.ts"), file: UPDATE_TASK_FILE },
 ];
 async function bundleTask(entry: string, outdir: string, file: string): Promise<void> {
     const bundle = await Bun.build({ entrypoints: [entry], outdir, target: "node", format: "cjs", external: ["electron"], naming: file });
@@ -118,6 +127,16 @@ cpSync(join(root, "..", "..", "src", "providers", "definitions"), join(out, "def
 // Desktop extensions that ship with the app: one folder each, with its vera.desktop.json at the root.
 const included = join(root, "extensions");
 if (existsSync(included)) cpSync(included, join(out, "extensions"), { recursive: true });
+
+// The id a release packed from this checkout carries, so the installed-build check compares like with like.
+function sourceBuildId(): string | undefined {
+    try {
+        return releaseBuildId(join(root, "..", ".."));
+    } catch (error) {
+        console.warn(`No desktop build id: ${error instanceof Error ? error.message : String(error)}`);
+        return undefined;
+    }
+}
 
 function fail(logs: readonly unknown[]): never {
     for (const log of logs) console.error(log);

@@ -37,16 +37,29 @@ full-width title bar and no status bar.
   page in the window to show where something is; see Chat tabs.
   The host build stays on screen after the connection drops; the live
   values do not. The theme is chosen from the View menu.
+  When a newer Vera has been found, a chip under the connection state reads
+  Update available, or Update ready when the update is already downloaded, and
+  Updating while an update runs. It opens the update sheet; see Updates.
 - A banner under the main header appears when there is no connection or the
   startup check has a question. A lost connection offers Reconnect. A host that
   did not start and a missing install offer Try again and Run doctor, which opens
   the health check described under Sheets. The banner shows the reason; long
-  reasons scroll inside it. A bundled release that could not be installed, when
-  a working `vera` command was already there, shows a warning banner with the
-  reason and a Dismiss button instead.
+  reasons scroll inside it.
 - While Browser tools are on, a notice at the bottom of the window says Vera can
   open, read and act on pages in the Browser and offers Turn off. The notice
   stays in every view until the tools are turned off.
+- When the host announces a restart for an update, the banner says `Vera is
+  restarting`. The window reconnects by itself once the host closes and the new
+  host answers, and the draft in the composer stays unless the window relaunches
+  into a newer build, which does not keep it. The host sends the notice
+  on an open conversation's connection, so a window with no conversation open
+  sees the connection drop and offers Reconnect. When a host of another build
+  is already answering, as after `vera rollback`, that window reconnects by
+  itself within a few seconds.
+- When the installed Vera is another build than the app, the app relaunches
+  itself into the matching desktop package and reopens the conversation it
+  showed. When it cannot, the banner says `Vera was updated` and shows the build
+  of each. It offers no button: quit and reopen Vera.
 
 While attached, the app asks the host for its identity and session count every
 three seconds. A reply that does not arrive, or a host that closes the
@@ -180,6 +193,8 @@ window.
     time it attached. Other clients attached to the same host are not listed.
   - Keyboard lists every shortcut by group with a search box. Shortcuts cannot
     be changed.
+  - Updates chooses how the window handles new versions: Ask, Automatic or Off,
+    with Check now. It is described under Updates.
   - Show, under Desktop, has one row per part of the window that can be hidden,
     each with Auto, On and Off, or On and Off where Auto does not apply. It is
     described under Showing parts of the window.
@@ -1187,7 +1202,7 @@ available, or in the system browser when there is no pane or it cannot take
 another page. Links to websites are not opened.
 
 The command palette's Pages group lists Vera's pages. `/usage` opens Usage in
-the right pane. Usage and Runs have Reload and Open in your browser.
+the right pane. Usage and Workflow runs have Reload and Open in your browser.
 
 The pointer button at the right of the address bar opens the included browser
 annotation tool for the open session. Select an element or draw on a website,
@@ -1206,33 +1221,129 @@ The command is found in this order:
 
 1. `VERA_DESKTOP_DEV_CLI`, used by `bun run dev:desktop` so a checkout runs its
    own CLI. `VERA_DESKTOP_BUN` names the Bun executable, defaulting to `bun`.
+   `VERA_DESKTOP_LAUNCHER` is the matching variable for the app shell: it names
+   the `vera` launcher the shell follows instead of `~/.local/bin/vera`, for
+   development and tests only. `VERA_DESKTOP_UPDATE_COMMAND` names the
+   executable that runs `vera update` for the window's Updates, for tests only;
+   see Updates.
 2. The installed launcher at `~/.local/bin/vera`.
 3. Nothing. The banner says `Vera is not installed`, names the path it checked,
-   and offers Reconnect.
+   and offers Try again and Run doctor.
 
-The app installed from the disk image carries a Vera release, and before it
-looks for the command it installs that release as the `vera` command when the
-command is missing, does not run, or runs an older release. The release goes
-under `~/.local/share/vera/` and the launcher at `~/.local/bin/vera`, the same
-place the release installer uses, and the install does not stop a running host:
-a host that is already running keeps its own build until it is restarted. While
-the install runs, the connection state at the bottom of the sidebar reads
-`Installing Vera…`, and it reads Starting again once the host boots. When the
-command already runs that release or a newer one, nothing is installed.
+The desktop app requires an installed `vera` command and does not install or
+update it on launch. Install Vera as described in [Installation and
+upgrades](installation.md), then choose Try again if the app reports it missing.
+A checkout run uses its own CLI.
 
-If the install fails and a working `vera` command was already there, the app
-starts with that command and shows the banner `Vera could not install its
-bundled release` with the reason and a Dismiss button. The banner stays until
-it is dismissed or the connection is restarted. If it fails and no working
-command exists, the banner says `Vera did not start` with the reason and offers
-Try again and Run doctor. In both cases the command you had is left as it was.
-Running the app from a checkout with `bun run dev:desktop` installs nothing.
-See [Install from the disk image](installation.md#install-from-the-disk-image).
+Before it runs that command, on first start and on Reconnect, the app compares
+its own build with the installed release's. The build stamped into the app is
+the id a release packed from the same commit carries. When the two differ, the
+app starts no host. When the app runs under the app shell and a desktop package
+is installed for the installed build, that the shell can load, the app closes its
+connections, drops its hold on the package it was using and starts itself again
+through the shell, which opens that package. The new window reopens the
+conversation the old one showed, if the session list carries it, with the text
+that conversation's composer held, up to 64 KiB. Attached images are not carried.
+It does not ask about background commands in open conversations, which keep
+running on the host.
+When there is no such package, when the package needs a newer app shell, or when
+the app runs from a checkout, the banner says `The installed Vera is now build
+<installed-build>, and this desktop app is build <app-build>. Quit and reopen
+Vera to continue.` The same rule decides this for the terminal UI, which words
+it for the terminal. The check is skipped when the app has no stamped build and
+when no release is installed. It is also skipped when `VERA_DESKTOP_DEV_CLI` is
+set and the app is not under the shell, because that run starts the host from the
+checkout and not from the installed release. Under the shell the installed build
+is read from the shell's own prefix.
 
 `VERA_HOME` is inherited unchanged, so a trial home attaches to that home's
 host and writes nothing outside it. The app's own Chromium user data, including
 the saved theme, lives under `machine/desktop` in that same home, beside the saved
 layout.
+
+## The app shell and the desktop package
+
+`Vera.app` is a small shell that rarely changes. It finds the installed `vera`
+command, follows it to the release the install's `current` link names, and opens
+the desktop package installed for that host build, the newest one when several
+are installed. The package holds the window, its preload and the task workers
+and sits under `~/.local/share/vera/desktop/<host build id>/<desktop version>/`.
+While the app runs it records that it uses the package, so a cleanup does not
+remove it. A relaunch into a newer build goes through the shell, so the shell
+opens the package for the build `current` names then.
+
+A package names the shell API it needs in `desktop-package.json` as
+`shell_api`, and a package without one needs API 1. This shell offers API 1 and
+refuses a package that needs a higher one.
+
+When there is no usable package for the current host build, the shell opens one
+plain window instead of the app, and the window says one of these:
+
+- `Vera is not installed. Run the Vera installer, then open the desktop app again.`
+  when no `vera` command or no current release is found.
+- `The Vera desktop app for build <id> is not installed. Run the Vera installer again to add it.`
+  when no package matches the current host build.
+- `The Vera desktop app for build <id> needs a newer app shell. Run the Vera installer again to update it.`
+  when the newest package needs a higher shell API.
+- `The Vera desktop app for build <id> could not start (<reason>). Run the Vera installer again.`
+  when the package was found but failed to load.
+
+A release carries `vera-desktop-darwin-<arch>.tar.gz` for the package and
+`vera-desktop-shell-darwin-<arch>.tar.gz` for the shell, each with a `.sha256`
+file. From a checkout, `bun run desktop:release --release <host tarball>` builds
+both for the machine's architecture into `dist/desktop-release`, and `--out`
+picks another folder. The shell is signed ad hoc and is not notarized.
+
+## Updates
+
+One update moves the host and the desktop package to the newest release
+together. When the new package needs a newer app shell, the update replaces
+`Vera.app`; when the shell cannot be replaced, the update is held and nothing
+switches. The window runs the same `vera update` command as the terminal:
+`vera update --check --json` to look for a release and `vera update --json` to
+install it. A window started from a checkout has no installed launcher to run,
+so it offers no update; it runs the one named by `VERA_DESKTOP_UPDATE_COMMAND`
+when that variable names an executable.
+
+The window checks when it starts and every 6 hours, and Check now in Settings >
+Updates checks at once. When a check finds a newer release, or one already
+downloaded, the sidebar shows the chip described under The window. Picking it
+opens the Update Vera sheet. The sheet says which version you have and which is
+available, that running work finishes first and that the window then restarts on
+the new version with this conversation, and offers Update now and Later. Later
+closes the sheet and leaves the chip.
+
+After Update now the sheet shows the stage the update is in:
+
+- Checking for the update, and Downloading with the bytes received and the
+  download's size when it is known. Cancel is offered.
+- Waiting for running work to finish, listing the sessions it waits on and how
+  long it has waited out of the time limit. Cancel is offered.
+- Switching to the new version. Nothing can be cancelled from here.
+
+The outcome replaces the stage. Done says the update installed and the window
+starts itself again through the app shell as described under Finding the host,
+reopening the conversation with its draft. Held shows the reason the command
+gave. A failed or cancelled update says nothing was changed; a failed one offers
+Try again, and a cancelled one offers Update now. Close clears the outcome.
+
+Settings > Updates has three choices, kept as `updates.mode` in the home's
+`config.json`, so the terminal reads the same one:
+
+- Ask, the default, shows the chip when a newer release is found.
+- Automatic downloads a newer release in the background when a check finds it.
+  The chip then reads Update ready, and switching still waits for Update now.
+- Off shows no chip and checks nothing, and Check now is disabled.
+
+Choosing Off while a download runs in the background stops it. Choosing Ask or
+Automatic after Off checks at once.
+
+The window's main process runs none of this. Each check, each mode change and
+each update runs in its own short-lived task process, started when asked and
+stopped when it answers, so a window that never checks holds no update code in
+memory. The window reads the mode and writes it back through the same task
+process, never in the main process. Cancel signals the update command, which
+stops before the switch and reports that nothing changed.
 
 ## Boot questions
 
@@ -1686,6 +1797,7 @@ node clients/desktop/test/browser.e2e.mjs
 node clients/desktop/test/artifact-pane.e2e.mjs
 node clients/desktop/test/pages.e2e.mjs
 node clients/desktop/test/themes.e2e.mjs
+node clients/desktop/test/relaunch.e2e.mjs
 ```
 
 `bun run test:desktop` builds the app once and runs every
@@ -1699,15 +1811,6 @@ the runner stops any host a script left behind.
 
 `bun run typecheck` also checks the shared UI and `test/desktop`;
 `typecheck:desktop` checks the Electron layer.
-
-`bun run desktop:dmg` builds the macOS disk image for this machine's chip. It
-builds the app, packs a release from the checkout, puts both in a copy of
-Electron renamed Vera, signs the app ad hoc and writes
-`Vera-<platform>-<arch>.dmg` to `dist/desktop-dmg`. `--release <file>` uses an
-existing release file instead of packing one, and `--out <dir>` picks the
-folder. The app's icon is the Vera mark from `docs/site/public/favicon.svg`,
-drawn onto an `.icns` file during the build. It runs on macOS only and does not
-install or open anything.
 
 `bun run desktop:tour` builds the app and walks it in a visible window against a
 throwaway home and a scripted provider. It saves one screenshot per step and a
@@ -1774,6 +1877,17 @@ work, that the readonly mode shows on the sidekick, that no task process runs at
 launch, that each request of the extension-state read starts one and none is left,
 and that with `vera.btw` turned off in `config.json` the menu has no `/btw`.
 
+The updates test launches the app on a throwaway Vera home with a mock keychain
+and names a fake `vera` command in
+`VERA_DESKTOP_UPDATE_COMMAND` that prints the update command's JSON. It checks
+that the check at launch shows the chip and starts one task process, that each
+check and each update starts one and none is left, that the sheet shows the
+versions, the download, the wait with the sessions' titles and Cancel, the
+switch and each outcome, that a failed update keeps the chip and offers Try
+again, that Settings > Updates writes `updates.mode` to the home's `config.json`,
+that Off shows no chip and runs no command, and that Automatic downloads in the
+background and the chip then reads Update ready.
+
 The themes test launches the app on a throwaway home with a fake VS Code
 extensions folder and a stubbed file picker. It imports a theme file from Settings >
 Appearance, checks the switch, a mapped color on the page, the saved file and
@@ -1784,6 +1898,13 @@ installed list, filters it and chooses a theme from it (checking the list holds 
 file path), closes the list with Escape, counts the Vera Theme Import processes
 at each step, relaunches to check the imported theme is remembered, and
 removes the saved file to check the window falls back to Dark.
+
+The relaunch test builds two desktop packages for two build ids into a throwaway
+install prefix and starts the app shell on the first. It switches the prefix's
+`current` link to the second, chooses Reconnect, and checks the first process
+exits and drops its hold, the new process loads the second package, the same
+conversation is open and attached, and the banner does not appear. It stops the
+processes and the host it started.
 
 The compose test runs a local provider that streams fixed replies and points a
 throwaway home's only model at it. It starts a session from New Chat in a folder
@@ -1882,7 +2003,7 @@ session menu without a sheet, waiting for the result line. From a sidebar row's
 and forward between them, hides and shows the tree, unpins it from the
 right-click menu, clones it and closes the copy.
 
-The Browser tests check that websites open in Browser and that Usage, Runs
+The Browser tests check that websites open in Browser and that Usage, Workflow runs
 and Artifacts open in app page panes. They exercise typed app-page addresses,
 annotation controls and blocked annex requests from Browser.
 

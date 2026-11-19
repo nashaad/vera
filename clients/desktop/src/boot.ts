@@ -1,26 +1,15 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 
+import { installedBuildChangedMessage, type InstalledBuildMismatch } from "../../shared/installed-build.ts";
 import type { DesktopEvent } from "../../ui/src/protocol/bridge.ts";
+import { desktopBuildMismatch } from "./build-check.ts";
 import { resolveBootCommand } from "./vera-command.ts";
 import { HOST_REQUESTER_KIND_ENV } from "../../../src/host/requester.ts";
 
 const IDLE_TIMEOUT_MS = 60_000;
 const KILL_GRACE_MS = 2_000;
 const STDERR_TAIL_BYTES = 4_096;
-
-export interface PreflightHooks {
-    // The preflight is about to replace the Vera command; the window shows an installing state until it returns.
-    readonly installing: () => void;
-}
-
-// `continue` boots with the Vera command in place, and a notice is shown beside the attached window.
-export type PreflightResult =
-    | { readonly kind: "continue"; readonly notice?: string }
-    | { readonly kind: "stop"; readonly message: string };
-
-// Runs before the Vera command is resolved.
-export type BootPreflight = (hooks: PreflightHooks) => Promise<PreflightResult>;
 
 export class BootSession {
     private child: ChildProcessWithoutNullStreams | undefined;
@@ -30,48 +19,33 @@ export class BootSession {
     private started = false;
     private finished = false;
     private cancelled = false;
-    private installing = false;
 
     constructor(
         private readonly home: string,
         private readonly emit: (event: DesktopEvent) => void,
-        private readonly preflight?: BootPreflight,
+        private readonly buildMismatch: () => InstalledBuildMismatch | undefined = desktopBuildMismatch,
     ) {}
 
     start(): void {
         if (this.started) throw new Error("A boot session runs once; create another to reconnect.");
         this.started = true;
         this.emit({ type: "phase", phase: "starting" });
-        if (this.preflight === undefined) {
-            this.launch();
-            return;
-        }
-        void this.preflight({ installing: () => this.showInstalling() }).then(
-            (result) => this.afterPreflight(result),
-            (error: unknown) => this.afterPreflight({ kind: "stop", message: messageOf(error) }),
-        );
-    }
-
-    private showInstalling(): void {
-        if (this.cancelled || this.finished || this.installing) return;
-        this.installing = true;
-        this.emit({ type: "phase", phase: "installing" });
-    }
-
-    private afterPreflight(result: PreflightResult): void {
-        if (this.cancelled) return;
-        if (result.kind === "stop") {
-            this.finished = true;
-            this.emit({ type: "failed", message: result.message });
-            return;
-        }
-        if (result.notice !== undefined) this.emit({ type: "install_notice", message: result.notice });
-        // The host boot that follows is the connecting state again.
-        if (this.installing) this.emit({ type: "phase", phase: "starting" });
         this.launch();
     }
 
     private launch(): void {
+        const mismatch = this.buildMismatch();
+        if (mismatch !== undefined) {
+            this.finished = true;
+            this.emit({
+                type: "build_changed",
+                message: installedBuildChangedMessage("desktop app", mismatch),
+                clientBuildId: mismatch.clientBuildId,
+                installedBuildId: mismatch.installedBuildId,
+            });
+            return;
+        }
+
         const resolution = resolveBootCommand();
         if ("missing" in resolution) {
             this.finished = true;

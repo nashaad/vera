@@ -12,9 +12,9 @@ import type { ExtensionChangeResult, ExtensionPreviewResult } from "./extensions
 import type { ExtensionCommandResult } from "./extension-commands.ts";
 import type { BrowserBounds, BrowserState } from "../browser/native-types.ts";
 import type { AgentInfo, SkillInfo, SourceInfo } from "../customize/wire.ts";
+import type { UpdateAction, UpdateState } from "./updates.ts";
 
-// "installing" is the packaged app putting its bundled release in place before it connects.
-export type DesktopPhase = "starting" | "installing" | "waiting" | "attached";
+export type DesktopPhase = "starting" | "waiting" | "attached";
 
 export interface LocalPreviewScope {
     readonly ok: true;
@@ -36,8 +36,6 @@ export type DesktopEvent =
         readonly home: string;
     }
     | { readonly type: "question"; readonly id: string; readonly text: string }
-    // The bundled release could not be installed and the Vera already on the machine is used instead.
-    | { readonly type: "install_notice"; readonly message: string }
     | { readonly type: "frame"; readonly text: string }
     // False while the window is hidden or minimized.
     | { readonly type: "window_shown"; readonly shown: boolean }
@@ -53,7 +51,18 @@ export type DesktopEvent =
         readonly type: "missing_cli";
         readonly message: string;
         readonly checked: readonly string[];
-    };
+    }
+    // The installed release is another build than this app, so the app did not start its host.
+    | {
+        readonly type: "build_changed";
+        readonly message: string;
+        readonly clientBuildId: string;
+        readonly installedBuildId: string;
+    }
+    // The window was relaunched into the installed build; the page opens the session the last window showed,
+    // and puts the composer text that window held back in its composer.
+    | { readonly type: "reopen_session"; readonly agentId: string; readonly draft?: string }
+    | { readonly type: "update_state"; readonly state: UpdateState };
 
 // The most folder paths one existence check accepts.
 export const MAX_FOLDER_CHECKS = 64;
@@ -294,6 +303,13 @@ export interface DesktopBridge {
     // Sends one request line on the pane's watch connection, such as a history page request.
     sendSession(pane: SessionPane, text: string): void;
     unwatchSession(pane: SessionPane): void;
+    // Tells the shell which session the page shows, so a relaunch can reopen it. Undefined on any other page.
+    reportSessionShown(agentId: string | undefined): void;
+    // Tells the shell what the main composer of the shown session holds, so an update relaunch can hand it to the next window.
+    reportComposerDraft(agentId: string | undefined, text: string): void;
+    // The shell's current update state; later changes arrive as `update_state` events.
+    updateState(): Promise<UpdateState | undefined>;
+    updateAct(action: UpdateAction): void;
     // Starts a new session holding the conversation before one of the source session's prompts.
     branchSession(agentId: string, boundaryId: string): Promise<BranchSessionResult>;
     // Starts a new session holding a copy of the whole conversation. The result's prompt is empty.

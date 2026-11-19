@@ -8,6 +8,7 @@ export const CHANNELS = {
     sessionWatch: "vera:session-watch",
     sessionSend: "vera:session-send",
     sessionUnwatch: "vera:session-unwatch",
+    sessionShown: "vera:session-shown",
     titleBar: "vera:title-bar",
     windowBackground: "vera:window-background",
     windowClosing: "vera:window-closing",
@@ -71,5 +72,8 @@ export const CHANNELS = {
     annexPages: "vera:annex-pages",
     annexOpen: "vera:annex-open",
     browser: "vera:browser",
+    update: "vera:update",
+    updateState: "vera:update-state",
+    composerDraft: "vera:composer-draft",
     event: "vera:event",
 } as const;

@@ -6,7 +6,6 @@ export interface HostBannerProps {
     readonly banner: BannerState;
     readonly onAnswer: (id: string, yes: boolean) => void;
     readonly onReconnect: () => void;
-    readonly onDismiss: () => void;
 }
 
 function BannerIcon({ tone }: { readonly tone: Tone }) {
@@ -15,7 +14,7 @@ function BannerIcon({ tone }: { readonly tone: Tone }) {
     return <InfoIcon className="banner-icon" />;
 }
 
-export function HostBanner({ banner, onAnswer, onReconnect, onDismiss }: HostBannerProps) {
+export function HostBanner({ banner, onAnswer, onReconnect }: HostBannerProps) {
     return (
         <section
             className="banner"
@@ -45,16 +44,12 @@ export function HostBanner({ banner, onAnswer, onReconnect, onDismiss }: HostBan
                             No
                         </button>
                     </>
-                ) : banner.kind === "install_notice" ? (
-                    <button type="button" className="button" onClick={onDismiss}>
-                        Dismiss
-                    </button>
-                ) : (
+                ) : banner.kind === "outdated" ? null : (
                     <>
                         <button type="button" className="button" onClick={onReconnect}>
-                            {banner.kind === "disconnected" ? "Reconnect" : "Try again"}
+                            {banner.kind === "disconnected" || banner.kind === "restarting" ? "Reconnect" : "Try again"}
                         </button>
-                        {banner.kind === "disconnected" ? null : (
+                        {banner.kind === "disconnected" || banner.kind === "restarting" ? null : (
                             <button type="button" className="button" onClick={() => openOverlay("doctor")}>
                                 Run doctor
                             </button>

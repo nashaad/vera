@@ -309,6 +309,23 @@ jobs:
             dist/vera-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz.sha256
           if-no-files-found: error
 
+      - name: Build the desktop package and app shell from the host tarball
+        if: matrix.platform == 'darwin'
+        run: |
+          set -eu
+          (cd clients/desktop && bun install --frozen-lockfile)
+          bun run desktop:release \
+            --release "dist/vera-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" \
+            --out dist/desktop
+
+      - name: Upload desktop package and app shell
+        if: matrix.platform == 'darwin'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vera-desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/desktop/*
+          if-no-files-found: error
+
   linux-release-smoke:
     name: Smoke test release tarball in a clean Linux container
     needs: validate-request

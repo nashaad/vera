@@ -22,6 +22,7 @@ import { activeTuiKeymap, isTuiComposerClearKey, tuiBindingId, tuiComposerWordDe
 import { DOUBLE_ESCAPE_REWIND_WINDOW_MS, abortProviderHealthCheck, activeCompletion, activeComposeSuggester, activeFlightSurface, activeOverlayFocus, anyOverlayOpen, applyProviderFormTransition, applyRequestOptionsEditorTransition, applySecretPromptTransition, applySessionRenamePromptTransition, applyOverrideCaution, applyOverridesReset, applySettingsPickerTransition, applyTimelineTransition, availableCommandCompletion, availableCommandSuggestions, beginCreateSession, beginParkToJsonl, beginSessionTrash, closeAdmissionDialog, closeJumpMenu, cycleLiveSession, diagnosticsSnapshot, dialogAdmission, focusActiveSurface, toggleWorkspaceSidebar, forgetProviderCredential, hideModeToast, leaveJsonlCommandMode, modeToastTakesEscape, openCommandPalette, openJumpMenuOverlay, openModelPicker, openResumePicker, openSearchOverlay, renderCommandSuggestions, renderDiagnostics, renderJumpMenu, renderJumpToBottom, renderState, renderStatus, reportConnectionError, requestCloseSession, requestCreateSession, requestPermissionsChange, requestPoolAdmission, resumeJsonlView, returnToHome, runHomeAction, runJumpTo, runPaletteAction, runSearchOverlayAction, runWorkTabAction, sendCommand, showStatusNotice, startProviderHealthCheck, submitPrompt, verificationConsoleRows } from "../main.ts";
 import { abortFocusedAgent, answerStopWaitCard, closeDials, commitDials, focusedAbortRequested, focusedAgentCanAbort, focusedAgentClient, focusedAgentState, focusedUiRequest, openDials, releaseFocusedQueuedPrompts, startAutoModeAnimation, stopAutoModeAnimation, selectAgent } from "../main/agents-dials.ts";
 import { isStopWaitCardUpdate, stopWaitCardUpdate } from "../stop-wait.ts";
+import { cancelUpdateFromKey } from "./update-ops.ts";
 import { captureExtensionInvocation, conversationChanged } from "./extension-invocation.ts";
 import { adoptStandingNudgesState, toggleMainHeader, toggleSidebarHeader } from "../main/chrome.ts";
 import { renderSidebarAgent } from "../main/sidebar-pane.ts";
@@ -1380,6 +1381,22 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         renderCommandSuggestions(rt);
         renderState(rt);
         rt.composer.focus();
+        return;
+    }
+
+    // The update waits on running turns, so Esc stops the wait before it stops a turn.
+    if (
+        key.name === "escape"
+        && !key.ctrl
+        && !key.shift
+        && !key.meta
+        && !key.super
+        && !key.hyper
+        && !anyOverlayOpen(rt)
+        && cancelUpdateFromKey(rt)
+    ) {
+        key.preventDefault();
+        key.stopPropagation();
         return;
     }
 

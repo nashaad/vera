@@ -10,6 +10,9 @@ import { setSessionArchivedThroughHost } from "../../../src/host/session-archive
 import { checkFile, prepareFiles } from "../../../src/attachments/files.ts";
 import { FILE_COUNT_LIMIT } from "../../../src/attachments/file-limits.ts";
 import { selectedVeraHome } from "../../../src/profile-paths.ts";
+import { findDesktopPackage } from "../../../src/release/desktop-packages.ts";
+import { runningDesktopShell } from "../../../src/release/desktop-shell.ts";
+import { takeRelaunchRecord, writeRelaunchRecord } from "../../../src/release/relaunch.ts";
 import type {
     BranchSessionResult,
     CloseSessionResult,
@@ -32,15 +35,19 @@ import { BrowserPane } from "./browser/pane.ts";
 import { BrowserCdp } from "./browser/cdp.ts";
 import { BrowserGateway } from "./browser/gateway.ts";
 import { AssignmentService } from "./assignments.ts";
-import { BootSession, type BootPreflight } from "./boot.ts";
-import { bundledInstallPreflight } from "./install-preflight.ts";
+import { BootSession } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
 import { DEFAULT_DESKTOP_FLAGS, FlagsStore, flagsPath } from "./desktop-flags.ts";
+import { DESKTOP_RELAUNCH_KEY, DesktopRelaunch } from "./relaunch.ts";
 import { CATALOG_TASK_FILE, CATALOG_TASK_SERVICE, parseCatalogReply, type CatalogTask } from "./extension-catalog/task-protocol.ts";
 import { EXTENSION_TASK_FILE, EXTENSION_TASK_SERVICE, parseInstallReply, type InstallTask } from "./extension-install/task-protocol.ts";
 import { catalogAddress } from "./extensions/catalog-address.ts";
 import { ExtensionCatalogService } from "./extensions/catalog-service.ts";
 import { registerExtensionHandlers } from "./extensions/ipc.ts";
+import { UPDATE_TASK_FILE, UPDATE_TASK_SERVICE, parseUpdateTaskReply, type UpdateTask } from "./update/task-protocol.ts";
+import { UPDATE_CHECK_TASK_TIMEOUT_MS, UPDATE_RUN_TASK_TIMEOUT_MS, UpdateService } from "./updates.ts";
+import { registerUpdateHandlers } from "./updates-ipc.ts";
+import { resolveUpdateCommand } from "./vera-command.ts";
 import { migrateSavedThemes } from "./extensions/migrate.ts";
 import { extensionsDirectory, extensionStatePath, includedExtensionsDirectory } from "./extensions/paths.ts";
 import { ExtensionService } from "./extensions/service.ts";
@@ -65,7 +72,6 @@ import {
 } from "./model-requests.ts";
 import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
 import { PinStore, pinsPath } from "./pin-store.ts";
-import { BUNDLED_RELEASE_DIRECTORY } from "./release-install.ts";
 import { readExtensionFailures } from "./extension-requests.ts";
 import { readNewSessionAgents } from "./agent-requests.ts";
 import { readFolderCustomizations } from "./customization-requests.ts";
@@ -113,6 +119,20 @@ let annexReadVersion = 0;
 let browserPane: BrowserPane | undefined;
 let browserGateway: BrowserGateway | undefined;
 
+const relaunch = new DesktopRelaunch({
+    shell: runningDesktopShell,
+    findPackage: findDesktopPackage,
+    writeRecord: (record) => writeRelaunchRecord(DESKTOP_RELAUNCH_KEY, record, selectedVeraHome()),
+    takeRecord: () => takeRelaunchRecord(DESKTOP_RELAUNCH_KEY, Date.now(), selectedVeraHome()),
+    stop: () => shutdown(),
+    release: () => runningDesktopShell()?.release(),
+    restart: () => {
+        app.relaunch();
+        app.exit(0);
+    },
+});
+// The session the window before this one had open, and its composer text; the page is told once the host is attached.
+let sessionToReopen = relaunch.takeReopen();
 const pipe = new HostPipe(sendEvent);
 const flagsStore = new FlagsStore(flagsPath(selectedVeraHome()), app.isPackaged);
 // With Reasoning off the window asks the host for a character count in place of the reasoning text.
@@ -134,6 +154,21 @@ const installTasks = new TaskRunner(() => startTaskProcess<InstallTask>(EXTENSIO
 const extensionService = new ExtensionService(extensionStore, themeService, (task) => installTasks.run(task), () => installMenu());
 const catalogTasks = new TaskRunner(() => startTaskProcess<CatalogTask>(CATALOG_TASK_FILE, CATALOG_TASK_SERVICE), parseCatalogReply);
 const extensionCatalog = new ExtensionCatalogService(catalogAddress(), extensionStore, extensionService, (task) => catalogTasks.run(task));
+
+// A check, a mode change and an update each get a runner, so a long update never holds a mode change in line.
+const updateTasks = (timeoutMs?: number) => new TaskRunner(() => startTaskProcess<UpdateTask>(UPDATE_TASK_FILE, UPDATE_TASK_SERVICE), parseUpdateTaskReply, timeoutMs);
+const updateChecks = updateTasks(UPDATE_CHECK_TASK_TIMEOUT_MS);
+const updateModes = updateTasks();
+const updateRuns = updateTasks(UPDATE_RUN_TASK_TIMEOUT_MS);
+const updates = new UpdateService({
+    home: selectedVeraHome(),
+    command: () => resolveUpdateCommand(),
+    checks: updateChecks,
+    modes: updateModes,
+    runs: updateRuns,
+    emit: (state) => sendEvent({ type: "update_state", state }),
+    relaunch: () => startBoot(),
+});
 
 // One runner per worker file, so runs of the same worker go one at a time.
 const commandRunners = new Map<string, TaskRunner<CommandTask, CommandReply>>();
@@ -166,13 +201,18 @@ function sendEvent(event: DesktopEvent): void {
 }
 
 function receiveEvent(event: DesktopEvent): void {
+    if (event.type === "build_changed" && relaunch.buildChanged(event)) return;
     sendEvent(event);
     if (event.type === "ready") {
         hostSocketPath = event.socketPath;
         pipe.connect(event.socketPath);
         browserGateway?.start(event.socketPath);
         sessionPanes.connect(event.socketPath);
-    } else if (event.type === "disconnected" || event.type === "failed") {
+        if (sessionToReopen !== undefined) {
+            sendEvent({ type: "reopen_session", ...sessionToReopen });
+            sessionToReopen = undefined;
+        }
+    } else if (event.type === "disconnected" || event.type === "failed" || event.type === "build_changed") {
         hostSocketPath = undefined;
         annexReadVersion += 1;
         annexUrl = undefined;
@@ -190,14 +230,8 @@ function startBoot(): void {
     browserGateway?.stop();
     pipe.close();
     sessionPanes.close();
-    boot = new BootSession(selectedVeraHome(), receiveEvent, installPreflight());
+    boot = new BootSession(selectedVeraHome(), receiveEvent);
     boot.start();
-}
-
-// Only the packaged app carries a release; a development run uses its checkout's Vera.
-function installPreflight(): BootPreflight | undefined {
-    if (!app.isPackaged || (process.env.VERA_DESKTOP_DEV_CLI ?? "").trim().length > 0) return undefined;
-    return bundledInstallPreflight(join(process.resourcesPath, BUNDLED_RELEASE_DIRECTORY));
 }
 
 // Rebuilt when the page reports a theme or the imported themes change, so the View menu lists and checks them.
@@ -220,6 +254,7 @@ function startExtensions(): void {
 function shutdown(): void {
     if (stopping) return;
     stopping = true;
+    updates.stop();
     browserGateway?.stop();
     pageCommands.stop();
     localPreviews.clear();
@@ -321,7 +356,9 @@ ipcMain.on(CHANNELS.windowClosing, (event) => {
 });
 
 ipcMain.on(CHANNELS.start, (event) => {
-    if (fromWindow(event)) startBoot();
+    if (!fromWindow(event)) return;
+    startBoot();
+    updates.start();
 });
 ipcMain.on(CHANNELS.reconnect, (event) => {
     if (fromWindow(event)) startBoot();
@@ -349,6 +386,14 @@ ipcMain.on(CHANNELS.sessionSend, (event, pane: unknown, text: unknown) => {
 });
 ipcMain.on(CHANNELS.sessionUnwatch, (event, pane: unknown) => {
     if (fromWindow(event)) sessionPanes.get(pane)?.unwatch();
+});
+ipcMain.on(CHANNELS.composerDraft, (event, agentId: unknown, text: unknown) => {
+    if (!fromWindow(event) || typeof text !== "string") return;
+    relaunch.draftChanged(typeof agentId === "string" && agentId.length > 0 && agentId.length <= MAX_AGENT_ID_CHARS ? agentId : undefined, text);
+});
+ipcMain.on(CHANNELS.sessionShown, (event, agentId: unknown) => {
+    if (!fromWindow(event)) return;
+    relaunch.sessionShown(typeof agentId === "string" && agentId.length > 0 && agentId.length <= MAX_AGENT_ID_CHARS ? agentId : undefined);
 });
 ipcMain.handle(CHANNELS.sessionBranch, async (event, agentId: unknown, boundaryId: unknown): Promise<BranchSessionResult> => {
     const source = idArgument(agentId);
@@ -484,6 +529,7 @@ ipcMain.handle(CHANNELS.extensionCommand, async (event, command: unknown, pick: 
     return extensionCommands.run(command, pick);
 });
 registerExtensionHandlers({ service: extensionService, catalog: extensionCatalog, window: () => window, fromWindow });
+registerUpdateHandlers({ service: updates, fromWindow });
 // A mode name the host can look up; anything else starts the session with the host default.
 const APPROVAL_MODE_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 

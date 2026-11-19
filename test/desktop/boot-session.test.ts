@@ -144,185 +144,66 @@ test("@core a boot session starts once", () => {
     }
 });
 
-test("a failed preflight reports its message and never starts the Vera command", async () => {
-    const helper = setup();
-    writeFileSync(join(helper.root, "fake-boot.ts"), FAKE_READY);
-    const session = new BootSession(
-        "/tmp/vera-boot-test",
-        (event) => helper.events.push(event),
-        async () => ({ kind: "stop", message: "The install failed." }),
-    );
+test("@core a missing command can be checked again without installing Vera", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-boot-missing-"));
+    const home = process.env.HOME;
+    const devCli = process.env.VERA_DESKTOP_DEV_CLI;
+    const events: DesktopEvent[] = [];
     try {
+        process.env.HOME = root;
+        delete process.env.VERA_DESKTOP_DEV_CLI;
+        new BootSession("/tmp/vera-boot-test", (event) => events.push(event)).start();
+        new BootSession("/tmp/vera-boot-test", (event) => events.push(event)).start();
+        expect(events).toEqual([
+            { type: "phase", phase: "starting" },
+            { type: "missing_cli", message: "Vera is not installed. Install Vera, then choose Reconnect.", checked: [join(root, ".local/bin/vera")] },
+            { type: "phase", phase: "starting" },
+            { type: "missing_cli", message: "Vera is not installed. Install Vera, then choose Reconnect.", checked: [join(root, ".local/bin/vera")] },
+        ]);
+        expect(existsSync(join(root, ".local"))).toBe(false);
+    } finally {
+        if (home === undefined) delete process.env.HOME;
+        else process.env.HOME = home;
+        if (devCli === undefined) delete process.env.VERA_DESKTOP_DEV_CLI;
+        else process.env.VERA_DESKTOP_DEV_CLI = devCli;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("@core a desktop older than the installed Vera refuses to start the host and says so", async () => {
+    const helper = setup();
+    try {
+        const session = new BootSession(helper.root, (event) => helper.events.push(event), () => ({
+            clientBuildId: "old-build",
+            installedBuildId: "new-build",
+        }));
         session.start();
-        await new Promise((resolve) => setTimeout(resolve, 200));
         expect(helper.events).toEqual([
             { type: "phase", phase: "starting" },
-            { type: "failed", message: "The install failed." },
+            {
+                type: "build_changed",
+                message:
+                    "The installed Vera is now build new-build, and this desktop app is build old-build. Quit and reopen Vera to continue.",
+                clientBuildId: "old-build",
+                installedBuildId: "new-build",
+            },
         ]);
-        expect(readFileSync(helper.answerFile, "utf8")).toBe("");
-    } finally {
-        session.cancel();
-        cleanup(helper.root);
-    }
-});
-
-test("a preflight that throws is reported as a failure", async () => {
-    const helper = setup();
-    const session = new BootSession(
-        "/tmp/vera-boot-test",
-        (event) => helper.events.push(event),
-        async () => {
-            throw new Error("disk full");
-        },
-    );
-    try {
-        session.start();
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        expect(helper.events).toEqual([
-            { type: "phase", phase: "starting" },
-            { type: "failed", message: "disk full" },
-        ]);
-    } finally {
-        session.cancel();
-        cleanup(helper.root);
-    }
-});
-
-test("a passing preflight runs before the Vera command starts", async () => {
-    const helper = setup();
-    writeFileSync(join(helper.root, "fake-boot.ts"), FAKE_READY);
-    const order: string[] = [];
-    const session = new BootSession(
-        "/tmp/vera-boot-test",
-        (event) => {
-            order.push(event.type);
-            helper.events.push(event);
-        },
-        async () => {
-            order.push("preflight");
-            return { kind: "continue" };
-        },
-    );
-    try {
-        session.start();
-        await waitForAnswer(helper.answerFile, "stdin-closed");
-        expect(order).toEqual(["phase", "preflight", "ready"]);
-    } finally {
-        session.cancel();
-        cleanup(helper.root);
-    }
-});
-
-test("cancelling during a preflight stops the boot before it starts the Vera command", async () => {
-    const helper = setup();
-    writeFileSync(join(helper.root, "fake-boot.ts"), FAKE_READY);
-    let release: () => void = () => {};
-    const session = new BootSession(
-        "/tmp/vera-boot-test",
-        (event) => helper.events.push(event),
-        () => new Promise((resolve) => {
-            release = () => resolve({ kind: "continue" });
-        }),
-    );
-    try {
-        session.start();
-        session.cancel();
-        release();
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        expect(helper.events).toEqual([{ type: "phase", phase: "starting" }]);
-        expect(readFileSync(helper.answerFile, "utf8")).toBe("");
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(helper.events).toHaveLength(2);
     } finally {
         cleanup(helper.root);
     }
 });
 
-test("an install shows the installing phase, then starting again before the Vera command runs", async () => {
+test("a desktop on the installed build goes on to start the host", async () => {
     const helper = setup();
-    writeFileSync(join(helper.root, "fake-boot.ts"), FAKE_READY);
-    const session = new BootSession(
-        "/tmp/vera-boot-test",
-        (event) => helper.events.push(event),
-        async (hooks) => {
-            hooks.installing();
-            hooks.installing();
-            return { kind: "continue" };
-        },
-    );
+    const session = new BootSession(helper.root, (event) => helper.events.push(event), () => undefined);
     try {
         session.start();
-        await waitForAnswer(helper.answerFile, "stdin-closed");
-        expect(helper.events.map((event) => event.type === "phase" ? event.phase : event.type)).toEqual([
-            "starting",
-            "installing",
-            "starting",
-            "ready",
-        ]);
+        await helper.waitForQuestion();
+        expect(helper.events.some((event) => event.type === "build_changed")).toBe(false);
     } finally {
         session.cancel();
-        cleanup(helper.root);
-    }
-});
-
-test("a preflight that installs nothing never shows the installing phase", async () => {
-    const helper = setup();
-    writeFileSync(join(helper.root, "fake-boot.ts"), FAKE_READY);
-    const session = new BootSession(
-        "/tmp/vera-boot-test",
-        (event) => helper.events.push(event),
-        async () => ({ kind: "continue" }),
-    );
-    try {
-        session.start();
-        await waitForAnswer(helper.answerFile, "stdin-closed");
-        expect(helper.events.map((event) => event.type)).toEqual(["phase", "ready"]);
-    } finally {
-        session.cancel();
-        cleanup(helper.root);
-    }
-});
-
-test("a notice from the preflight is sent before the host attaches", async () => {
-    const helper = setup();
-    writeFileSync(join(helper.root, "fake-boot.ts"), FAKE_READY);
-    const session = new BootSession(
-        "/tmp/vera-boot-test",
-        (event) => helper.events.push(event),
-        async (hooks) => {
-            hooks.installing();
-            return { kind: "continue", notice: "The archive is damaged." };
-        },
-    );
-    try {
-        session.start();
-        await waitForAnswer(helper.answerFile, "stdin-closed");
-        expect(helper.events.map((event) => event.type)).toEqual(["phase", "phase", "install_notice", "phase", "ready"]);
-        expect(helper.events[2]).toEqual({ type: "install_notice", message: "The archive is damaged." });
-    } finally {
-        session.cancel();
-        cleanup(helper.root);
-    }
-});
-
-test("an install that is cancelled shows no installing phase afterwards", async () => {
-    const helper = setup();
-    let install: () => void = () => {};
-    const session = new BootSession(
-        "/tmp/vera-boot-test",
-        (event) => helper.events.push(event),
-        (hooks) => new Promise((resolve) => {
-            install = () => {
-                hooks.installing();
-                resolve({ kind: "continue" });
-            };
-        }),
-    );
-    try {
-        session.start();
-        session.cancel();
-        install();
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        expect(helper.events).toEqual([{ type: "phase", phase: "starting" }]);
-    } finally {
         cleanup(helper.root);
     }
 });

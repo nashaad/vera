@@ -336,6 +336,12 @@ export interface ModelRefusedMessage {
     readonly refusal: ModelRefusal;
 }
 
+// The host is about to close to restart as build `buildId`.
+export interface HostRestartingMessage {
+    readonly type: "host_restarting";
+    readonly buildId: string;
+}
+
 export type SessionMessage =
     | AttachedMessage
     | AttachFailedMessage
@@ -358,17 +364,28 @@ export type SessionMessage =
     | CompactionMessage
     | TimelineMessage
     | BackgroundAgentsMessage
+    | HostRestartingMessage
     | LiveMessage;
 
 type Fields = Record<string, unknown>;
 
 const OTHER: OtherEntry = { kind: "other" };
 
+// The host's own check for a build id (isBuildIdText in src/host/protocol.ts), which this bundle cannot import.
+const BUILD_ID = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/;
+
 // Lines that are not JSON objects, or whose fields this view cannot read, yield undefined.
 export function parseSessionLine(text: string): SessionMessage | undefined {
     const value = parseJson(text);
     if (!isRecord(value) || typeof value.type !== "string") return undefined;
     return parseMessage(value.type, value);
+}
+
+// Streaming frames skip the full parse unless they could be this one.
+export function hostRestartingBuild(text: string): string | undefined {
+    if (!text.includes('"host_restarting"')) return undefined;
+    const message = parseSessionLine(text);
+    return message?.type === "host_restarting" ? message.buildId : undefined;
 }
 
 export function historyPageRequest(requestId: string, before: string): string {
@@ -494,6 +511,10 @@ function parseMessage(type: string, value: Fields): SessionMessage | undefined {
         case "background_agents": {
             const background = parseBackground(value);
             return background === undefined ? undefined : { type: "background_agents", background };
+        }
+        case "host_restarting": {
+            const buildId = str(value.build_id);
+            return buildId === undefined || !BUILD_ID.test(buildId) ? undefined : { type: "host_restarting", buildId };
         }
         default:
             return parseLive(type, value);

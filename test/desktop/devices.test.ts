@@ -27,7 +27,6 @@ test("the local machine is named by platform", () => {
 test("@core health is ok when attached, warn while starting or waiting, and fail otherwise", () => {
     expect(deviceHealth({ phase: "attached", ready })).toBe("ok");
     expect(deviceHealth({ phase: "starting" })).toBe("warn");
-    expect(deviceHealth({ phase: "installing" })).toBe("warn");
     expect(deviceHealth({ phase: "waiting" })).toBe("warn");
     expect(deviceHealth({ phase: "disconnected" })).toBe("fail");
     expect(deviceHealth({ phase: "failed" })).toBe("fail");
@@ -38,7 +37,6 @@ test("the detail names the build and protocol only when the host reported them",
     expect(deviceDetail({ phase: "attached", ready, identity })).toBe("Host running · build abc1234 · protocol v3");
     expect(deviceDetail({ phase: "attached", ready: { ...ready, buildId: null } })).toBe("Host running");
     expect(deviceDetail({ phase: "disconnected", ready })).toBe("Disconnected");
-    expect(deviceDetail({ phase: "installing" })).toBe("Installing Vera…");
 });
 
 test("sessions sort newest first and rows without a time go last", () => {

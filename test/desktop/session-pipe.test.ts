@@ -72,10 +72,10 @@ function collect(hidesReasoning: () => boolean = () => false): { events: Desktop
 const ATTACH_AGENT_A = `${JSON.stringify({
     type: "attach",
     agent_id: "agent-a",
-    requested_capabilities: ["agent.history-paging.v1", "session.title.v1"],
+    requested_capabilities: ["agent.history-paging.v1", "session.title.v1", "host.stop-wait.v1"],
 })}\n`;
 
-test("@core watch attaches with the history capability and emits each host line", async () => {
+test("@core watch attaches with the history and stop-wait capabilities and emits each host line", async () => {
     const fake = serve((socket) => {
         socket.write(`${JSON.stringify({ type: "one" })}\n${JSON.stringify({ type: "two" })}\n`);
         socket.write('{"type":"thr');
@@ -106,6 +106,7 @@ test("@core only the main pane and Chat tabs ask to have screens opened for them
     expect(JSON.parse(fake.received[0] ?? "{}").requested_capabilities).toEqual([
         "agent.history-paging.v1",
         "session.title.v1",
+        "host.stop-wait.v1",
         "session.show-window.v1",
     ]);
     expect(events[0]).toEqual({
@@ -118,6 +119,20 @@ test("@core only the main pane and Chat tabs ask to have screens opened for them
     expect(JSON.parse(attachLine("agent-a", false, "chat:2")).requested_capabilities).toContain("session.show-window.v1");
     expect(JSON.parse(attachLine("agent-a", false, "subagent")).requested_capabilities).not.toContain("session.show-window.v1");
     expect(JSON.parse(attachLine("agent-a", false, "subagent")).requested_capabilities).not.toContain("session.show-window.v1");
+});
+
+test("@core a host restart notice reaches the page as a session frame before the watch closes", async () => {
+    const notice = `${JSON.stringify({ type: "host_restarting", build_id: "build-2" })}\n`;
+    const fake = serve((socket) => {
+        socket.write(notice);
+        setTimeout(() => socket.end(), 20);
+    });
+    const { events, pipe } = collect();
+    pipe.connect(fake.path);
+    pipe.watch("agent-a");
+    await until(() => events.length === 2);
+    expect(events[0]).toEqual({ type: "session_frame", pane: "subagent", agentId: "agent-a", text: notice });
+    expect(events[1]).toMatchObject({ type: "session_closed", pane: "subagent", agentId: "agent-a" });
 });
 
 test("send writes a request line on the open watch", async () => {
@@ -213,7 +228,7 @@ test("a replaced watch emits nothing from its old socket", async () => {
     pipe.watch("agent-b");
     await until(() => fake.received.length === 2);
     expect(fake.received[1]).toBe(
-        `${JSON.stringify({ type: "attach", agent_id: "agent-b", requested_capabilities: ["agent.history-paging.v1", "session.title.v1"] })}\n`,
+        `${JSON.stringify({ type: "attach", agent_id: "agent-b", requested_capabilities: ["agent.history-paging.v1", "session.title.v1", "host.stop-wait.v1"] })}\n`,
     );
     fake.sockets[0]?.write(`${JSON.stringify({ type: "stale" })}\n`);
     await settle();
@@ -236,11 +251,11 @@ test("@core a watch asks for reasoning progress only while reasoning is hidden",
     pipe.connect(fake.path);
     pipe.watch("agent-a");
     await until(() => fake.received.length === 1);
-    expect(capabilitiesOf(fake.received[0])).toEqual(["agent.history-paging.v1", "session.title.v1", "agent.reasoning-progress.v1"]);
+    expect(capabilitiesOf(fake.received[0])).toEqual(["agent.history-paging.v1", "session.title.v1", "host.stop-wait.v1", "agent.reasoning-progress.v1"]);
     hidden = false;
     pipe.watch("agent-a");
     await until(() => fake.received.length === 2);
-    expect(capabilitiesOf(fake.received[1])).toEqual(["agent.history-paging.v1", "session.title.v1"]);
+    expect(capabilitiesOf(fake.received[1])).toEqual(["agent.history-paging.v1", "session.title.v1", "host.stop-wait.v1"]);
 });
 
 test("@core a redirected watch reads the reasoning choice again when it attaches", async () => {
@@ -257,7 +272,7 @@ test("@core a redirected watch reads the reasoning choice again when it attaches
     pipe.watch("agent-a");
     await until(() => target.received.length === 1);
     expect(capabilitiesOf(origin.received[0])).toContain("agent.reasoning-progress.v1");
-    expect(capabilitiesOf(target.received[0])).toEqual(["agent.history-paging.v1", "session.title.v1"]);
+    expect(capabilitiesOf(target.received[0])).toEqual(["agent.history-paging.v1", "session.title.v1", "host.stop-wait.v1"]);
 });
 
 test("@core reattach opens the same agent again with the current choice and drops the old socket", async () => {

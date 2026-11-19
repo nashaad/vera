@@ -23,6 +23,7 @@ import { workingLineText } from "../main/watchers.ts";
 import { standingNudgeIndicatorRow } from "../standing-nudges.ts";
 import { TUI_ACCENT, TUI_ELEMENT, TUI_HUD, TUI_MUTED, TUI_NOTICE, TUI_PANEL, TUI_SUCCESS, TUI_TEXT } from "../state.ts";
 import { stopWaitNoticeText } from "../stop-wait.ts";
+import { updateNoticeForms, updateProgressText } from "../update-state.ts";
 import { RESTARTING_NOTICE_TEXT } from "../restart-notice.ts";
 import { needsYouChipColumns, statusChunkColor, renderTuiCompactionHint, renderTuiFileViewStatusRows, renderTuiIdleHint, renderTuiStatusDetailsRows, renderTuiStatusSegments, statusToneColor, tuiStatusSnapshot, type TuiStatusChunk } from "../status.ts";
 import { VERA_TUI_THEME } from "../theme.ts";
@@ -206,10 +207,13 @@ export function renderStatus(rt: TuiRuntime): void {
         && !rt.extensionCommandPending
         && rt.pendingImages.length === 0
         && !isWorkerFreeClient(rt.client);
-    const statusLine = [
-        tuiDevInstancePrefix(),
-        rt.statusNotice ?? lifecycleHint,
-    ].filter((part) => part.length > 0).join(" ");
+    const updateForms = placeIdle && rt.statusNotice === undefined && lifecycleHint === READY_HINT
+        ? updateNoticeForms(rt.update)
+        : [];
+    const devPrefix = tuiDevInstancePrefix();
+    const withDevPrefix = (text: string): string =>
+        [devPrefix, text].filter((part) => part.length > 0).join(" ");
+    const statusLine = withDevPrefix(rt.statusNotice ?? updateForms[0] ?? lifecycleHint);
     // Approval and question hints need the room; stopping and compacting keep the way to the card.
     const keysHint = uiRequest !== undefined
         ? ""
@@ -418,7 +422,10 @@ export function renderStatus(rt: TuiRuntime): void {
     const noticeIndent = " ".repeat(rt.composerContentIndent);
     const stopNotice = rt.relaunching === true
         ? RESTARTING_NOTICE_TEXT
-        : stopWaitNoticeText(rt.stopWait);
+        : updateProgressText(
+            rt.update?.run,
+            rt.renderer.width - rt.composerHorizontalInset - railInset - rt.composerContentIndent,
+        ) ?? stopWaitNoticeText(rt.stopWait);
     const stopRow = stopNotice === undefined
         ? []
         : [fg(TUI_ACCENT)(
@@ -476,7 +483,11 @@ export function renderStatus(rt: TuiRuntime): void {
             ? { text: modelPrefixHint, color: TUI_ACCENT }
             : quitArmedNow(rt)
             ? { text: `Press ${tuiKeyChordLabel("interrupt")} again to quit`, color: TUI_ACCENT }
-            : { text: statusLine, color: statusColor },
+            : {
+                text: statusLine,
+                color: updateForms.length > 0 && statusColor === TUI_MUTED ? TUI_ACCENT : statusColor,
+                alternates: updateForms.slice(1).map(withDevPrefix),
+            },
         keys: keysHint,
         limits: rt.subscriptionLimits.forms(),
         ...(workerFree

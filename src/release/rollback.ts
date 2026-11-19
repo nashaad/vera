@@ -6,6 +6,8 @@ import {
     releaseDirectory,
     rollbackReleaseBuildId,
 } from "./layout.ts";
+import { desktopInstallRecorded, findDesktopPackage } from "./desktop-packages.ts";
+import { acquireUpdateLock } from "./update-lock.ts";
 import type { ReleaseManifest } from "./manifest.ts";
 import { compareVersions, isReleaseVersion } from "./version.ts";
 import { defaultReadLiveHost, handOffUpdate, type HandOffOutcome } from "./handoff.ts";
@@ -56,6 +58,15 @@ export async function rollbackLocalInstall(
     prefix = defaultInstallPrefix(),
     hosts: RollbackHostOptions = {},
 ): Promise<RollbackOutcome> {
+    const releaseLock = acquireUpdateLock(prefix);
+    try {
+        return await rollbackUnderLock(prefix, hosts);
+    } finally {
+        releaseLock();
+    }
+}
+
+async function rollbackUnderLock(prefix: string, hosts: RollbackHostOptions): Promise<RollbackOutcome> {
     if (await readUpgradeJournal(prefix) !== undefined) {
         const recovered = await recoverInterruptedUpgrade({
             prefix,
@@ -136,6 +147,12 @@ function resolveRollbackTarget(prefix: string): {
     if (!existsSync(releaseRoot)) {
         throw new RollbackUnavailableError(
             `Rollback pin ${pin} is not retained at ${releaseRoot}.`,
+        );
+    }
+    if (desktopInstallRecorded(prefix) && findDesktopPackage(pin, prefix) === undefined) {
+        throw new RollbackUnavailableError(
+            `Vera can't roll back to build ${pin}: the desktop app for that build is not installed.`
+            + " Nothing was changed.",
         );
     }
     return { releaseRoot, manifest: readStampedRelease(releaseRoot) };

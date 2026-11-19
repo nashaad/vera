@@ -12,13 +12,15 @@ import { FailuresSheet } from "./FailuresSheet.tsx";
 import { NudgesSheet } from "./NudgesSheet.tsx";
 import { ShortcutsSheet } from "./ShortcutsSheet.tsx";
 import { PickerSheet } from "./PickerSheet.tsx";
-import { closeOverlay, closePicker, useOverlay, usePicker } from "./store.ts";
+import { closeOverlay, closePicker, closeUpdateSheet, useOverlay, usePicker, useUpdateSheet } from "./store.ts";
 import { ThemesSheet } from "./ThemesSheet.tsx";
 import { Toasts } from "./Toasts.tsx";
+import { UpdateSheet } from "../updates/UpdateSheet.tsx";
 
 export function Overlays({ commands }: { readonly commands: CommandRegistry }) {
     const overlay = useOverlay();
     const picker = usePicker();
+    const updateSheet = useUpdateSheet();
     const onClose = useCallback(() => closeOverlay(), []);
     return (
         <>
@@ -34,6 +36,7 @@ export function Overlays({ commands }: { readonly commands: CommandRegistry }) {
             {overlay === "failures" ? <FailuresSheet onClose={onClose} /> : null}
             {overlay === "feedback" ? <FeedbackSheet onClose={onClose} /> : null}
             {overlay === "nudges" ? <NudgesSheet onClose={onClose} /> : null}
+            {updateSheet ? <UpdateSheet onClose={closeUpdateSheet} /> : null}
             {picker === undefined ? null : <PickerSheet request={picker} onClose={closePicker} />}
             <Toasts />
         </>

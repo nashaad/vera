@@ -4,7 +4,6 @@ import type { DesktopEvent } from "../../clients/ui/src/protocol/bridge.ts";
 import {
     INITIAL_STATE,
     bannerFor,
-    phaseLabel,
     reduceConnection,
     toneOf,
     type UiAction,
@@ -105,52 +104,53 @@ test("@core a new ready event replaces the old connection's facts", () => {
     expect(state.sessions).toBeUndefined();
 });
 
-test("@core an install shows Installing Vera in the connecting place, with no banner", () => {
-    const state = run(event({ type: "phase", phase: "installing" }));
-    expect(state.phase).toBe("installing");
-    expect(phaseLabel(state)).toBe("Installing Vera…");
-    expect(toneOf(state)).toBe("info");
-    expect(bannerFor(state)).toBeUndefined();
-    expect(phaseLabel(reduceConnection(state, event({ type: "phase", phase: "starting" })))).toBe("Starting");
-});
-
-test("@core a notice about a failed install shows once attached and stays until dismissed", () => {
-    const notice = "The bundled archive does not match its checksum. Vera is using the release you already had.";
-    const waiting = run(
-        event({ type: "phase", phase: "installing" }),
-        event({ type: "install_notice", message: notice }),
-        event({ type: "phase", phase: "starting" }),
-    );
-    expect(bannerFor(waiting)).toBeUndefined();
-
-    const attached = reduceConnection(waiting, event(READY));
-    expect(attached.phase).toBe("attached");
-    expect(bannerFor(attached)).toEqual({
-        kind: "install_notice",
-        tone: "warning",
-        title: "Vera could not install its bundled release",
-        detail: notice,
-    });
-    const polled = run(
-        event({ type: "install_notice", message: notice }),
+test("@core a changed installed build is a warning banner with the refusal text and no host", () => {
+    const message = "The installed Vera is now build new, and this desktop app is build old. Quit and reopen Vera to continue.";
+    const state = run(
         event(READY),
-        { type: "identity", identity: { pid: 42, protocol_version: 7 } },
-        { type: "sessions", count: 1, rows: [] },
+        event({ type: "build_changed", message, clientBuildId: "old", installedBuildId: "new" }),
     );
-    expect(bannerFor(polled)).toMatchObject({ kind: "install_notice" });
-
-    const dismissed = reduceConnection(attached, { type: "dismiss_install_notice" });
-    expect(bannerFor(dismissed)).toBeUndefined();
-    expect(dismissed.phase).toBe("attached");
+    expect(state.phase).toBe("outdated");
+    expect(state.identity).toBeUndefined();
+    expect(bannerFor(state)).toMatchObject({ kind: "outdated", tone: "warning", detail: message });
+    expect(toneOf(state)).toBe("warning");
 });
 
-test("the notice gives way to a failure, a lost host and a new connection attempt", () => {
-    const noticed = run(event({ type: "install_notice", message: "x" }), event(READY));
-    const failed = reduceConnection(noticed, event({ type: "failed", message: "boom" }));
+test("@core a restart notice shows a restarting banner while the host is still attached", () => {
+    const state = run(event(READY), { type: "restarting", buildId: "build-2" });
+    expect(state.phase).toBe("attached");
+    expect(bannerFor(state)).toMatchObject({ kind: "restarting", tone: "info" });
+    expect(bannerFor(state)?.detail).toContain("build-2");
+});
+
+test("@core the restarting banner stays through the loss, the reconnect and the boot phases", () => {
+    const state = run(
+        event(READY),
+        { type: "restarting", buildId: "build-2" },
+        { type: "lost", reason: "The host is not running." },
+    );
+    expect(bannerFor(state)).toMatchObject({ kind: "restarting" });
+    const reconnecting = reduceConnection(state, { type: "reconnecting" });
+    expect(reconnecting.phase).toBe("starting");
+    expect(bannerFor(reconnecting)).toMatchObject({ kind: "restarting" });
+    const waiting = reduceConnection(reconnecting, event({ type: "phase", phase: "waiting" }));
+    expect(bannerFor(waiting)).toMatchObject({ kind: "restarting" });
+});
+
+test("@core the restarting banner ends when the new host is ready or the restart cannot finish", () => {
+    const restarting = run(event(READY), { type: "restarting", buildId: "build-2" }, { type: "reconnecting" });
+    const ready = reduceConnection(restarting, event({ ...READY, pid: 43 } as DesktopEvent));
+    expect(ready.restarting).toBeUndefined();
+    expect(bannerFor(ready)).toBeUndefined();
+    const failed = reduceConnection(restarting, event({ type: "failed", message: "boom" }));
     expect(bannerFor(failed)).toMatchObject({ kind: "failed" });
-    expect(failed.installNotice).toBeUndefined();
-    expect(reduceConnection(noticed, { type: "lost", reason: "gone" }).installNotice).toBeUndefined();
-    expect(reduceConnection(noticed, { type: "reconnecting" }).installNotice).toBeUndefined();
-    const asked = reduceConnection(noticed, event({ type: "question", id: "q1", text: "Restart?" }));
-    expect(bannerFor(asked)).toMatchObject({ kind: "question" });
+    const outdated = reduceConnection(
+        restarting,
+        event({ type: "build_changed", message: "m", clientBuildId: "old", installedBuildId: "new" }),
+    );
+    expect(bannerFor(outdated)).toMatchObject({ kind: "outdated" });
+});
+
+test("a restart notice with no host attached changes nothing", () => {
+    expect(run({ type: "restarting", buildId: "build-2" })).toEqual(INITIAL_STATE);
 });

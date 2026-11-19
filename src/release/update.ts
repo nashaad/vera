@@ -1,27 +1,34 @@
-import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
     accessSync,
     constants,
-    createReadStream,
     existsSync,
     mkdirSync,
-    readFileSync,
     readdirSync,
     renameSync,
     rmSync,
     statSync,
     writeFileSync,
 } from "node:fs";
-import { open } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { desktopInstallRecorded } from "./desktop-packages.ts";
+import { readyDesktopPackage, type DesktopUpdateOutcome } from "./desktop-update.ts";
+import {
+    downloadToFile,
+    fetchText,
+    fetchWithTimeout,
+    releaseAssetBase,
+    verifyChecksum,
+    type DownloadOptions,
+} from "./download.ts";
 import {
     releaseDirectory,
     releaseManifestPath,
     releasesDirectory,
     safeRealpath,
 } from "./layout.ts";
+import { exitAt } from "./exit-at.ts";
 import { prefixOfReleaseRoot } from "./handoff.ts";
 import {
     installRelease,
@@ -29,7 +36,19 @@ import {
     type InstallReleaseOptions,
     type PackedInstallRelease,
 } from "./install.ts";
+import {
+    prepareShell,
+    ShellHeldError,
+    stageShell,
+    sweepShellLeftovers,
+    type ShellPlan,
+    type StagedShell,
+} from "./shell-update.ts";
 import { readStampedRelease } from "./stamp.ts";
+import { stagedReleaseBuild } from "./staged-release.ts";
+import { sweepStaleStaging } from "./staging-sweep.ts";
+import { acquireUpdateLock } from "./update-lock.ts";
+import { formatDuration, UpdateBusyError, waitForIdleHost, type IdleWaitOptions } from "./update-wait.ts";
 import { verifyPackedRelease } from "./verify.ts";
 import {
     compareVersions,
@@ -37,7 +56,6 @@ import {
     normalizeReleaseVersion,
 } from "./version.ts";
 
-export const UPDATE_FETCH_TIMEOUT_MS = 30_000;
 const RELEASES_PER_PAGE = 100;
 const MAX_RELEASE_PAGES = 20;
 
@@ -54,11 +72,11 @@ export interface PublishedRelease {
     readonly body: string;
 }
 
-interface ResolvedRelease extends PublishedRelease {
+export interface ResolvedRelease extends PublishedRelease {
     readonly draft: boolean;
 }
 
-interface ReleaseWindow {
+export interface ReleaseWindow {
     readonly target: ResolvedRelease;
     readonly notes: readonly ResolvedRelease[];
     readonly truncated: boolean;
@@ -66,18 +84,66 @@ interface ReleaseWindow {
 
 export type UpdateInstall = (options: InstallReleaseOptions) => Promise<InstallOutcome>;
 
-export interface UpdateOptions {
+export interface UpdateWaitingSession {
+    readonly id: string;
+    readonly title: string;
+}
+
+export type UpdatePhase =
+    | { readonly phase: "checking" }
+    | {
+        readonly phase: "waiting";
+        readonly sessions: readonly UpdateWaitingSession[];
+        readonly waitedMs: number;
+        readonly limitMs: number;
+    }
+    | { readonly phase: "switching" };
+
+export type UpdateReport =
+    | { readonly kind: "up_to_date"; readonly version: string }
+    | {
+        readonly kind: "checked";
+        readonly runningVersion: string;
+        readonly runningBuildId: string;
+        readonly targetVersion: string;
+        readonly requested: boolean;
+    }
+    // The release is on disk but must not become current yet; `message` says why.
+    | { readonly kind: "held"; readonly version: string; readonly buildId: string; readonly message: string }
+    | { readonly kind: "downloaded"; readonly version: string; readonly buildId: string }
+    | {
+        readonly kind: "installed";
+        readonly version: string;
+        readonly buildId: string;
+        readonly outcome: InstallOutcome;
+    };
+
+// Thrown when the signal in UpdateOptions aborts before the switch starts.
+export class UpdateCancelled extends Error {
+    constructor() {
+        super("The update was cancelled.");
+        this.name = "UpdateCancelled";
+    }
+}
+
+export interface UpdateOptions extends DownloadOptions {
     readonly prefix?: string;
     readonly check?: boolean;
+    // Stage the release and its desktop package, then stop before anything becomes current.
+    readonly downloadOnly?: boolean;
+    readonly onPhase?: (phase: UpdatePhase) => void;
+    // Set by tests; the wait for busy sessions reads these.
+    readonly idle?: IdleWaitOptions;
+    // The run must end by this time (ms since the epoch); the wait for busy sessions shortens to fit.
+    readonly deadlineAt?: number;
+    // How long the whole run, and the check alone, may take in JSON mode. Tests shorten them.
+    readonly runLimitMs?: number;
+    readonly checkLimitMs?: number;
     readonly version?: string;
     readonly running?: InstalledRelease;
-    readonly fetch?: typeof fetch;
-    readonly repo?: string;
     readonly releasesApi?: string;
-    readonly downloadBase?: string;
     readonly platform?: string;
     readonly arch?: string;
-    readonly timeoutMs?: number;
     readonly output?: (text: string) => void;
     readonly errorOutput?: (text: string) => void;
     readonly install?: UpdateInstall;
@@ -115,42 +181,63 @@ export function installedRunningRelease(
 export async function runUpdate(options: UpdateOptions = {}): Promise<number> {
     const output = options.output ?? ((text: string) => process.stdout.write(text));
     const errorOutput = options.errorOutput ?? ((text: string) => process.stderr.write(text));
+    let announced = "";
+    const report = await performUpdate({
+        ...options,
+        onPhase: (phase) => {
+            if (phase.phase === "waiting") {
+                // Said once for each set of sessions, not at every poll.
+                const names = phase.sessions.map((session) => session.title).join(", ");
+                if (names !== announced) {
+                    announced = names;
+                    writeLine(
+                        output,
+                        `Waiting for ${names} to finish before updating`
+                        + ` (up to ${formatDuration(phase.limitMs)}). Press Ctrl-C to stop waiting.`,
+                    );
+                }
+            }
+            options.onPhase?.(phase);
+        },
+    });
+    return renderUpdateReport(report, output, errorOutput);
+}
+
+// The update as data. Throws for a failure; a held or staged-only update is a report.
+export async function performUpdate(options: UpdateOptions = {}): Promise<UpdateReport> {
     const running = options.running ?? installedRunningRelease();
     const prefix = options.prefix ?? running.prefix;
-
-    const requestedVersion = options.version === undefined || options.version.length === 0
-        ? undefined
-        : normalizeReleaseVersion(options.version);
-    if (requestedVersion !== undefined && !isReleaseVersion(requestedVersion)) {
-        throw new Error(
-            `Invalid version '${options.version}'. Expected a version like 0.1.0.`,
-        );
-    }
+    const requestedVersion = requestedVersionOf(options);
 
     if (requestedVersion !== undefined && compareVersions(requestedVersion, running.version) === 0) {
-        writeLine(output, `Vera ${running.version} is up to date`);
-        return 0;
+        return { kind: "up_to_date", version: running.version };
     }
+    return await updateOnce(options, running, prefix, requestedVersion);
+}
 
+async function updateOnce(
+    options: UpdateOptions,
+    running: InstalledRelease,
+    prefix: string,
+    requestedVersion: string | undefined,
+): Promise<UpdateReport> {
+    options.onPhase?.({ phase: "checking" });
     const releases = await fetchReleaseWindow(options, running.version, requestedVersion);
     const target = releases.target;
+    throwIfCancelled(options.signal);
 
     if (options.check === true) {
-        writeLine(output, `Running Vera ${running.version} (${running.buildId}).`);
-        writeLine(
-            output,
-            requestedVersion === undefined
-                ? `Newest release is Vera ${target.version}.`
-                : `Target release is Vera ${target.version}.`,
-        );
-        return compareVersions(target.version, running.version) > 0 ? 10 : 0;
+        return {
+            kind: "checked",
+            runningVersion: running.version,
+            runningBuildId: running.buildId,
+            targetVersion: target.version,
+            requested: requestedVersion !== undefined,
+        };
     }
 
     const comparison = compareVersions(target.version, running.version);
-    if (comparison === 0) {
-        writeLine(output, `Vera ${target.version} is up to date`);
-        return 0;
-    }
+    if (comparison === 0) return { kind: "up_to_date", version: target.version };
     if (comparison < 0) {
         throw new Error(
             `Vera ${target.version} is older than the running Vera ${running.version}.`
@@ -158,6 +245,32 @@ export async function runUpdate(options: UpdateOptions = {}): Promise<number> {
         );
     }
 
+    // A check only reads, so it never takes the lock.
+    const release = acquireUpdateLock(prefix);
+    try {
+        return await stageAndSwitch(options, prefix, releases, target);
+    } catch (error) {
+        throw diskFullError(error, target.version) ?? error;
+    } finally {
+        release();
+    }
+}
+
+export function diskFullError(error: unknown, version: string): Error | undefined {
+    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
+    const message = error instanceof Error ? error.message : String(error);
+    if (code !== "ENOSPC" && !/\bENOSPC\b|no space left on device/i.test(message)) return undefined;
+    return new Error(`Not enough disk space to download Vera ${version}.`, { cause: error });
+}
+
+async function stageAndSwitch(
+    options: UpdateOptions,
+    prefix: string,
+    releases: ReleaseWindow,
+    target: ResolvedRelease,
+): Promise<UpdateReport> {
+    sweepStaleStaging(prefix);
+    sweepShellLeftovers(prefix);
     let createdReleaseRoot: string | undefined;
     const verify = options.verify ?? verifyPackedRelease;
     const prepared = await prepareRelease({
@@ -169,7 +282,101 @@ export async function runUpdate(options: UpdateOptions = {}): Promise<number> {
         verify,
     });
     createdReleaseRoot = prepared.created ? prepared.releaseRoot : undefined;
+    const buildId = prepared.manifest.build_id;
+    exitAt("update:release-staged");
 
+    const platform = options.platform ?? process.platform;
+    let shell: ShellPlan = { kind: "none" };
+    // A CLI-only install has no installed.json and moves on the host release alone.
+    if (platform === "darwin" && desktopInstallRecorded(prefix)) {
+        let desktop: DesktopUpdateOutcome;
+        try {
+            desktop = await readyDesktopPackage({
+                ...options,
+                prefix,
+                tag: target.tag,
+                platform,
+                arch: options.arch ?? process.arch,
+                hostBuildId: buildId,
+                preferStored: !prepared.created,
+            });
+            throwIfCancelled(options.signal);
+            exitAt("update:package-staged");
+            if (desktop.kind === "ready") {
+                shell = await prepareShell({
+                    ...options,
+                    prefix,
+                    tag: target.tag,
+                    version: target.version,
+                    platform,
+                    arch: options.arch ?? process.arch,
+                    requiredApi: desktop.package.shellApi,
+                });
+                throwIfCancelled(options.signal);
+            }
+        } catch (error) {
+            if (createdReleaseRoot !== undefined) {
+                rmSync(createdReleaseRoot, { recursive: true, force: true });
+            }
+            throw error;
+        }
+        if (desktop.kind === "held") {
+            return {
+                kind: "held",
+                version: target.version,
+                buildId,
+                message: desktopHeldMessage(target.version),
+            };
+        }
+        if (shell.kind === "held") {
+            return { kind: "held", version: target.version, buildId, message: shell.message };
+        }
+    }
+
+    if (options.downloadOnly === true) {
+        return { kind: "downloaded", version: target.version, buildId };
+    }
+
+    try {
+        await waitForIdleHost({
+            buildId,
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
+            ...(options.deadlineAt === undefined ? {} : { deadlineAt: options.deadlineAt }),
+            onWaiting: (waiting) => options.onPhase?.({ phase: "waiting", ...waiting }),
+            ...(options.idle === undefined ? {} : { idle: options.idle }),
+        });
+    } catch (error) {
+        if (error instanceof UpdateBusyError) {
+            return { kind: "held", version: target.version, buildId, message: error.message };
+        }
+        throw error;
+    }
+    throwIfCancelled(options.signal);
+
+    let staged: StagedShell | undefined;
+    try {
+        if (shell.kind === "swap") staged = await stageShell(shell, prefix, options.signal);
+        throwIfCancelled(options.signal);
+    } catch (error) {
+        staged?.discard();
+        if (error instanceof ShellHeldError) {
+            return { kind: "held", version: target.version, buildId, message: error.message };
+        }
+        throw error;
+    }
+
+    exitAt("update:before-switch");
+    options.onPhase?.({ phase: "switching" });
+    if (staged !== undefined) {
+        try {
+            staged.commit();
+        } catch (error) {
+            if (error instanceof ShellHeldError) {
+                return { kind: "held", version: target.version, buildId, message: error.message };
+            }
+            throw error;
+        }
+    }
     const install = options.install ?? installRelease;
     const outcome = await install({
         prefix,
@@ -186,7 +393,57 @@ export async function runUpdate(options: UpdateOptions = {}): Promise<number> {
             }
         },
     });
-    return printInstallOutcome(outcome, target.version, output, errorOutput);
+    return { kind: "installed", version: target.version, buildId, outcome };
+}
+
+export function desktopHeldMessage(version: string): string {
+    return `Vera ${version} is downloaded. It turns on once the desktop app for it is released;`
+        + " run 'vera update' again then.";
+}
+
+function requestedVersionOf(options: UpdateOptions): string | undefined {
+    if (options.version === undefined || options.version.length === 0) return undefined;
+    const requested = normalizeReleaseVersion(options.version);
+    if (!isReleaseVersion(requested)) {
+        throw new Error(`Invalid version '${options.version}'. Expected a version like 0.1.0.`);
+    }
+    return requested;
+}
+
+function throwIfCancelled(signal: AbortSignal | undefined): void {
+    if (signal?.aborted === true) throw new UpdateCancelled();
+}
+
+export function renderUpdateReport(
+    report: UpdateReport,
+    output: (text: string) => void,
+    errorOutput: (text: string) => void,
+): number {
+    switch (report.kind) {
+        case "up_to_date":
+            writeLine(output, `Vera ${report.version} is up to date`);
+            return 0;
+        case "checked":
+            writeLine(output, `Running Vera ${report.runningVersion} (${report.runningBuildId}).`);
+            writeLine(
+                output,
+                report.requested
+                    ? `Target release is Vera ${report.targetVersion}.`
+                    : `Newest release is Vera ${report.targetVersion}.`,
+            );
+            return compareVersions(report.targetVersion, report.runningVersion) > 0 ? 10 : 0;
+        case "held":
+            writeLine(output, report.message);
+            return 0;
+        case "downloaded":
+            writeLine(
+                output,
+                `Vera ${report.version} is downloaded. Run 'vera update' to switch to it.`,
+            );
+            return 0;
+        case "installed":
+            return printInstallOutcome(report.outcome, report.version, output, errorOutput);
+    }
 }
 
 function writeLine(output: (text: string) => void, text: string): void {
@@ -200,7 +457,7 @@ function releaseApiUrl(options: UpdateOptions): string {
     return `https://api.github.com/repos/${repo}/releases?per_page=${RELEASES_PER_PAGE}`;
 }
 
-async function fetchReleaseWindow(
+export async function fetchReleaseWindow(
     options: UpdateOptions,
     runningVersion: string,
     requestedVersion: string | undefined,
@@ -368,92 +625,18 @@ function refuseUnsupportedPlatform(platform: string, arch: string): void {
     }
 }
 
-type ReadChunks = (write: (chunk: Uint8Array) => Promise<void>) => Promise<void>;
-
-async function fetchWithTimeout<T>(
-    url: string,
-    options: UpdateOptions,
-    headers: Record<string, string>,
-    consume: (response: Response, readBody: () => Promise<string>, readChunks: ReadChunks) => Promise<T>,
-): Promise<T> {
-    const fetchImpl = options.fetch ?? fetch;
-    const controller = new AbortController();
-    const timeoutMs = options.timeoutMs ?? UPDATE_FETCH_TIMEOUT_MS;
-    const stalled = new Error(`Download of ${url} stalled for ${timeoutMs / 1000} s.`);
-    async function waitForProgress<R>(operation: Promise<R>): Promise<R> {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        try {
-            return await Promise.race([
-                operation,
-                new Promise<never>((_, reject) => {
-                    timer = setTimeout(() => {
-                        reject(stalled);
-                        controller.abort(stalled);
-                    }, timeoutMs);
-                }),
-            ]);
-        } finally {
-            if (timer !== undefined) clearTimeout(timer);
-        }
-    }
-    let response: Response;
-    try {
-        response = await waitForProgress(fetchImpl(url, {
-            signal: controller.signal,
-            headers,
-        }));
-    } catch (error) {
-        if (error === stalled) throw error;
-        const reason = error instanceof Error ? error.message : String(error);
-        throw new Error(`Could not reach ${url}: ${reason}`);
-    }
-    async function readChunks(write: (chunk: Uint8Array) => Promise<void>): Promise<void> {
-        if (response.body === null) return;
-        const reader = response.body.getReader();
-        try {
-            while (true) {
-                const chunk = await waitForProgress((async () => {
-                    while (true) {
-                        const next = await reader.read();
-                        if (next.done || next.value.byteLength > 0) return next;
-                    }
-                })());
-                if (chunk.done) break;
-                await write(chunk.value);
-            }
-        } catch (error) {
-            controller.abort();
-            void reader.cancel().catch(() => undefined);
-            throw error;
-        } finally {
-            reader.releaseLock();
-        }
-    }
-    async function readBody(): Promise<string> {
-        const decoder = new TextDecoder();
-        let text = "";
-        await readChunks(async (chunk) => { text += decoder.decode(chunk, { stream: true }); });
-        return text + decoder.decode();
-    }
-    try {
-        return await consume(response, readBody, readChunks);
-    } finally {
-        controller.abort();
-    }
-}
-
 interface StagedRelease {
     readonly releaseRoot: string;
     readonly manifest: PackedInstallRelease["manifest"];
     readonly created: boolean;
 }
 
-interface DownloadOptions extends UpdateOptions {
+interface ReleaseDownloadOptions extends UpdateOptions {
     readonly prefix: string;
     readonly target: ResolvedRelease;
 }
 
-interface PrepareOptions extends DownloadOptions {
+interface PrepareOptions extends ReleaseDownloadOptions {
     readonly notes: readonly ResolvedRelease[];
     readonly notesTruncated: boolean;
     readonly verify: (releaseRoot: string, prefix: string) => void;
@@ -465,6 +648,7 @@ async function prepareRelease(options: PrepareOptions): Promise<StagedRelease> {
     const prepared = await downloadAndUnpack(options);
     try {
         options.verify(prepared.releaseRoot, options.prefix);
+        throwIfCancelled(options.signal);
         const output = options.output ?? ((text: string) => process.stdout.write(text));
         writeReleaseNotes(options.notes, output);
         if (options.notesTruncated) {
@@ -480,18 +664,19 @@ async function prepareRelease(options: PrepareOptions): Promise<StagedRelease> {
     }
 }
 
-async function downloadAndUnpack(options: DownloadOptions): Promise<StagedRelease> {
+async function downloadAndUnpack(options: ReleaseDownloadOptions): Promise<StagedRelease> {
     const { prefix, target } = options;
     const platform = options.platform ?? process.platform;
     const arch = options.arch ?? process.arch;
     refuseUnsupportedPlatform(platform, arch);
-    const repo = options.repo ?? process.env.VERA_REPO ?? "nashaad/vera";
+    // A release staged by an earlier run is switched to without downloading it again.
+    const staged = stagedReleaseBuild(prefix, target.version, platform, arch);
+    if (staged !== undefined) {
+        const releaseRoot = releaseDirectory(staged, prefix);
+        return { releaseRoot, manifest: readStampedRelease(releaseRoot), created: false };
+    }
     const asset = `vera-${platform}-${arch}.tar.gz`;
-    const configuredBase = options.downloadBase ?? process.env.VERA_RELEASES_DOWNLOAD_BASE;
-    const downloadBase = configuredBase !== undefined && configuredBase.length > 0
-        ? configuredBase.replace(/\/+$/, "")
-        : `https://github.com/${repo}/releases/download`;
-    const base = `${downloadBase}/${target.tag}`;
+    const base = releaseAssetBase(options, target.tag);
     const tarballUrl = `${base}/${asset}`;
     const checksumUrl = `${tarballUrl}.sha256`;
 
@@ -557,50 +742,5 @@ async function downloadAndUnpack(options: DownloadOptions): Promise<StagedReleas
         throw error;
     } finally {
         rmSync(staging, { recursive: true, force: true });
-    }
-}
-
-async function fetchText(url: string, options: UpdateOptions): Promise<string> {
-    return await fetchWithTimeout(url, options, { "user-agent": "vera-update" }, async (response, readBody) => {
-        if (!response.ok) {
-            throw new Error(`Could not download ${url}: HTTP ${response.status}`);
-        }
-        return await readBody();
-    });
-}
-
-async function downloadToFile(
-    url: string,
-    path: string,
-    options: UpdateOptions,
-): Promise<void> {
-    await fetchWithTimeout(url, options, { "user-agent": "vera-update" }, async (response, _readBody, readChunks) => {
-        if (!response.ok) {
-            throw new Error(`Could not download ${url}: HTTP ${response.status}`);
-        }
-        if (response.body === null) {
-            throw new Error(`Could not download ${url}: the response has no body.`);
-        }
-        const file = await open(path, "w");
-        try {
-            await readChunks(async (chunk) => { await file.write(chunk); });
-        } finally {
-            await file.close();
-        }
-    });
-}
-
-async function verifyChecksum(tarball: string, checksumFile: string, asset: string): Promise<void> {
-    const expected = readFileSync(checksumFile, "utf8").trim().split(/\s+/)[0] ?? "";
-    if (!/^[0-9a-fA-F]{64}$/.test(expected)) {
-        throw new Error(`Checksum file for ${asset} does not hold a SHA-256 sum.`);
-    }
-    const hash = createHash("sha256");
-    for await (const chunk of createReadStream(tarball)) {
-        hash.update(chunk as Buffer);
-    }
-    const actual = hash.digest("hex");
-    if (actual.toLowerCase() !== expected.toLowerCase()) {
-        throw new Error(`Checksum mismatch for ${asset}.`);
     }
 }

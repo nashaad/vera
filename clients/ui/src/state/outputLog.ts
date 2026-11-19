@@ -73,11 +73,9 @@ export function describeEvent(event: DesktopEvent): OutputLine | undefined {
                 kind: "info",
                 text: event.phase === "starting"
                     ? "Starting the host for this home."
-                    : event.phase === "installing"
-                        ? "Installing the Vera release inside this app."
-                        : event.phase === "waiting"
-                            ? "Another Vera is starting this home. Waiting for it."
-                            : "Attached.",
+                    : event.phase === "waiting"
+                        ? "Another Vera is starting this home. Waiting for it."
+                        : "Attached.",
             };
         case "ready":
             return {
@@ -86,13 +84,13 @@ export function describeEvent(event: DesktopEvent): OutputLine | undefined {
             };
         case "question":
             return { kind: "warning", text: `Vera asked: ${event.text}` };
-        case "install_notice":
-            return { kind: "warning", text: `Release install failed: ${event.message}` };
         case "disconnected":
             return { kind: "warning", text: `Connection lost: ${event.reason}` };
         case "failed":
             return { kind: "error", text: `Start failed: ${event.message}` };
         case "missing_cli":
+            return { kind: "error", text: event.message };
+        case "build_changed":
             return { kind: "error", text: event.message };
         case "frame":
         case "window_shown":

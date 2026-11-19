@@ -20,8 +20,14 @@ import {
 
 import { activateRelease } from "../../src/release/activate.ts";
 import {
+    DESKTOP_PACKAGE_MANIFEST_NAME,
+    serializeDesktopPackageManifest,
+} from "../../src/release/desktop-package-manifest.ts";
+import {
     currentReleaseBuildId,
     currentSymlinkPath,
+    desktopInstallRecordPath,
+    desktopPackageDirectory,
     releaseDirectory,
     rollbackReleaseBuildId,
 } from "../../src/release/layout.ts";
@@ -312,6 +318,73 @@ test("rollbackLocalInstall refuses a pin whose release is gone", async () => {
         );
         expect(currentReleaseBuildId(prefix)).toBe("vera-broken");
         expect(host.drains).toEqual([]);
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+function recordDesktopInstall(prefix: string): void {
+    mkdirSync(join(prefix, "share", "vera", "desktop"), { recursive: true });
+    writeFileSync(desktopInstallRecordPath(prefix), `${JSON.stringify({ layout_version: 1, app_path: "/Applications/Vera.app" })}\n`);
+}
+
+function placeDesktopPackage(prefix: string, hostBuildId: string, version: string): void {
+    const directory = desktopPackageDirectory(hostBuildId, version, prefix);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, "main.js"), "// entry\n");
+    writeFileSync(join(directory, DESKTOP_PACKAGE_MANIFEST_NAME), serializeDesktopPackageManifest({
+        layout_version: 1,
+        desktop_version: version,
+        host_build_id: hostBuildId,
+        entry: "main.js",
+        shell_api: 1,
+    }));
+}
+
+test("@core rollback refuses a host with no installed desktop package and changes nothing", async () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-rollback-no-package-"));
+    try {
+        installBrokenOverGood(prefix);
+        recordDesktopInstall(prefix);
+        placeDesktopPackage(prefix, "vera-broken", "0.1.0");
+        const host = fakeHost(prefix, { running: true });
+        const refusal = rollbackLocalInstall(prefix, host.hosts);
+        await expect(refusal).rejects.toBeInstanceOf(RollbackUnavailableError);
+        await expect(refusal).rejects.toThrow(
+            "Vera can't roll back to build vera-good: the desktop app for that build is not installed. Nothing was changed.",
+        );
+        expect(currentReleaseBuildId(prefix)).toBe("vera-broken");
+        expect(rollbackReleaseBuildId(prefix)).toBe("vera-good");
+        expect(host.drains).toEqual([]);
+        expect(host.starts).toEqual([]);
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("@core rollback with an installed desktop package for the pin switches as before", async () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-rollback-package-"));
+    try {
+        installBrokenOverGood(prefix);
+        recordDesktopInstall(prefix);
+        placeDesktopPackage(prefix, "vera-good", "0.1.0");
+        const host = fakeHost(prefix, { running: false });
+        const result = await rollbackLocalInstall(prefix, host.hosts);
+        expect(result).toMatchObject({ kind: "rolled_back", toBuildId: "vera-good" });
+        expect(currentReleaseBuildId(prefix)).toBe("vera-good");
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("rollback on a CLI-only install does not look for a desktop package", async () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-rollback-cli-only-"));
+    try {
+        installBrokenOverGood(prefix);
+        const host = fakeHost(prefix, { running: false });
+        const result = await rollbackLocalInstall(prefix, host.hosts);
+        expect(result).toMatchObject({ kind: "rolled_back", toBuildId: "vera-good" });
+        expect(currentReleaseBuildId(prefix)).toBe("vera-good");
     } finally {
         rmSync(prefix, { recursive: true, force: true });
     }

@@ -10,6 +10,7 @@ import "./styles/workbench.css";
 import "./styles/views.css";
 import "./styles/pane.css";
 import "./styles/sidebar-foot.css";
+import "./styles/updates.css";
 import "./styles/sidebar-nav.css";
 import "./styles/pages.css";
 import "./styles/transcript.css";

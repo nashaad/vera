@@ -9,6 +9,7 @@ import {
     KeyIcon,
     LaptopIcon,
     LayersIcon,
+    RefreshIcon,
     ShieldIcon,
     ViewIcon,
     type IconProps,
@@ -90,6 +91,14 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         Icon: KeyIcon,
         terms: "keyboard shortcut key binding hotkey accelerator",
         file: "Built into this window",
+    },
+    {
+        id: "updates",
+        name: "Updates",
+        group: "Settings",
+        Icon: RefreshIcon,
+        terms: "update upgrade version release check download automatic ask off install",
+        file: "config.json in the Vera home",
     },
     {
         id: "show",

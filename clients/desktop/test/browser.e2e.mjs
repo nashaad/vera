@@ -154,7 +154,7 @@ try {
     const usage = new URL(usageUrl);
     annexPort = Number(usage.port);
 
-    await openPage("Runs", "/runs");
+    await openPage("Workflow runs", "/runs");
     await openPage("Artifacts", "/x/vera.artifacts/artifacts");
 
     const directUrl = `http://127.0.0.1:${annexPort}/usage?session=fixture&artifact=example`;
@@ -230,14 +230,14 @@ try {
     const picker = page.getByRole("dialog", { name: "Vera's Pages" });
     await picker.waitFor();
     const filter = picker.getByRole("textbox", { name: "Vera's Pages" });
-    for (const label of ["Usage", "Runs", "Artifacts"]) {
+    for (const label of ["Usage", "Workflow runs", "Artifacts"]) {
         await filter.fill(label);
         if (await picker.locator(".palette-row", { hasText: label }).count() === 0) throw new Error(`Vera's Pages picker does not include ${label}.`);
     }
     await page.keyboard.press("Escape");
     await press(app, "B", [MODIFIER, "alt"]);
     await until("right pane closes", async () => await page.locator('[data-location="rightPane"]').count() === 0);
-    for (const label of ["Usage", "Runs", "Artifacts"]) {
+    for (const label of ["Usage", "Workflow runs", "Artifacts"]) {
         if (await page.locator(`iframe[title="${label}"]`).count() !== 0) throw new Error(`${label} remained loaded after closing the pane.`);
     }
     console.log("browser e2e passed");

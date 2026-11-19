@@ -15,6 +15,8 @@ export interface PickerRequest {
 
 let open: Overlay | undefined;
 let picker: PickerRequest | undefined;
+// The update sheet is not an `Overlay`: it has no command of its own and opens from the sidebar's chip.
+let updateSheet = false;
 let screenshot: string | undefined;
 let generation = 0;
 
@@ -28,7 +30,10 @@ function emit(): void {
 function set(next: Overlay | undefined): void {
     if (next === open) return;
     open = next;
-    if (next !== undefined) picker = undefined;
+    if (next !== undefined) {
+        picker = undefined;
+        updateSheet = false;
+    }
     emit();
 }
 
@@ -36,6 +41,7 @@ function set(next: Overlay | undefined): void {
 export function openPicker(request: PickerRequest): void {
     generation++;
     open = undefined;
+    updateSheet = false;
     picker = request;
     emit();
 }
@@ -60,9 +66,24 @@ export function openOverlay(overlay: Overlay): void {
     }));
 }
 
+export function openUpdateSheet(): void {
+    generation++;
+    open = undefined;
+    picker = undefined;
+    updateSheet = true;
+    emit();
+}
+
+export function closeUpdateSheet(): void {
+    if (!updateSheet) return;
+    updateSheet = false;
+    emit();
+}
+
 export function closeOverlay(): void {
     generation++;
     closePicker();
+    closeUpdateSheet();
     set(undefined);
 }
 
@@ -81,6 +102,10 @@ function subscribe(listener: () => void): () => void {
 
 export function useOverlay(): Overlay | undefined {
     return useSyncExternalStore(subscribe, () => open);
+}
+
+export function useUpdateSheet(): boolean {
+    return useSyncExternalStore(subscribe, () => updateSheet);
 }
 
 export function usePicker(): PickerRequest | undefined {

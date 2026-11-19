@@ -1,10 +1,25 @@
 #!/usr/bin/env bun
-import { cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { compareVersions, isReleaseVersion, normalizeReleaseVersion } from "../src/release/version.ts";
 
 const root = resolve(import.meta.dir, "..");
+
+// The port the by-hand instructions and the client script's examples use.
+export const FEED_PORT = 18765;
+
+interface BuildOptions {
+    readonly linux: boolean;
+    // The newer release ships without desktop assets, so an update to it is held.
+    readonly newerWithoutDesktop: boolean;
+    // Neither release ships desktop assets; the terminal legs need none.
+    readonly noDesktop: boolean;
+    // The newer desktop package needs a newer shell than the older release's app, so its update replaces Vera.app.
+    readonly newerShell: boolean;
+}
+
+const SHELL_API_NEWER = 2;
 
 function run(args: string[], cwd = root): void {
     const result = Bun.spawnSync(args, { cwd, stdout: "inherit", stderr: "inherit" });
@@ -17,8 +32,42 @@ function version(value: string | undefined): string {
     return normalized;
 }
 
-async function build(out: string, older: string, newer: string, linux: boolean): Promise<void> {
+// What to run on a second Mac to install the older release with the desktop app into its real account and then update from the newer one.
+export function otherMacCommands(out: string, older: string, newer: string, newerHasDesktop: boolean): string {
+    const feed = `http://127.0.0.1:${FEED_PORT}`;
+    const lines = [
+        "To try the update by hand on another Mac, in its real account:",
+        "",
+        "1. On this Mac, serve the feed and leave it running:",
+        `   bun ${join(root, "scripts/update-rehearsal.ts")} serve ${out} --port ${FEED_PORT}`,
+        "",
+        "2. On this Mac, in a second terminal, open the tunnel (USER and OTHER-MAC are the other Mac's login and name):",
+        `   ssh -R 127.0.0.1:${FEED_PORT}:127.0.0.1:${FEED_PORT} USER@OTHER-MAC`,
+        "",
+        `3. On the other Mac, in that ssh session, install Vera ${older} with the desktop app (this opens Vera.app):`,
+        `   export VERA_RELEASES_API=${feed}/releases VERA_RELEASES_DOWNLOAD_BASE=${feed}`,
+        `   curl -fsS ${feed}/install.sh | VERA_VERSION=${older} VERA_DESKTOP=yes sh`,
+        "   ~/.local/bin/vera --version",
+        "",
+        `4. In the same session, update to Vera ${newer}:`,
+        "   ~/.local/bin/vera update",
+        "   ~/.local/bin/vera --version",
+        "   ls ~/.local/share/vera/desktop/*",
+    ];
+    if (!newerHasDesktop) {
+        lines.push("", `Vera ${newer} has no desktop assets in this build, so step 4 holds the update.`);
+    }
+    return `${lines.join("\n")}\n`;
+}
+
+async function build(out: string, older: string, newer: string, options: BuildOptions): Promise<void> {
     if (compareVersions(older, newer) >= 0) throw new Error("Older version must precede newer version");
+    const { linux } = options;
+    const desktop = !linux && process.platform === "darwin" && !options.noDesktop;
+    const desktopModules = join(root, "clients/desktop/node_modules");
+    if (desktop && !existsSync(desktopModules)) {
+        throw new Error("clients/desktop/node_modules is missing; the desktop assets need Electron from there");
+    }
     mkdirSync(out, { recursive: true });
     const work = mkdtempSync(join(tmpdir(), "vera-rehearsal-build-"));
     try {
@@ -47,6 +96,13 @@ async function build(out: string, older: string, newer: string, linux: boolean):
             if (!declaration.test(source)) throw new Error("Could not find copied product version");
             const changed = source.replace(declaration, `$1"${selected}"`);
             writeFileSync(manifest, changed);
+            if (selected === newer && options.newerShell) {
+                const bootstrap = join(copy, "clients/desktop/shell/bootstrap.ts");
+                const shellSource = readFileSync(bootstrap, "utf8");
+                const shellApi = /(export const SHELL_API = )\d+;/;
+                if (!shellApi.test(shellSource)) throw new Error("Could not find copied shell API");
+                writeFileSync(bootstrap, shellSource.replace(shellApi, "$1" + String(SHELL_API_NEWER) + ";"));
+            }
             const tagOut = join(out, `v${selected}`);
             mkdirSync(tagOut, { recursive: true });
             const asset = `vera-${linux ? "linux" : process.platform}-${process.arch}.tar.gz`;
@@ -58,12 +114,32 @@ async function build(out: string, older: string, newer: string, linux: boolean):
                 run(["cp", "-Rc", join(root, "node_modules"), join(copy, "node_modules")]);
                 run([process.execPath, "run", "pack:web"], copy);
                 run([process.execPath, "scripts/pack-release.ts", "--tarball", join(tagOut, asset)], copy);
+                if (desktop && !(selected === newer && options.newerWithoutDesktop)) {
+                    run(["cp", "-Rc", desktopModules, join(copy, "clients/desktop/node_modules")]);
+                    run([process.execPath, "scripts/build-desktop-release.ts", "--release", join(tagOut, asset), "--out", tagOut], copy);
+                }
             }
             rmSync(copy, { recursive: true, force: true });
         }
     } finally {
         rmSync(work, { recursive: true, force: true });
     }
+    if (desktop) console.log(`\n${otherMacCommands(out, older, newer, !options.newerWithoutDesktop)}`);
+}
+
+// The first half of the file, then a reset connection, with the full length declared.
+function droppedResponse(file: Bun.BunFile): Response {
+    let sent = false;
+    return new Response(new ReadableStream<Uint8Array>({
+        async pull(controller) {
+            if (sent) {
+                controller.error(new Error("connection dropped"));
+                return;
+            }
+            sent = true;
+            controller.enqueue(new Uint8Array(await file.slice(0, Math.floor(file.size / 2)).arrayBuffer()));
+        },
+    }), { headers: { "content-length": String(file.size) } });
 }
 
 function serve(out: string, args: string[]): void {
@@ -100,7 +176,7 @@ function serve(out: string, args: string[]): void {
                 const mode = url.searchParams.get("mode") ?? "normal";
                 const selected = url.searchParams.get("version") ?? versions[0]!;
                 const listed = url.searchParams.get("only") ?? undefined;
-                if (!["normal", "wrong-checksum", "truncated-tarball"].includes(mode)
+                if (!["normal", "wrong-checksum", "truncated-tarball", "drop-mid-download", "no-desktop"].includes(mode)
                     || !versions.includes(selected) || (listed && !versions.includes(listed))) {
                     return new Response("Invalid scenario\n", { status: 400 });
                 }
@@ -143,13 +219,17 @@ function serve(out: string, args: string[]): void {
                 })));
             }
             if (url.pathname === "/install.sh") return new Response(Bun.file(join(root, "scripts/install.sh")));
-            const match = /^\/v([^/]+)\/(vera-(?:darwin|linux)-(?:arm64|x64)\.tar\.gz)(\.sha256)?$/.exec(url.pathname);
+            const match = /^\/v([^/]+)\/(vera-(?:desktop-(?:shell-)?)?(?:darwin|linux)-(?:arm64|x64)\.tar\.gz)(\.sha256)?$/.exec(url.pathname);
             if (!match || !versions.includes(match[1]!)) return new Response("Not found\n", { status: 404 });
             const file = Bun.file(join(out, `v${match[1]}`, `${match[2]}${match[3] ?? ""}`));
             if (!await file.exists()) return new Response("Not found\n", { status: 404 });
+            if (match[1] === target && scenario === "no-desktop" && match[2]!.startsWith("vera-desktop-")) {
+                return new Response("Not found\n", { status: 404 });
+            }
             downloads += 1;
             if (match[1] === target && scenario === "wrong-checksum" && match[3]) return new Response(`${"0".repeat(64)}  ${match[2]}\n`);
             if (match[1] === target && scenario === "truncated-tarball" && !match[3]) return new Response(file.slice(0, 128));
+            if (match[1] === target && scenario === "drop-mid-download" && !match[3]) return droppedResponse(file);
             return new Response(file);
         },
     });
@@ -162,10 +242,16 @@ function serve(out: string, args: string[]): void {
 if (import.meta.main) {
     try {
         const [command, output, older, newer, ...flags] = Bun.argv.slice(2);
-        if (!output) throw new Error("Usage: update-rehearsal.ts build OUT OLDER NEWER [--linux] | serve OUT [--port N] [--bind ADDRESS] [--only VERSION] [--corrupt-checksum VERSION]");
+        if (!output) throw new Error("Usage: update-rehearsal.ts build OUT OLDER NEWER [--linux] [--no-newer-desktop] [--no-desktop] [--newer-shell] | serve OUT [--port N] [--bind ADDRESS] [--only VERSION] [--corrupt-checksum VERSION]");
         if (command === "build") {
-            if (flags.some((flag) => flag !== "--linux")) throw new Error("Unknown build flag");
-            await build(resolve(output), version(older), version(newer), process.platform === "linux" || flags.includes("--linux"));
+            if (flags.some((flag) => flag !== "--linux" && flag !== "--no-newer-desktop" && flag !== "--no-desktop" && flag !== "--newer-shell")) throw new Error("Unknown build flag");
+            const linux = process.platform === "linux" || flags.includes("--linux");
+            const newerWithoutDesktop = flags.includes("--no-newer-desktop");
+            if (flags.includes("--newer-shell") && (linux || newerWithoutDesktop || flags.includes("--no-desktop"))) {
+                throw new Error("--newer-shell needs the macOS desktop assets in both releases");
+            }
+            if (newerWithoutDesktop && linux) throw new Error("--no-newer-desktop applies to the macOS build, which is the only one with desktop assets");
+            await build(resolve(output), version(older), version(newer), { linux, newerWithoutDesktop, noDesktop: flags.includes("--no-desktop"), newerShell: flags.includes("--newer-shell") });
         } else if (command === "serve") {
             serve(resolve(output), Bun.argv.slice(4));
         } else throw new Error(`Unknown command: ${command}`);

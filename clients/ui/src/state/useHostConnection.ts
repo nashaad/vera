@@ -6,6 +6,7 @@ import { HostProtocolClient, sessionCount, type AgentListFacts, type ListAgentsO
 import { INITIAL_STATE, reduceConnection, type UiState } from "./connection.ts";
 import { HOST_POLL_MS } from "./frameBudget.ts";
 import { describeEvent, type OutputLog } from "./outputLog.ts";
+import { PlannedRestartWatch, replacedBuild, type RestartStep } from "./plannedRestart.ts";
 
 export interface HostConnection {
     readonly state: UiState;
@@ -13,7 +14,6 @@ export interface HostConnection {
     answer(id: string, yes: boolean): void;
     // Reads the session list now rather than at the next poll.
     refreshSessions(): void;
-    dismissInstallNotice(): void;
     listAgents(options?: ListAgentsOptions): Promise<AgentListFacts>;
 }
 
@@ -22,6 +22,8 @@ export function useHostConnection(log: OutputLog): HostConnection {
     const clientRef = useRef<HostProtocolClient | undefined>(undefined);
     // Bumped whenever the connection changes, so a late reply never lands on a newer one.
     const generationRef = useRef(0);
+    const restartRef = useRef(new PlannedRestartWatch());
+    const readyBuildRef = useRef<string | null>(null);
 
     const dropClient = (reason: string): void => {
         generationRef.current += 1;
@@ -29,13 +31,39 @@ export function useHostConnection(log: OutputLog): HostConnection {
         clientRef.current = undefined;
     };
 
+    const reconnect = (message: string): void => {
+        dropClient("Reconnecting.");
+        log.append("info", message);
+        dispatch({ type: "reconnecting" });
+        window.veraDesktop.reconnect();
+    };
+
+    const followRestart = (step: RestartStep): void => {
+        if (step.kind === "announced") {
+            log.append("info", `The host is restarting as build ${step.buildId}.`);
+            dispatch({ type: "restarting", buildId: step.buildId });
+        } else if (step.kind === "reconnect") {
+            reconnect("The host restarted. Reconnecting.");
+        }
+    };
+
     const refresh = (client: HostProtocolClient, generation: number): void => {
         const current = (): boolean => generationRef.current === generation;
         client.hostIdentity().then((identity) => {
-            if (current()) dispatch({ type: "identity", identity });
+            if (!current()) return;
+            if (replacedBuild(readyBuildRef.current, identity) !== undefined) {
+                reconnect("The host restarted. Reconnecting.");
+                return;
+            }
+            dispatch({ type: "identity", identity });
         }).catch((error: unknown) => {
             if (!current()) return;
             dropClient(messageOf(error));
+            const step = restartRef.current.lost();
+            if (step.kind === "reconnect") {
+                followRestart(step);
+                return;
+            }
             log.append("warning", `Connection lost: ${messageOf(error)}`);
             dispatch({ type: "lost", reason: messageOf(error) });
         });
@@ -71,7 +99,14 @@ export function useHostConnection(log: OutputLog): HostConnection {
                 clientRef.current?.feed(event.text);
                 return;
             }
+            const step = restartRef.current.observe(event);
+            if (step.kind !== "none") {
+                followRestart(step);
+                return;
+            }
             if (event.type === "ready") {
+                restartRef.current.clear();
+                readyBuildRef.current = event.buildId;
                 dropClient("Reconnecting.");
                 const client = new HostProtocolClient((text) => window.veraDesktop.send(text));
                 clientRef.current = client;
@@ -79,7 +114,8 @@ export function useHostConnection(log: OutputLog): HostConnection {
                 refresh(client, generationRef.current);
                 return;
             }
-            if (event.type === "missing_cli" || event.type === "failed") {
+            if (event.type === "missing_cli" || event.type === "failed" || event.type === "build_changed") {
+                restartRef.current.clear();
                 dropClient("Vera did not start.");
             } else if (event.type === "disconnected") {
                 dropClient(event.reason);
@@ -107,17 +143,14 @@ export function useHostConnection(log: OutputLog): HostConnection {
         state,
         refreshSessions,
         reconnect: () => {
-            dropClient("Reconnecting.");
-            log.append("info", "Reconnect requested.");
-            dispatch({ type: "reconnecting" });
-            window.veraDesktop.reconnect();
+            restartRef.current.clear();
+            reconnect("Reconnect requested.");
         },
         answer: (id, yes) => {
             window.veraDesktop.answer(id, yes);
             log.append("info", `Answered ${yes ? "yes" : "no"}.`);
             dispatch({ type: "answered" });
         },
-        dismissInstallNotice: () => dispatch({ type: "dismiss_install_notice" }),
         listAgents: (options) => {
             const client = clientRef.current;
             if (client === undefined) return Promise.reject(new Error("The host is not connected."));

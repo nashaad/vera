@@ -1,46 +1,13 @@
 ---
 title: "Installation and upgrades"
-description: "Install Vera from the desktop app's disk image, a release download or a checkout."
+description: "Install Vera from a release download or a checkout."
 ---
 
 # Installation and upgrades
 
-Install Vera from the desktop app's disk image, from a release download, which
-needs nothing else installed, or from its source checkout using Bun.
-
-## Install from the disk image
-
-On macOS, the desktop app comes as a disk image named for its platform, such as
-`Vera-darwin-arm64.dmg`. The app carries a complete Vera release inside it, so
-nothing else needs to be installed first.
-
-1. Open the disk image and drag Vera onto the Applications folder beside it.
-2. The app is not notarized yet, so macOS refuses a plain double click the
-   first time. Control-click Vera in Applications, choose Open, and confirm
-   Open in the dialog. Later launches open normally.
-3. On first launch the app installs its release as the `vera` command, then
-   attaches to the host as usual. The terminal UI, the CLI and the host are
-   part of that release, so `vera` works in any new terminal once
-   `~/.local/bin` is on PATH (see [Add the launcher to PATH](#add-the-launcher-to-path)).
-
-The install goes where the release installer puts it: the release under
-`~/.local/share/vera/` and the launcher at `~/.local/bin/vera`. Opening the app
-installs nothing when the `vera` command already runs the app's release or a
-newer one. It installs the app's release when the command is missing, does not
-run, or runs an older release, and the release it replaces stays as the
-rollback, as in [`vera rollback`](installed-command.md). The install does not
-stop a host that is already running, and that host keeps its own build until it
-is restarted.
-
-While the install runs, which takes a few seconds the first time, the
-connection state at the bottom of the sidebar reads `Installing Vera…`.
-
-If the install fails and a `vera` command already works, the app attaches with
-that command and shows a banner saying the app's release could not be
-installed, with the reason and a Dismiss button. If no working command exists,
-the app shows `Vera did not start` with the reason and a Try again button. A
-`vera` command you had before is left as it was. See
-[Desktop app](desktop.md#finding-the-host).
+Install Vera from a release download, which needs nothing else installed, or
+from its source checkout using Bun. The desktop app requires an installed
+`vera` command and does not install it on launch.
 
 ## Install a release
 
@@ -81,6 +48,42 @@ when using a release mirror. The release includes its own runtime, so Bun and
 Node are not needed. Installing
 the same release again leaves it in place, and installing a newer one keeps
 the previous release for [`vera rollback`](installed-command.md).
+
+### Add the desktop app on macOS
+
+After it installs `vera`, the installer asks `Also install the Vera desktop app? [Y/n] `,
+and Enter answers yes. It reads the answer from the terminal rather than from
+the script, so the question works when the script arrives through `curl | sh`.
+With no terminal to ask on, it skips the app and prints how to add it later.
+
+`VERA_DESKTOP` answers ahead of time: `yes` installs the app, `no` skips it
+without asking, and `ask`, the default, asks. Any other value stops the
+installer before it changes anything. On Linux the installer says the desktop
+app is not available yet, and `VERA_DESKTOP=yes` fails there once `vera` is
+installed. The desktop app finds Vera only in `~/.local`, so when
+`VERA_INSTALL_PREFIX` names another directory the installer installs `vera`,
+skips the app without a question, and `VERA_DESKTOP=yes` fails. A release that
+has no desktop app yet is skipped without a question, and `VERA_DESKTOP=yes`
+fails against it. Installing from a file you downloaded skips the app, because
+the app comes from a release download; run the installer without a file to add
+it.
+
+The app comes from the same release as `vera`. Each macOS platform has two more
+files in the release, each with a `.sha256` file: `vera-desktop-darwin-<arch>.tar.gz`,
+the desktop code built for that release's host, and
+`vera-desktop-shell-darwin-<arch>.tar.gz`, which holds `Vera.app`. The
+installer checks both sums and the code's host build before it writes anything.
+It puts the code under `share/vera/desktop/` in the install prefix, puts
+`Vera.app` in `/Applications` when you can write there and otherwise in
+`~/Applications`, clears the macOS quarantine flag on what it installs, and
+opens the app. It never uses `sudo`.
+
+An existing `Vera.app` that is not the Vera desktop app is left alone, and the
+installer prints its path. An existing Vera desktop app is replaced, and put
+back if the replacement fails. While Vera is running the installer does not
+replace it: it asks you to quit Vera and run the installer again. When the
+desktop step fails for any reason, the `vera` command stays installed and the
+installer exits with status 1.
 
 ## Install from a checkout
 
@@ -128,9 +131,13 @@ vera update
 
 It installs the newest published release and prints its release notes first.
 `vera update <version>` installs a named version, and `vera update --check`
-reports the running and newest versions without installing anything. A
-checkout or development instance is refused; update that install with
-`bun run install:local` instead. See
+reports the running and newest versions without installing anything.
+`vera update --download-only` fetches the release and stops before switching.
+On macOS the update moves the host and the desktop app together, and replaces
+`Vera.app` when the new desktop package needs a newer one. It waits for running
+sessions to finish, and a failed or interrupted update leaves either the whole
+previous version or the whole new one. A checkout or development instance is
+refused; update that install with `bun run install:local` instead. See
 [Update from a release](installed-command.md#update-from-a-release).
 
 From the checkout containing the version you want, run the same installation

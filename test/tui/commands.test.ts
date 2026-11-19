@@ -70,6 +70,7 @@ test("every slash action has an explicit pane scope", () => {
         },
         { type: "show_doctor" },
         { type: "open_usage" },
+        { type: "run_update" },
         {
             type: "open_settings_destination",
             destination: { kind: "model_shortlist" },
@@ -121,6 +122,7 @@ test("every slash action has an explicit pane scope", () => {
             ["manage_extensions", "application"],
             ["show_doctor", "application"],
             ["open_usage", "application"],
+            ["run_update", "application"],
             ["open_settings_destination", "application"],
             ["pool_current_model", "application"],
             ["run_extension", "application"],
@@ -332,6 +334,19 @@ test("usage is an application-owned client action", () => {
     const action = registry.dispatch("/usage");
     expect(action).toEqual({ type: "open_usage" });
     expect(tuiCommandScope(action!)).toBe("application");
+});
+
+test("update is an application-owned client action with a palette entry", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    const action = registry.dispatch("/update");
+    expect(action).toEqual({ type: "run_update" });
+    expect(tuiCommandScope(action!)).toBe("application");
+    expect(registry.registeredPaletteActions().find((entry) => entry.name === "update")).toMatchObject({
+        label: "Update Vera",
+        slashName: "update",
+        action: { type: "run_update" },
+    });
 });
 
 test("the fork command opens the prompt picker", () => {

@@ -40,7 +40,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera schedule show ID", description: "Inspect a schedule and its runs" },
     { usage: "vera schedule pause|resume|remove|run ID", description: "Control or trigger a schedule" },
     { usage: "vera rollback [--prefix DIR]", description: "Restore the pinned known-good release; does not pack, use Git, or use the network. --prefix is a test prefix. The daily prefix is $HOME/.local" },
-    { usage: "vera update [VERSION] [--check]", docs: "installed-command.md", description: "Install the newest release, or the named version; --check reports the running and newest versions without installing" },
+    { usage: "vera update [VERSION] [--check|--download-only] [--json]", docs: "installed-command.md", description: "Install the newest release, or the named version; --check reports the running and newest versions without installing; --download-only stages the release and its desktop package without switching; --json prints one JSON object per line for a client" },
     { usage: "vera migrate-home [--rollback]", docs: "config-reference.md", description: "Lift the default profile to the Vera home root; other profiles stay in a sibling backup. --rollback restores that backup" },
     { usage: "vera host stop [-y|--yes] [--force]", docs: "runtime-and-worktrees.md", description: "Stop the resident host after its running turns end; --force cuts them now" },
     { usage: "vera boot [--json]", docs: "runtime-and-worktrees.md", description: "Run the startup check, repair what it finds and start the host; --json prints one line per check for a GUI" },
