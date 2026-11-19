@@ -120,7 +120,7 @@ function installBrokenOverGood(prefix: string): void {
 test("relaunch support uses the stamp and recognizes the published alpha", () => {
     const prefix = mkdtempSync(join(tmpdir(), "vera-rollback-capability-"));
     try {
-        const manifest = readStampedRelease(writeDummyRelease(prefix, "vera-good"));
+        const manifest = { ...readStampedRelease(writeDummyRelease(prefix, "vera-good")), product_version: "0.1.0-alpha.1" };
         const alpha = { ...manifest, source_revision: "36bf480cef699d760b1080498e561ed199f1a116", build_id: "vera-36bf480" };
         expect(supportsRelaunch(alpha)).toBe(true);
         expect(supportsRelaunch({ ...alpha, build_id: "vera-36bf480+123456789abc" })).toBe(false);
@@ -401,7 +401,8 @@ function sandboxProfile(denied: readonly string[]): string {
     return `(version 1)\n(allow default)\n(deny network*)\n${denies.join("\n")}\n`;
 }
 
-test("vera rollback restores the previous release with the repo and network denied", async () => {
+// sandbox-exec exists only on macOS.
+test.skipIf(process.platform !== "darwin")("vera rollback restores the previous release with the repo and network denied", async () => {
     const userHome = mkdtempSync(join(tmpdir(), "vera-rollback-home-"));
     const prefix = join(userHome, "custom-prefix");
     const scratch = mkdtempSync(join(tmpdir(), "vera-rollback-scratch-"));

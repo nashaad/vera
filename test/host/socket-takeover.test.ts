@@ -29,7 +29,8 @@ function temporaryDirectory(): string {
 
 /** A socket that accepts connections and answers nothing: a wedged host. */
 function listenSilently(socketPath: string): Promise<void> {
-    const server = createServer(() => {});
+    // Unread sockets never see the client close on Linux, which would hang server.close.
+    const server = createServer((socket) => { socket.resume(); });
     servers.push(server);
     return new Promise((resolve, reject) => {
         server.once("error", reject);

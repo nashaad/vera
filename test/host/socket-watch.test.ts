@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -38,8 +38,9 @@ test("resolves once another file takes the socket path", async () => {
     try {
         expect(await settled(wait.promise, 40)).toBe(false);
 
-        await rm(path);
-        await writeFile(path, "");
+        // Linux reuses the inode of a file removed just before; a rename keeps both inodes live.
+        await writeFile(`${path}.next`, "");
+        await rename(`${path}.next`, path);
         await wait.promise;
     } finally {
         wait.dispose();

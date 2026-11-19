@@ -27,12 +27,14 @@ test("every host request in startConfiguredTui goes through the build check", ()
 });
 
 test("Reconnect host checks the build before it can dispatch to another release", () => {
-    const start = startConfiguredTui.indexOf("reconnectSession:");
+    const start = startConfiguredTui.indexOf("const reconnectHost = async (");
     expect(start).toBeGreaterThan(-1);
     const reconnect = startConfiguredTui.slice(start);
     const check = reconnect.indexOf("await refuseOtherHostBuild(clientBuildId);");
     expect(check).toBeGreaterThan(-1);
     expect(check).toBeLessThan(reconnect.indexOf("findOrStartResidentHost("));
+    expect(startConfiguredTui).toContain("await reconnectHost(options, false, currentAgentId);");
+    expect(startConfiguredTui).toContain("reconnectHome: (options) => reconnectHost(options, true),");
 });
 
 test("diagnostics read the host startConfiguredTui is attached to now", () => {

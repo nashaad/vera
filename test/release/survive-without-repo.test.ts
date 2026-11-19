@@ -59,7 +59,8 @@ function runSandboxed(
     });
 }
 
-test("command -v vera is the launcher, and the release runs with the repo denied", async () => {
+// sandbox-exec exists only on macOS.
+test.skipIf(process.platform !== "darwin")("command -v vera is the launcher, and the release runs with the repo denied", async () => {
     const prefix = mkdtempSync(join(tmpdir(), "vera-survive-"));
     const userHome = mkdtempSync(join(tmpdir(), "vera-survive-home-"));
     const veraHome = mkdtempSync(join(tmpdir(), "vera-survive-verahome-"));

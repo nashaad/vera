@@ -43,6 +43,7 @@ socketTest(
         try {
             const agents = await listAgentsThroughHost(socketPath);
             expect(agents[0]).toEqual({
+                archived: false,
                 id: "agent-1",
                 workspace: "/work/one",
                 session_path: "/sessions/agent-1.jsonl",
@@ -145,7 +146,7 @@ socketTest(
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-list-timeout-"));
         const socketPath = join(root, "host.sock");
-        const server = createServer(() => undefined);
+        const server = createServer((socket) => { socket.resume(); });
         await new Promise<void>((resolve, reject) => {
             server.once("error", reject);
             server.listen(socketPath, resolve);

@@ -1,15 +1,19 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { candidateHomePath, runDevTui } from "../../scripts/dev-tui.ts";
 import { processIsAlive } from "../../src/host/process-identity.ts";
 import { acquireHostStartupClaim } from "../../src/host/startup-claim.ts";
+import { linkedWorktree, removeGitRepositories } from "../support/git-repositories.ts";
 import { testTempBase } from "../support/temp-root.ts";
+
+const worktree = linkedWorktree();
+afterAll(removeGitRepositories);
 
 test("dev:tui --stop reports a live recorded session process when the host lock is absent", async () => {
     const root = mkdtempSync(join(testTempBase(), "dev-stop-"));
-    const home = candidateHomePath(process.cwd(), root);
+    const home = candidateHomePath(worktree, root);
     const workers = join(home, "runtime", "workers");
     mkdirSync(workers, { recursive: true });
     const child = Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000);"], {
@@ -24,7 +28,7 @@ test("dev:tui --stop reports a live recorded session process when the host lock 
             pid: child.pid,
             started_at: new Date().toISOString(),
         }));
-        const code = await runDevTui(["--stop"], process.cwd(), {
+        const code = await runDevTui(["--stop"], worktree, {
             temporaryRoot: root,
             stderr: { write: (message) => messages.push(message) },
         });
@@ -43,7 +47,7 @@ test("dev:tui --stop keeps its no-host message for an empty home", async () => {
     const root = mkdtempSync(join(testTempBase(), "dev-stop-empty-"));
     const messages: string[] = [];
     try {
-        const code = await runDevTui(["--stop"], process.cwd(), {
+        const code = await runDevTui(["--stop"], worktree, {
             temporaryRoot: root,
             stderr: { write: (message) => messages.push(message) },
         });
@@ -56,7 +60,7 @@ test("dev:tui --stop keeps its no-host message for an empty home", async () => {
 
 test("dev:tui --stop refuses an unverified session process without signalling it", async () => {
     const root = mkdtempSync(join(testTempBase(), "dev-stop-unverified-"));
-    const home = candidateHomePath(process.cwd(), root);
+    const home = candidateHomePath(worktree, root);
     const workers = join(home, "runtime", "workers");
     mkdirSync(workers, { recursive: true });
     const child = Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000);"], {
@@ -71,10 +75,10 @@ test("dev:tui --stop refuses an unverified session process without signalling it
         writeFileSync(join(root, "ps"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
         const runner = Bun.spawn([process.execPath, "-e", [
             "import { runDevTui } from './scripts/dev-tui.ts';",
-            "process.exitCode = await runDevTui(['--stop'], process.cwd(), { temporaryRoot: process.env.TEST_TEMPORARY_ROOT });",
+            "process.exitCode = await runDevTui(['--stop'], process.env.TEST_WORKTREE, { temporaryRoot: process.env.TEST_TEMPORARY_ROOT });",
         ].join(" ")], {
             cwd: process.cwd(),
-            env: { ...process.env, PATH: `${root}:${process.env.PATH}`, TEST_TEMPORARY_ROOT: root },
+            env: { ...process.env, PATH: `${root}:${process.env.PATH}`, TEST_TEMPORARY_ROOT: root, TEST_WORKTREE: worktree },
             stdout: "ignore",
             stderr: "pipe",
         });
@@ -98,7 +102,7 @@ test("dev:tui --stop refuses an unverified session process without signalling it
 
 test("dev:tui --stop reports a stopped session process when another cannot be verified", async () => {
     const root = mkdtempSync(join(testTempBase(), "dev-stop-partial-"));
-    const home = candidateHomePath(process.cwd(), root);
+    const home = candidateHomePath(worktree, root);
     const workers = join(home, "runtime", "workers");
     mkdirSync(workers, { recursive: true });
     const children = [0, 1].map(() => Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000);"], {
@@ -120,10 +124,10 @@ test("dev:tui --stop reports a stopped session process when another cannot be ve
         ].join("\n"), { mode: 0o755 });
         const runner = Bun.spawn([process.execPath, "-e", [
             "import { runDevTui } from './scripts/dev-tui.ts';",
-            "process.exitCode = await runDevTui(['--stop'], process.cwd(), { temporaryRoot: process.env.TEST_TEMPORARY_ROOT });",
+            "process.exitCode = await runDevTui(['--stop'], process.env.TEST_WORKTREE, { temporaryRoot: process.env.TEST_TEMPORARY_ROOT });",
         ].join(" ")], {
             cwd: process.cwd(),
-            env: { ...process.env, PATH: `${root}:${process.env.PATH}`, TEST_TEMPORARY_ROOT: root },
+            env: { ...process.env, PATH: `${root}:${process.env.PATH}`, TEST_TEMPORARY_ROOT: root, TEST_WORKTREE: worktree },
             stdout: "ignore",
             stderr: "pipe",
         });
@@ -149,11 +153,11 @@ test("dev:tui --stop reports a stopped session process when another cannot be ve
 
 test("dev:tui --stop refuses an empty home while startup holds the claim", async () => {
     const root = mkdtempSync(join(testTempBase(), "dev-stop-starting-"));
-    const home = candidateHomePath(process.cwd(), root);
+    const home = candidateHomePath(worktree, root);
     const claim = await acquireHostStartupClaim({ path: join(home, "runtime", "host.sock.starting") });
     const messages: string[] = [];
     try {
-        const code = await runDevTui(["--stop"], process.cwd(), {
+        const code = await runDevTui(["--stop"], worktree, {
             temporaryRoot: root,
             stderr: { write: (message) => messages.push(message) },
         });

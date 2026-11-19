@@ -71,7 +71,7 @@ export async function createFixture(options: { readonly pool?: boolean } = {}): 
 // Copies a release under a new build id. The copy keeps the same runnable tree.
 export function cloneRelease(fromRoot: string, prefix: string, toId: string, options: { brokenHost?: boolean } = {}): string {
     const to = join(prefix, "share", "vera", "releases", toId);
-    const copied = spawnSync("cp", ["-cR", fromRoot, to]);
+    const copied = spawnSync("cp", [process.platform === "darwin" ? "-cR" : "-R", fromRoot, to]);
     if (copied.status !== 0) throw new Error(`cp failed: ${copied.stderr}`);
     const manifestPath = join(to, "manifest.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));

@@ -17,7 +17,11 @@ async function withServer(
 ): Promise<void> {
     const directory = mkdtempSync(join(tmpdir(), "vera-connection-"));
     const socketPath = join(directory, "host.sock");
-    const server: Server = createServer(onSocket);
+    // An unread server socket never sees the client close on Linux, so server.close would hang.
+    const server: Server = createServer((socket) => {
+        socket.resume();
+        onSocket(socket);
+    });
     try {
         await new Promise<void>((resolve, reject) => {
             server.once("error", reject);

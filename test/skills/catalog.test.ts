@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+    existsSync,
     mkdirSync,
     mkdtempSync,
     rmSync,
@@ -110,16 +111,19 @@ test("bundled skills include guidance and explicit authoring", async () => {
 
 test("copyable example skills are valid opt-in packages", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
+    const examples = join(import.meta.dir, "../../examples/skills");
     const catalog = await loadSkillCatalog({
         projectRoot: join(root, "project"),
         userDirectory: join(root, "user"),
-        systemDirectory: join(import.meta.dir, "../../examples/skills"),
+        systemDirectory: examples,
     });
 
+    // examples/skills/wireframe is a symlink that resolves only where vera-hq is checked out.
+    const linked = existsSync(join(examples, "wireframe", "SKILL.md"));
     expect(catalog.warnings).toEqual([]);
     expect(catalog.skills.map((skill) => skill.metadata.name)).toEqual([
         "consult",
-        "wireframe",
+        ...(linked ? ["wireframe"] : []),
     ]);
 });
 
