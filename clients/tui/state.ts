@@ -659,6 +659,14 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
                     + ` ${update.reason}`,
             });
         }
+        if (update.decision === "deny"
+            && update.effectiveAuthorization === "approved_once") {
+            return appendEntry(state, {
+                kind: "review",
+                text: `Classifier denied ${update.tool} (risk: ${update.riskLevel},`
+                    + ` authorization: approved once): ${update.reason}`,
+            });
+        }
         const withheld = update.args === undefined ? state : {
             ...state,
             entries: applyToolDetailPreference(

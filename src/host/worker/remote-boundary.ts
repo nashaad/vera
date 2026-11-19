@@ -1,7 +1,7 @@
 
 import { EngineEventBus, type EngineEvent } from "../../engine/events.ts";
 import type { TurnHaltCheck } from "../../engine/run-turn.ts";
-import type { InboundCommandRouter } from "../../engine/inbound-command-router.ts";
+import type { InboundCommandRouter, ToolApprovalResult } from "../../engine/inbound-command-router.ts";
 import { ToolHooks, type SessionStartContribution } from "../../engine/hooks.ts";
 import type {
     HostBoundary,
@@ -16,6 +16,7 @@ import type {
 } from "../../engine/prompt-contributions.ts";
 import type { ReviewLog, ReviewLogEntry } from "../../engine/review-log.ts";
 import type { ToolReviewDecision } from "../../engine/reviewer.ts";
+import type { ReviewDecisionMediationSpec } from "../../engine/loop-services.ts";
 import { ManagedProcessRegistry } from "../../tools/process-runtime.ts";
 import type { CommandSandbox, SandboxInspector } from "../../sandbox/types.ts";
 import type { SkillFileCheck, ToolRuntime } from "../../tools/runtime.ts";
@@ -243,6 +244,62 @@ export function createRemoteHostBoundary(
                         return reply.decision;
                     } finally {
                         signal?.removeEventListener("abort", abort);
+                    }
+                },
+            }
+            : {}),
+        ...(capabilities.mediateReviewDecision
+            ? {
+                mediateReviewDecision: async (request) => {
+                    const reply = await pipe.request({
+                        method: "review.mediate",
+                        request,
+                    }) as { readonly mediation?: ReviewDecisionMediationSpec };
+                    return reply.mediation;
+                },
+            }
+            : {}),
+        ...(capabilities.requestMediatedApproval
+            ? {
+                requestMediatedApproval: async (call, reason, options) => {
+                    const { signal, ...wireOptions } = options;
+                    if (signal?.aborted === true) return { behavior: "deny" as const, reason: "" };
+                    const callId = newCallId();
+                    const abort = (): void => pipe.notify({ method: "call.cancel", callId });
+                    signal?.addEventListener("abort", abort, { once: true });
+                    try {
+                        const reply = await pipe.request({
+                            method: "approval.request",
+                            callId,
+                            call,
+                            reason,
+                            options: wireOptions,
+                        }) as { readonly result: ToolApprovalResult };
+                        return reply.result;
+                    } finally {
+                        signal?.removeEventListener("abort", abort);
+                    }
+                },
+            }
+            : {}),
+        ...(capabilities.relayToolApproval
+            ? {
+                relayToolApproval: async (update, sourceAgentId, sourceTask, signal) => {
+                    if (signal.aborted) return "deny" as const;
+                    const callId = newCallId();
+                    const abort = (): void => pipe.notify({ method: "call.cancel", callId });
+                    signal.addEventListener("abort", abort, { once: true });
+                    try {
+                        const reply = await pipe.request({
+                            method: "approval.relay",
+                            callId,
+                            update,
+                            sourceAgentId,
+                            sourceTask,
+                        }) as { readonly decision: "allow_once" | "deny" };
+                        return reply.decision;
+                    } finally {
+                        signal.removeEventListener("abort", abort);
                     }
                 },
             }

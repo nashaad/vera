@@ -263,6 +263,8 @@ function parseKnownAgentUpdate(
                 && typeof update.reason === "string"
                 && isRiskLevel(update.riskLevel)
                 && isUserAuthorization(update.userAuthorization)
+                && (update.effectiveAuthorization === undefined
+                    || update.effectiveAuthorization === "approved_once")
             ? value as AgentUpdate
             : undefined;
     }
@@ -538,6 +540,8 @@ function parseKnownAgentUpdate(
                 && typeof request.warning === "string"
                 && (request.restrictedChoices === undefined
                     || request.restrictedChoices === true)
+                && (request.allowNotes === undefined || request.allowNotes === false)
+                && isToolApprovalReview(request.review)
                 && (request.sourceAgentId === undefined
                     || (typeof request.sourceAgentId === "string"
                         && request.sourceAgentId.length > 0))
@@ -763,6 +767,19 @@ function isPermissionOutcome(value: unknown): value is "allow" | "review" | "ask
         || value === "review"
         || value === "ask"
         || value === "deny";
+}
+
+function isToolApprovalReview(value: unknown): boolean {
+    if (value === undefined) return true;
+    const review = asRecord(value);
+    return review !== undefined
+        && hasKeys(review, ["decision", "reason", "riskLevel"], ["model"])
+        && review.decision === "deny"
+        && typeof review.reason === "string"
+        && review.reason.trim().length > 0
+        && isRiskLevel(review.riskLevel)
+        && (review.model === undefined
+            || (typeof review.model === "string" && review.model.trim().length > 0));
 }
 
 function isUserQuestionRequest(request: Record<string, unknown>): boolean {

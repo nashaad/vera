@@ -51,6 +51,9 @@ export function createWorkerBoundaryServer(
 ): WorkerBoundaryServer {
     const { pipe, services } = options;
     const cancellers = new Map<string, AbortController>();
+    void pipe.closed.then(() => {
+        for (const controller of cancellers.values()) controller.abort();
+    });
     const toolsByName = new Map(
         (options.extensionTools ?? []).map((tool) => [tool.definition.name, tool]),
     );
@@ -178,6 +181,60 @@ export function createWorkerBoundaryServer(
                             controller.signal,
                         );
                         return { decision };
+                    } finally {
+                        cancellers.delete(request.callId);
+                    }
+                }
+                case "review.mediate": {
+                    const request = body as { readonly request: never };
+                    const mediation = await services.mediateReviewDecision?.(request.request);
+                    return mediation === undefined ? {} : { mediation };
+                }
+                case "approval.request": {
+                    const request = body as {
+                        readonly callId: string;
+                        readonly call: import("../../sdk/hooks.ts").HookToolCall;
+                        readonly reason: string;
+                        readonly options: Omit<import("../../engine/inbound-command-router.ts").ToolApprovalOptions, "signal">;
+                    };
+                    if (services.requestMediatedApproval === undefined) {
+                        throw new Error("The host offers no mediated approval");
+                    }
+                    const controller = new AbortController();
+                    cancellers.set(request.callId, controller);
+                    try {
+                        return {
+                            result: await services.requestMediatedApproval(
+                                request.call,
+                                request.reason,
+                                { ...request.options, signal: controller.signal },
+                            ),
+                        };
+                    } finally {
+                        cancellers.delete(request.callId);
+                    }
+                }
+                case "approval.relay": {
+                    const request = body as {
+                        readonly callId: string;
+                        readonly update: import("../../engine/protocol.ts").ToolApprovalUiRequestUpdate;
+                        readonly sourceAgentId: string;
+                        readonly sourceTask: string;
+                    };
+                    if (services.relayToolApproval === undefined) {
+                        throw new Error("The host offers no child approval relay");
+                    }
+                    const controller = new AbortController();
+                    cancellers.set(request.callId, controller);
+                    try {
+                        return {
+                            decision: await services.relayToolApproval(
+                                request.update,
+                                request.sourceAgentId,
+                                request.sourceTask,
+                                controller.signal,
+                            ),
+                        };
                     } finally {
                         cancellers.delete(request.callId);
                     }

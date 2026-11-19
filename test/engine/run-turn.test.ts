@@ -5225,7 +5225,7 @@ test("a custom permission mode routes to its named reviewer", async () => {
     expect(seenProfiles).toEqual(["careful"]);
 });
 
-test("a reviewer denial goes back to the model, not to the user", async () => {
+test("a reviewer denial without mediation goes back to the model", async () => {
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
     const state = reviewedTurnState(channel, events, async () => ({
@@ -5248,8 +5248,6 @@ test("a reviewer denial goes back to the model, not to the user", async () => {
     }
     await turn;
 
-    // The whole point of this mode is that the user is not interrupted, so a
-    // denial resolves the tool call rather than raising a prompt.
     expect(updates).toContain("tool_review");
     expect(updates).not.toContain("ui_request");
     expect(updates).not.toContain("tool_started");
@@ -5268,6 +5266,284 @@ test("a reviewer denial goes back to the model, not to the user", async () => {
     expect(text).toContain("Not needed for the task.");
     // The agent is told not to route around the denial.
     expect(text).toContain("workaround");
+});
+
+test("a mediated classifier denial can be approved once without granting standing permission", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const logged: EngineEvent[] = [];
+    events.subscribe((event) => logged.push(event));
+    const grants: unknown[] = [];
+    const requestedMessages: Array<ModelRequest["messages"]> = [];
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, async () => ({
+            decision: "deny",
+            reason: "The classifier denied this action.",
+            riskLevel: "high",
+            userAuthorization: "unknown",
+        })),
+        mediateReviewDecision: ({ review, toolCall, workspace }) => {
+            expect(review).toMatchObject({ decision: "deny", riskLevel: "high" });
+            expect(toolCall.name).toBe("bash");
+            return {
+                reason: "Review the classifier denial.",
+                options: {
+                    restrictedChoices: true,
+                    allowNotes: false,
+                    review: {
+                        decision: "deny",
+                        reason: review.reason,
+                        riskLevel: review.riskLevel,
+                    },
+                    pendingLimit: { key: "classifier-denial", max: 16 },
+                    workspace,
+                },
+            };
+        },
+        addPermissionGrants: async (proposals) => { grants.push(...proposals); },
+    };
+    const faux = new FauxAdapter(boundaryCrossingResponses());
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requestedMessages.push(structuredClone(request.messages));
+            return faux.stream(request);
+        },
+    };
+
+    channel.client.send({ type: "prompt", content: "run this action" });
+    const turn = runTurn(adapter, "test", state);
+    const approvalReason = await answerToolApproval(channel, "allow_once");
+    expect(approvalReason).toBe("Review the classifier denial.");
+    const updates = await receiveThroughTurnFinished(channel);
+    const message = await turn;
+
+    expect(updates).toContainEqual(expect.objectContaining({ type: "tool_started", tool: "bash" }));
+    expect(state.messages[2]).toMatchObject({ role: "tool_result", toolName: "bash", isError: false });
+    expect(requestedMessages[1]).toContainEqual(expect.objectContaining({
+        role: "tool_result",
+        toolName: "bash",
+        isError: false,
+    }));
+    expect(grants).toEqual([]);
+    expect(logged).toContainEqual(expect.objectContaining({
+        type: "tool_review_decided",
+        decision: "deny",
+        effectiveAuthorization: "approved_once",
+    }));
+    expect(message.stopReason).toBe("stop");
+});
+
+test("a classifier denial followed by approval timeout preserves classifierOutcome", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, async () => ({
+            decision: "deny",
+            reason: "Not needed for the task.",
+            riskLevel: "medium",
+            userAuthorization: "unknown",
+        })),
+        mediateReviewDecision: ({ review }) => ({
+            reason: "Review this denial.",
+            options: {
+                restrictedChoices: true,
+                allowNotes: false,
+                review: {
+                    decision: "deny",
+                    reason: review.reason,
+                    riskLevel: review.riskLevel,
+                },
+                pendingLimit: { key: "classifier-denial", max: 16 },
+            },
+        }),
+        requestMediatedApproval: async (_call, _reason, options) => {
+            expect(options.timeoutMs).toBe(60_000);
+            expect(options.restrictedChoices).toBe(true);
+            expect(options.allowNotes).toBe(false);
+            expect(options.pendingLimit).toEqual({ key: "classifier-denial", max: 16 });
+            return { behavior: "deny", reason: "The approval timed out." };
+        },
+    };
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        toolName: "bash",
+        isError: true,
+        classifierOutcome: {
+            kind: "denied",
+            riskLevel: "medium",
+            reason: "Not needed for the task.",
+        },
+    });
+    expect(JSON.stringify(state.messages[2])).toContain("workaround");
+    expect(JSON.stringify(state.messages[2])).not.toContain("timed out");
+});
+
+test("a mediated classifier denial refusal preserves the classifier result", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, async () => ({
+            decision: "deny",
+            reason: "Not needed for the task.",
+            riskLevel: "medium",
+            userAuthorization: "unknown",
+        })),
+        mediateReviewDecision: ({ review }) => ({
+            reason: "Review this denial.",
+            options: {
+                restrictedChoices: true,
+                allowNotes: false,
+                review: {
+                    decision: "deny",
+                    reason: review.reason,
+                    riskLevel: review.riskLevel,
+                },
+                pendingLimit: { key: "classifier-denial", max: 16 },
+            },
+        }),
+    };
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+    await answerToolApproval(channel, "deny");
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        toolName: "bash",
+        isError: true,
+        classifierOutcome: {
+            kind: "denied",
+            riskLevel: "medium",
+            reason: "Not needed for the task.",
+        },
+    });
+    expect(JSON.stringify(state.messages[2])).toContain("workaround");
+
+});
+
+test("a stricter mode set during mediated approval blocks the override", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    let mode: ApprovalMode = "auto";
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, async () => ({
+            decision: "deny",
+            reason: "The classifier denied this action.",
+            riskLevel: "high",
+            userAuthorization: "unknown",
+        })),
+        readApprovalMode: () => mode,
+        mediateReviewDecision: ({ review }) => ({
+            reason: "Review this denial.",
+            options: {
+                restrictedChoices: true,
+                allowNotes: false,
+                review: {
+                    decision: "deny",
+                    reason: review.reason,
+                    riskLevel: review.riskLevel,
+                },
+                pendingLimit: { key: "classifier-denial", max: 16 },
+            },
+        }),
+        requestMediatedApproval: async () => {
+            mode = "readonly";
+            return { behavior: "allow" };
+        },
+    };
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+    const updates = await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(updates.map((update) => update.type)).not.toContain("tool_started");
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        isError: true,
+    });
+});
+
+test("cancellation during mediated approval keeps the tool withheld", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, async () => ({
+            decision: "deny",
+            reason: "The classifier denied this action.",
+            riskLevel: "high",
+            userAuthorization: "unknown",
+        })),
+        mediateReviewDecision: ({ review }) => ({
+            reason: "Review this denial.",
+            options: {
+                restrictedChoices: true,
+                allowNotes: false,
+                review: {
+                    decision: "deny",
+                    reason: review.reason,
+                    riskLevel: review.riskLevel,
+                },
+                pendingLimit: { key: "classifier-denial", max: 16 },
+            },
+        }),
+        requestMediatedApproval: async () => {
+            channel.client.send({ type: "abort" });
+            return { behavior: "allow" };
+        },
+    };
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+    const updates = await receiveThroughTurnFinished(channel);
+    const message = await turn;
+
+    expect(message.stopReason).toBe("aborted");
+    expect(updates.map((update) => update.type)).not.toContain("tool_started");
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        isError: true,
+        withheld: true,
+        classifierOutcome: {
+            kind: "denied",
+            riskLevel: "high",
+            reason: "The classifier denied this action.",
+        },
+    });
+});
+
+test("an unavailable mediation leaves the classifier denial unchanged", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, async () => ({
+            decision: "deny",
+            reason: "Not needed for the task.",
+            riskLevel: "medium",
+            userAuthorization: "unknown",
+        })),
+        mediateReviewDecision: () => undefined,
+    };
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+    const updates = await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(updates.map((update) => update.type)).not.toContain("ui_request");
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        isError: true,
+        classifierOutcome: { kind: "denied", reason: "Not needed for the task." },
+    });
 });
 
 test("an unavailable reviewer rejects the tool without asking the user", async () => {
@@ -5439,6 +5715,51 @@ test(`a turn cancelled while path facts are collected for ${label} ends like a c
     await expect(next).resolves.toMatchObject({ stopReason: "stop" });
 });
 }
+
+test("an approved classifier override resets the consecutive denial breaker", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    let reviews = 0;
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, async () => {
+            reviews += 1;
+            return {
+                decision: "deny",
+                reason: "The classifier denied this action.",
+                riskLevel: "high",
+                userAuthorization: "unknown",
+            };
+        }),
+        mediateReviewDecision: ({ review }) => ({
+            reason: "Review this denial.",
+            options: {
+                restrictedChoices: true,
+                allowNotes: false,
+                review: {
+                    decision: "deny",
+                    reason: review.reason,
+                    riskLevel: review.riskLevel,
+                },
+                pendingLimit: { key: "classifier-denial", max: 16 },
+            },
+        }),
+        requestMediatedApproval: async () => reviews === 3
+            ? { behavior: "allow" }
+            : { behavior: "deny", reason: "No." },
+    };
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(
+        new FauxAdapter(repeatedBoundaryCrossings(6).concat(assistantText("done"))),
+        "test",
+        state,
+    );
+    const message = await turn;
+
+    expect(reviews).toBe(6);
+    expect(message.stopReason).toBe("error");
+    expect(message.errorMessage).toContain("denied 3 actions in a row");
+});
 
 test("repeated reviewer denials stop the turn", async () => {
     const channel = createInProcessChannel();

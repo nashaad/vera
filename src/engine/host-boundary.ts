@@ -17,6 +17,8 @@ import { loopCompactionState, type LoopState } from "./host-protocol.ts";
 import type {
     InboundRouterHostHooks,
     LoopPolicy,
+    MediateReviewDecision,
+    RequestMediatedApproval,
     RunHeadlessLoopServices,
 } from "./loop-services.ts";
 import type { InstructionRoot } from "./memory.ts";
@@ -62,6 +64,9 @@ export interface HostBoundary {
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
     readonly reviewToolCall?: ReviewToolCall;
+    readonly mediateReviewDecision?: MediateReviewDecision;
+    readonly requestMediatedApproval?: RequestMediatedApproval;
+    readonly relayToolApproval?: import("./subagent.ts").ChildToolApprovalRelay;
     readonly applyToolEffect?: ApplyToolEffect;
     readonly applyHostToolEffect?: ApplyToolEffect;
     readonly requestMissingSubagentConfiguration?:
@@ -124,6 +129,15 @@ export function createLocalHostBoundary(
         ...(services.reviewToolCall === undefined
             ? {}
             : { reviewToolCall: services.reviewToolCall }),
+        ...(services.mediateReviewDecision === undefined
+            ? {}
+            : { mediateReviewDecision: services.mediateReviewDecision }),
+        ...(services.requestMediatedApproval === undefined
+            ? {}
+            : { requestMediatedApproval: services.requestMediatedApproval }),
+        ...(services.relayToolApproval === undefined
+            ? {}
+            : { relayToolApproval: services.relayToolApproval }),
         ...(services.applyToolEffect === undefined
             ? {}
             : { applyToolEffect: services.applyToolEffect }),

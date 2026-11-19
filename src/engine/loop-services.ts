@@ -23,6 +23,8 @@ import type {
     InboundCommandRouter,
     InboundCommandRouterOptions,
     SessionModelSettingsResult,
+    ToolApprovalOptions,
+    ToolApprovalResult,
 } from "./inbound-command-router.ts";
 import type { InstructionRoot } from "./memory.ts";
 import type { ModelSettingsPatch, ModelTurnSettings } from "./model-settings.ts";
@@ -39,7 +41,7 @@ import type {
 } from "./prompt-contributions.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
 import type { ReviewLog } from "./review-log.ts";
-import type { ReviewToolCall, ToolReviewerSettings } from "./reviewer.ts";
+import type { ReviewToolCall, ToolReviewDecision, ToolReviewerSettings } from "./reviewer.ts";
 import type { SessionNameReplyUpdate, TimelineReplyUpdate } from "./protocol.ts";
 import type { SessionCompactionOptions, TurnHaltCheck } from "./run-turn.ts";
 import type {
@@ -149,6 +151,29 @@ export interface InboundRouterHostHooks {
     readonly sendOneshotReply?: InboundCommandRouterOptions["sendOneshotReply"];
 }
 
+export interface ReviewDecisionMediationRequest {
+    readonly review: ToolReviewDecision;
+    readonly toolCall: import("../sdk/hooks.ts").HookToolCall;
+    readonly workspace: string;
+    readonly approvalMode: ApprovalMode;
+    readonly chat?: true;
+}
+
+export interface ReviewDecisionMediationSpec {
+    readonly reason: string;
+    readonly options: Omit<ToolApprovalOptions, "timeoutMs" | "signal">;
+}
+
+export type MediateReviewDecision = (
+    request: ReviewDecisionMediationRequest,
+) => ReviewDecisionMediationSpec | undefined | Promise<ReviewDecisionMediationSpec | undefined>;
+
+export type RequestMediatedApproval = (
+    call: import("../sdk/hooks.ts").HookToolCall,
+    reason: string,
+    options: ToolApprovalOptions,
+) => Promise<ToolApprovalResult>;
+
 export interface RunHeadlessLoopServices {
 
     readonly sessionStore?: SessionStore;
@@ -175,6 +200,9 @@ export interface RunHeadlessLoopServices {
     readonly readPermissionPreferences?: () => readonly PermissionPreference[];
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly reviewToolCall?: ReviewToolCall;
+    readonly mediateReviewDecision?: MediateReviewDecision;
+    readonly requestMediatedApproval?: RequestMediatedApproval;
+    readonly relayToolApproval?: import("./subagent.ts").ChildToolApprovalRelay;
     readonly applyToolEffect?: ApplyToolEffect;
     readonly requestMissingSubagentConfiguration?:
         RequestMissingSubagentConfiguration;

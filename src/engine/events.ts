@@ -123,6 +123,13 @@ export interface ToolApprovalUiRequest {
     readonly sourceAgentId?: string;
     readonly sourceTask?: string;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
+    readonly review?: {
+        readonly decision: "deny";
+        readonly reason: string;
+        readonly riskLevel: "low" | "medium" | "high" | "critical";
+        readonly model?: string;
+    };
+    readonly allowNotes?: false;
     // Only Yes, this time and No: an ask from permission_rules cannot be lifted.
     readonly restrictedChoices?: true;
     /** The absolute working folder of the session whose tool asks. */
@@ -581,6 +588,7 @@ export interface ToolReviewDecidedEvent {
     readonly reason: string;
     readonly riskLevel: ToolReviewRiskLevel;
     readonly userAuthorization: ToolReviewUserAuthorization;
+    readonly effectiveAuthorization?: "approved_once";
 }
 
 export interface ToolExecutionFinishedEvent {

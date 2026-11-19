@@ -18,6 +18,7 @@ import { ResidentAgent, SessionBlockedError, type AgentAttachment } from "../res
 import { startSeededWorker, type WorkerHandle } from "../worker/handle.ts";
 import type { WorkerAdapterSpec } from "../worker/start.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
+import { denialApprovalLimitForRequest } from "../review-decision-mediation.ts";
 
 const CLOSE_ABORT_TIMEOUT_MS = 2_000;
 
@@ -1059,13 +1060,19 @@ async function lastAssistantText(store: SessionStore | undefined): Promise<strin
 }
 
 export async function relayChildToolApproval(_reg: AgentRegistry, parent: RegisteredAgentEntry, update: ToolApprovalUiRequestUpdate, sourceAgentId: string, sourceTask: string, signal?: AbortSignal): Promise<"allow_once" | "deny"> {
-        const result = await parent.inbound?.requestToolApproval(
+        const inbound = parent.workerOwnerRouter ?? parent.inbound;
+        const pendingLimit = denialApprovalLimitForRequest(update.request);
+        const result = await inbound?.requestToolApproval(
             update.request.toolCall,
             update.request.reason,
             {
                 timeoutMs: CHILD_TOOL_APPROVAL_TIMEOUT_MS,
                 sourceAgentId,
                 sourceTask,
+                ...(update.request.restrictedChoices === true ? { restrictedChoices: true as const } : {}),
+                ...(update.request.allowNotes === false ? { allowNotes: false as const } : {}),
+                ...(update.request.review === undefined ? {} : { review: update.request.review }),
+                ...(pendingLimit === undefined ? {} : { pendingLimit }),
                 ...(update.request.workspace === undefined
                     ? {}
                     : { workspace: update.request.workspace }),

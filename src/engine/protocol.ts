@@ -768,6 +768,7 @@ export interface ToolReviewUpdate {
     /** The reviewer's own scoring, so clients can show what drove the call. */
     readonly riskLevel: ToolReviewRiskLevel;
     readonly userAuthorization: ToolReviewUserAuthorization;
+    readonly effectiveAuthorization?: "approved_once";
     readonly seq: number;
 }
 
@@ -1999,6 +2000,9 @@ export function createProtocolEncoder(
                 reason: event.reason,
                 riskLevel: event.riskLevel,
                 userAuthorization: event.userAuthorization,
+                ...(event.effectiveAuthorization === undefined
+                    ? {}
+                    : { effectiveAuthorization: event.effectiveAuthorization }),
                 seq,
             });
             return;

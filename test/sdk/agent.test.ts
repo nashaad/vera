@@ -320,6 +320,46 @@ test("B1b a headless auto run is refused, not reviewed, for a write into another
     }
 });
 
+test("@core a headless classifier denial keeps the action withheld", async () => {
+    const workspace = temporaryWorkspace("vera-sdk-classifier-denial-");
+    const target = `${workspace}-outside`;
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera([
+        toolCall("bash", { command: `printf crow > '${target}'` }),
+        answer(JSON.stringify({
+            risk_level: "high",
+            user_authorization: "unknown",
+            outcome: "deny",
+            rationale: "The crow did not authorize this action.",
+        })),
+        answer("The action was withheld."),
+    ], requests, {
+        workspace,
+        config: { ...baseConfig(), approval_mode: "auto" },
+        posture: "auto",
+    });
+    const definition = defineAgent({
+        name: "crow-denial",
+        instructions: "Carry out the requested task.",
+        tools: ["bash"],
+    });
+
+    try {
+        const result = await vera.agent(definition).run("Prepare the ship.");
+
+        expect(existsSync(target)).toBe(false);
+        expect(requests).toHaveLength(3);
+        const modelResult = JSON.stringify(requests[2]?.messages);
+        expect(modelResult).toContain("The crow did not authorize this action.");
+        expect(modelResult).toContain("Do not attempt to achieve the same outcome via workaround");
+        expect(result).toMatchObject({ outcome: "completed", text: "The action was withheld." });
+    } finally {
+        await vera.close();
+        rmSync(workspace, { recursive: true, force: true });
+        rmSync(target, { force: true });
+    }
+});
+
 test("vera.tool denies an auto write into another worktree that nobody can approve", async () => {
     const repo = repository();
     const session = addWorktree(repo, "a");

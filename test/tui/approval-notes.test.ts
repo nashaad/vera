@@ -428,6 +428,54 @@ test("a subagent's approval has no typed answer and cannot send notes", async ()
     }
 });
 
+test("a classifier denial shows its reason before the action and takes no typed answer", async () => {
+    const denied: ToolApprovalUiRequestUpdate = {
+        ...request,
+        requestId: "review-denied",
+        request: {
+            ...request.request,
+            restrictedChoices: true,
+            allowNotes: false,
+            review: { decision: "deny", model: "reviewer-model", riskLevel: "high", reason: "The action is unsafe." },
+        },
+    };
+    const message = "The classifier, reviewer-model, denied this. High risk: The action is unsafe.";
+    const rendered = renderTuiApproval(denied, ask);
+    expect(rendered).toContain(message);
+    expect(rendered.indexOf(message)).toBeLessThan(rendered.indexOf("$ curl"));
+    expect(selectableApprovalKeys(denied, ask)).toEqual(["1", "2"]);
+    expect(tuiApprovalHint(denied)).not.toContain("tell Vera");
+    expect(createTuiApprovalNotesResponse(denied, "do something else")).toBeUndefined();
+
+    for (const [width, height] of [[100, 22], [42, 12]] as const) {
+        const { setup, view } = await openView(width, height);
+        try {
+            view.update(denied, ask);
+            view.focus();
+            await setup.flush();
+            const frame = setup.captureCharFrame();
+            expect(frame).toContain("The classifier, reviewer-model,");
+            expect(frame).toContain("High risk:");
+            expect(frame).toContain("1 Yes, this time");
+            expect(frame).toContain("2 No");
+            expect(frame).not.toContain("to tell Vera");
+            expect(frame).not.toContain("always allow");
+            const lines = frame.split("\n");
+            const reason = lines.find((line) => line.includes("The classifier"));
+            expect(reason?.indexOf("The classifier")).toBeGreaterThanOrEqual(2);
+            expect(reason?.endsWith(" ")).toBe(true);
+            view.handleKey(denied, { name: "tab" });
+            expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
+            expect(view.handleKey(denied, { name: "1" }).response?.response)
+                .toEqual({ type: "tool_approval", decision: "allow_once" });
+            expect(view.handleKey(denied, { name: "2" }).response?.response)
+                .toEqual({ type: "tool_approval", decision: "deny" });
+        } finally {
+            setup.renderer.destroy();
+        }
+    }
+});
+
 test("the card keeps every answer on screen down to 40 columns and short heights", async () => {
     const update = writeRequest(
         "/Users/someone/Desktop/notes/todo.md",

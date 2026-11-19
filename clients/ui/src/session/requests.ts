@@ -7,6 +7,7 @@ import {
     type ApprovalAnswerGrant,
     type ApprovalDecision,
 } from "../../../shared/approval-answers.ts";
+import { parseApprovalReview, type ApprovalReview } from "../../../shared/approval-review.ts";
 import type { SessionPane } from "../protocol/panes.ts";
 import { describePredicate, type ApprovalState } from "./permissions.ts";
 
@@ -20,8 +21,10 @@ export interface ApprovalRequest {
     // Set when a subagent asked; it takes no remembered answer and no typed answer.
     readonly sourceAgentId?: string;
     readonly sourceTask?: string;
-    // Only Yes, this time and No: an ask from permission_rules cannot be lifted.
+    // Only Yes, this time and No.
     readonly restrictedChoices?: boolean;
+    readonly allowNotes?: false;
+    readonly review?: ApprovalReview;
     // What the grant answers would remember, in words; empty means neither is offered.
     readonly grants: readonly string[];
     // The `when` objects the grants were read from, as the host sent them.
@@ -132,6 +135,7 @@ function parseApproval(requestId: string, request: Fields): ApprovalRequest | un
     const sourceAgentId = str(request.sourceAgentId);
     const sourceTask = str(request.sourceTask);
     const workspace = str(request.workspace);
+    const review = parseApprovalReview(request.review);
     const predicates = Array.isArray(request.permissionGrants)
         ? request.permissionGrants.map((grant): Fields => (isRecord(grant) && isRecord(grant.when) ? grant.when : {}))
         : [];
@@ -145,6 +149,8 @@ function parseApproval(requestId: string, request: Fields): ApprovalRequest | un
         ...(sourceAgentId === undefined ? {} : { sourceAgentId }),
         ...(sourceTask === undefined ? {} : { sourceTask }),
         ...(request.restrictedChoices === true ? { restrictedChoices: true } : {}),
+        ...(request.allowNotes === false ? { allowNotes: false as const } : {}),
+        ...(review === undefined ? {} : { review }),
         grants: predicates.map(describePredicate),
         grantPredicates: predicates,
         ...(workspace === undefined || workspace.length === 0 ? {} : { workspace }),

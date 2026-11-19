@@ -81,6 +81,28 @@ describe("open requests", () => {
             .toEqual(["allow_once", "deny"]);
     });
 
+    test("an approval preserves review facts and the restriction on typed answers", () => {
+        const review = { decision: "deny", model: "reviewer-model", riskLevel: "high", reason: "The action is unsafe." } as const;
+        const message = line({
+            ...approval,
+            request: { ...approval.request, restrictedChoices: true, allowNotes: false, review },
+        });
+        if (message.type !== "ui_request" || message.request.kind !== "approval") throw new Error("expected an approval");
+        expect(message.request.review).toEqual(review);
+        expect(message.request.allowNotes).toBe(false);
+        expect(approvalAnswersFor(message.request).map((answer) => answer.decision)).toEqual(["allow_once", "deny"]);
+    });
+
+    test("malformed review facts do not change the typed answer restriction", () => {
+        const message = line({
+            ...approval,
+            request: { ...approval.request, allowNotes: false, review: { decision: "deny", riskLevel: "unknown", reason: "No." } },
+        });
+        if (message.type !== "ui_request" || message.request.kind !== "approval") throw new Error("expected an approval");
+        expect(message.request.review).toBeUndefined();
+        expect(message.request.allowNotes).toBe(false);
+    });
+
     test("an approval carries the folder facts the host sent", () => {
         const message = line({
             ...approval,

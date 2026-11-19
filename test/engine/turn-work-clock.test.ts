@@ -111,6 +111,23 @@ test("overlapping user requests keep the turn clock paused until all resolve", a
     expect(router.finishTurnTiming(clock)).toBe(200);
 });
 
+test("a remote approval wait pauses and resumes the turn clock on failure", async () => {
+    const channel = createInProcessChannel();
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus());
+    let now = 0;
+    const clock = router.beginTurnTiming(new TurnWorkClock(() => now));
+
+    now += 100;
+    await expect(router.withPausedTurnClock(async () => {
+        now += 5_000;
+        throw new Error("closed");
+    })).rejects.toThrow("closed");
+    now += 200;
+
+    expect(router.finishTurnTiming(clock)).toBe(300);
+    await router.stopReceivingCommands();
+});
+
 test("finishing a paused clock freezes its active duration", () => {
     let now = 0;
     const clock = new TurnWorkClock(() => now);

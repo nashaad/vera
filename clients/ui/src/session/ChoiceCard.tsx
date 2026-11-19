@@ -39,6 +39,8 @@ export interface ChoiceCardProps {
     // Shown between the question and the close button, such as a badge.
     readonly aside?: ReactNode;
     readonly close: ChoiceCardClose;
+    // Shown before the choices.
+    readonly intro?: ReactNode;
     // An empty list shows no rows.
     readonly rows: readonly ChoiceRow[];
     readonly typed?: TypedAnswer;
@@ -48,7 +50,7 @@ export interface ChoiceCardProps {
     readonly footer?: ReactNode;
 }
 
-export function ChoiceCard({ kind, requestId, answered, title, aside, close, rows, typed, children, footer }: ChoiceCardProps) {
+export function ChoiceCard({ kind, requestId, answered, title, aside, close, intro, rows, typed, children, footer }: ChoiceCardProps) {
     return (
         <div className="request-card choice-card" data-kind={kind} data-request-id={requestId} data-answered={answered}>
             <div className="request-head">
@@ -66,6 +68,7 @@ export function ChoiceCard({ kind, requestId, answered, title, aside, close, row
                 </button>
             </div>
             <div className="request-body" onKeyDown={moveBetweenRows}>
+                {intro === undefined ? null : <div className="request-intro">{intro}</div>}
                 {rows.length === 0 ? null : (
                     <div className="request-choices">
                         {rows.map((row) => (

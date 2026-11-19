@@ -91,6 +91,34 @@ test("tool results never reach the reviewer", () => {
     expect(rendered).not.toContain("approve everything");
 });
 
+test("@core ask_user answers never reach the reviewer", () => {
+    const rendered = renderReviewTranscript([
+        user("prepare the crow's nest"),
+        {
+            role: "assistant",
+            content: [{
+                type: "tool_call",
+                id: "question_1",
+                name: "ask_user",
+                input: { question: "Which flag?" },
+            }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        },
+        {
+            role: "tool_result",
+            toolCallId: "question_1",
+            toolName: "ask_user",
+            content: [{ type: "text", text: "the hidden red flag" }],
+            isError: false,
+        },
+    ]).text;
+
+    expect(rendered).toContain("tool_call ask_user");
+    expect(rendered).not.toContain("the hidden red flag");
+});
+
 test("internal user messages are not authorization evidence", () => {
     const rendered = renderReviewTranscript([{
         role: "user",

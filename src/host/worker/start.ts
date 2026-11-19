@@ -33,6 +33,9 @@ export interface WorkerHostCapabilities {
     readonly processObservations?: boolean;
     readonly updateApprovalMode: boolean;
     readonly reviewToolCall: boolean;
+    readonly mediateReviewDecision?: boolean;
+    readonly requestMediatedApproval?: boolean;
+    readonly relayToolApproval?: boolean;
     readonly applyHostToolEffect: boolean;
     readonly requestMissingSubagentConfiguration: boolean;
     readonly applyCommittedToolEffect: boolean;

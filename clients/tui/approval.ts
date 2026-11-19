@@ -26,6 +26,7 @@ import {
     type ApprovalAnswersInput,
     type ApprovalDecision,
 } from "../shared/approval-answers.ts";
+import { approvalReviewText } from "../shared/approval-review.ts";
 import {
     TUI_BACKGROUND,
     TUI_DIFF_ADDED,
@@ -312,7 +313,7 @@ export function createTuiApprovalView(
 
     function renderBody(update: ToolApprovalUiRequestUpdate): void {
         const body = tuiApprovalBody(update, expanded);
-        const reason = specificReason(update.request.reason);
+        const reason = approvalReason(update);
         capped = expanded || body.hidden > 0;
         detailsText.content = new StyledText(
             [
@@ -595,8 +596,7 @@ export function answerInput(
 export function typedAnswerAvailable(
     update: ToolApprovalUiRequestUpdate,
 ): boolean {
-    // What a subagent is told never reaches it, so its approvals take no typed answer.
-    return !isSubagentCall(update);
+    return !isSubagentCall(update) && update.request.allowNotes !== false;
 }
 
 function isSubagentCall(update: ToolApprovalUiRequestUpdate): boolean {
@@ -608,7 +608,7 @@ export function renderTuiApproval(
     update: ToolApprovalUiRequestUpdate,
     session: TuiApprovalSession = {},
 ): string {
-    const reason = specificReason(update.request.reason);
+    const reason = approvalReason(update);
     const headline = tuiApprovalQuestion(update);
     return [
         ...(headline === undefined
@@ -651,13 +651,12 @@ function approvalResponse(
     };
 }
 
-/** A deny that tells the agent what to do instead; undefined when the text is empty or a subagent asked, since notes never reach a subagent. */
 export function createTuiApprovalNotesResponse(
     update: ToolApprovalUiRequestUpdate,
     text: string,
 ): UiResponseCommand | undefined {
     const notes = normalizeApprovalNotes(text);
-    if (notes === undefined || isSubagentCall(update)) {
+    if (notes === undefined || !typedAnswerAvailable(update)) {
         return undefined;
     }
     return {
@@ -707,12 +706,14 @@ function approvalNotesChordLabel(): string {
 export function tuiApprovalHint(
     update: ToolApprovalUiRequestUpdate,
 ): string {
-    if (isSubagentCall(update)) {
+    if (!typedAnswerAvailable(update)) {
         return "approval required · Esc deny · Ctrl+C stop";
     }
     return `approval required · ${approvalNotesChordLabel()} tell Vera · Esc deny · Ctrl+C stop`;
 }
 
-function specificReason(reason: string): string | undefined {
+function approvalReason(update: ToolApprovalUiRequestUpdate): string | undefined {
+    if (update.request.review !== undefined) return approvalReviewText(update.request.review);
+    const reason = update.request.reason;
     return reason.startsWith("Permission mode ") ? undefined : reason;
 }

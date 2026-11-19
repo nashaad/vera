@@ -1835,6 +1835,31 @@ test("each new thinking block in one run starts on its own paragraph", () => {
     ]);
 });
 
+test("tool review updates preserve approved-once authorization", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({ send(update): void { updates.push(update); } });
+
+    protocol({
+        type: "tool_review_decided",
+        toolCall: {
+            id: "call-1",
+            name: "bash",
+            input: { command: "echo safe" },
+        },
+        decision: "deny",
+        reason: "Classifier refused the call.",
+        riskLevel: "high",
+        userAuthorization: "low",
+        effectiveAuthorization: "approved_once",
+    });
+
+    expect(updates).toMatchObject([{
+        type: "tool_review",
+        decision: "deny",
+        effectiveAuthorization: "approved_once",
+    }]);
+});
+
 test("a notice event with a source and facts keeps both on the update", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({
