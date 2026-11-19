@@ -7,6 +7,8 @@ export interface Turn {
     readonly user?: UserBlock;
     readonly work: readonly Block[];
     readonly answer?: TextBlock;
+    // Characters of reasoning the turn received, counted even when the thoughts are dropped from `work`.
+    readonly thoughtCharacters: number;
 }
 
 // The tool calls between two stretches of text, drawn as one line.
@@ -36,19 +38,25 @@ export function toTurns(blocks: readonly Block[], options: TurnOptions = { reaso
     const turns: Turn[] = [];
     let user: UserBlock | undefined;
     let work: Block[] = [];
+    let thoughtCharacters = 0;
     let key = "start";
     const push = (): void => {
         if (user === undefined && work.length === 0) return;
         const last = work[work.length - 1];
-        if (last !== undefined && last.kind === "text") turns.push({ key, user, work: work.slice(0, -1), answer: last });
-        else turns.push({ key, user, work });
+        if (last !== undefined && last.kind === "text") {
+            turns.push({ key, user, work: work.slice(0, -1), answer: last, thoughtCharacters });
+        } else turns.push({ key, user, work, thoughtCharacters });
     };
     for (const block of blocks) {
-        if (block.kind === "thought" && !options.reasoning) continue;
+        if (block.kind === "thought") {
+            thoughtCharacters += block.text.length + (block.hiddenCharacters ?? 0);
+            if (!options.reasoning) continue;
+        }
         if (block.kind === "user") {
             push();
             user = block;
             work = [];
+            thoughtCharacters = 0;
             key = block.key;
             continue;
         }
@@ -96,6 +104,7 @@ function scanRuns(work: readonly Block[]): Scan {
 
 function sameTurn(a: Turn, b: Turn): boolean {
     if (a.user !== b.user || a.answer !== b.answer || a.work.length !== b.work.length) return false;
+    if (a.thoughtCharacters !== b.thoughtCharacters) return false;
     return a.work.every((block, index) => block === b.work[index]);
 }
 

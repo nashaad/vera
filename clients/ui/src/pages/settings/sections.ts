@@ -10,6 +10,7 @@ import {
     LaptopIcon,
     LayersIcon,
     ShieldIcon,
+    ViewIcon,
     type IconProps,
 } from "../../components/Icons.tsx";
 
@@ -39,8 +40,8 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         name: "Agents",
         group: "Settings",
         Icon: AgentIcon,
-        terms: "agent default persona subagent tools skills posture",
-        file: "agents/*.md in the folder and the Vera home",
+        terms: "agent default persona subagent tools skills posture notes suggest offer keep",
+        file: "agents/*.md in the folder and the Vera home; the notes setting in the desktop's storage",
     },
     {
         id: "approvals",
@@ -89,6 +90,14 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         Icon: KeyIcon,
         terms: "keyboard shortcut key binding hotkey accelerator",
         file: "Built into this window",
+    },
+    {
+        id: "show",
+        name: "Show",
+        group: "Desktop",
+        Icon: ViewIcon,
+        terms: "show hide visible auto on off sidebar pane panel page search work customize review plan files output browser reasoning doctor developer tour coverage devices",
+        file: "flags.json under machine/desktop in the Vera home",
     },
     {
         id: "data",

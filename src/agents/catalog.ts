@@ -34,7 +34,8 @@ export function projectAgentDirectory(projectRoot: string): string {
 }
 
 export interface LoadAgentCatalogOptions extends ParseAgentOptions {
-    readonly projectRoot: string;
+    // Without a project root only extension and user agents load.
+    readonly projectRoot?: string;
     readonly userDirectory?: string;
     readonly projectDirectory?: string;
     readonly registered?: readonly AgentDefinition[];
@@ -53,17 +54,19 @@ export async function loadAgentCatalog(
             writable: false,
         });
     }
+    const projectPath = options.projectDirectory
+        ?? (options.projectRoot === undefined
+            ? undefined
+            : projectAgentDirectory(options.projectRoot));
     for (
         const root of [
             {
                 scope: "user" as const,
                 path: options.userDirectory ?? userAgentDirectory(),
             },
-            {
-                scope: "project" as const,
-                path: options.projectDirectory
-                    ?? projectAgentDirectory(options.projectRoot),
-            },
+            ...(projectPath === undefined
+                ? []
+                : [{ scope: "project" as const, path: projectPath }]),
         ]
     ) {
         for (const agent of await readRoot(root.path, root.scope, notices, options)) {

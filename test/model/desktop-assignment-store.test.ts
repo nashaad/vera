@@ -8,6 +8,7 @@ import { AssignmentStore } from "../../clients/desktop/src/model-assignments/ass
 import { runAssignmentTask } from "../../clients/desktop/src/model-assignments/run-task.ts";
 import { changeArgument, parseAssignmentTask, parseAssignmentTaskReply } from "../../clients/desktop/src/model-assignments/task-protocol.ts";
 import { slotOf, type AssignmentsView } from "../../clients/ui/src/protocol/assignments.ts";
+import { MAX_DISABLED_INCLUDED, MAX_INCLUDED_ID_CHARS } from "../../clients/ui/src/protocol/included-extensions.ts";
 
 const homes: string[] = [];
 const startedIn = process.cwd();
@@ -212,6 +213,7 @@ test("assignment tasks and answers of the wrong shape are not read", () => {
         { kind: "edit", home: "/h", change: { assignment: "session" } },
         { kind: "assign-all", home: "/h", provider: "Open Router", model: "m" },
         { kind: "read", home: "/h", lastGood: { path: 1, config: {} } },
+        { kind: "included-extensions", home: 1 },
         { kind: "write", home: "/h" },
     ]) {
         expect(parseAssignmentTask(task)).toBeUndefined();
@@ -223,7 +225,47 @@ test("assignment tasks and answers of the wrong shape are not read", () => {
         { kind: "edit", result: { ok: true, view: { ok: true, slots: [] } } },
         { kind: "assign-all", result: { ok: true, view: { ok: true, slots: [] }, favorite: false, assigned: [1] } },
         { kind: "read", result: { ok: false, reason: "no" }, lastGood: "config" },
+        { kind: "included-extensions" },
+        { kind: "included-extensions", result: { ok: true } },
+        { kind: "included-extensions", result: { ok: true, disabled: [1] } },
+        { kind: "included-extensions", result: { ok: true, disabled: [""] } },
+        { kind: "included-extensions", result: { ok: true, disabled: ["x".repeat(MAX_INCLUDED_ID_CHARS + 1)] } },
+        { kind: "included-extensions", result: { ok: true, disabled: Array.from({ length: MAX_DISABLED_INCLUDED + 1 }, (_, index) => `a.${index}`) } },
+        { kind: "included-extensions", result: { ok: true, disabled: [], notice: 3 } },
+        { kind: "included-extensions", result: { ok: false } },
+        { kind: "read", result: { ok: true, disabled: [] } },
     ]) {
         expect(parseAssignmentTaskReply(reply)).toBeUndefined();
     }
+});
+
+test("@core the included-extensions task copies between processes and reports the ids config.json turns off", async () => {
+    const task = { kind: "included-extensions" as const, home: "/h" };
+    expect(parseAssignmentTask(JSON.parse(JSON.stringify(task)))).toEqual(task);
+    expect(parseAssignmentTask(structuredClone(task))).toEqual(task);
+
+    const none = inTaskProcesses(trialHome());
+    expect(await none.readIncludedExtensions()).toEqual({ ok: true, disabled: [] });
+    const some = inTaskProcesses(trialHome({ disabled_included_extensions: ["vera.btw", "vera.pair"] }));
+    expect(await some.readIncludedExtensions()).toEqual({ ok: true, disabled: ["vera.btw", "vera.pair"] });
+});
+
+test("@core the included-extensions task keeps the last disabled list when config.json stops loading, and fails when there is none", async () => {
+    const home = trialHome({ disabled_included_extensions: ["vera.btw"] });
+    const store = new AssignmentStore(home);
+    expect(store.readDisabledIncluded()).toEqual({ ok: true, disabled: ["vera.btw"] });
+    writeFileSync(join(home, "config.json"), "{ not json");
+    const kept = store.readDisabledIncluded();
+    expect(kept.ok && kept.disabled).toEqual(["vera.btw"]);
+    expect(kept.ok && kept.notice).toContain("config.json could not be read");
+
+    const fresh = await inTaskProcesses(home).readIncludedExtensions();
+    expect(fresh.ok).toBe(false);
+});
+
+test("an included-extensions answer to another request, or from a task that fails, is reported, not thrown", async () => {
+    const crossed = new AssignmentService(trialHome(), async () => ({ kind: "read", result: { ok: false, reason: "no" } }));
+    expect(await crossed.readIncludedExtensions()).toEqual({ ok: false, reason: "The assignments task answered a different request." });
+    const failing = new AssignmentService(trialHome(), () => Promise.reject(new Error("The task stopped without answering.")));
+    expect(await failing.readIncludedExtensions()).toEqual({ ok: false, reason: "The task stopped without answering." });
 });

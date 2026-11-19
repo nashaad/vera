@@ -1,3 +1,4 @@
+import type { ProviderSignInStatus } from "../providers/provider-sign-in.ts";
 import type { JsonValue } from "../sdk/hooks.ts";
 import type { ModelOperation, ModelOperationResult, ModelOperationStep } from "../model/model-operations.ts";
 import { createConnection, type Socket } from "node:net";
@@ -13,6 +14,9 @@ import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import type { SessionFactName } from "../store/session-facts.ts";
 import type { SessionImportTool } from "../store/session-import-provenance.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
+import type { ListedAgent } from "./agent-registry/select.ts";
+import type { CustomizationCatalog } from "../customize/types.ts";
+import type { SkillCommandCatalog } from "../skills/commands.ts";
 import type { StopRefusalReason, StopWaitEvent, StopWaitTarget } from "./stop-when-idle.ts";
 import type { BackgroundAgentsSnapshot } from "./background-agents.ts";
 import type {
@@ -196,6 +200,53 @@ export interface ExtensionLoadFailuresResponse {
     readonly failures: readonly ExtensionLoadFailure[];
 }
 
+/**
+ * The agents a new session would offer, read without starting one.
+ *
+ * A folder reads that folder's own agents beside the home's and the extensions'.
+ * Without a folder the session is a chat, which has no project agents.
+ */
+export interface NewSessionAgentsRequest {
+    readonly type: "new_session_agents";
+    /** Absolute path of the folder the session would open in. Absent for a chat. */
+    readonly workspace?: string;
+}
+
+export interface NewSessionAgentsResponse {
+    readonly type: "new_session_agents";
+    /** The agent a new session there starts on. */
+    readonly starts_on: string;
+    readonly agents: readonly ListedAgent[];
+    readonly notices: readonly string[];
+}
+
+/**
+ * What a new session would load, read without starting one: the skills it lists,
+ * the agents it offers, and every customization source behind them.
+ *
+ * A folder adds that folder's own skills, agents and instruction files to the home's
+ * and the extensions'. Without a folder the session is a chat, which has only the latter.
+ */
+export interface FolderCustomizationsRequest {
+    readonly type: "folder_customizations";
+    /** Absolute path of the folder the session would open in. Absent for a chat. */
+    readonly workspace?: string;
+}
+
+export interface FolderCustomizationsResponse {
+    readonly type: "folder_customizations";
+    /** What `list_skills` answers, with no agent selected. */
+    readonly skills: SkillCommandCatalog;
+    readonly agents: {
+        /** The agent a new session there starts on. */
+        readonly starts_on: string;
+        readonly agents: readonly ListedAgent[];
+        readonly notices: readonly string[];
+    };
+    /** What `list_customization_sources` answers. */
+    readonly sources: CustomizationCatalog;
+}
+
 export interface CheckpointStoresRequest {
     readonly type: "checkpoint_stores";
     readonly destination: string;
@@ -286,6 +337,8 @@ export interface CreateAgentRequest {
     readonly approval_mode?: string;
     readonly lifetime?: "ephemeral" | "durable";
     readonly startup_profile?: StartupProfile;
+    // Window sessions only. Fixed for the life of the session; false is the same as omitted.
+    readonly notes_offer?: boolean;
 }
 
 export interface ResumeAgentRequest {
@@ -423,10 +476,23 @@ export interface SessionUnblockRejectedResponse {
     readonly reason: "not_found" | "failed";
 }
 
+export interface SetSessionArchivedRequest {
+    readonly type: "set_session_archived";
+    readonly target_agent_id: string;
+    readonly archived: boolean;
+}
+
 export interface RenameSessionRequest {
     readonly type: "rename_session";
     readonly target_agent_id: string;
     readonly name: string | null;
+}
+
+// Moves the session to another working folder; a chat's files go with it.
+export interface MoveSessionRequest {
+    readonly type: "move_session";
+    readonly session_id: string;
+    readonly workspace: string;
 }
 
 export interface ImportSessionRequest {
@@ -624,6 +690,17 @@ export interface SessionTitleResponse {
     readonly title?: string;
 }
 
+/**
+ * Sent to an attached client that asked for `session.show-window.v1` or
+ * `session.show-terminal.v1` when something asks it to open a screen. `target` is
+ * an id from the show target list. Sent once and not replayed on a later attach.
+ */
+export interface SessionShowResponse {
+    readonly type: "session_show";
+    readonly agent_id: string;
+    readonly target: string;
+}
+
 export type AttachFailureReason = "not_found" | "unavailable" | "history_paging_required";
 
 export interface AttachFailedResponse {
@@ -724,6 +801,18 @@ export interface SessionTrashRejectedResponse {
     readonly reason: "busy" | "not_found" | "failed";
 }
 
+export interface SessionArchivedResponse {
+    readonly type: "session_archived";
+    readonly agent_id: string;
+    readonly archived: boolean;
+}
+
+export interface SessionArchiveRejectedResponse {
+    readonly type: "session_archive_rejected";
+    readonly agent_id: string;
+    readonly reason: "not_found" | "failed";
+}
+
 export interface SessionRenamedResponse {
     readonly type: "session_renamed";
     readonly agent_id: string;
@@ -734,6 +823,25 @@ export interface SessionRenameRejectedResponse {
     readonly type: "session_rename_rejected";
     readonly agent_id: string;
     readonly reason: "invalid" | "busy" | "not_found" | "failed";
+}
+
+export interface SessionMovedResponse {
+    readonly type: "session_moved";
+    readonly session_id: string;
+    readonly workspace: string;
+}
+
+export type SessionMoveRejectedReason =
+    | "invalid"
+    | "busy"
+    | "not_found"
+    | "collision"
+    | "failed";
+
+export interface SessionMoveRejectedResponse {
+    readonly type: "session_move_rejected";
+    readonly session_id: string;
+    readonly reason: SessionMoveRejectedReason;
 }
 
 export interface SessionImportedResponse {
@@ -920,9 +1028,41 @@ export interface ModelOperationCompleteResponse {
     readonly error?: string;
 }
 
+export interface ProviderListRequest { readonly type: "provider_list"; readonly request_id: string; }
+export interface ProviderListResult { readonly type: "provider_list_result"; readonly request_id: string; readonly providers: readonly ProviderSignInStatus[]; readonly needs_setup: boolean; }
+export interface ProviderSaveRequest {
+    readonly type: "provider_save";
+    readonly request_id: string;
+    readonly provider: string;
+    readonly key: string;
+    readonly credential: "api_key" | "none";
+    readonly reuse_existing?: boolean;
+    readonly endpoint: string;
+    readonly protocol: "openai-chat" | "anthropic-messages";
+    readonly custom: boolean;
+    readonly editing?: string;
+    readonly replaces?: string;
+    readonly shipped?: boolean;
+    readonly restore?: boolean;
+}
+export interface ProviderSaveResult { readonly type: "provider_save_result"; readonly request_id: string; readonly provider: ProviderSignInStatus; }
+export interface ProviderSelectModelRequest { readonly type: "provider_select_model"; readonly request_id: string; readonly provider: string; readonly model: string; }
+export interface ProviderSelectModelResult { readonly type: "provider_select_model_result"; readonly request_id: string; }
+export interface ProviderSignInRequest { readonly type: "provider_sign_in"; readonly request_id: string; readonly provider: string; }
+export interface ProviderSignInCancelRequest { readonly type: "provider_sign_in_cancel"; readonly request_id: string; readonly provider: string; }
+export interface ProviderSignInUrl { readonly type: "provider_sign_in_url"; readonly request_id: string; readonly url: string; readonly code?: string; }
+export interface ProviderSignInResult { readonly type: "provider_sign_in_result"; readonly request_id: string; readonly provider: ProviderSignInStatus; }
+export interface ProviderSignInCancelled { readonly type: "provider_sign_in_cancelled"; readonly request_id: string; }
+export interface ProviderRequestFailed { readonly type: "provider_request_failed"; readonly request_id: string; readonly reason: string; }
+
 export interface ProviderForgetRequest { readonly type: "provider_forget"; readonly provider: string; readonly workspace?: string; }
 
 export type HostRequest =
+    | ProviderListRequest
+    | ProviderSaveRequest
+    | ProviderSelectModelRequest
+    | ProviderSignInRequest
+    | ProviderSignInCancelRequest
     | ProviderForgetRequest
     | ModelOperationRequest
     | HostIdentityRequest
@@ -950,10 +1090,14 @@ export type HostRequest =
     | UnblockSessionRequest
     | CutStopWaitRequest
     | RenameSessionRequest
+    | SetSessionArchivedRequest
+    | MoveSessionRequest
     | ImportSessionRequest
     | ListImportableSessionsRequest
     | AnnexUrlRequest
     | ExtensionLoadFailuresRequest
+    | NewSessionAgentsRequest
+    | FolderCustomizationsRequest
     | CheckpointStoresRequest
     | LocateAgentRequest
     | AttachRequest;
@@ -965,6 +1109,13 @@ export type AttachedClientMessage =
     | RunExtensionCommandRequest
     | HistoryPageRequest;
 export type HostResponse =
+    | ProviderListResult
+    | ProviderSaveResult
+    | ProviderSelectModelResult
+    | ProviderSignInUrl
+    | ProviderSignInResult
+    | ProviderSignInCancelled
+    | ProviderRequestFailed
     | HostStopWaitEvent
     | ModelOperationProgressResponse
     | ModelOperationStepResponse
@@ -1000,7 +1151,11 @@ export type HostResponse =
     | SessionUnblockedResponse
     | SessionUnblockRejectedResponse
     | SessionRenamedResponse
+    | SessionArchivedResponse
+    | SessionArchiveRejectedResponse
     | SessionRenameRejectedResponse
+    | SessionMovedResponse
+    | SessionMoveRejectedResponse
     | SessionImportedResponse
     | SessionImportRejectedResponse
     | ImportableSessionsResponse
@@ -1015,6 +1170,7 @@ export type HostResponse =
     | BackgroundAgentsResponse
     | WorkIndexResponse
     | SessionTitleResponse
+    | SessionShowResponse
     | AttachFailedResponse
     | DetachedResponse
     | AttachmentReleasedResponse
@@ -1025,6 +1181,8 @@ export type HostResponse =
     | AnnexUrlResponse
     | AnnexUnavailableResponse
     | ExtensionLoadFailuresResponse
+    | NewSessionAgentsResponse
+    | FolderCustomizationsResponse
     | CheckpointStoresFinishedResponse
     | CheckpointStoresFailedResponse
     | ProtocolErrorResponse;
@@ -1066,8 +1224,61 @@ function parseHostRequester(value: unknown): HostRequester | undefined {
     };
 }
 
+// An absent folder is a chat; a present one must be an absolute path.
+function parseOptionalFolder(workspace: unknown): { readonly workspace?: string } | undefined {
+    if (workspace === undefined) return {};
+    if (
+        typeof workspace !== "string"
+        || workspace.length === 0
+        || workspace.includes("\0")
+        || !isAbsolute(workspace)
+    ) {
+        return undefined;
+    }
+    return { workspace };
+}
+
+function validProviderRequestId(value: unknown): value is string {
+    return typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f]/u.test(value);
+}
+
+function validProviderId(value: unknown): value is string {
+    return typeof value === "string" && value.length <= 128 && /^[a-z0-9][a-z0-9._-]*$/.test(value);
+}
+
 export function parseHostRequest(source: string): HostRequest | undefined {
     const value = parseJsonObject(source);
+    if (value?.type === "provider_list" && validProviderRequestId(value.request_id)) {
+        return { type: "provider_list", request_id: value.request_id };
+    }
+    if (value?.type === "provider_select_model" && validProviderRequestId(value.request_id)
+        && validProviderId(value.provider) && typeof value.model === "string" && value.model.trim().length > 0
+        && value.model.length <= 512 && !/[\u0000-\u001f]/u.test(value.model)) {
+        return { type: "provider_select_model", request_id: value.request_id, provider: value.provider, model: value.model };
+    }
+    if ((value?.type === "provider_sign_in" || value?.type === "provider_sign_in_cancel")
+        && validProviderRequestId(value.request_id) && validProviderId(value.provider)) {
+        return { type: value.type, request_id: value.request_id, provider: value.provider };
+    }
+    if (value?.type === "provider_save" && validProviderRequestId(value.request_id)
+        && validProviderId(value.provider) && typeof value.key === "string" && value.key.length <= 16_384
+        && (value.credential === "api_key" || value.credential === "none")
+        && (value.reuse_existing === undefined || typeof value.reuse_existing === "boolean")
+        && typeof value.endpoint === "string" && value.endpoint.length <= 4096
+        && (value.protocol === "openai-chat" || value.protocol === "anthropic-messages")
+        && typeof value.custom === "boolean"
+        && (value.editing === undefined || validProviderId(value.editing))
+        && (value.replaces === undefined || validProviderId(value.replaces))
+        && (value.shipped === undefined || typeof value.shipped === "boolean")
+        && (value.restore === undefined || typeof value.restore === "boolean")) {
+        return { type: "provider_save", request_id: value.request_id, provider: value.provider,
+            key: value.key, credential: value.credential, endpoint: value.endpoint, protocol: value.protocol, custom: value.custom,
+            ...(typeof value.reuse_existing === "boolean" ? { reuse_existing: value.reuse_existing } : {}),
+            ...(typeof value.editing === "string" ? { editing: value.editing } : {}),
+            ...(typeof value.replaces === "string" ? { replaces: value.replaces } : {}),
+            ...(typeof value.shipped === "boolean" ? { shipped: value.shipped } : {}),
+            ...(typeof value.restore === "boolean" ? { restore: value.restore } : {}) };
+    }
     if (value?.type === "restart_records") {
         return { type: "restart_records" };
     }
@@ -1146,6 +1357,13 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     }
     if (value?.type === "extension_load_failures") {
         return { type: "extension_load_failures" };
+    }
+    if (value?.type === "new_session_agents" || value?.type === "folder_customizations") {
+        const folder = parseOptionalFolder(value.workspace);
+        if (folder === undefined) return undefined;
+        return value.type === "new_session_agents"
+            ? { type: "new_session_agents", ...folder }
+            : { type: "folder_customizations", ...folder };
     }
     if (value?.type === "list_extension_commands" && isRequestId(value.request_id)) {
         return { type: "list_extension_commands", request_id: value.request_id };
@@ -1249,6 +1467,8 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             || value.lifetime === "durable")
         && (value.startup_profile === undefined
             || isStartupProfile(value.startup_profile))
+        && (value.notes_offer === undefined
+            || typeof value.notes_offer === "boolean")
     ) {
         return {
             type: "create_agent",
@@ -1264,6 +1484,7 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             ...(value.startup_profile === undefined
                 ? {}
                 : { startup_profile: value.startup_profile }),
+            ...(value.notes_offer === true ? { notes_offer: true } : {}),
         };
     }
     if (
@@ -1424,6 +1645,18 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             : { type: "list_importable_sessions", workspace: value.workspace };
     }
     if (
+        value?.type === "set_session_archived"
+        && typeof value.target_agent_id === "string"
+        && value.target_agent_id.length > 0
+        && typeof value.archived === "boolean"
+    ) {
+        return {
+            type: "set_session_archived",
+            target_agent_id: value.target_agent_id,
+            archived: value.archived,
+        };
+    }
+    if (
         value?.type === "rename_session"
         && typeof value.target_agent_id === "string"
         && value.target_agent_id.length > 0
@@ -1434,6 +1667,20 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             type: "rename_session",
             target_agent_id: value.target_agent_id,
             name: value.name as string | null,
+        };
+    }
+    if (
+        value?.type === "move_session"
+        && typeof value.session_id === "string"
+        && value.session_id.length > 0
+        && typeof value.workspace === "string"
+        && isAbsolute(value.workspace)
+        && !value.workspace.includes("\0")
+    ) {
+        return {
+            type: "move_session",
+            session_id: value.session_id,
+            workspace: value.workspace,
         };
     }
     if (

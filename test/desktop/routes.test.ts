@@ -52,6 +52,14 @@ test("workspace pages and New Chat in a folder are their own history entries", (
     expect(routeTitle(currentRoute(state))).toBe("roost");
 });
 
+test("a session route shows the live title of its own session and keeps its opened title otherwise", () => {
+    const route = { kind: "session", agentId: "a1", title: "swift-stone:d14d" } as const;
+    expect(routeTitle(route)).toBe("swift-stone:d14d");
+    expect(routeTitle(route, { agentId: "a1", title: "crow map" })).toBe("crow map");
+    expect(routeTitle(route, { agentId: "a2", title: "other" })).toBe("swift-stone:d14d");
+    expect(routeTitle({ kind: "workspace", folder: "/work/roost" }, { agentId: "a1", title: "crow map" })).toBe("roost");
+});
+
 test("the last session is the newest one at or before the page shown", () => {
     expect(lastSession(INITIAL_ROUTER)).toBeUndefined();
     let state = reduceRouter(INITIAL_ROUTER, { type: "navigate", route: { kind: "session", agentId: "a", title: "First" } });

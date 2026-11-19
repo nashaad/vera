@@ -37,6 +37,10 @@ export function selectedVeraHome(home?: string): string {
     return home === undefined ? veraHomeDirectory() : home;
 }
 
+export function veraFeedbackDirectoryIn(veraHome: string): string {
+    return join(veraMachineDirectoryIn(veraHome), "feedback");
+}
+
 export function veraRuntimeDirectoryIn(veraHome: string): string {
     return join(veraHome, "runtime");
 }

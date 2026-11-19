@@ -35,6 +35,10 @@ A tool that declares `extension.storage.read` or `extension.storage.write`
 must also be named in an `unreviewed_tools` list in the manifest. See
 [Permission rules](permission-rules.md).
 
+A tool can list agent names in `agents`. The tool then reaches the model, and
+runs, only while one of those agents is selected. Without `agents`, every
+agent can use it.
+
 Install the directory with `/extension install <path>`, or load it from a
 development checkout with `VERA_EXTENSIONS`. See
 [Manage extensions](extensions.md). After a change, the client half reloads on
@@ -50,6 +54,23 @@ host does while the client is still connected.
 | `vera.thread.loadEarlier(signal?)` | `client.thread.read` | Loads the next older part of the conversation. Resolves at once when none is left. |
 | `vera.ui.reveal(target)` | `client.ui.reveal` | Loads earlier history as needed and scrolls to an entry, or to the end. Resolves to whether it landed. |
 | `vera.ui.registerNoticeRenderer(render)` | `client.ui.notice` | Puts a notice your host half raised with facts into one line. See [Word a notice](#word-a-notice). |
+| `vera.context.current(agent?)` | `client.context.read` | Reads a local context snapshot for the focused or a visible agent. See [Read a context snapshot](#read-a-context-snapshot). |
+
+### Read a context snapshot
+
+`context.current()` reads the focused conversation's latest local context
+snapshot without a host request. Pass an agent reference to read a visible
+agent instead, regardless of focus. `agents.visible()` requires the
+`client.agents` capability.
+
+```ts
+const focused = vera.context.current();
+const main = vera.agents.visible().find((agent) => agent.pane === "main");
+const mainContext = main === undefined ? undefined : vera.context.current(main);
+```
+
+In the TUI, a reference to an agent that is not visible returns a snapshot
+with `availability: "unavailable"`. The returned snapshot is a copy.
 
 ### Read the transcript
 
@@ -199,6 +220,7 @@ remains available for retry on host restart.
 | `vera.sessions.setTitle(sessionId, title)` | `sessions.title` | Names a session that has never had a name. |
 | `vera.sessions.ask(request)` | `sessions.ask` | Asks an open session's own model a side question. |
 | `vera.sessions.send(sessionId, text)` | `sessions.send` | Puts a message in an open session's inbox. |
+| `vera.sessions.show(sessionId, target)` | `sessions.show` | Asks the windows and terminals attached to a session to open one of Vera's own screens. |
 | `vera.agents.investigate(request)` | `agents.investigate` | Runs the explorer agent read-only under an open session and returns its answer. |
 
 These calls work once the host has started its sessions. Called earlier, or
@@ -306,6 +328,25 @@ What you can rely on:
 
 When the provider reports usage, the call is billed to that conversation and
 counted in [`/usage`](usage.md) with its spend and requests.
+
+### Show a screen in a conversation
+
+`sessions.show` asks the windows and terminals attached to a conversation to
+open one of Vera's own screens, so an extension can point at where something
+is. The `target` is an id from the fixed list Vera keeps, such as
+`dialog.themes`, `settings.providers` or `page.work`; an id that is not on the
+list rejects with `Unknown screen`.
+
+```ts
+const outcome = await vera.sessions.show(sessionId, "settings.providers");
+```
+
+It resolves `{ window, terminal, terminalCannot }`: how many windows were
+told, how many terminals were told, and how many attached terminals have no
+screen for that target. All three are zero when nothing is attached to the
+conversation. The request opens a screen and changes nothing in it: it never
+sets a value or answers a dialog. A window or terminal that attaches later is
+not told.
 
 ### Send a conversation a message
 
@@ -440,10 +481,16 @@ Declare it in the manifest:
 ```
 
 The page appears in the annex sidebar under its label, at
-`/x/acme.hoard/loot`, and as a tab in the desktop's Browser. Your host code can link to it with
+`/x/acme.hoard/loot`. Your host code can link to it with
 `vera.annex.pageUrl("loot")`, which is `undefined` while the annex is down.
 The address stays the same across host restarts, so a link you send out
 keeps working.
+
+Add `"pane": true` to a page's entry to give it a place of its own in the
+desktop. The window lists it by its label as a sidebar entry and a right pane
+kind, with up to three tabs. Links to the page in a reply or tool notice open
+in that pane. A page without a pane, or one beyond the available pane kinds,
+opens in the system browser.
 
 The `server` module runs in the annex and exports `activatePage(page)`:
 
@@ -484,6 +531,39 @@ the server module needs the host restarted.
 
 The included Artifacts extension in `extensions/artifacts` is a full page:
 markdown artifacts an agent writes, with comments you leave in the margin.
+
+### Link a tool run to a page
+
+A tool can return a notice that the transcript shows under its run, even when
+the run is collapsed. Give the notice a `link` and the desktop draws a card
+with the page's icon and your title, which opens the page in its pane or in
+the system browser when you click it. The text of the notice is still what the
+terminal shows. The `link` and the notice never reach the model.
+
+```ts
+return {
+    output: "Buried 3 buttons.",
+    presentation: {
+        kind: "tool_notice",
+        text: `Loot page: ${vera.annex.pageUrl("loot")}?spot=north`,
+        link: { title: "North spot", page: "loot", query: { spot: "north" } },
+    },
+};
+```
+
+- `title` is at most 120 characters and says what the card opens.
+- `page` is the id of one of your own pages. The host rewrites it to the page's
+  annex path, `/x/acme.hoard/loot`, and drops a `link` that names another page
+  or has other keys than `title`, `page` and `query`.
+- `query` holds up to 8 text values, each at most 200 characters. The window
+  resolves the path against the annex it is connected to, so a card keeps
+  working across host restarts.
+- Leave `link` out while `vera.annex.pageUrl` is `undefined`. The notice then
+  shows as text.
+
+A notice may also have `action: "open_browser"`. The desktop offers Open Browser
+when the Browser is available; the action opens it without enabling its tools.
+The action and a page link may appear together. Other action values are refused.
 
 ## Contribute skills
 

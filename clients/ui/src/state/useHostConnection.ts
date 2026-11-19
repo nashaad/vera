@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import type { DesktopEvent } from "../protocol/bridge.ts";
 import { SESSIONS_PAGE_SIZE, sessionRows } from "../protocol/sessions.ts";
@@ -11,6 +11,9 @@ export interface HostConnection {
     readonly state: UiState;
     reconnect(): void;
     answer(id: string, yes: boolean): void;
+    // Reads the session list now rather than at the next poll.
+    refreshSessions(): void;
+    dismissInstallNotice(): void;
     listAgents(options?: ListAgentsOptions): Promise<AgentListFacts>;
 }
 
@@ -44,6 +47,12 @@ export function useHostConnection(log: OutputLog): HostConnection {
             dispatch({ type: "notice", message: messageOf(error) });
         });
     };
+
+    // Reads only refs and the stable dispatch and log, so one function serves every render.
+    const refreshSessions = useCallback((): void => {
+        const client = clientRef.current;
+        if (client !== undefined) refresh(client, generationRef.current);
+    }, []);
 
     useEffect(() => {
         const bridge = window.veraDesktop;
@@ -96,6 +105,7 @@ export function useHostConnection(log: OutputLog): HostConnection {
 
     return {
         state,
+        refreshSessions,
         reconnect: () => {
             dropClient("Reconnecting.");
             log.append("info", "Reconnect requested.");
@@ -107,6 +117,7 @@ export function useHostConnection(log: OutputLog): HostConnection {
             log.append("info", `Answered ${yes ? "yes" : "no"}.`);
             dispatch({ type: "answered" });
         },
+        dismissInstallNotice: () => dispatch({ type: "dismiss_install_notice" }),
         listAgents: (options) => {
             const client = clientRef.current;
             if (client === undefined) return Promise.reject(new Error("The host is not connected."));

@@ -12,6 +12,7 @@ import { createHomeState, homeStateWithRestarts, type HomeAction } from "../home
 import { createJsonlViewClient, isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { SESSION_SWITCH_TIMEOUT_MS, recentSessionSaveFailure, removeSessionPickerOption, renderCommandSuggestions, renderStatus, requestPoolAdmission, requireIdentifiedClient, showStatusNotice, watchBackgroundAgents, watchSessionTitle, watchStopWait, watchWorkIndex, type TuiDraft } from "../main.ts";
 import { receiveAgentUpdates } from "../main/agent-updates.ts";
+import { watchSessionShow } from "./show-target.ts";
 import { dismissHomeRestart, listHomeRestarts } from "./home-restarts.ts";
 import { applyHeldSessionName } from "./home-session-name.ts";
 import { focusedAgentClient, focusedAgentState, openExtensionAgent, setSidebarFocused } from "../main/agents-dials.ts";
@@ -171,6 +172,7 @@ export function switchToClient(rt: TuiRuntime,
     watchBackgroundAgents(rt, next);
     watchWorkIndex(rt, next);
     watchSessionTitle(rt, next);
+    watchSessionShow(rt, next);
     watchStopWait(rt, next);
     rt.sessionTitle = undefined;
     rt.sessionParentId = undefined;

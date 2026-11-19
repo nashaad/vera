@@ -58,3 +58,15 @@ test("a GUI answer reads yes, no, JSON, or a closed stdin as yes", () => {
     expect(parseBootAnswer("true")).toBe(true);
     expect(parseBootAnswer(undefined)).toBe(true);
 });
+
+test("an answering host requires an explicit yes when boot input closes", () => {
+    expect(parseBootAnswer(undefined, true)).toBe(false);
+    expect(parseBootAnswer("", true)).toBe(false);
+    expect(parseBootAnswer("unexpected", true)).toBe(false);
+    expect(parseBootAnswer("no", true)).toBe(false);
+    expect(parseBootAnswer("{\"answer\":false}", true)).toBe(false);
+    expect(parseBootAnswer("yes", true)).toBe(true);
+    expect(parseBootAnswer("y", true)).toBe(true);
+    expect(parseBootAnswer("true", true)).toBe(true);
+    expect(parseBootAnswer("{\"answer\":true}", true)).toBe(true);
+});

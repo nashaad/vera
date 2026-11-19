@@ -2,7 +2,6 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { parseImportedTheme, summaryOf, type ImportedTheme, type ImportedThemeSummary } from "../../ui/src/theme/imported.ts";
-import { isThemeSlug } from "../../ui/src/theme/tokens.ts";
 import { JsonFileStore } from "./json-file-store.ts";
 
 // A saved theme keeps its token rules, which can be large.
@@ -15,7 +14,7 @@ export function themesDirectory(home: string): string {
     return join(home, "machine", "desktop", "themes");
 }
 
-// Imported themes, one JSON file each under the desktop's themes folder. The host never reads them.
+// Themes still saved under the old themes folder, which are moved into extensions at launch. Read only.
 export class ThemeStore {
     constructor(private readonly directory: string) {}
 
@@ -49,14 +48,5 @@ export class ThemeStore {
             if (theme !== undefined) summaries.push(summaryOf(theme));
         }
         return summaries.sort((a, b) => a.name.localeCompare(b.name));
-    }
-
-    has(slug: string): boolean {
-        return isThemeSlug(slug) && this.slugs().includes(slug);
-    }
-
-    // Replaces the file of the same name. False when the file could not be written.
-    save(theme: ImportedTheme): boolean {
-        return this.storeFor(theme.slug).save(theme);
     }
 }

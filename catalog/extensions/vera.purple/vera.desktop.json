@@ -1,0 +1,13 @@
+{
+    "id": "vera.purple",
+    "version": "1.0.0",
+    "engine": "vera-gui@^1",
+    "contributes": {
+        "themes": [
+            {
+                "label": "Vera Purple",
+                "path": "themes/vera-purple.json"
+            }
+        ]
+    }
+}

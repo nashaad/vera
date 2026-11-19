@@ -1,7 +1,7 @@
 // Pages test for the desktop shell. Run with: node clients/desktop/test/pages.e2e.mjs
 // One session says a rare word; Search finds it, Work shows a slow turn finishing
 // while another page is open, the Workspace page counts the folder's sessions,
-// Devices describes this machine, Customize lists what the folder's session can use,
+// Devices describes this machine, Customize lists what the folder loads,
 // and the command palette and shortcuts sheet open from their keys.
 
 import { mkdirSync } from "node:fs";
@@ -78,6 +78,8 @@ async function openPage(kind) {
 try {
     await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
     configureFauxHome(trial.home, provider.address().port, "auto");
+    // Work waits for a second session under Auto; this run has one.
+    trial.writeFlags({ work: "on" });
     const folder = join(trial.home, "..", "nest");
     mkdirSync(folder, { recursive: true });
 
@@ -136,7 +138,7 @@ try {
     await page.locator(".list-row-title", { hasText: "This Mac" }).click();
     await page.locator(".device-state", { hasText: "Connected" }).waitFor({ timeout: 10_000 });
 
-    // Customize reads the catalogs through the folder's session; Vera's own help skill is always there.
+    // Customize reads the folder from the host; Vera's own help skill is always there.
     await openPage("customize");
     await page.locator(".customize-card[data-kind=\"skills\"][data-name=\"vera-help\"]").waitFor({ timeout: 20_000 });
     await page.locator(".customize-card[data-name=\"vera-help\"]").click();
@@ -144,9 +146,9 @@ try {
     await page.keyboard.press("Escape");
     await page.waitForSelector("[data-overlay=\"customize-detail\"]", { state: "detached", timeout: 10_000 });
 
-    // Discover has no catalog to list, and says so.
+    // A build with no catalog address says so in Discover.
     await page.locator(".customize-seg button", { hasText: "Discover" }).click();
-    await page.locator(".empty-state-title", { hasText: "Nothing to browse" }).waitFor({ timeout: 10_000 });
+    await page.locator("[data-catalog-unavailable]", { hasText: "The catalog is not available in this build." }).waitFor({ timeout: 10_000 });
 
     // Coverage lists what the window does, and the Tour opens the session by its status.
     await openPage("tour");

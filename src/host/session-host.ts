@@ -47,6 +47,7 @@ import {
 } from "./agent-registry.ts";
 import { workerExtensionsEnabled } from "./agent-registry/helpers.ts";
 import { createExtensionHostServices } from "./extension-host-services.ts";
+import { createSessionShowHub } from "./session-show.ts";
 import { ProcessObservationCoordinator } from "./process-observations.ts";
 import { orderByExtension } from "./pool/extension-catalog.ts";
 import { SessionImportNotes } from "./session-import-note.ts";
@@ -298,8 +299,10 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
             indexClosedMembers(registry, members, storedSessionIndex),
     });
     extensionConfigWatch?.start((changes) => registry.publishExtensionConfigChanges(changes));
+    const showHub = createSessionShowHub();
     const localExtensionSessions = createExtensionHostServices({
         registry,
+        showHub,
         currentConfig,
         reachability: currentReachability,
         createAdapter: () => createAdapter(),
@@ -310,6 +313,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
     extensions.bindHost({
         ...localExtensionSessions,
         setSessionTitle: (id, title) => extensionSessions.setSessionTitle(id, title),
+        showInSession: (id, target) => extensionSessions.showInSession(id, target),
         sendToSession: (extensionId, id, text) => extensionSessions.sendToSession(extensionId, id, text),
         askSession: (call, signal) => extensionSessions.askSession(call, signal),
         investigate: (call, signal) => extensionSessions.investigate(call, signal),
@@ -320,7 +324,7 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         publishStoredSessions = resolve;
     });
     const handlers = createSessionHandlers({
-        registry, extensions, extensionLoadFailures, sessionDirectory, blockedDirectory,
+        registry, showHub, extensions, extensionLoadFailures, sessionDirectory, blockedDirectory,
         ...(options.remoteExtensions === undefined ? {} : { remoteExtensions: options.remoteExtensions }),
         modelFailureLedgerPath, storedSessionIndex, storedSessions, eventLogPathForId,
         importRoots: options.importRoots,

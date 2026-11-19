@@ -15,9 +15,13 @@ function harness(inspection: BootInspection, starts: Array<(mode: HostMode) => H
     const calls: string[] = [];
     const rendered: BootCheck[][] = [];
     let attempt = 0;
+    let elapsed = 0;
     const deps: BootDependencies = {
         hostPublished: async () => options.published === true,
+        hostAnswer: async () => inspection.hostAnswers ? { pid: 51, started_at: "2026-11-17T00:00:00.000Z" } : undefined,
         inspect: async () => { calls.push("inspect"); return inspection; },
+        now: () => elapsed,
+        wait: async (delayMs) => { elapsed += delayMs; },
         recover: async () => { calls.push("recover"); return { ok: true, lines: ["Stopped host PID 29252."] }; },
         start: async (mode) => {
             calls.push(`start:${mode}`);
@@ -40,6 +44,116 @@ function harness(inspection: BootInspection, starts: Array<(mode: HostMode) => H
 
 const host = (pid: number) => () => ({ pid, build_id: "vera-new" } as HostLockRecord);
 const fail = () => { throw new Error("Resident host did not start before its deadline"); };
+
+test("@core an answering host is attached when its missing lock reappears", async () => {
+    const { deps, calls, rendered } = harness({ ...clean, hostAnswers: true }, [host(51)]);
+    let elapsed = 0;
+    const started = await bootResidentHost({
+        ...deps,
+        hostPublished: async () => elapsed >= 1_000,
+        now: () => elapsed,
+        wait: async (delayMs) => { elapsed += delayMs; },
+    });
+    expect(started.pid).toBe(51);
+    expect(elapsed).toBe(1_000);
+    expect(calls).toEqual(["inspect", "start:default"]);
+    expect(rendered).toEqual([]);
+});
+
+test("@core a missing lock with an answering host is not recovered without consent", async () => {
+    const { deps, calls, rendered } = harness({ ...clean, hostAnswers: true }, [], {
+        answers: { stop_answering_host: false },
+    });
+    const questions: BootQuestion[] = [];
+    const boot = bootResidentHost({
+        ...deps,
+        confirm: async (question) => { questions.push(question); calls.push(`ask:${question.id}`); return false; },
+    });
+    await expect(boot).rejects.toBeInstanceOf(BootFailedError);
+    await expect(boot).rejects.toThrow("vera host reset");
+    expect(questions).toEqual([{
+        id: "stop_answering_host",
+        text: "Vera host PID 51 is running but its lock file is missing. Stop it and start a fresh one?",
+    }]);
+    expect(calls).toEqual(["inspect", "ask:stop_answering_host"]);
+    expect(rendered[0]).toContainEqual({ label: "Host lock", status: "failed", detail: "missing while host PID 51 answers" });
+});
+
+test("@core a start blocker is reported immediately when an answering host has no lock", async () => {
+    const error = new Error("Invalid configuration");
+    const { deps, calls, rendered } = harness({
+        ...clean,
+        hostAnswers: true,
+        startBlocker: { label: "Configuration", error },
+    }, []);
+    await expect(bootResidentHost({
+        ...deps,
+        full: true,
+        hostPublished: async () => { calls.push("probe published"); return false; },
+        wait: async () => { calls.push("wait"); },
+    })).rejects.toBe(error);
+    expect(calls).toEqual(["inspect"]);
+    expect(rendered[0]).toContainEqual({ label: "Configuration", status: "failed", detail: "Invalid configuration" });
+    expect(rendered[0]).toContainEqual({ label: "Host lock", status: "failed", detail: "missing while a host answers" });
+});
+
+test("an answering host with a missing lock is recovered when the user agrees", async () => {
+    const { deps, calls } = harness({ ...clean, hostAnswers: true }, [host(52)]);
+    let answering = true;
+    const started = await bootResidentHost({
+        ...deps,
+        hostAnswer: async () => answering ? { pid: 51, started_at: "2026-11-17T00:00:00.000Z" } : undefined,
+        recover: async () => { calls.push("recover"); answering = false; return { ok: true, lines: [] }; },
+    });
+    expect(started.pid).toBe(52);
+    expect(calls).toEqual(["inspect", "ask:stop_answering_host", "recover", "start:default"]);
+});
+
+test("@core a host that starts answering after inspection is not recovered after a start failure", async () => {
+    const { deps, calls } = harness(clean, [fail], { answers: { stop_answering_host: false } });
+    let started = false;
+    await expect(bootResidentHost({
+        ...deps,
+        hostAnswer: async () => started ? { pid: 51, started_at: "2026-11-17T00:00:00.000Z" } : undefined,
+        start: async () => { calls.push("start:default"); started = true; return fail(); },
+    })).rejects.toThrow("vera host reset");
+    expect(calls).toEqual(["inspect", "start:default", "ask:stop_answering_host"]);
+});
+
+test("@core repair checks an answering host again before recovering a stale or damaged lock", async () => {
+    for (const inspection of [
+        { ...clean, hostAnswers: true, lock: "stale" as const },
+        { ...clean, hostAnswers: true, lock: "damaged" as const },
+        { ...clean, hostAnswers: true, lock: "stale" as const, bootLoop: true },
+    ]) {
+        const { deps, calls } = harness(inspection, [], { answers: { stop_answering_host: false } });
+        await expect(bootResidentHost(deps)).rejects.toThrow("vera host reset");
+        expect(calls).toEqual(["inspect", "ask:stop_answering_host"]);
+    }
+});
+
+test("a stale lock without an answering host is recovered", async () => {
+    const { deps, calls } = harness({ ...clean, lock: "stale" }, [host(52)]);
+    expect((await bootResidentHost(deps)).pid).toBe(52);
+    expect(calls).toEqual(["inspect", "recover", "start:default"]);
+});
+
+test("the existing live-lock restart question retains its behavior", async () => {
+    const { deps, calls } = harness({ ...clean, hostAnswers: true, lock: "live" }, [fail, host(52)]);
+    expect((await bootResidentHost(deps)).pid).toBe(52);
+    expect(calls).toEqual(["inspect", "start:default", "ask:restart_running_host", "recover", "start:default"]);
+});
+
+test("consent to restart one host does not authorize recovery of a replacement", async () => {
+    const { deps, calls } = harness({ ...clean, hostAnswers: true, lock: "live" }, [fail]);
+    let probes = 0;
+    await expect(bootResidentHost({
+        ...deps,
+        hostAnswer: async () => ({ pid: ++probes === 1 ? 51 : 52, started_at: "2026-11-17T00:00:00.000Z" }),
+        confirm: async (question) => { calls.push(`ask:${question.id}`); return question.id === "restart_running_host"; },
+    })).rejects.toThrow("vera host reset");
+    expect(calls).toEqual(["inspect", "start:default", "ask:restart_running_host", "ask:stop_answering_host"]);
+});
 
 test("an orphaned host with no lock or socket is stopped before a fresh host starts", async () => {
     const { deps, calls, rendered } = harness({ ...clean, orphans: 10 }, [host(7)]);

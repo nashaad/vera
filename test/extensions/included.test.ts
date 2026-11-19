@@ -75,7 +75,7 @@ test("included host extensions start with a bounded Explorer and no command hook
             });
         expect(registry.agents().find((entry) => entry.name === "chat"))
             .toMatchObject({
-                tools: ["web_search", "web_fetch", "read", "list", "write", "edit"],
+                tools: ["web_search", "web_fetch", "read", "list", "write", "edit", "builtin_browser", "file_feedback"],
                 instructions: "",
             });
         expect(registry.preToolUseHooks()).toEqual([]);
@@ -202,13 +202,16 @@ test("core and shipped extensions load from their own folders", () => {
     const shipped = includedExtensions().filter((extension) => !extension.core).map((extension) => extension.id);
     expect(core).toContain("vera.chat");
     expect(core).toContain("vera.customize");
+    expect(core).toContain("vera.help");
     expect(core).toContain("vera.session-identity");
     expect(shipped).toEqual([
         "vera.artifacts",
         "vera.btw",
         "vera.budget",
         "vera.cache",
+        "vera.desktop-browser",
         "vera.diff",
+        "vera.feedback",
         "vera.mcp",
         "vera.titles",
     ]);

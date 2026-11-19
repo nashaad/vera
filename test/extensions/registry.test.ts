@@ -294,6 +294,105 @@ test("registry exposes extension tools through the ordinary tool and permission 
     await registry.close();
 });
 
+test("@core a tool notice's link names the extension's own page and leaves as that page's annex path", async () => {
+    const link = (page: string, extra: Record<string, unknown> = {}) => ({ title: "Raid", page, query: { session: "s1" }, ...extra });
+    const run = async (presentation: unknown) => {
+        const extension = createExtension("link.extension", `
+            export function activate(vera) {
+                vera.tools.register({
+                    name: "present",
+                    description: "Present text",
+                    inputSchema: { type: "object", properties: {} },
+                    run() { return { output: "model output", presentation: ${JSON.stringify(presentation)} }; },
+                });
+            }
+        `, ["tools.register"], { pages: [{ id: "board", label: "Board", server: "server.ts", browser: "page.ts", pane: true }] });
+        writeFileSync(join(extension, "server.ts"), "export function activatePage() {}\n");
+        writeFileSync(join(extension, "page.ts"), "export function mount() {}\n");
+        const registry = await startExtensionRegistry({ extensions: [configured(extension)] });
+        try {
+            return await executeToolHandler(
+                { type: "tool_call", id: "present-1", name: "present", input: {} },
+                new ToolRuntime(createDirectory()),
+                new AbortController().signal,
+                registry.tools(),
+            );
+        } finally {
+            await registry.close();
+        }
+    };
+
+    expect(await run({ kind: "tool_notice", text: "Board page", action: "open_browser", link: link("board") })).toMatchObject({
+        isError: false,
+        presentation: { kind: "tool_notice", action: "open_browser", link: { page: "/x/link.extension/board" } },
+    });
+    expect(await run({ kind: "tool_notice", text: "Bad action", action: "https://example.org" })).toMatchObject({ isError: true });
+    expect(await run({ kind: "tool_notice", text: "Board page", link: link("board") })).toMatchObject({
+        isError: false,
+        output: "model output",
+        presentation: { kind: "tool_notice", text: "Board page", link: { title: "Raid", page: "/x/link.extension/board", query: { session: "s1" } } },
+    });
+    for (const bad of [
+        link("elsewhere"),
+        link("/x/other.extension/board"),
+        link("board", { title: "" }),
+        link("board", { colour: "red" }),
+        link("board", { query: { "a b": "1" } }),
+        link("board", { query: { session: 1 } }),
+        "board",
+    ]) {
+        expect(await run({ kind: "tool_notice", text: "Board page", link: bad })).toMatchObject({
+            isError: true,
+            output: expect.stringContaining("returned an invalid result"),
+        });
+    }
+});
+
+test("a tool carries the agents it is limited to, and a bad list is refused", async () => {
+    const limited = createExtension("limited.extension", `
+        export function activate(vera) {
+            vera.tools.register({
+                name: "help_only",
+                description: "Help only",
+                inputSchema: { type: "object", properties: {}, additionalProperties: false },
+                agents: ["help"],
+                run() {
+                    return { output: "ok" };
+                },
+            });
+        }
+    `, ["tools.register"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(limited)],
+    });
+    expect(registry.tools()[0]?.agents).toEqual(["help"]);
+    await registry.close();
+
+    for (const agents of ["[]", "[\"\"]", "\"help\"", "[1]"]) {
+        const failures: ExtensionRegistryFailure[] = [];
+        const bad = createExtension("bad.extension", `
+            export function activate(vera) {
+                vera.tools.register({
+                    name: "bad_scope",
+                    description: "Bad",
+                    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+                    agents: ${agents},
+                    run() {
+                        return { output: "ok" };
+                    },
+                });
+            }
+        `, ["tools.register"]);
+        const badRegistry = await startExtensionRegistry({
+            extensions: [configured(bad)],
+            onFailure: (failure) => failures.push(failure),
+        });
+        expect(badRegistry.tools()).toEqual([]);
+        expect(failures[0]?.message).toContain("Invalid extension tool registration");
+        await badRegistry.close();
+    }
+});
+
 test("public hook capabilities register in order, carry plain identity, and isolate failures", async () => {
     const extension = createExtension("hooks.extension", `
         export function activate(vera) {

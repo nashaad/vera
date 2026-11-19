@@ -7,6 +7,8 @@ import {
     folderChoices,
     folderMissingNotice,
     FOLDER_MISSING_TITLE,
+    MOVE_TO_FOLDER_LABEL,
+    moveRefusalNotice,
     sessionTitle,
 } from "../../clients/ui/src/composer/rules.ts";
 import { sendPrompt } from "../../clients/ui/src/composer/requests.ts";
@@ -178,5 +180,19 @@ describe("missing folder wording", () => {
     test("the notice names the full path and the chip title says the folder is missing", () => {
         expect(folderMissingNotice("/Users/nash/Projects/gone")).toBe("The folder /Users/nash/Projects/gone no longer exists.");
         expect(FOLDER_MISSING_TITLE).toBe("Folder missing");
+    });
+});
+
+describe("moving a conversation to a folder", () => {
+    test("@core the action is labelled Move to folder with an ellipsis character", () => {
+        expect(MOVE_TO_FOLDER_LABEL).toBe("Move to folder\u2026");
+    });
+
+    test("@core each refusal has its own short notice", () => {
+        expect(moveRefusalNotice("collision")).toBe("Some of this chat's files have the same names as files in that folder.");
+        expect(moveRefusalNotice("busy")).toBe("Vera is still working in this conversation. Try again when it finishes.");
+        expect(moveRefusalNotice("invalid")).toBe("That folder can't be used.");
+        expect(moveRefusalNotice("not_found")).toBe("This conversation no longer exists.");
+        expect(moveRefusalNotice("failed")).toBe("The conversation could not be moved.");
     });
 });

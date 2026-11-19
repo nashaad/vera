@@ -18,7 +18,8 @@ export async function renameSession(
     name: string | null,
 ): Promise<RenameResult> {
     const requestId = freshRequestId("rename");
-    const reply = await askSession(session, requestId, renameLine(requestId, name), (text) => {
+    // The active session is the one the main pane watches.
+    const reply = await askSession({ ...session, pane: "main" }, requestId, renameLine(requestId, name), (text) => {
         const parsed = parseSlashReply(text);
         return parsed?.type === "renamed" || parsed?.type === "rename_rejected" ? parsed : undefined;
     });

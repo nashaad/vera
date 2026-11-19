@@ -1,16 +1,30 @@
 import type { LayoutState } from "../layout/model.ts";
 import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWriteResult } from "./assignments.ts";
-import type { DesktopFlags } from "../state/desktopFlags.ts";
+import type { IncludedExtensionsResult } from "./included-extensions.ts";
+import type { DesktopFlags, FlagPatch } from "../state/desktopFlags.ts";
+import type { SessionPane } from "./panes.ts";
 import type { SavedPins } from "./pins.ts";
+import type { MoveSessionOutcome } from "./sessionMove.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
 import type { ThemeChoice } from "../theme/tokens.ts";
-import type { InstalledThemesResult, ThemeImportResult } from "./themes.ts";
+import type { CatalogListResult, CatalogPreviewResult } from "./extension-catalog.ts";
+import type { ExtensionChangeResult, ExtensionPreviewResult } from "./extensions.ts";
+import type { ExtensionCommandResult } from "./extension-commands.ts";
+import type { BrowserBounds, BrowserState } from "../browser/native-types.ts";
+import type { AgentInfo, SkillInfo, SourceInfo } from "../customize/wire.ts";
 
-export type DesktopPhase = "starting" | "waiting" | "attached";
+// "installing" is the packaged app putting its bundled release in place before it connects.
+export type DesktopPhase = "starting" | "installing" | "waiting" | "attached";
 
-// The session page shows one session and, beside it, at most one of its subagents.
-// The probe pane is a short attach that reads a folder's catalogs for Customize.
-export type SessionPane = "main" | "companion" | "probe";
+export interface LocalPreviewScope {
+    readonly ok: true;
+    readonly token: string;
+    readonly url: string;
+}
+
+export type LocalPreviewResult = LocalPreviewScope | HostRequestFailure;
+
+export type { ChatPane, SessionPane } from "./panes.ts";
 
 export type DesktopEvent =
     | { readonly type: "phase"; readonly phase: DesktopPhase }
@@ -22,6 +36,8 @@ export type DesktopEvent =
         readonly home: string;
     }
     | { readonly type: "question"; readonly id: string; readonly text: string }
+    // The bundled release could not be installed and the Vera already on the machine is used instead.
+    | { readonly type: "install_notice"; readonly message: string }
     | { readonly type: "frame"; readonly text: string }
     // False while the window is hidden or minimized.
     | { readonly type: "window_shown"; readonly shown: boolean }
@@ -32,6 +48,7 @@ export type DesktopEvent =
     | { readonly type: "failed"; readonly message: string }
     // A native menu item or shortcut asking the page to run one of its commands.
     | { readonly type: "command"; readonly id: string }
+    | { readonly type: "browser_loaded"; readonly url: string; readonly title: string }
     | {
         readonly type: "missing_cli";
         readonly message: string;
@@ -125,6 +142,22 @@ export interface ClosedSession {
 
 export type CloseSessionResult = ClosedSession | HostRequestFailure;
 
+export interface OpenedSidekick {
+    readonly ok: true;
+    readonly agentId: string;
+}
+
+export type OpenSidekickResult = OpenedSidekick | HostRequestFailure;
+
+export interface SyncedSidekick {
+    readonly ok: true;
+    // "stale": the primary was rewound past what the sidekick holds, so a new sidekick is needed.
+    // "busy": the primary is mid-turn, so the sidekick was not caught up.
+    readonly decision: "ok" | "stale" | "busy";
+}
+
+export type SyncSidekickResult = SyncedSidekick | HostRequestFailure;
+
 export type SessionSearchKind = "user_message" | "agent_message" | "tool_command" | "file_edit";
 
 export interface SessionSearchHit {
@@ -170,6 +203,29 @@ export interface ExtensionFailuresAnswer {
 
 export type ExtensionFailuresResult = ExtensionFailuresAnswer | HostRequestFailure;
 
+export interface NewSessionAgentsAnswer {
+    readonly ok: true;
+    // The agent a session created there starts on.
+    readonly startsOn: string;
+    readonly agents: readonly AgentInfo[];
+    readonly notices: readonly string[];
+}
+
+export type NewSessionAgentsResult = NewSessionAgentsAnswer | HostRequestFailure;
+
+export interface FolderCustomizationsAnswer {
+    readonly ok: true;
+    readonly skills: readonly SkillInfo[];
+    // The agent a session created there starts on.
+    readonly startsOn: string;
+    readonly agents: readonly AgentInfo[];
+    readonly sources: readonly SourceInfo[];
+    // What the skills, agents and sources each warned about, without repeats.
+    readonly warnings: readonly string[];
+}
+
+export type FolderCustomizationsResult = FolderCustomizationsAnswer | HostRequestFailure;
+
 export interface AnnexPage {
     readonly label: string;
     // A path on the annex, such as /usage or /x/<extension>/<page>.
@@ -177,6 +233,8 @@ export interface AnnexPage {
     // The extension that adds the page; Vera's own pages have none.
     readonly extensionId?: string;
     readonly about?: string;
+    // True when the extension gave the page its own pane.
+    readonly pane?: true;
 }
 
 export interface AnnexPagesAnswer {
@@ -191,7 +249,40 @@ export interface AnnexPagesAnswer {
 
 export type AnnexPagesResult = AnnexPagesAnswer | HostRequestFailure;
 
+export interface ProviderStatus {
+    readonly id: string;
+    readonly name: string;
+    readonly methods: readonly ("key" | "browser")[];
+    readonly connected: boolean;
+    readonly catalog_connected: boolean;
+    readonly connected_by?: "key" | "browser" | "environment" | "none";
+    readonly endpoint?: string;
+    readonly protocol?: "openai-chat" | "anthropic-messages";
+    readonly custom: boolean;
+}
+export interface ProviderSave {
+    readonly provider: string;
+    readonly key: string;
+    readonly endpoint: string;
+    readonly protocol: "openai-chat" | "anthropic-messages";
+    readonly custom: boolean;
+    readonly editing?: string;
+}
+export type ProviderListResult = { readonly ok: true; readonly providers: readonly ProviderStatus[]; readonly needsSetup: boolean } | HostRequestFailure;
+export type ProviderResult = { readonly ok: true; readonly provider: ProviderStatus } | HostRequestFailure;
+
+export interface FeedbackSaveRequest {
+    readonly kind: "bug" | "feature";
+    readonly title: string;
+    readonly description: string;
+    readonly image_paths: readonly string[];
+    readonly session_id?: string;
+}
+export type FeedbackSaveResult = { readonly ok: true; readonly path: string } | { readonly ok: false; readonly reason: string };
+
 export interface DesktopBridge {
+    captureFeedback(): Promise<string | undefined>;
+    saveFeedback(request: FeedbackSaveRequest): Promise<FeedbackSaveResult>;
     readonly platform: string;
     consumeWindowClose(): boolean;
     start(): void;
@@ -207,13 +298,27 @@ export interface DesktopBridge {
     branchSession(agentId: string, boundaryId: string): Promise<BranchSessionResult>;
     // Starts a new session holding a copy of the whole conversation. The result's prompt is empty.
     cloneSession(agentId: string): Promise<BranchSessionResult>;
+    // Opens the readonly sidekick the terminal's /btw opens: a hidden-boundary branch of the whole conversation that lasts only while attached.
+    openSidekick(primaryAgentId: string): Promise<OpenSidekickResult>;
+    // Catches a sidekick up with its primary's finished turns.
+    syncSidekick(sidekickAgentId: string): Promise<SyncSidekickResult>;
     // Stops a session and parks it, as closing its last window would.
     closeSession(agentId: string): Promise<CloseSessionResult>;
+    // Opens the native folder picker and asks the host to move the session to the folder chosen; a chat's files go with it.
+    // The host ends the session's watch connections while it moves, so the page attaches again after "moved".
+    moveSession(agentId: string): Promise<MoveSessionOutcome>;
+    setSessionArchived(agentId: string, archived: boolean): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>;
     // Asks the attached host to create a session in an absolute folder, in the approval mode given or the host default.
     // With no folder the host creates a chat, a session that works in a folder of its own.
-    createSession(workspace: string | undefined, approvalMode?: string): Promise<CreateSessionResult>;
+    // With notesOffer true the session may offer to keep notes; the host fixes that when it creates the session.
+    createSession(workspace: string | undefined, approvalMode?: string, notesOffer?: boolean): Promise<CreateSessionResult>;
     // The host's models, shortlist and connected providers for a folder, or the host's own folder.
     readModelSettings(workspace?: string): Promise<HostModelsResult>;
+    listProviders(): Promise<ProviderListResult>;
+    saveProvider(input: ProviderSave): Promise<ProviderResult>;
+    signInProvider(provider: string): Promise<ProviderResult>;
+    selectProviderModel(provider: string, model: string): Promise<{ readonly ok: true } | HostRequestFailure>;
+    cancelProviderSignIn(): void;
     // Asks one provider for its model list again.
     refreshCatalog(provider: string, workspace?: string): Promise<HostModelsResult>;
     // Removes a provider's saved connection and what Vera learned about its models.
@@ -222,6 +327,8 @@ export interface DesktopBridge {
     operateModel(operation: ModelOperationKind, provider: string, model: string, workspace?: string): Promise<ModelOperationResult>;
     // The home's model assignments, read from its config.json by the shell rather than the host.
     readAssignments(): Promise<AssignmentsResult>;
+    // Which included extensions config.json turns off. Each call runs one short task process.
+    readIncludedExtensions(): Promise<IncludedExtensionsResult>;
     // Writes one assignment change to the home's config.json; the host picks it up on its next read.
     editAssignment(change: AssignmentChange): Promise<AssignmentWriteResult>;
     // Writes one model to every assignment. Subagents keep the rest of their list, the classifier its failsafe.
@@ -230,10 +337,17 @@ export interface DesktopBridge {
     searchSessions(request: SessionSearchRequest): Promise<SessionSearchResult>;
     // Extensions the host tried to load at start and could not.
     readExtensionFailures(): Promise<ExtensionFailuresResult>;
+    // The agents a session created in a folder would offer, or in a chat when there is no folder.
+    // A host that predates the request answers with a failure.
+    readNewSessionAgents(workspace: string | undefined): Promise<NewSessionAgentsResult>;
+    // What a session created in a folder would load, or in a chat when there is no folder, read without a session.
+    // A host that predates the request answers with a failure.
+    readFolderCustomizations(workspace: string | undefined): Promise<FolderCustomizationsResult>;
     // The host's annex address and the pages it serves.
     readAnnexPages(): Promise<AnnexPagesResult>;
     // Opens an annex path in the system browser; false when there is no annex to open it on.
     openAnnexPage(path: string): Promise<boolean>;
+    browser(command: string, value?: string | number | boolean | null | BrowserBounds): Promise<BrowserState>;
     // Opens a folder in the system file manager; false when it could not be opened.
     revealFolder(folder: string): Promise<boolean>;
     // The given absolute paths that exist as directories, at most MAX_FOLDER_CHECKS of them.
@@ -242,6 +356,8 @@ export interface DesktopBridge {
     chooseFolder(): Promise<string | undefined>;
     // Opens the native picker for image files; empty when cancelled.
     chooseImages(): Promise<readonly string[]>;
+    checkComposerFile(path: string, workspace: string | undefined, chat: boolean): Promise<{ readonly kind?: "file" | "folder"; readonly error?: string }>;
+    prepareComposerFiles(paths: readonly string[], workspace: string, chat: boolean): Promise<{ readonly paths?: readonly string[]; readonly error?: string }>;
     // The file's path on disk, or undefined for data with no file behind it, such as a pasted bitmap.
     pathForFile(file: File): string | undefined;
     // Writes pasted image bytes to a file the host can read; undefined when the type or size is refused.
@@ -252,6 +368,8 @@ export interface DesktopBridge {
     listFolder(folder: string): Promise<FolderListing>;
     // The start of a text file on this machine, read by the window rather than the host.
     readFilePreview(path: string): Promise<FilePreview>;
+    openLocalPreview(root: string, path: string): Promise<LocalPreviewResult>;
+    closeLocalPreview(token: string): void;
     // Tells the shell how tall the drawn title bar is so native window controls can center in it.
     setTitleBarHeight(height: number): void;
     // Tells the shell the page surface color so the native window matches it while it resizes.
@@ -260,20 +378,39 @@ export interface DesktopBridge {
     setTheme(choice: ThemeChoice): void;
     // The imported themes saved under the home, read again from disk.
     loadImportedThemes(): Promise<readonly ImportedThemeSummary[]>;
-    // Opens the native picker for a VS Code theme (.json) or extension package (.vsix) and saves the themes in it.
-    importTheme(): Promise<ThemeImportResult>;
-    // The color themes of VS Code extensions installed on this machine.
-    listInstalledThemes(): Promise<InstalledThemesResult>;
-    // Saves one theme from the last listing of installed themes.
-    importInstalledTheme(key: string): Promise<ThemeImportResult>;
+    // Runs a command of an enabled extension included with Vera in a task process. A command with a file filter
+    // opens the native picker first. `pick` is a key from the command's last `pick` answer.
+    runExtensionCommand(command: string, pick?: string, onProgress?: (result: ExtensionCommandResult) => void, frameName?: string): Promise<ExtensionCommandResult>;
+    // The desktop extensions, installed and included, and the themes of the enabled ones, read again from disk.
+    listDesktopExtensions(): Promise<ExtensionChangeResult>;
+    // Opens the native picker for a package, unpacks it in a task process and returns what it holds; nothing is installed yet.
+    previewDesktopExtension(): Promise<ExtensionPreviewResult>;
+    // Installs the package the preview named, replacing an installed extension of the same id.
+    installDesktopExtension(token: string): Promise<ExtensionChangeResult>;
+    // Deletes the unpacked package the preview named.
+    cancelDesktopExtension(token: string): void;
+    setDesktopExtensionEnabled(id: string, enabled: boolean): Promise<ExtensionChangeResult>;
+    // Deletes an installed extension. An extension included with Vera is refused.
+    removeDesktopExtension(id: string): Promise<ExtensionChangeResult>;
+    // Fetches the extension catalog this build names, in a task process. Called when Discover opens; the list is not kept.
+    openExtensionCatalog(): Promise<CatalogListResult>;
+    // Downloads one theme from the opened catalog, checks it and unpacks it. Install it with `installDesktopExtension`
+    // or drop it with `cancelDesktopExtension`, as for a package chosen from a file.
+    previewCatalogTheme(id: string): Promise<CatalogPreviewResult>;
+    // Drops the list the main process holds. Called when Discover closes.
+    closeExtensionCatalog(): void;
     // The saved layout, or undefined when none is saved or the file was unreadable.
     loadLayout(): Promise<LayoutState | undefined>;
     saveLayout(layout: LayoutState): void;
     // Pinned sessions from the desktop's own directory under the home; none when there is no file.
     loadPins(): Promise<SavedPins>;
     savePins(pins: SavedPins): void;
-    // The desktop's flags from its own directory under the home; every flag at its default when there is no file.
+    // The desktop's flags from its own directory under the home, each at the file's value or the build default.
     loadFlags(): Promise<DesktopFlags>;
+    // Writes the chosen flags and resolves to every flag after the change; undefined when the change was not saved.
+    saveFlags(patch: FlagPatch): Promise<DesktopFlags | undefined>;
+    // Tells the shell which commands the window has taken out of its menus.
+    reportHiddenCommands(ids: readonly string[]): void;
     onEvent(listener: (event: DesktopEvent) => void): () => void;
 }
 

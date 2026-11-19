@@ -5,6 +5,7 @@ import { CheckIcon, ChevronRightIcon, PlayIcon } from "../components/Icons.tsx";
 import { themeFromAttribute, themeLabel } from "./settings/appearance.ts";
 import { SettingRow } from "./settings/SettingRow.tsx";
 import { workspaceFolders } from "./settings/workspaces.ts";
+import { useVisibility } from "../state/useSurfaces.ts";
 import { useImportedThemes } from "../theme/useImportedThemes.ts";
 import { importedThemeId, isThemeChoice, THEME_NAMES, type ThemeChoice } from "../theme/tokens.ts";
 import { useViewEnvironment } from "../views/env.tsx";
@@ -59,6 +60,7 @@ export function TourPage() {
     const { connection } = useViewEnvironment();
     const router = useRouter();
     const workbench = useWorkbench();
+    const visible = useVisibility();
     const [lastClicked, setLastClicked] = useState<string | undefined>(undefined);
     const [theme, setTheme] = useActiveTheme();
     const imported = useImportedThemes();
@@ -66,7 +68,7 @@ export function TourPage() {
 
     const rows = connection.sessionRows;
     const newestFolder = rows === undefined ? undefined : workspaceFolders(rows)[0];
-    const groups = tourGroups(rows, connection.phase === "attached", newestFolder);
+    const groups = tourGroups(rows, connection.phase === "attached", newestFolder, visible);
 
     function open(card: TourCard): void {
         if (card.action === undefined) return;

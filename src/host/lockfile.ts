@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
     chmod,
+    link,
     mkdir,
     open,
     readFile,
@@ -213,30 +214,10 @@ export function createHostLockfile(
                 ...(options.workerCount === undefined ? {} : { worker_count: options.workerCount }),
                 ...(stamp === undefined ? {} : { start_stamp: stamp }),
             };
-            const serialized = `${JSON.stringify(record, null, 2)}\n`;
-
             const directory = dirname(path);
-            const temporaryPath = join(
-                directory,
-                `.${basename(path)}.${randomUUID()}.tmp`,
-            );
             await mkdir(directory, { recursive: true, mode: 0o700 });
             await chmod(directory, 0o700);
-            try {
-                const file = await open(temporaryPath, "wx", 0o600);
-                try {
-                    await file.chmod(0o600);
-                    await file.writeFile(serialized, "utf8");
-                    await file.sync();
-                } finally {
-                    await file.close();
-                }
-                await rename(temporaryPath, path);
-            } catch (error) {
-                await removeFile(temporaryPath);
-                throw error;
-            }
-
+            await writeLockTemporary(path, record, rename);
             return record;
         },
 
@@ -292,6 +273,26 @@ export function createHostLockfile(
         return startTimeUnreadable
             ? { record: { ...record, started_at: identity.started_at } }
             : { record };
+    }
+}
+
+export async function publishHostLockIfAbsent(
+    path: string,
+    record: HostLockRecord,
+    beforePublish?: () => Promise<boolean>,
+): Promise<boolean> {
+    const temporaryPath = await writeLockTemporary(path, record);
+    try {
+        if (beforePublish !== undefined && !await beforePublish()) return false;
+        try {
+            await link(temporaryPath, path);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+            throw error;
+        }
+        return true;
+    } finally {
+        await removeFile(temporaryPath);
     }
 }
 
@@ -427,6 +428,33 @@ async function readLockSource(path: string): Promise<string | undefined> {
         if (isMissingFileError(error)) {
             return undefined;
         }
+        throw error;
+    }
+}
+
+async function writeLockTemporary(
+    path: string,
+    record: HostLockRecord,
+    publish?: (temporaryPath: string, path: string) => Promise<unknown>,
+): Promise<string> {
+    const directory = dirname(path);
+    const temporaryPath = join(
+        directory,
+        `.${basename(path)}.${randomUUID()}.tmp`,
+    );
+    try {
+        const file = await open(temporaryPath, "wx", 0o600);
+        try {
+            await file.chmod(0o600);
+            await file.writeFile(`${JSON.stringify(record, null, 2)}\n`, "utf8");
+            await file.sync();
+        } finally {
+            await file.close();
+        }
+        if (publish !== undefined) await publish(temporaryPath, path);
+        return temporaryPath;
+    } catch (error) {
+        await removeFile(temporaryPath);
         throw error;
     }
 }

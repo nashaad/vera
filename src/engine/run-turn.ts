@@ -59,8 +59,8 @@ import {
     type ToolDenialClass,
 } from "./events.ts";
 import { createModelFailureRecorder } from "./model-failure-recorder.ts";
-import type { ModelFailureLedger } from "../store/model-failures.ts";
 import { isChatFolder } from "../store/chat-folder.ts";
+import type { ModelFailureLedger } from "../store/model-failures.ts";
 import type { ReviewLog } from "./review-log.ts";
 import {
     boundToolResult,
@@ -346,9 +346,9 @@ export interface RunTurnState {
     readonly attachToolImage?: (path: string, signal: AbortSignal) => Promise<string>;
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
     readonly imageSource?: (attachmentId: string) => string | undefined;
+    readonly chatFolder?: boolean;
+    readonly notesOffer?: boolean;
     readonly scratchDir?: string;
-    /** True when the session's working folder is its own chat folder. */
-    readonly chatFolder?: true;
     readonly toolResultSpill?: ToolResultSpill;
     readonly toolResults?: ToolResultLimits;
     readonly disabledPromptContributions?: readonly string[];
@@ -937,10 +937,9 @@ export async function runHeadlessLoop(
         readImageContent: (attachmentId) =>
             readSessionImageContent(store, attachmentId),
         imageSource: sessionAttachmentSource(store),
+        ...(isChatFolder(store.path, store.header.cwd) ? { chatFolder: true } : {}),
+        ...(store.header.notesOffer === true ? { notesOffer: true } : {}),
         scratchDir,
-        ...(isChatFolder(store.path, store.header.cwd)
-            ? { chatFolder: true as const }
-            : {}),
         toolResultSpill: createToolResultSpill(scratchDir),
         ...(owned.toolResults === undefined
             ? {}
@@ -1118,6 +1117,7 @@ export async function runTurn(
             state.contextualContributionsForTurn = undefined;
         }
         state.toolRuntime.allowedTools = turnToolExecutionScope(selected);
+        state.toolRuntime.agentName = selected?.name;
         state.toolRuntime.allowedSkills = selected?.skills;
         state.toolRuntime.userInvokedSkill = turn.userInvokedSkill;
         const offered = state.offerTools === false
@@ -1129,6 +1129,7 @@ export async function runTurn(
                 state.enableUserInteraction === true,
                 state.extensionTools,
                 state.toolRuntime.invocation,
+                state.toolRuntime.agentName,
             );
         let scopedTools = selected?.tools === undefined
             ? offered
@@ -1431,6 +1432,8 @@ export async function runTurn(
                     ?? state.messages,
                 tools: scopedTools,
                 workspace: state.toolRuntime.workspace,
+                ...(state.chatFolder === true ? { chatFolder: true } : {}),
+                ...(state.notesOffer === true ? { notesOffer: true } : {}),
                 ...(state.scratchDir === undefined
                     ? {}
                     : { scratchDir: state.scratchDir }),

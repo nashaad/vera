@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { LAYOUT_COMMANDS, registerLayoutCommands } from "../../clients/ui/src/commands/layout-commands.ts";
-import { containerMenu, switcherMenu, viewMenu, type MenuEntry } from "../../clients/ui/src/commands/menus.ts";
+import { containerMenu, switcherMenu, tabMenu, viewMenu, type MenuEntry } from "../../clients/ui/src/commands/menus.ts";
 import { CommandRegistry } from "../../clients/ui/src/commands/registry.ts";
 import { registerThemeCommands, THEME_COMMANDS } from "../../clients/ui/src/commands/theme-commands.ts";
 import { defaultLayout, type RegistrySnapshot } from "../../clients/ui/src/layout/model.ts";
@@ -52,6 +52,7 @@ test("@core every layout action has a command that dispatches the matching actio
     registry.execute(LAYOUT_COMMANDS.toggleSidebar);
     registry.execute(LAYOUT_COMMANDS.togglePanel);
     registry.execute(LAYOUT_COMMANDS.toggleRightPane);
+    registry.execute(LAYOUT_COMMANDS.closeTab);
     registry.execute(LAYOUT_COMMANDS.reset);
     registry.execute(LAYOUT_COMMANDS.viewMoveTo, { view: "v.host", location: "panel" });
     registry.execute(LAYOUT_COMMANDS.viewMoveTo, { view: "v.host", container: "c.output", index: 1 });
@@ -64,11 +65,15 @@ test("@core every layout action has a command that dispatches the matching actio
     registry.execute(LAYOUT_COMMANDS.containerHide, { container: "c.vera" });
     registry.execute(LAYOUT_COMMANDS.containerShow, { container: "c.vera" });
     registry.execute(LAYOUT_COMMANDS.containerActivate, { container: "c.vera" });
+    registry.execute(LAYOUT_COMMANDS.tabOpen, { container: "c.vera" });
+    registry.execute(LAYOUT_COMMANDS.tabActivate, { tab: "tab.1" });
+    registry.execute(LAYOUT_COMMANDS.tabClose, { tab: "tab.1" });
     registry.execute(LAYOUT_COMMANDS.containerReset, { container: "c.vera" });
     expect(actions).toEqual([
         { type: "toggleLocation", location: "sidebar" },
         { type: "toggleLocation", location: "panel" },
         { type: "toggleLocation", location: "rightPane" },
+        { type: "closeActiveTab" },
         { type: "resetLayout" },
         { type: "moveView", view: "v.host", to: { location: "panel" } },
         { type: "moveView", view: "v.host", to: { container: "c.output", index: 1 } },
@@ -81,6 +86,9 @@ test("@core every layout action has a command that dispatches the matching actio
         { type: "setContainerHidden", container: "c.vera", hidden: true },
         { type: "setContainerHidden", container: "c.vera", hidden: false },
         { type: "activateContainer", container: "c.vera" },
+        { type: "openTab", container: "c.vera" },
+        { type: "activateTab", tab: "tab.1" },
+        { type: "closeTab", tab: "tab.1" },
         { type: "resetContainer", container: "c.vera" },
     ]);
 });
@@ -159,6 +167,30 @@ test("the container menu disables the current location and the switcher menu lis
     ]);
 });
 
+test("a right-pane tab's menu closes the tab, then offers its container's menu", () => {
+    const state = reduceLayout(reduceLayout(defaultLayout(), { type: "openTab", container: "c.vera" }, REGISTRY), { type: "openTab", container: "c.vera" }, REGISTRY);
+    const layout = resolveLayout(state, REGISTRY);
+    const menu = tabMenu(layout, "tab.2");
+    expect(menu[0]).toEqual({ kind: "item", label: "Close Vera", command: LAYOUT_COMMANDS.tabClose, args: { tab: "tab.2" } });
+    expect(menu[1]).toEqual({ kind: "separator" });
+    expect(labels(menu)).toContain("Hide Vera");
+    expect(labels(menu)).toContain("Move to Panel");
+    expect(labels(tabMenu(layout, "tab.2", "Docs page"))[0]).toBe("Close Docs page");
+    expect(tabMenu(layout, "tab.9")).toEqual([]);
+});
+
+test("the right pane's switcher menu lists its containers, checked while shown", () => {
+    const closed = resolveLayout(defaultLayout(), REGISTRY);
+    expect(labels(containerMenu(closed, "c.vera"))).not.toContain("Close Vera");
+    expect(switcherMenu(closed, "rightPane")).toEqual([
+        { kind: "item", label: "Vera", command: LAYOUT_COMMANDS.containerHide, args: { container: "c.vera" }, checked: true },
+    ]);
+    const hidden = resolveLayout(reduceLayout(defaultLayout(), { type: "setContainerHidden", container: "c.vera", hidden: true }, REGISTRY), REGISTRY);
+    expect(switcherMenu(hidden, "rightPane")).toEqual([
+        { kind: "item", label: "Vera", command: LAYOUT_COMMANDS.containerShow, args: { container: "c.vera" }, checked: false },
+    ]);
+});
+
 test("menus for ids that are not registered are empty", () => {
     const layout = resolveLayout(defaultLayout(), REGISTRY);
     expect(viewMenu(layout, "nope")).toEqual([]);
@@ -175,4 +207,20 @@ test("@core each theme has a command that applies that theme, and disposing remo
     expect(registry.list().map((command) => command.id).sort()).toEqual(Object.values(THEME_COMMANDS).sort());
     dispose();
     expect(registry.list()).toEqual([]);
+});
+
+test("@core a hidden command leaves the list the palette reads but still runs", () => {
+    const registry = new CommandRegistry();
+    const ran: string[] = [];
+    registry.register({ id: "a.shown", title: "Shown", run: () => ran.push("shown") });
+    registry.register({ id: "a.hidden", title: "Hidden", run: () => ran.push("hidden") });
+    registry.setHidden(new Set(["a.hidden"]));
+    expect(registry.list().map((command) => command.id)).toEqual(["a.shown"]);
+    expect(registry.isHidden("a.hidden")).toBe(true);
+    expect(registry.isHidden("a.shown")).toBe(false);
+    expect(registry.has("a.hidden")).toBe(true);
+    expect(registry.execute("a.hidden")).toBe(true);
+    expect(ran).toEqual(["hidden"]);
+    registry.setHidden(new Set());
+    expect(registry.list().map((command) => command.id)).toEqual(["a.shown", "a.hidden"]);
 });

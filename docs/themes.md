@@ -9,6 +9,8 @@ for this home.
 
 System takes its colors from your terminal. Every other theme is a fixed
 palette.
+Vera Orange is a built-in near-black palette with warm white text and an orange
+accent, available from `/theme` without installing anything.
 
 ## Your own themes
 

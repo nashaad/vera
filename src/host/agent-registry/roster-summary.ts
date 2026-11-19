@@ -26,7 +26,7 @@ export function sessionSummary(entry: RegisteredAgentEntry): RegisteredAgentSumm
                 : entry.agent.status;
     const live = entryIsLive(entry);
     const inputs = [
-        entry.store, entry.store.appendedLineCount(), entry.store.name(),
+        entry.store, entry.store.appendedLineCount(), entry.store.name(), entry.store.archived(),
         entry.store.agentFailure()?.timestamp, size, status, live, entry.identity?.name,
         entry.kind, entry.parentId, entry.worker?.pid, entry.worker?.supervisor?.pid,
         entry.backgroundCommands,
@@ -47,6 +47,7 @@ export function sessionSummary(entry: RegisteredAgentEntry): RegisteredAgentSumm
         kind: entry.kind,
         status,
         live,
+        archived: entry.store.archived(),
         ...(entry.worker === undefined
             ? {}
             : {

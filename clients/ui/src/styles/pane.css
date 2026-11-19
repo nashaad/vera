@@ -1,0 +1,196 @@
+/* The right pane: pills with a close button, the "+" launcher, and the tiles shown while nothing is open. */
+
+.switcher[data-variant="pills"] .switcher-pill {
+    position: relative;
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+}
+
+/* The tab spans the whole pill; its right padding is the room the close button sits in. */
+.switcher[data-variant="pills"] .switcher-item {
+    padding-right: calc(var(--vera-space) * 6.5);
+}
+
+.switcher[data-variant="pills"] .switcher-title {
+    max-width: calc(var(--vera-space) * 32);
+}
+
+.switcher-close {
+    position: absolute;
+    top: 50%;
+    right: calc(var(--vera-space) * 1.25);
+    width: calc(var(--vera-space) * 4);
+    height: calc(var(--vera-space) * 4);
+    opacity: 0;
+    transform: translateY(-50%);
+    transition: opacity var(--vera-motion), color var(--vera-motion), background var(--vera-motion);
+}
+
+/* Marks a tab whose page changed while another tab was shown; the close button takes its place on hover. */
+.change-dot {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 2);
+    height: calc(var(--vera-space) * 2);
+    background: var(--vera-success);
+    border-radius: 50%;
+}
+
+.switcher-pill > .change-dot {
+    position: absolute;
+    top: 50%;
+    right: calc(var(--vera-space) * 2.5);
+    transform: translateY(-50%);
+    pointer-events: none;
+    transition: opacity var(--vera-motion);
+}
+
+.switcher-pill:hover > .change-dot {
+    opacity: 0;
+}
+
+.switcher-close .icon {
+    width: calc(var(--vera-space) * 3);
+    height: calc(var(--vera-space) * 3);
+}
+
+.switcher-pill:hover .switcher-close,
+.switcher-pill[data-active="true"] .switcher-close,
+.switcher-close:focus-visible {
+    opacity: 1;
+}
+
+.switcher-close:hover {
+    background: color-mix(in srgb, var(--vera-text) 14%, transparent);
+}
+
+.pane-launcher {
+    position: relative;
+    display: inline-flex;
+    flex: 0 0 auto;
+    -webkit-app-region: no-drag;
+}
+
+.pane-launcher-menu {
+    width: calc(var(--vera-space) * 68);
+    max-height: min(calc(var(--vera-space) * 90), var(--popover-room));
+    overflow-y: auto;
+    -webkit-app-region: no-drag;
+}
+
+.pane-launcher-row {
+    width: 100%;
+    color: var(--vera-text);
+    font: inherit;
+    text-align: left;
+    background: transparent;
+    border: 0;
+}
+
+.pane-launcher-row[data-focused="true"] {
+    background: var(--vera-surface-selected);
+}
+
+.pane-launcher-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pane-tiles {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+    padding: calc(var(--vera-space) * 4);
+    overflow-y: auto;
+}
+
+.pane-new-content {
+    width: 100%;
+    max-width: calc(var(--vera-space) * 110);
+    margin: auto;
+}
+
+.pane-new-content h3 {
+    color: var(--vera-text-dim);
+    font-size: inherit;
+    font-weight: 500;
+}
+
+.pane-new-search {
+    position: relative;
+}
+
+.pane-new-search input {
+    box-sizing: border-box;
+    width: 100%;
+    padding: calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    font: inherit;
+    background: var(--vera-surface);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+}
+
+.pane-new-results {
+    position: absolute;
+    z-index: 2;
+    top: 100%;
+    right: 0;
+    left: 0;
+    max-height: calc(var(--vera-space) * 70);
+    overflow-y: auto;
+}
+
+.pane-tiles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(calc(var(--vera-space) * 26), 1fr));
+    gap: calc(var(--vera-space) * 2);
+    width: 100%;
+    max-width: calc(var(--vera-space) * 110);
+    margin: auto;
+}
+
+.pane-tile {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--vera-space) * 1.5);
+    align-items: center;
+    justify-content: center;
+    min-height: calc(var(--vera-space) * 22);
+    padding: calc(var(--vera-space) * 3);
+    color: var(--vera-text-dim);
+    font: inherit;
+    background: transparent;
+    border: thin solid var(--vera-border);
+    border-radius: calc(var(--vera-radius) * 1.5);
+    cursor: pointer;
+    transition: color var(--vera-motion), background var(--vera-motion);
+}
+
+.pane-tile:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.pane-tile:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.pane-tile-icon {
+    width: calc(var(--vera-font-size) * 1.8);
+    height: calc(var(--vera-font-size) * 1.8);
+}
+
+.pane-tile-title {
+    color: var(--vera-text);
+}
+
+.pane-tile-keys {
+    display: flex;
+    gap: calc(var(--vera-space) / 2);
+}

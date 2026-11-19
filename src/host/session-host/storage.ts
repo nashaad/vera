@@ -207,6 +207,7 @@ export async function indexStoredSession(
                 : "interactive",
             status: "completed",
             live: false,
+            archived: metadata.archived,
             updated_at: fileStat?.mtime.toISOString() ?? header.timestamp,
             created_at: header.timestamp,
             ...(metadata.title === undefined

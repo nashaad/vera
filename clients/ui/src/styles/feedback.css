@@ -1,0 +1,7 @@
+.feedback-form { display: flex; flex-direction: column; gap: calc(var(--vera-space) * 3); }
+.feedback-form label:not(.feedback-check) { display: flex; flex-direction: column; gap: var(--vera-space); }
+.feedback-form input:not([type="checkbox"]), .feedback-form textarea, .feedback-form select { color: var(--vera-text); background: var(--vera-surface); border: thin solid var(--vera-border); padding: calc(var(--vera-space) * 2); }
+.feedback-form textarea { min-height: calc(var(--vera-space) * 28); resize: vertical; font: inherit; }
+.feedback-form .feedback-check { display: flex; align-items: center; gap: calc(var(--vera-space) * 2); }
+.feedback-thumbnail { display: block; max-width: calc(var(--vera-space) * 45); max-height: calc(var(--vera-space) * 30); object-fit: contain; }
+.feedback-form > .ghost-btn { align-self: flex-start; }

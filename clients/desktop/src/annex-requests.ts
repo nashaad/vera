@@ -73,6 +73,7 @@ export function parseExtensionPages(value: unknown): readonly AnnexPage[] | unde
             label: entry.label.slice(0, MAX_LABEL_CHARS),
             path: entry.href,
             extensionId: entry.extensionId.slice(0, MAX_LABEL_CHARS),
+            ...(entry.pane === true ? { pane: true as const } : {}),
         });
     }
     return pages;

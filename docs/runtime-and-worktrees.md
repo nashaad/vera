@@ -199,7 +199,11 @@ Each step prints a line in a box on stderr. When every check passes, `vera`
 prints nothing. A question the check asks in a terminal is drawn as a card and
 answered with one key: `y` for yes, `n`, Enter or Escape for no. Where a
 question is marked `[Y]`, Enter means yes. Without a terminal, every question
-is answered yes, so Vera still starts.
+is answered yes, so Vera still starts, with one exception. When a host still
+answers but its lock file is missing, or when a repair after a failed start
+would stop a host that still answers, the question is answered no: boot fails,
+leaves the host running and names `vera host reset`. A host that holds its lock
+but does not respond properly is still restarted.
 
 When an open TUI reconnects, startup checks with a repair or warning appear as
 one notice in the TUI instead. The checks are also recorded in its client
@@ -215,15 +219,18 @@ then uses the host it started.
 `check` lines as each check finishes, `question` lines that expect one line on
 stdin (`yes`, `no`, or `{"answer": true}`), a `waiting` line when another boot
 holds the lock, and a final `ready` line with the host PID, socket path, build
-and annex URL, or a `failed` line with the message. A closed stdin answers yes.
+and annex URL, or a `failed` line with the message. A closed stdin answers yes
+except for `stop_answering_host`, which asks whether to stop an answering host
+and requires an explicit yes.
 
 ## Reset a home that `vera host stop` cannot reach
 
 Use `vera host reset` when `vera` and `vera host stop` cannot reach this home's
 host. A common case is a host lock file that has gone missing: `host stop`
 finds the host through that file, so without it the command reports that no
-host is running. Reset does not depend on the lock file. It works on the
-selected home only.
+host is running. A running host restores its missing lock while it owns the
+socket; boot waits briefly for it to return before asking to stop the host.
+Reset does not depend on the lock file. It works on the selected home only.
 
 Reset finds this home's Vera processes and prints each one with its start time,
 the proof that it belongs to this home, and any running turns. A process

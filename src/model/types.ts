@@ -288,9 +288,43 @@ export interface UnifiedDiffPresentation {
     readonly scratch?: true;
 }
 
+export interface ToolNoticeLink {
+    readonly title: string;
+    // An extension sends one of its own page ids; the host rewrites it to `/x/<extension>/<page>`.
+    readonly page: string;
+    readonly query?: Readonly<Record<string, string>>;
+}
+
+export const MAX_NOTICE_LINK_TITLE_LENGTH = 120;
+export const MAX_NOTICE_LINK_QUERY_ENTRIES = 8;
+export const MAX_NOTICE_LINK_QUERY_VALUE_LENGTH = 200;
+
 export interface ToolNoticePresentation {
     readonly kind: "tool_notice";
     readonly text: string;
+    readonly link?: ToolNoticeLink;
+    readonly action?: "open_browser";
+}
+
+export function isToolNoticeLink(value: unknown): value is ToolNoticeLink {
+    if (typeof value !== "object" || value === null) return false;
+    const link = value as Record<string, unknown>;
+    if (
+        typeof link.title !== "string"
+        || link.title.trim().length === 0
+        || link.title.length > MAX_NOTICE_LINK_TITLE_LENGTH
+        || typeof link.page !== "string"
+        || !/^\/?[A-Za-z0-9._/-]{1,200}$/.test(link.page)
+    ) {
+        return false;
+    }
+    if (link.query === undefined) return true;
+    if (typeof link.query !== "object" || link.query === null || Array.isArray(link.query)) return false;
+    const entries = Object.entries(link.query);
+    return entries.length <= MAX_NOTICE_LINK_QUERY_ENTRIES
+        && entries.every(([name, text]) => /^[A-Za-z0-9._-]{1,40}$/.test(name)
+            && typeof text === "string"
+            && text.length <= MAX_NOTICE_LINK_QUERY_VALUE_LENGTH);
 }
 
 export interface ChecklistItem {
@@ -334,7 +368,9 @@ export function isToolPresentation(value: unknown): value is ToolPresentation {
     }
     return presentation.kind === "tool_notice"
         && typeof presentation.text === "string"
-        && presentation.text.trim().length > 0;
+        && presentation.text.trim().length > 0
+        && (presentation.link === undefined || isToolNoticeLink(presentation.link))
+        && (presentation.action === undefined || presentation.action === "open_browser");
 }
 
 function isChecklistItem(value: unknown): value is ChecklistItem {

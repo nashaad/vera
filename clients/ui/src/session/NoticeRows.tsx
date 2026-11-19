@@ -3,7 +3,11 @@ import { useState } from "react";
 import { ChevronDownIcon, ChevronRightIcon, InboxIcon, RefreshIcon } from "../components/Icons.tsx";
 import { useRouter } from "../pages/router.tsx";
 import { sessionPlace } from "../pages/routes.ts";
+import { openSubagents } from "../subagents/open.ts";
 import { useViewEnvironment } from "../views/env.tsx";
+import { useWorkbench } from "../workbench/context.tsx";
+import { useActiveSession } from "./activeSession.ts";
+import { deliverySender } from "./deliverySource.ts";
 import type { DeliveryBlock, NoticeBlock, SubstitutionBlock } from "./model.ts";
 
 const PREVIEW_LINES = 3;
@@ -36,8 +40,11 @@ export function NoticeRow({ block }: { readonly block: NoticeBlock }) {
 export function DeliveryRow({ block }: { readonly block: DeliveryBlock }) {
     const { connection } = useViewEnvironment();
     const router = useRouter();
+    const workbench = useWorkbench();
+    const openSession = useActiveSession()?.agentId;
     const [showAll, setShowAll] = useState(false);
-    const row = connection.sessionRows?.find((candidate) => candidate.id === block.sourceAgentId);
+    const row = block.fromExtension ? undefined : connection.sessionRows?.find((candidate) => candidate.id === block.sourceAgentId);
+    const sender = deliverySender(block, row?.name);
     const lines = block.text.split("\n");
     const collapsed = !showAll && lines.length > PREVIEW_LINES;
     const text = collapsed ? lines.slice(0, PREVIEW_LINES).join("\n") : block.text;
@@ -45,7 +52,7 @@ export function DeliveryRow({ block }: { readonly block: DeliveryBlock }) {
         <div className="inbox-banner" data-kind={block.deliveryKind}>
             <InboxIcon className="inbox-icon" />
             <div className="inbox-body">
-                <div className="inbox-title">{row?.name ?? "A subagent"} has something for you</div>
+                <div className="inbox-title">{sender} has something for you</div>
                 <div className="inbox-text">{text}</div>
                 {lines.length > PREVIEW_LINES ? (
                     <button type="button" className="inbox-toggle" aria-expanded={showAll} onClick={() => setShowAll(!showAll)}>
@@ -58,12 +65,14 @@ export function DeliveryRow({ block }: { readonly block: DeliveryBlock }) {
                 <button
                     type="button"
                     className="inbox-open"
-                    onClick={() => router.navigate({
-                        kind: "session",
-                        agentId: row.id,
-                        title: row.name,
-                        ...sessionPlace(row.workspace, row.chat),
-                    })}
+                    onClick={() => {
+                        // The tab lists the open session's subagents, so a delivery to any other transcript still navigates.
+                        if (openSession !== undefined && row.parentId === openSession) {
+                            openSubagents(workbench, openSession, row.id);
+                            return;
+                        }
+                        router.navigate({ kind: "session", agentId: row.id, title: row.name, ...sessionPlace(row.workspace, row.chat) });
+                    }}
                 >
                     Open it
                 </button>

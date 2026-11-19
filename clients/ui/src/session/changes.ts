@@ -53,6 +53,13 @@ export function lastTurn(blocks: readonly Block[]): readonly Block[] {
     return blocks;
 }
 
+export function currentTurnChecklist(blocks: readonly Block[]): Checklist | undefined {
+    for (let index = blocks.length - 1; index >= 0; index -= 1) {
+        if (blocks[index]?.kind === "user") return latestChecklist(blocks.slice(index + 1));
+    }
+    return undefined;
+}
+
 // The newest checklist any call wrote: the session's plan.
 export function latestChecklist(blocks: readonly Block[]): Checklist | undefined {
     for (let index = blocks.length - 1; index >= 0; index -= 1) {

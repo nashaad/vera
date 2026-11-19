@@ -1,0 +1,265 @@
+// Subagents test for the desktop window. Run with: node clients/desktop/test/subagents.e2e.mjs
+// The provider's first reply to the main session starts an async subagent; the child and the follow-ups answer in text.
+// The call shows as a card, the card and the Session menu open the Subagents tab, and the tab lists the child under Done.
+// A message typed in the child's detail reaches the child, and its answer shows there without reaching the main session.
+
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import { join } from "node:path";
+
+import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
+import { MODIFIER, press, startTrial } from "./trial.mjs";
+
+const DESCRIPTION = "Count the doubloons in the hold";
+const CHILD_REPLY = "Forty doubloons lie in the hold.";
+const MAIN_REPLY = "The crow is waiting on the count.";
+const MESSAGE = "Recount the starboard chest";
+const MESSAGE_REPLY = "Twelve more doubloons sit in the starboard chest.";
+
+const requests = [];
+let spawned = 0;
+let heldChild;
+
+const provider = createServer((request, response) => {
+    if (request.method === "GET" && request.url.endsWith("/models")) {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ data: [{ id: "crow-0" }] }));
+        return;
+    }
+    let raw = "";
+    request.on("data", (part) => { raw += part; });
+    request.on("end", () => {
+        const body = JSON.parse(raw);
+        const messages = body.messages ?? [];
+        const text = JSON.stringify(messages);
+        const child = !text.includes("Hello crow");
+        const last = messages.at(-1);
+        requests.push({ child, text });
+        const usage = { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 };
+        if (body.stream === false) {
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end(JSON.stringify({ id: "reply", model: body.model, choices: [{ index: 0, message: { role: "assistant", content: "Crow" }, finish_reason: "stop" }], usage }));
+            return;
+        }
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        if (!child && last?.role === "user" && spawned === 0) {
+            spawned += 1;
+            const call = { index: 0, id: "call-1", type: "function", function: { name: "async_subagent", arguments: JSON.stringify({ description: DESCRIPTION }) } };
+            response.write(streamChunk(body.model, { role: "assistant", tool_calls: [call] }, "tool_calls"));
+        } else {
+            const asked = child && JSON.stringify(last ?? {}).includes(MESSAGE);
+            if (child && !asked && heldChild === undefined) {
+                response.write(streamChunk(body.model, { role: "assistant" }));
+                heldChild = { response, model: body.model };
+                return;
+            }
+            response.write(streamChunk(body.model, { role: "assistant", content: asked ? MESSAGE_REPLY : child ? CHILD_REPLY : MAIN_REPLY }, "stop"));
+        }
+        response.end("data: [DONE]\n\n");
+    });
+});
+
+const trial = startTrial();
+let failed = false;
+let page;
+
+const pane = '[data-location="rightPane"]';
+const tabs = () => page.locator(`${pane} [data-switcher="rightPane"] [data-tab][data-container="core.subagents"]`);
+const card = () => page.locator(".subagent-card");
+
+async function sessionMenu(label) {
+    await page.locator("[data-session-menu]").click();
+    await page.locator(".menu-item", { hasText: label }).first().click();
+}
+
+try {
+    await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
+    configureFauxHome(trial.home, provider.address().port, "auto");
+    // Without a subagent model the launch waits for setup. The child runs on the home's own model.
+    const configPath = join(trial.home, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.model_assignments.subagents = { ...config.model_assignments.snappy, allow_self: true };
+    writeFileSync(configPath, JSON.stringify(config, null, 2));
+    const folder = join(trial.home, "..", "work");
+    mkdirSync(folder, { recursive: true });
+
+    const app = await trial.launch();
+    await app.evaluate(({ dialog }, path) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
+    }, folder);
+    page = await app.firstWindow();
+    await page.waitForSelector(".app[data-sessions]", { timeout: 45_000 });
+    await trial.waitForHost();
+
+    const input = page.locator(".home-composer .composer-input");
+    await input.fill("Hello crow");
+    await page.getByRole("button", { name: /No folder/ }).click();
+    await page.getByRole("menuitem", { name: /Open folder/ }).click();
+    await page.waitForSelector(`.context-chips .chip-label:text-is("${folder.split("/").pop()}")`);
+    await input.press("Enter");
+    await page.waitForSelector("[data-session][data-phase=\"attached\"]", { timeout: 45_000 });
+
+    // The call is a card of its own, titled by its description, and the run line does not carry it.
+    await card().waitFor({ timeout: 45_000 });
+    if ((await card().count()) !== 1) throw new Error(`The transcript shows ${await card().count()} subagent cards.`);
+    if (!(await card().innerText()).includes(DESCRIPTION)) throw new Error(`The card reads "${await card().innerText()}".`);
+    await page.waitForSelector(`text=${MAIN_REPLY}`, { timeout: 45_000 }).catch(() => undefined);
+    if ((await page.locator(".run-head").filter({ hasText: /subagent/i }).count()) !== 0) throw new Error("A run line still names the subagent call.");
+    if ((await tabs().count()) !== 0) throw new Error("The Subagents tab was open before anything asked for it.");
+
+    // Hold the child's stream until the list shows its running state.
+    await until("the child stream held", async () => heldChild !== undefined);
+    await sessionMenu("Subagents");
+    const list = page.locator(`${pane} .subagents`);
+    await list.waitFor({ timeout: 15_000 });
+    const active = list.locator('section[aria-label="Active subagents"]');
+    await until("the listed working child", async () => {
+        const row = active.locator('.subagents-row[data-open="true"]');
+        return (await row.count()) === 1 && (await row.innerText()).includes("Working");
+    }, 45_000);
+    if ((await active.locator(".tasks-heading").innerText()) !== "Active · 1") throw new Error("The Active heading does not count the running child.");
+    if ((await list.locator('section[aria-label="Finished subagents"]').count()) !== 0) throw new Error("Done is shown before a child finishes.");
+    const family = page.locator('.session-item[data-parent="true"]');
+    const summary = family.locator('.session-summary');
+    await until("collapsed working family", async () => (await summary.count()) === 1 && (await summary.innerText()).includes("1 nested · 1 working"), 45_000);
+    const fold = family.locator('.session-fold');
+    if (await fold.getAttribute('aria-expanded') !== 'false') throw new Error('The family did not start collapsed.');
+    if (await page.locator('.session-row[data-nested="true"]').count()) throw new Error('A collapsed child is visible.');
+    await summary.click();
+    const childRow = page.locator('.session-row[data-nested="true"]');
+    await childRow.waitFor();
+    const holdMs = Math.min(120_000, Math.max(0, Number(process.env.NESTED_FIXTURE_HOLD_MS) || 0));
+    if (holdMs > 0) {
+        if (process.env.NESTED_FIXTURE_REDUCE_MOTION === '1') {
+            await page.evaluate(() => document.documentElement.setAttribute('data-reduce-motion', 'true'));
+        }
+        console.log(`Sidebar fixture: home=${trial.home} electron=${app.process().pid} hold=${holdMs}ms reduced=${process.env.NESTED_FIXTURE_REDUCE_MOTION === '1'}`);
+        await new Promise((resolve) => setTimeout(resolve, holdMs));
+    }
+    if (await fold.getAttribute('aria-expanded') !== 'true') throw new Error('The summary did not expand the family.');
+    const spinner = page.locator('.session-item[data-nested="true"] .session-spinner');
+    await page.mouse.move(0, 0);
+    await spinner.waitFor();
+    if (!(await childRow.getAttribute('aria-label')).includes('Working')) throw new Error('The child row does not announce its working status.');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    if (await spinner.evaluate((node) => getComputedStyle(node).animationName) !== 'none') throw new Error('System reduced motion did not stop the indicator.');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.evaluate(() => document.documentElement.setAttribute('data-reduce-motion', 'true'));
+    if (await spinner.evaluate((node) => getComputedStyle(node).animationName) !== 'none') throw new Error('Reduce motion did not stop the indicator.');
+    await page.evaluate(() => document.documentElement.setAttribute('data-reduce-motion', 'false'));
+    const motion = () => spinner.evaluate((node) => getComputedStyle(node).animationName);
+    await until('visible indicator animates', async () => await motion() === 'session-spin');
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
+    await until('hidden window stops indicator', async () => await motion() === 'none');
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].showInactive());
+    await until('shown window resumes indicator', async () => await motion() === 'session-spin');
+    await press(app, 'B', [MODIFIER]);
+    await until('hidden sidebar stops indicator', async () => await spinner.count() === 0 || await motion() === 'none');
+    await press(app, 'B', [MODIFIER]);
+    await summary.waitFor();
+    await summary.click();
+    await page.mouse.move(0, 0);
+    await until('shown sidebar resumes indicator', async () => await spinner.count() === 1 && await motion() === 'session-spin');
+    const geometry = await family.locator('.session-name').evaluate((name) => {
+        const caret = name.closest('.session-line').querySelector('.session-fold');
+        return { gap: caret.getBoundingClientRect().left - name.getBoundingClientRect().right };
+    });
+    if (geometry.gap < 0 || geometry.gap > 20) throw new Error(`The caret is not beside the title: ${geometry.gap}`);
+    const childId = await childRow.getAttribute('data-session');
+    await childRow.click();
+    await page.waitForSelector(`.transcript-scroll[data-session="${childId}"]`);
+    const sash = page.getByRole('separator', { name: 'Resize sidebar' });
+    await sash.focus();
+    for (let index = 0; index < 12; index += 1) await sash.press('ArrowRight');
+    const parentSpacer = family.locator('.session-line-spacer');
+    const spacerBox = await parentSpacer.boundingBox();
+    if (spacerBox === null || spacerBox.width < 4) throw new Error('The parent has no blank row area to test.');
+    const parentLineBox = await family.locator('.session-line').boundingBox();
+    if (parentLineBox === null) throw new Error('The parent row is not visible.');
+    await page.mouse.click(spacerBox.x + spacerBox.width / 2, parentLineBox.y + parentLineBox.height / 2);
+    await card().waitFor();
+    await fold.focus();
+    await fold.press('Enter');
+    if (await childRow.count()) throw new Error('Keyboard collapse left the child visible.');
+    heldChild.response.write(streamChunk(heldChild.model, { content: CHILD_REPLY }, "stop"));
+    heldChild.response.end("data: [DONE]\n\n");
+    await until("the child moves to Done", async () => {
+        const done = list.locator('section[aria-label="Finished subagents"]');
+        return (await done.count()) === 1 && (await done.innerText()).includes(DESCRIPTION)
+            && (await active.locator(".tasks-heading").innerText()) === "Active · 0";
+    }, 45_000);
+    await until("the summary clears working", async () => (await summary.innerText()) === "1 nested", 45_000);
+    const doneText = await list.locator('section[aria-label="Finished subagents"]').innerText();
+    if (!/Done · 1/.test(doneText) || !/Idle|Done|Ended/.test(doneText)) throw new Error(`Finished list reads ${doneText}`);
+
+    // The card opens the Subagents tab on the child, with its reply and a box to message it.
+    await card().click();
+    await tabs().first().waitFor({ timeout: 15_000 });
+    const detail = page.locator(`${pane} .subagent-detail`);
+    await detail.waitFor({ timeout: 15_000 });
+    await detail.getByText(CHILD_REPLY).waitFor({ timeout: 45_000 });
+    await until("the detail titled by the child", async () => (await detail.locator(".subagent-title").innerText()).includes(DESCRIPTION));
+    const box = detail.locator(".subagent-message .composer-input");
+    await until("the message box ready", async () => (await box.getAttribute("placeholder")) === "Message this subagent");
+    if ((await detail.locator(".subagent-message .round-button").count()) !== 0) throw new Error("The message box offers to attach files.");
+    if ((await tabs().count()) !== 1) throw new Error("Opening the child made a second Subagents tab.");
+    const childRequests = requests.filter((entry) => entry.child);
+    if (childRequests.length === 0 || !childRequests[0].text.includes(DESCRIPTION)) throw new Error("The child did not receive the description.");
+
+    // A message to the finished child runs a turn of its own; the main session is not asked again.
+    const mainBefore = requests.filter((entry) => !entry.child).length;
+    await box.fill(MESSAGE);
+    await box.press("Enter");
+    await detail.getByText(MESSAGE_REPLY).waitFor({ timeout: 45_000 });
+    if ((await box.inputValue()) !== "") throw new Error("The message box kept the sent text.");
+    const asked = requests.filter((entry) => entry.child && entry.text.includes(MESSAGE));
+    if (asked.length !== 1) throw new Error(`The child was asked ${asked.length} times.`);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    if (requests.filter((entry) => !entry.child).length !== mainBefore) throw new Error("The child's answer reached the main session.");
+
+    // The back arrow shows the list, with the finished child under Done.
+    await detail.getByRole("button", { name: "Back to subagents" }).click();
+    await list.waitFor({ timeout: 15_000 });
+    await until("the child under Done", async () => (await list.locator('section[aria-label="Finished subagents"] .subagents-row').count()) === 1);
+    if (!(await list.locator('section[aria-label="Finished subagents"] .tasks-heading').innerText()).includes("Done · 1")) throw new Error("The Done heading does not count the child.");
+    if (!(await list.locator('section[aria-label="Active subagents"] .tasks-heading').innerText()).includes("Active · 0")) throw new Error("The Active heading does not count the children.");
+    if (!(await list.locator('section[aria-label="Active subagents"]').innerText()).includes("No active subagents")) throw new Error("The Active list is not empty.");
+    if ((await list.locator('.subagents-row .subagent-list-icon').count()) !== 1) throw new Error("The child row has no agent icon.");
+    const row = list.locator(".subagents-row").first();
+    if (!(await row.innerText()).includes(DESCRIPTION)) throw new Error(`The row reads "${await row.innerText()}".`);
+
+    // A row opens the same detail again.
+    await row.focus();
+    await row.press("Enter");
+    await detail.getByText(CHILD_REPLY).waitFor({ timeout: 15_000 });
+    await detail.getByRole("button", { name: "Back to subagents" }).click();
+    await row.click();
+    await detail.getByText(CHILD_REPLY).waitFor({ timeout: 15_000 });
+
+    // Closing the tab and opening it from the Session menu shows the list, in the same single tab.
+    await page.locator(`${pane} .switcher-close`).first().click();
+    await tabs().first().waitFor({ state: "detached" });
+    await sessionMenu("Subagents");
+    await tabs().first().waitFor({ timeout: 15_000 });
+    await list.waitFor({ timeout: 15_000 });
+    if ((await list.locator(".subagents-row").count()) !== 1) throw new Error("The menu did not open the list.");
+    await sessionMenu("Subagents");
+    if ((await tabs().count()) !== 1) throw new Error("The menu opened a second Subagents tab.");
+
+    // The card opens the detail through the same tab even while the list is showing.
+    await card().click();
+    await detail.getByText(CHILD_REPLY).waitFor({ timeout: 15_000 });
+    if ((await tabs().count()) !== 1) throw new Error("The card opened a second Subagents tab.");
+
+    console.log("subagents e2e passed");
+} catch (error) {
+    failed = true;
+    console.error(error);
+    if (page !== undefined) console.error("Page text:", await page.locator(".app").first().innerText().catch(() => "unreadable"));
+} finally {
+    heldChild?.response.destroy();
+    await trial.cleanup();
+    provider.closeAllConnections();
+    await new Promise((resolve) => provider.close(resolve));
+}
+process.exit(failed ? 1 : 0);

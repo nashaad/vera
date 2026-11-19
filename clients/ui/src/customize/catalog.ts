@@ -1,11 +1,10 @@
-import type { ExtensionFailure } from "../protocol/bridge.ts";
+import type { ExtensionFailure, FolderCustomizationsAnswer } from "../protocol/bridge.ts";
 import type { SessionRow } from "../protocol/sessions.ts";
-import type { ProbeState } from "./probe.ts";
 import type { AgentInfo, SkillInfo, SourceCategory, SourceInfo } from "./wire.ts";
 
 export type CustomizeKind = SourceCategory;
 export type KindFilter = "all" | CustomizeKind;
-export type ScopeGroup = "This folder" | "Your home" | "Extensions" | "Included with Vera" | "Built in" | "Other";
+export type ScopeGroup = "This folder" | "Your home" | "Extensions" | "Built in" | "Other";
 
 export interface CustomizeItem {
     // Unique within one build; React keys and test lookups use it.
@@ -29,21 +28,23 @@ export interface ScopeSection {
 export const FOLDER_LIMIT = 50;
 
 export const KIND_ORDER: readonly CustomizeKind[] = ["skills", "agents", "extensions", "instructions", "memory"];
-const SCOPE_ORDER: readonly ScopeGroup[] = ["This folder", "Your home", "Extensions", "Included with Vera", "Built in", "Other"];
+const SCOPE_ORDER: readonly ScopeGroup[] = ["This folder", "Your home", "Extensions", "Built in", "Other"];
 
-// Maps the scope strings the host sends (project, user, extension, extension <id>, core, included, system).
+// Maps the scope strings the host sends (project, user, extension, extension <id>, system).
 export function scopeGroup(scope: string | undefined): ScopeGroup {
     if (scope === "project") return "This folder";
     if (scope === "user") return "Your home";
     if (scope === "extension" || scope?.startsWith("extension ") === true) return "Extensions";
-    if (scope === "included" || scope === "core") return "Included with Vera";
     if (scope === "system") return "Built in";
     return "Other";
 }
 
 // Skill and agent sources are matched to their cards by name only, so two same-named entries pair in list order.
-export function buildItems(probe: ProbeState, failures: readonly ExtensionFailure[]): CustomizeItem[] {
-    const sources = probe.sources ?? [];
+export function buildItems(
+    reading: Pick<FolderCustomizationsAnswer, "skills" | "startsOn" | "agents" | "sources">,
+    failures: readonly ExtensionFailure[],
+): CustomizeItem[] {
+    const sources = reading.sources;
     const skillSources = sourcesByName(sources, "skills");
     const agentSources = sourcesByName(sources, "agents");
     const items: CustomizeItem[] = [];
@@ -51,7 +52,7 @@ export function buildItems(probe: ProbeState, failures: readonly ExtensionFailur
         items.push({ ...entry, key: `${entry.kind}:${items.length}` });
     };
 
-    for (const skill of probe.skills ?? []) {
+    for (const skill of reading.skills) {
         const source = claim(skillSources, skill.name);
         add({
             kind: "skills",
@@ -64,8 +65,7 @@ export function buildItems(probe: ProbeState, failures: readonly ExtensionFailur
             ...(source === undefined ? {} : { source }),
         });
     }
-    const selected = probe.agents?.selected;
-    for (const agent of probe.agents?.agents ?? []) {
+    for (const agent of reading.agents) {
         const source = claim(agentSources, agent.name);
         add({
             kind: "agents",
@@ -73,7 +73,7 @@ export function buildItems(probe: ProbeState, failures: readonly ExtensionFailur
             description: agent.description ?? source?.description ?? "",
             group: scopeGroup(agent.scope),
             failed: false,
-            current: agent.name === selected,
+            current: agent.name === reading.startsOn,
             agent,
             ...(source === undefined ? {} : { source }),
         });

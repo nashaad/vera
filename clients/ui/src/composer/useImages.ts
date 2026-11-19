@@ -14,7 +14,7 @@ import { freshRequestId } from "./requests.ts";
 
 export interface SessionImages {
     readonly images: readonly ComposerImage[];
-    readonly add: (paths: readonly string[]) => void;
+    readonly add: (paths: readonly string[]) => readonly ComposerImage[];
     readonly remove: (requestId: string) => void;
     readonly clear: () => void;
 }
@@ -47,12 +47,16 @@ export function useSessionImages(
 
     const add = useCallback((paths: readonly string[]) => {
         const next = [...held.current];
+        const added: ComposerImage[] = [];
         for (const path of paths.slice(0, Math.max(0, IMAGE_LIMIT - next.length))) {
             const requestId = freshRequestId("image");
             send(attachImageCommand(requestId, path));
-            next.push({ requestId, number: nextImageNumber(next), name: baseName(path) });
+            const image = { requestId, number: nextImageNumber(next), name: baseName(path) };
+            next.push(image);
+            added.push(image);
         }
         update(next);
+        return added;
     }, [send, update]);
     const remove = useCallback((requestId: string) => {
         update(held.current.filter((image) => image.requestId !== requestId));

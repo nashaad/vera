@@ -1,5 +1,6 @@
 import { BranchIcon, FolderIcon, LaptopIcon } from "../components/Icons.tsx";
 import { CHAT_FOLDER_LABEL, folderName } from "../protocol/sessionGroups.ts";
+import { ChatFolderChip, type ChatFolderChipProps } from "./ChatFolderChip.tsx";
 import { FolderPicker, type FolderPickerActions } from "./FolderPicker.tsx";
 import { FOLDER_MISSING_TITLE } from "./rules.ts";
 
@@ -14,9 +15,11 @@ export interface ContextChipsProps {
     readonly missing?: boolean;
     // Present in New Chat, where the folder can be changed; absent in a session, where it is fixed.
     readonly picker?: FolderPickerActions;
+    // Present on a chat that can be moved into a folder.
+    readonly move?: ChatFolderChipProps;
 }
 
-export function ContextChips({ folder, branch, chat = false, missing = false, picker }: ContextChipsProps) {
+export function ContextChips({ folder, branch, chat = false, missing = false, picker, move }: ContextChipsProps) {
     return (
         <div className="context-chips">
             <span className="chip">
@@ -29,6 +32,8 @@ export function ContextChips({ folder, branch, chat = false, missing = false, pi
                     folder={folder}
                     {...picker}
                 />
+            ) : chat && move !== undefined ? (
+                <ChatFolderChip {...move} />
             ) : chat ? (
                 <span className="chip">
                     <FolderIcon className="chip-icon" />

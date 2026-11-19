@@ -32,6 +32,92 @@
     user-select: text;
 }
 
+.page-capture-pop[data-popover] {
+    width: calc(var(--vera-space) * 80);
+    max-width: calc(100% - var(--vera-space) * 4);
+    margin: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.page-capture-pop[data-expanded="true"] {
+    width: calc(var(--vera-space) * 150);
+    max-height: var(--popover-room);
+}
+
+.page-capture-pop > * {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+.page-capture-pop .page-capture-heading {
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+    font-weight: normal;
+}
+
+.page-capture-pop .feedback-thumbnail {
+    max-width: 100%;
+    max-height: calc(var(--vera-space) * 24);
+    align-self: flex-start;
+}
+
+.page-capture-pop .page-capture-row {
+    display: grid;
+    grid-template-columns: calc(var(--vera-space) * 16) minmax(0, 1fr);
+    gap: calc(var(--vera-space) * 2);
+    margin: 0;
+}
+
+.page-capture-row > strong {
+    color: var(--vera-text-dim);
+    font-weight: normal;
+}
+
+.page-capture-pop .page-capture-details {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: var(--vera-space);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--vera-text-dim);
+    font: inherit;
+    cursor: pointer;
+}
+
+.page-capture-pop .page-capture-chevron {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3);
+    height: calc(var(--vera-space) * 3);
+}
+
+.page-capture-pop .page-capture-details[aria-expanded="true"] .page-capture-chevron {
+    transform: rotate(90deg);
+}
+
+.page-capture-pop .page-capture-more {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--vera-text-dim);
+    font: inherit;
+    cursor: pointer;
+}
+
+.page-capture-pop .page-capture-details:hover,
+.page-capture-pop .page-capture-more:hover {
+    color: var(--vera-text);
+}
+
+.page-capture-pop .request-code {
+    overflow: visible;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: normal;
+}
+
 .context-empty,
 .context-trigger-note {
     margin: 0;
