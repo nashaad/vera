@@ -33,3 +33,11 @@
     color: var(--vera-text-disabled);
     text-overflow: ellipsis;
 }
+
+.help-button {
+    width: auto;
+    gap: calc(var(--vera-space) * 1.5);
+    padding: 0 calc(var(--vera-space) * 2);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+}

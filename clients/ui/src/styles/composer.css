@@ -86,6 +86,11 @@
     border-color: var(--vera-border-input);
 }
 
+.chip-button:disabled {
+    color: var(--vera-text-disabled);
+    cursor: default;
+}
+
 .chip-ghost {
     border-color: transparent;
     color: var(--vera-text-dim);
@@ -113,6 +118,11 @@
     border: thin solid var(--vera-border-input);
     border-radius: var(--vera-radius-lg);
     box-shadow: var(--vera-shadow);
+}
+
+.folder-menu.folder-menu-narrow {
+    width: auto;
+    min-width: calc(var(--vera-space) * 36);
 }
 
 .folder-item {
@@ -209,6 +219,43 @@
     padding: 0 calc(var(--vera-space) * 1);
     color: var(--vera-text-dim);
     font-size: var(--vera-font-size-label);
+}
+
+.composer-notice-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: calc(var(--vera-space) * 1) calc(var(--vera-space) * 2);
+    margin: 0 0 calc(var(--vera-space) * 2);
+}
+
+.composer-notice-row .composer-notice {
+    margin: 0;
+}
+
+.composer-notice-action {
+    padding: 0;
+    color: var(--vera-text-muted);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+    text-decoration: underline;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.composer-notice-action:hover:not(:disabled) {
+    color: var(--vera-text);
+}
+
+.composer-notice-action:disabled {
+    color: var(--vera-text-disabled);
+    cursor: default;
+}
+
+.composer-notice-action:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / 2);
 }
 
 .composer-notice[data-tone="danger"] {

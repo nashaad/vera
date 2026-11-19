@@ -12,7 +12,7 @@ import { estimateTokens, LiveStatus, TaskCard } from "./LiveStatus.tsx";
 import { DeliveryRow, NoticeRow, SubstitutionRow } from "./NoticeRows.tsx";
 import { Markdown } from "./Markdown.tsx";
 import type { AgentRunStatus, Block, CompactionState, RetryState, ThoughtBlock } from "./model.ts";
-import { RunLine } from "./ToolRuns.tsx";
+import { RunSegments } from "./SubagentCards.tsx";
 import { keepTurns, type Run, type Turn, type TurnRender } from "./turns.ts";
 
 function formatSeconds(total: number): string {
@@ -57,13 +57,13 @@ export interface TranscriptProps {
 }
 
 export function Transcript({ blocks, running, folder, status = "working", retry, replyMenu = false, compaction }: TranscriptProps) {
-    const { showReasoning } = useDesktopFlags();
+    const reasoning = useDesktopFlags().showReasoning === "on";
     const kept = useRef<ReadonlyMap<string, TurnRender>>(new Map());
     const renders = useMemo<readonly TurnRender[]>(() => {
-        const next = keepTurns(kept.current, blocks, { reasoning: showReasoning });
+        const next = keepTurns(kept.current, blocks, { reasoning });
         kept.current = next.byKey;
         return next.renders;
-    }, [blocks, showReasoning]);
+    }, [blocks, reasoning]);
     return (
         <>
             {renders.map((render, index) => {
@@ -101,10 +101,10 @@ interface TurnViewProps {
     readonly replyMenu: boolean;
 }
 
-// Characters of text the turn has written so far, for the status line's token estimate.
+// Characters the turn has produced so far, reasoning included, for the status line's token estimate.
 function writtenCharacters(turn: Turn): number {
     const answer = turn.answer?.text.length ?? 0;
-    return turn.work.reduce((total, block) => total + (block.kind === "text" ? block.text.length : 0), answer);
+    return turn.work.reduce((total, block) => total + (block.kind === "text" ? block.text.length : 0), answer) + turn.thoughtCharacters;
 }
 
 const TurnView = memo(function TurnView({ turn, rollups, runs, folder, first, live, waiting, retry, compaction, replyMenu }: TurnViewProps) {
@@ -131,10 +131,10 @@ const TurnView = memo(function TurnView({ turn, rollups, runs, folder, first, li
             {showWork ? turn.work.map((block, index) => {
                 const changes = rollups.get(index);
                 const run = runs.get(index);
-                const showRun = run !== undefined && !run.quiet && run.end !== liveRunEnd;
+                const showRun = run !== undefined && !run.quiet;
                 return (
                     <Fragment key={block.key}>
-                        {block.kind === "tools" ? (showRun ? <RunLine calls={run.calls} /> : null) : (
+                        {block.kind === "tools" ? (showRun ? <RunSegments calls={run.calls} cardsOnly={run.end === liveRunEnd} /> : null) : (
                             <BlockView block={block} next={turn.work[index + 1] ?? turn.answer} />
                         )}
                         {changes === undefined ? null : <DiffRollup changes={changes} folder={folder} />}
@@ -180,6 +180,8 @@ const BlockView = memo(function BlockView({ block, next }: { readonly block: Blo
 
 function Thought({ block, next }: { readonly block: ThoughtBlock; readonly next?: Block }) {
     const [open, setOpen] = useState(false);
+    // A count with no text: nothing to show or expand.
+    if (block.hiddenCharacters !== undefined && block.text === "") return null;
     if (block.live) {
         const lines = block.text.trim().split("\n");
         return (

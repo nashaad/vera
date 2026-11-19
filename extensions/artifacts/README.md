@@ -25,8 +25,14 @@ use them; the plan example writes its plan as an artifact named `plan`.
 ## The Artifacts page
 
 Open the annex and pick Artifacts from the page menu. The list shows every
-artifact, newest first. An artifact page shows the markdown with comments in
-the right margin.
+artifact, newest first, in a group for each session. It shows 50 and offers
+Show more up to 200. An artifact page shows the markdown with comments in the
+right margin.
+
+The manifest sets `"pane": true` on the page, so the desktop also gives it a
+sidebar row and a right pane tab. `artifact_write` and `artifact_edit` return
+a notice with a `link` to the artifact, which the desktop draws as a card under
+the tool run.
 
 - Hover a block and click the comment button to start a comment. Cmd+Enter
   posts it; Escape cancels.

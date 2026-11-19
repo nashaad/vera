@@ -16,6 +16,7 @@ export interface SessionRow {
     readonly live: boolean;
     // A chat has no outside folder; its workspace is the session's own files folder.
     readonly chat: boolean;
+    readonly archived?: boolean;
     readonly parentId?: string;
     readonly backgroundCommands?: number;
 }
@@ -43,6 +44,7 @@ export function sessionRows(list: AgentListFacts): readonly SessionRow[] {
             status: statusOf(fields.status),
             ...(Number.isFinite(updated) ? { updatedAt: updated } : {}),
             live: fields.live === true,
+            archived: fields.archived === true,
             chat: fields.chat === true,
             ...(typeof fields.parent_id === "string" && fields.parent_id.length > 0 ? { parentId: fields.parent_id } : {}),
             ...(Number.isSafeInteger(fields.background_commands) && typeof fields.background_commands === "number" && fields.background_commands > 0
@@ -53,8 +55,9 @@ export function sessionRows(list: AgentListFacts): readonly SessionRow[] {
     return rows;
 }
 
+// The title carries a rename; the identity name labels a session that has no title yet.
 function displayName(fields: Record<string, unknown>): string {
-    for (const candidate of [fields.name, fields.title]) {
+    for (const candidate of [fields.title, fields.name]) {
         if (typeof candidate === "string" && candidate.trim().length > 0) return candidate.trim();
     }
     return (fields.id as string).slice(0, SHORT_ID_LENGTH);

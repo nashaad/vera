@@ -1,6 +1,8 @@
 // Every key the desktop answers, in one table: the shell binds the native ones, and the
 // shortcuts sheet and Settings > Keyboard list all of them.
 
+import { PANE_KINDS, paneKindCommand, type PaneKind } from "../registry/core.ts";
+
 export interface NativeShortcut {
     readonly command: string;
     readonly label: string;
@@ -12,11 +14,35 @@ export interface NativeShortcut {
     readonly shift: boolean;
 }
 
+export const BROWSER_HISTORY_COMMAND = "browser.history";
+
 export const LAYOUT_SHORTCUTS = [
     { command: "layout.toggleSidebar", label: "Toggle Sidebar", accelerator: "CmdOrCtrl+B", code: "KeyB", alt: false, shift: false },
     { command: "layout.toggleRightPane", label: "Toggle Right Pane", accelerator: "CmdOrCtrl+Alt+B", code: "KeyB", alt: true, shift: false },
     { command: "layout.togglePanel", label: "Toggle Panel", accelerator: "CmdOrCtrl+J", code: "KeyJ", alt: false, shift: false },
+    { command: "layout.closeTab", label: "Close Tab", accelerator: "CmdOrCtrl+W", code: "KeyW", alt: false, shift: false },
+    { command: BROWSER_HISTORY_COMMAND, label: "Show Browser History", accelerator: "CmdOrCtrl+Shift+Delete", code: "Delete", alt: false, shift: true },
 ] as const satisfies readonly NativeShortcut[];
+
+// The shortcuts the right pane's kinds declare, each showing that kind's most recent tab.
+export function paneShortcuts(kinds: readonly PaneKind[]): readonly NativeShortcut[] {
+    return kinds.flatMap((kind): NativeShortcut[] => {
+        const keys = kind.shortcut;
+        if (keys === undefined) return [];
+        const alt = keys.alt === true;
+        const shift = keys.shift === true;
+        return [{
+            command: paneKindCommand(kind.id),
+            label: `Show ${kind.title}`,
+            accelerator: `CmdOrCtrl+${alt ? "Alt+" : ""}${shift ? "Shift+" : ""}${keys.key}`,
+            code: `Key${keys.key}`,
+            alt,
+            shift,
+        }];
+    });
+}
+
+export const PANE_SHORTCUTS: readonly NativeShortcut[] = paneShortcuts(PANE_KINDS);
 
 export const GO_SHORTCUTS = [
     { command: "go.newChat", label: "New Chat", accelerator: "CmdOrCtrl+N", code: "KeyN", alt: false, shift: false },
@@ -25,25 +51,26 @@ export const GO_SHORTCUTS = [
     { command: "go.settings", label: "Settings", accelerator: "CmdOrCtrl+,", code: "Comma", alt: false, shift: false },
 ] as const satisfies readonly NativeShortcut[];
 
-export const SESSION_SHORTCUTS = [
-    { command: "session.cycleLayout", label: "Cycle Agent Panes", accelerator: "CmdOrCtrl+Alt+A", code: "KeyA", alt: true, shift: false },
-] as const satisfies readonly NativeShortcut[];
-
 export const HELP_SHORTCUTS = [
     { command: "palette.commands", label: "Command Palette…", accelerator: "CmdOrCtrl+K", code: "KeyK", alt: false, shift: false },
     { command: "palette.sessions", label: "Go to Session…", accelerator: "CmdOrCtrl+P", code: "KeyP", alt: false, shift: false },
     { command: "help.shortcuts", label: "Keyboard Shortcuts", accelerator: "CmdOrCtrl+/", code: "Slash", alt: false, shift: false },
 ] as const satisfies readonly NativeShortcut[];
 
+export const RELOAD_SHORTCUT = { command: "page.reload", label: "Reload Page", accelerator: "CmdOrCtrl+R", code: "KeyR", alt: false, shift: false } as const satisfies NativeShortcut;
+
 // Bound in the shell with no menu item of their own.
 export const EXTRA_SHORTCUTS = [
+    { ...RELOAD_SHORTCUT, accelerator: "CmdOrCtrl+Shift+R", shift: true },
+    { command: BROWSER_HISTORY_COMMAND, label: "Show Browser History", accelerator: "CmdOrCtrl+Shift+Delete", code: "Backspace", alt: false, shift: true },
     { command: "palette.commands", label: "Command Palette…", accelerator: "CmdOrCtrl+Shift+P", code: "KeyP", alt: false, shift: true },
 ] as const satisfies readonly NativeShortcut[];
 
 export const NATIVE_SHORTCUTS: readonly NativeShortcut[] = [
     ...LAYOUT_SHORTCUTS,
+    RELOAD_SHORTCUT,
+    ...PANE_SHORTCUTS,
     ...GO_SHORTCUTS,
-    ...SESSION_SHORTCUTS,
     ...HELP_SHORTCUTS,
     ...EXTRA_SHORTCUTS,
 ];
@@ -116,9 +143,10 @@ const ARROWS: Readonly<Record<string, string>> = { ArrowUp: "↑", ArrowDown: "�
 function nativeRows(shortcuts: readonly NativeShortcut[], platform: string): readonly ShortcutRow[] {
     return shortcuts.map((shortcut) => ({
         label: shortcut.label.replace(/…$/, ""),
-        chords: NATIVE_SHORTCUTS
+        chords: [...new Set(NATIVE_SHORTCUTS
             .filter((other) => other.command === shortcut.command)
-            .map((other) => acceleratorKeys(other.accelerator, platform)),
+            .map((other) => other.accelerator))]
+            .map((accelerator) => acceleratorKeys(accelerator, platform)),
     }));
 }
 
@@ -132,9 +160,8 @@ export function shortcutGroups(platform: string): readonly ShortcutGroup[] {
         pageRows.set(key.where, rows);
     }
     return [
-        { title: "Window", rows: nativeRows(LAYOUT_SHORTCUTS, platform) },
+        { title: "Window", rows: nativeRows([...LAYOUT_SHORTCUTS, RELOAD_SHORTCUT, ...PANE_SHORTCUTS], platform) },
         { title: "Go", rows: nativeRows(GO_SHORTCUTS, platform) },
-        { title: "Session", rows: nativeRows(SESSION_SHORTCUTS, platform) },
         { title: "Help", rows: nativeRows(HELP_SHORTCUTS, platform) },
         ...[...pageRows].map(([title, rows]) => ({ title, rows })),
     ];

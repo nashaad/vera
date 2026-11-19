@@ -39,10 +39,18 @@ export interface ChecklistPresentation {
     readonly checklist: Checklist;
 }
 
-// Sent in place of a diff too large to show.
+// Where a notice sends the reader: an annex page and the query it opens on, never an address.
+export interface NoticeLink {
+    readonly title: string;
+    readonly page: string;
+    readonly query?: Readonly<Record<string, string>>;
+}
+
+// Sent in place of a diff too large to show, or to point at a page an extension serves.
 export interface ToolNoticePresentation {
     readonly kind: "tool_notice";
     readonly text: string;
+    readonly link?: NoticeLink;
 }
 
 export type Presentation = DiffPresentation | ChecklistPresentation | ToolNoticePresentation;
@@ -71,6 +79,8 @@ export interface ThoughtBlock {
     readonly text: string;
     // True while this thought is still streaming.
     readonly live: boolean;
+    // Characters the host counted but did not send, when the window asked for progress instead of text.
+    readonly hiddenCharacters?: number;
     readonly at?: number;
 }
 
@@ -280,6 +290,8 @@ export interface SessionWatch {
     readonly loaded: boolean;
     // Why the watch failed or closed, in words for the user.
     readonly error?: string;
+    // The host's `attach_failed` reason, set with phase failed.
+    readonly failedReason?: string;
     // Blocks from stored history, oldest first.
     readonly history: readonly Block[];
     // Blocks from live updates since the last `history` event.

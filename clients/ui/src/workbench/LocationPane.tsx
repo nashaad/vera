@@ -1,11 +1,14 @@
 import { HeaderToggle } from "../components/HeaderToggle.tsx";
 import { LOCATION_SIZES, LOCATION_TITLES, type LocationId } from "../layout/model.ts";
 import { useWorkbench } from "./context.tsx";
-import { useDrag, useDropTarget } from "./drag.tsx";
+import { draggedContainer, useDrag, useDropTarget } from "./drag.tsx";
 import { SidebarFoot } from "./SidebarFoot.tsx";
 import { SidebarNav } from "./SidebarNav.tsx";
+import { PaneLauncher } from "./PaneLauncher.tsx";
+import { PaneTiles } from "./PaneTiles.tsx";
 import { SidebarTop } from "./SidebarTop.tsx";
 import { Switcher } from "./Switcher.tsx";
+import { PaneTabContext } from "./tab-context.tsx";
 import { ViewStack } from "./ViewStack.tsx";
 
 export interface LocationPaneProps {
@@ -13,7 +16,7 @@ export interface LocationPaneProps {
 }
 
 // The pane for one location, with its container switcher: rows under the sidebar's top row,
-// tabs above the panel, pills in the right pane's top row.
+// tabs above the panel, and in the right pane's top row the pane's own tabs, the "+" and the toggle.
 export function LocationPane({ location }: LocationPaneProps) {
     const { layout, dispatch } = useWorkbench();
     const resolved = layout.locations[location];
@@ -22,16 +25,22 @@ export function LocationPane({ location }: LocationPaneProps) {
     // One container needs no switcher: its view draws its own headings. The rows come back
     // with a second container, and during a drag so a container can still be dropped there.
     const sidebarSwitcher = resolved.containers.length !== 1 || payload !== undefined;
+    // The right pane draws its tiles while it has no tab.
+    const tiles = location === "rightPane" && resolved.tabs.length === 0;
 
-    // A view dropped on the body joins the active container; a container dropped there moves here.
+    // A view dropped on the body joins the active container, or makes a container of its own in the
+    // empty right pane; a container dropped there moves here.
     const drop = useDropTarget({
         id: `body.${location}`,
-        accepts: (dragged) => (dragged.kind === "view" ? active !== undefined : true),
+        accepts: (dragged) => (dragged.kind === "view" ? active !== undefined || tiles : true),
         onDrop: (dragged) => {
             if (dragged.kind === "view" && active !== undefined) {
                 dispatch({ type: "moveView", view: dragged.id, to: { container: active.id } });
-            } else if (dragged.kind === "container") {
-                dispatch({ type: "moveContainer", container: dragged.id, location });
+            } else if (dragged.kind === "view") {
+                dispatch({ type: "moveView", view: dragged.id, to: { location } });
+            } else {
+                const container = draggedContainer(dragged);
+                if (container !== undefined) dispatch({ type: "moveContainer", container, location });
             }
         },
     });
@@ -44,9 +53,16 @@ export function LocationPane({ location }: LocationPaneProps) {
             onDragLeave={drop.props.onDragLeave}
             onDrop={drop.props.onDrop}
         >
-            {resolved.containers.map((container) => (
-                <ViewStack key={container.id} container={container} active={container.id === active?.id} />
-            ))}
+            {location === "rightPane"
+                ? resolved.tabs.map((tab) => (
+                    <PaneTabContext.Provider key={tab.id} value={tab.id}>
+                        <ViewStack container={tab.container} tab={tab.id} active={tab.id === resolved.activeTab?.id} />
+                    </PaneTabContext.Provider>
+                ))
+                : resolved.containers.map((container) => (
+                    <ViewStack key={container.id} container={container} active={container.id === active?.id} />
+                ))}
+            {tiles ? <PaneTiles /> : null}
         </div>
     );
 
@@ -73,6 +89,7 @@ export function LocationPane({ location }: LocationPaneProps) {
             {location === "rightPane" ? (
                 <div className="pane-top">
                     <Switcher location="rightPane" variant="pills" />
+                    <PaneLauncher />
                     <span className="spacer" />
                     <HeaderToggle location="rightPane" />
                 </div>

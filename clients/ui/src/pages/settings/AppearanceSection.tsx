@@ -5,8 +5,9 @@ import { useImportedThemes } from "../../theme/useImportedThemes.ts";
 import { changeAppearance, DENSITIES, readAppearance, SCALES, type Appearance } from "../../theme/preferences.ts";
 import { importedThemeId, THEME_NAMES, type ThemeChoice } from "../../theme/tokens.ts";
 import { DENSITY_LABELS, SCALE_LABELS, themeFromAttribute, themeLabel, themeSwatch } from "./appearance.ts";
+import { Segmented } from "./Segmented.tsx";
 import { SettingRow } from "./SettingRow.tsx";
-import { ThemeImport } from "./ThemeImport.tsx";
+import { ExtensionRows } from "./ExtensionRows.tsx";
 
 // The theme can also change from the View menu, so the cards follow the root attribute.
 function useActiveTheme(): ThemeChoice {
@@ -42,26 +43,6 @@ function ThemeCard({ choice, active, source }: { readonly choice: ThemeChoice; r
     );
 }
 
-interface SegmentedProps<T extends string> {
-    readonly label: string;
-    readonly options: readonly T[];
-    readonly labels: Readonly<Record<T, string>>;
-    readonly value: T;
-    readonly onChange: (value: T) => void;
-}
-
-function Segmented<T extends string>({ label, options, labels, value, onChange }: SegmentedProps<T>) {
-    return (
-        <div className="appearance-seg" role="group" aria-label={label}>
-            {options.map((option) => (
-                <button key={option} type="button" aria-pressed={option === value} onClick={() => onChange(option)}>
-                    {labels[option]}
-                </button>
-            ))}
-        </div>
-    );
-}
-
 export function AppearanceSection() {
     const [appearance, setAppearance] = useState<Appearance>(() => readAppearance());
     const activeTheme = useActiveTheme();
@@ -85,7 +66,7 @@ export function AppearanceSection() {
                     return <ThemeCard key={choice} choice={choice} active={choice === activeTheme} source={theme.source} />;
                 })}
             </div>
-            <ThemeImport />
+            <ExtensionRows />
             <SettingRow name="Text size" description="Scales the text of the interface in this window.">
                 <Segmented
                     label="Text size"

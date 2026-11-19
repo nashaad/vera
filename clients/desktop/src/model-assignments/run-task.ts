@@ -11,6 +11,8 @@ function answer(store: AssignmentStore, task: AssignmentTask): AssignmentTaskRep
     switch (task.kind) {
         case "read":
             return { kind: "read", result: store.read() };
+        case "included-extensions":
+            return { kind: "included-extensions", result: store.readDisabledIncluded() };
         case "edit":
             return { kind: "edit", result: store.edit(editOf(task.change)) };
         case "assign-all":

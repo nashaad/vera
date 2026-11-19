@@ -1,0 +1,271 @@
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { DesktopExtensionsView } from "../../clients/ui/src/customize/DesktopExtensions.tsx";
+import {
+    CHANGE_FAILED,
+    installExtension,
+    LIST_FAILED,
+    PACKAGE_UNREAD,
+    previewExtension,
+    readExtensions,
+    removeExtension,
+    toggleExtension,
+} from "../../clients/ui/src/customize/desktop-extensions.ts";
+import type { DesktopExtensionsState } from "../../clients/ui/src/customize/useDesktopExtensions.ts";
+import type { DesktopBridge } from "../../clients/ui/src/protocol/bridge.ts";
+import type { DesktopExtensionEntry, ExtensionChangeResult, ExtensionPreview } from "../../clients/ui/src/protocol/extensions.ts";
+import { importedThemes, setImportedThemes } from "../../clients/ui/src/theme/imported-registry.ts";
+import type { ImportedThemeSummary } from "../../clients/ui/src/theme/imported.ts";
+import { storeTheme, readStoredTheme, readThemeCache } from "../../clients/ui/src/theme/storage.ts";
+import { applyThemeList } from "../../clients/ui/src/theme/sync.ts";
+import { importedThemeId } from "../../clients/ui/src/theme/tokens.ts";
+import { mapColors } from "../../extensions/vscode-theme-import/color-map.ts";
+import { PIRATE_CROW } from "./theme-fixtures.ts";
+
+const DARK_THEME: ImportedThemeSummary = {
+    slug: "crow.pack.crow-night",
+    name: "Crow Night",
+    type: "dark",
+    source: "File crow-night.json",
+    colors: mapColors(PIRATE_CROW.colors, "dark").colors,
+    values: {},
+};
+const LIGHT_THEME: ImportedThemeSummary = { ...DARK_THEME, slug: "crow.pack.crow-day", name: "Crow Day", type: "light" };
+const OTHER_THEME: ImportedThemeSummary = { ...DARK_THEME, slug: "other.pack.ash", name: "Ash" };
+
+interface Page {
+    attributes: Map<string, string>;
+    storage: Map<string, string>;
+}
+
+let page: Page;
+
+beforeEach(() => {
+    page = { attributes: new Map(), storage: new Map() };
+    const root = {
+        setAttribute: (name: string, value: string) => void page.attributes.set(name, value),
+        style: { setProperty: () => undefined },
+    };
+    const globals = globalThis as Record<string, unknown>;
+    globals.document = { documentElement: root };
+    globals.getComputedStyle = () => ({ getPropertyValue: () => "" });
+    globals.window = {
+        localStorage: {
+            getItem: (key: string) => page.storage.get(key) ?? null,
+            setItem: (key: string, value: string) => void page.storage.set(key, value),
+            removeItem: (key: string) => void page.storage.delete(key),
+        },
+    };
+    setImportedThemes([]);
+});
+
+afterEach(() => {
+    const globals = globalThis as Record<string, unknown>;
+    delete globals.document;
+    delete globals.getComputedStyle;
+    delete globals.window;
+    setImportedThemes([]);
+});
+
+function entry(id: string, overrides: Partial<DesktopExtensionEntry> = {}): DesktopExtensionEntry {
+    return { id, version: "1.0.0", themes: ["Crow Night"], hasMain: false, hasCommands: false, commands: [], menus: { appearance: [], theme: [], browser: [] }, included: false, enabled: true, ...overrides };
+}
+
+function listed(extensions: DesktopExtensionEntry[], themes: ImportedThemeSummary[]): ExtensionChangeResult {
+    return { ok: true, extensions, themes };
+}
+
+function bridgeAnswering(answer: Partial<Record<"list" | "install" | "enable" | "remove", ExtensionChangeResult | Error>>): DesktopBridge {
+    const reply = (value: ExtensionChangeResult | Error | undefined): Promise<ExtensionChangeResult> =>
+        value instanceof Error || value === undefined ? Promise.reject(value ?? new Error("no answer")) : Promise.resolve(value);
+    return {
+        setWindowBackground: () => undefined,
+        setTheme: () => undefined,
+        listDesktopExtensions: () => reply(answer.list),
+        installDesktopExtension: () => reply(answer.install),
+        setDesktopExtensionEnabled: () => reply(answer.enable),
+        removeDesktopExtension: () => reply(answer.remove),
+    } as unknown as DesktopBridge;
+}
+
+test("@core a stored theme whose extension is removed falls back to the built-in theme of its type", () => {
+    setImportedThemes([DARK_THEME, LIGHT_THEME]);
+    storeTheme(importedThemeId(LIGHT_THEME.slug));
+    applyThemeList([DARK_THEME]);
+    expect(readStoredTheme()).toBe("light");
+    expect(page.attributes.get("data-theme")).toBe("light");
+    expect(readThemeCache()).toBeUndefined();
+
+    storeTheme(importedThemeId(DARK_THEME.slug));
+    applyThemeList([]);
+    expect(readStoredTheme()).toBe("dark");
+    expect(importedThemes()).toEqual([]);
+});
+
+test("a stored theme that is still offered is applied again with the colors it has now", () => {
+    setImportedThemes([DARK_THEME]);
+    storeTheme(importedThemeId(DARK_THEME.slug));
+    applyThemeList([{ ...DARK_THEME, colors: { ...DARK_THEME.colors, surface: "#102030" } }, OTHER_THEME]);
+    expect(readStoredTheme()).toBe("imported:crow.pack.crow-night");
+    expect(page.attributes.get("data-theme")).toBe("imported:crow.pack.crow-night");
+    expect(importedThemes().map((theme) => theme.slug)).toEqual(["crow.pack.crow-night", "other.pack.ash"]);
+});
+
+test("@core at launch the type of a missing theme comes from the page-head cache", () => {
+    page.storage.set("vera.theme", "imported:crow.pack.crow-day");
+    page.storage.set("vera.theme.imported", JSON.stringify(LIGHT_THEME));
+    expect(importedThemes()).toEqual([]);
+    applyThemeList([DARK_THEME]);
+    expect(readStoredTheme()).toBe("light");
+});
+
+test("a missing theme with no cache falls back to the default, and a built-in choice is left alone", () => {
+    page.storage.set("vera.theme", "imported:crow.pack.crow-day");
+    applyThemeList([]);
+    expect(readStoredTheme()).toBe("dark");
+
+    page.attributes.clear();
+    page.storage.set("vera.theme", "high-contrast");
+    applyThemeList([DARK_THEME]);
+    expect(readStoredTheme()).toBe("high-contrast");
+    expect(page.attributes.size).toBe(0);
+});
+
+test("a cache for another theme does not decide the fallback", () => {
+    page.storage.set("vera.theme", "imported:crow.pack.crow-day");
+    page.storage.set("vera.theme.imported", JSON.stringify({ ...LIGHT_THEME, slug: "other.pack.ash" }));
+    applyThemeList([]);
+    expect(readStoredTheme()).toBe("dark");
+});
+
+test("@core turning an extension off or removing it applies the themes the shell answers with", async () => {
+    setImportedThemes([DARK_THEME, LIGHT_THEME]);
+    storeTheme(importedThemeId(LIGHT_THEME.slug));
+    const off = await toggleExtension(bridgeAnswering({ enable: listed([entry("crow.pack", { enabled: false })], []) }), "crow.pack", false);
+    expect(off.ok).toBe(true);
+    expect(readStoredTheme()).toBe("light");
+    expect(importedThemes()).toEqual([]);
+
+    setImportedThemes([OTHER_THEME]);
+    storeTheme(importedThemeId(OTHER_THEME.slug));
+    const removed = await removeExtension(bridgeAnswering({ remove: listed([], []) }), "other.pack");
+    expect(removed.ok).toBe(true);
+    expect(readStoredTheme()).toBe("dark");
+});
+
+test("an install offers its themes without changing the stored choice", async () => {
+    storeTheme("light");
+    const result = await installExtension(bridgeAnswering({ install: listed([entry("crow.pack")], [DARK_THEME]) }), "token");
+    expect(result.ok && result.extensions.map((item) => item.id)).toEqual(["crow.pack"]);
+    expect(importedThemes().map((theme) => theme.slug)).toEqual(["crow.pack.crow-night"]);
+    expect(readStoredTheme()).toBe("light");
+});
+
+test("a refusal leaves the themes as they were, and a failed request reads as one", async () => {
+    setImportedThemes([DARK_THEME]);
+    storeTheme(importedThemeId(DARK_THEME.slug));
+    const refused = await removeExtension(bridgeAnswering({ remove: { ok: false, reason: "Vera could not remove \"crow.pack\"." } }), "crow.pack");
+    expect(refused).toEqual({ ok: false, reason: "Vera could not remove \"crow.pack\"." });
+    expect(readStoredTheme()).toBe("imported:crow.pack.crow-night");
+    expect(await removeExtension(bridgeAnswering({ remove: new Error("ipc closed") }), "crow.pack")).toEqual({ ok: false, reason: CHANGE_FAILED });
+    expect(await installExtension(bridgeAnswering({ install: new Error("ipc closed") }), "token")).toEqual({ ok: false, reason: CHANGE_FAILED });
+    expect(await readExtensions(bridgeAnswering({ list: new Error("ipc closed") }))).toEqual({ ok: false, reason: LIST_FAILED });
+    const closed = { previewDesktopExtension: () => Promise.reject(new Error("ipc closed")) } as unknown as DesktopBridge;
+    expect(await previewExtension(closed)).toEqual({ ok: false, reason: PACKAGE_UNREAD });
+});
+
+test("reading the list does not touch the theme", async () => {
+    storeTheme("light");
+    const result = await readExtensions(bridgeAnswering({ list: listed([entry("crow.pack")], [DARK_THEME]) }));
+    expect(result.ok).toBe(true);
+    expect(importedThemes()).toEqual([]);
+    expect(page.attributes.size).toBe(0);
+});
+
+function state(overrides: Partial<DesktopExtensionsState>): DesktopExtensionsState {
+    const none = (): void => undefined;
+    return {
+        list: { phase: "ready", extensions: [] },
+        preview: undefined,
+        report: undefined,
+        busy: false,
+        choose: none,
+        confirm: none,
+        cancel: none,
+        toggle: none,
+        remove: none,
+        ...overrides,
+    };
+}
+
+function render(overrides: Partial<DesktopExtensionsState>): string {
+    return renderToStaticMarkup(createElement(DesktopExtensionsView, { state: state(overrides) }));
+}
+
+test("the section lists each installed extension with its switch and a remove button", () => {
+    const html = render({
+        list: {
+            phase: "ready",
+            extensions: [
+                entry("crow.pack", { themes: ["Crow Night", "Crow Day"] }),
+                entry("crow.off", { enabled: false }),
+            ],
+        },
+    });
+    expect(html).toContain("Desktop extensions");
+    expect(html).toContain("Themes: Crow Night, Crow Day");
+    expect(html).toContain("Install from file");
+    expect(html).not.toContain("Included");
+    expect(html).toContain('data-desktop-extension-remove="crow.pack"');
+    expect(html).toContain('data-desktop-extension-remove="crow.off"');
+    expect(html).toMatch(/aria-checked="true"[^>]*data-desktop-extension-switch="crow.pack"|data-desktop-extension-switch="crow.pack"[^>]*aria-checked="true"/);
+    expect(html).toMatch(/aria-checked="false"[^>]*data-desktop-extension-switch="crow.off"|data-desktop-extension-switch="crow.off"[^>]*aria-checked="false"/);
+    expect(html).toContain('<span class="section-count">2</span>');
+});
+
+test("@core an extension included with Vera is not listed or counted, so it has no switch to turn off", () => {
+    const importer = entry("vera.vscode-theme-import", { themes: [], hasMain: true, hasCommands: true, included: true });
+    const html = render({ list: { phase: "ready", extensions: [importer, entry("crow.pack", { hasMain: true, hasCommands: true })] } });
+    expect(html).not.toContain("vera.vscode-theme-import");
+    expect(html).not.toContain("Included");
+    expect(html).toContain('data-desktop-extension="crow.pack"');
+    expect(html).toContain('<span class="section-count">1</span>');
+    expect(html.split("Its commands are not loaded by this version of Vera.")).toHaveLength(2);
+
+    const only = render({ list: { phase: "ready", extensions: [importer] } });
+    expect(only).not.toContain("data-desktop-extension=");
+    expect(only).not.toContain("data-desktop-extension-switch");
+    expect(only).toContain('<span class="section-count">0</span>');
+    expect(only).toContain("No desktop extensions are installed.");
+});
+
+test("an empty list, a failed list and a report each say so", () => {
+    expect(render({})).toContain("No desktop extensions are installed.");
+    expect(render({ list: { phase: "failed", reason: LIST_FAILED } })).toContain(LIST_FAILED);
+    const reported = render({ report: { ok: false, message: "The package is larger than 8 MiB." } });
+    expect(reported).toContain("The package is larger than 8 MiB.");
+    expect(reported).toContain('data-tone="danger"');
+    expect(render({ report: { ok: true, message: 'Installed "crow.pack".' } })).not.toContain('data-tone="danger"');
+});
+
+test("a preview shows what the package holds before anything is installed", () => {
+    const preview: ExtensionPreview = {
+        token: "t",
+        id: "crow.pack",
+        version: "2.0.0",
+        themes: ["Crow Night"],
+        hasMain: true,
+        hasCommands: true,
+        replaces: "1.0.0",
+    };
+    const html = render({ preview });
+    expect(html).toContain('data-desktop-extension-preview="crow.pack"');
+    expect(html).toContain("Replaces version 1.0.0.");
+    expect(html).toContain("Its commands are not loaded by this version of Vera.");
+    expect(html).toContain("data-desktop-extension-confirm");
+    expect(html).toContain("data-desktop-extension-cancel");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*data-desktop-extension-install/);
+    expect(render({ preview: { ...preview, replaces: undefined, hasMain: false, hasCommands: false } })).not.toContain("not loaded");
+});

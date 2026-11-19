@@ -1,5 +1,17 @@
-import type { SessionRow } from "../protocol/sessions.ts";
+import type { SessionRow, SessionStatus } from "../protocol/sessions.ts";
 import type { BackgroundAgents } from "./model.ts";
+
+const STATUS_WORDS: Readonly<Record<SessionStatus, string>> = {
+    working: "Working",
+    waiting: "Waiting",
+    idle: "Idle",
+    completed: "Done",
+    other: "Ended",
+};
+
+export function statusWord(status: SessionStatus): string {
+    return STATUS_WORDS[status];
+}
 
 export function isRunningRow(row: SessionRow): boolean {
     return row.status === "working" || row.status === "waiting";
@@ -10,6 +22,18 @@ export function childRows(rows: readonly SessionRow[], parentId: string): Sessio
     return rows
         .filter((row) => row.parentId === parentId)
         .sort((left, right) => Number(isRunningRow(right)) - Number(isRunningRow(left)));
+}
+
+export interface ChildLists {
+    // Working or waiting children.
+    readonly active: readonly SessionRow[];
+    // Every other child; the host's order is kept within each list.
+    readonly done: readonly SessionRow[];
+}
+
+export function splitChildren(rows: readonly SessionRow[], parentId: string): ChildLists {
+    const children = childRows(rows, parentId);
+    return { active: children.filter(isRunningRow), done: children.filter((row) => !isRunningRow(row)) };
 }
 
 // The listed child rows may lag the session's own children, so the larger of the two wins.
@@ -23,18 +47,4 @@ export function unlistedChildTitles(background: BackgroundAgents | undefined, ro
     if (background === undefined) return [];
     const names = new Set(rows.map((row) => row.name));
     return [...new Set(background.children.filter((title) => !names.has(title)))];
-}
-
-// The subagent the person chose for this session, else a running child, else the newest one.
-export function companionFor(
-    agentId: string,
-    chosen: { readonly parentId: string; readonly agentId: string } | undefined,
-    rows: readonly SessionRow[] | undefined,
-): string | undefined {
-    if (chosen !== undefined && chosen.parentId === agentId) return chosen.agentId;
-    const children = (rows ?? []).filter((row) => row.parentId === agentId);
-    const running = children.find(isRunningRow);
-    if (running !== undefined) return running.id;
-    const newest = [...children].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))[0];
-    return newest?.id;
 }

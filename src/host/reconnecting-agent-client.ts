@@ -158,6 +158,10 @@ export function createReconnectingAgentClient(
     >();
     let sessionTitle = current.sessionTitle;
     let stopSessionTitleUpdates = current.onSessionTitle(publishSessionTitle);
+    const sessionShowListeners = new Set<
+        Parameters<AttachedAgentClient["onSessionShow"]>[0]
+    >();
+    let stopSessionShowUpdates = current.onSessionShow(publishSessionShow);
     const stopWaitListeners = new Set<
         Parameters<AttachedAgentClient["onStopWait"]>[0]
     >();
@@ -213,6 +217,12 @@ export function createReconnectingAgentClient(
             sessionTitleListeners.add(listener);
             return (): void => {
                 sessionTitleListeners.delete(listener);
+            };
+        },
+        onSessionShow(listener) {
+            sessionShowListeners.add(listener);
+            return (): void => {
+                sessionShowListeners.delete(listener);
             };
         },
         get stopWait() {
@@ -316,6 +326,7 @@ export function createReconnectingAgentClient(
             stopBackgroundAgentUpdates();
             stopWorkIndexUpdates();
             stopSessionTitleUpdates();
+            stopSessionShowUpdates();
             stopStopWaitUpdates();
             return release.call(current, policy);
         },
@@ -327,6 +338,7 @@ export function createReconnectingAgentClient(
             stopBackgroundAgentUpdates();
             stopWorkIndexUpdates();
             stopSessionTitleUpdates();
+            stopSessionShowUpdates();
             stopStopWaitUpdates();
             if (!current.closed) await current.detach();
         },
@@ -338,6 +350,7 @@ export function createReconnectingAgentClient(
                 stopBackgroundAgentUpdates();
                 stopWorkIndexUpdates();
                 stopSessionTitleUpdates();
+                stopSessionShowUpdates();
                 stopStopWaitUpdates();
             }
             // A release or detach still waiting on the host keeps the socket open until this closes it.
@@ -417,6 +430,15 @@ export function createReconnectingAgentClient(
         }
     }
 
+    function publishSessionShow(target: string): void {
+        for (const listener of sessionShowListeners) {
+            try {
+                listener(target);
+            } catch {
+            }
+        }
+    }
+
     function subscribeToBackgroundAgentUpdates(
         attached: AttachedAgentClient,
     ): () => void {
@@ -468,6 +490,8 @@ export function createReconnectingAgentClient(
                 stopSessionTitleUpdates = next.onSessionTitle(
                     publishSessionTitle,
                 );
+                stopSessionShowUpdates();
+                stopSessionShowUpdates = next.onSessionShow(publishSessionShow);
                 stopStopWaitUpdates();
                 stopStopWaitUpdates = next.onStopWait(publishStopWait);
                 // The old host's wait does not carry over; the new host reports its own on attach.

@@ -5,6 +5,7 @@ import type {
     VeraExtensionOneshotResult,
     VeraSessionAskResult,
     VeraSessionSendOutcome,
+    VeraSessionShowOutcome,
     VeraSessionTitleOutcome,
 } from "../sdk/extensions.ts";
 import type {
@@ -19,6 +20,7 @@ import type {
 
 const MAX_ONESHOT_TEXT_BYTES = 256 * 1024;
 const MAX_TITLE_BYTES = 200;
+const MAX_SHOW_TARGET_LENGTH = 100;
 const MAX_EXTENSION_MESSAGE_BYTES = 16 * 1024;
 const DEFAULT_INVESTIGATE_TIMEOUT_MS = 5 * 60_000;
 const MAX_INVESTIGATE_TIMEOUT_MS = 15 * 60_000;
@@ -68,6 +70,10 @@ export interface ExtensionHostServices {
         sessionId: string,
         title: string,
     ): Promise<VeraSessionTitleOutcome>;
+    showInSession(
+        sessionId: string,
+        target: string,
+    ): Promise<VeraSessionShowOutcome>;
     /** The annex base URL, ending in `/`, while it is listening. */
     annexUrl?(): string | undefined;
     askSession(
@@ -193,6 +199,19 @@ export class ExtensionHostSlot {
             );
         }
         return this.require().setSessionTitle(sessionId, normalized);
+    }
+
+    async showInSession(
+        sessionId: unknown,
+        target: unknown,
+    ): Promise<VeraSessionShowOutcome> {
+        if (typeof sessionId !== "string" || sessionId.length === 0) {
+            throw new Error("Invalid session ID");
+        }
+        if (typeof target !== "string" || target.length === 0 || target.length > MAX_SHOW_TARGET_LENGTH) {
+            throw new Error("Invalid screen");
+        }
+        return this.require().showInSession(sessionId, target);
     }
 
     async sendToSession(

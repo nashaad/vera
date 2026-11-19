@@ -12,7 +12,7 @@ export function deviceLabel(platform: string): string {
 
 export function deviceHealth(state: UiState): DeviceHealth {
     if (state.phase === "attached") return "ok";
-    if (state.phase === "starting" || state.phase === "waiting") return "warn";
+    if (state.phase === "starting" || state.phase === "installing" || state.phase === "waiting") return "warn";
     return "fail";
 }
 

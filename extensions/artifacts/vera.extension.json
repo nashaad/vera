@@ -7,7 +7,7 @@
     "unreviewed_tools": ["artifact_read", "artifact_write", "artifact_edit", "artifact_comments"],
     "contributes": {
         "pages": [
-            { "id": "artifacts", "label": "Artifacts", "server": "page-server.ts", "browser": "page.ts" }
+            { "id": "artifacts", "label": "Artifacts", "server": "page-server.ts", "browser": "page.ts", "pane": true }
         ]
     }
 }

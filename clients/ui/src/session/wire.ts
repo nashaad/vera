@@ -159,6 +159,12 @@ export interface SessionTitleMessage {
     readonly title?: string;
 }
 
+// One-shot: the host asks the window to open a screen. `target` is an id from the show target list.
+export interface SessionShowMessage {
+    readonly type: "session_show";
+    readonly target: string;
+}
+
 export interface UserPromptMessage {
     readonly type: "user_prompt";
     readonly content: string;
@@ -172,6 +178,13 @@ export interface AssistantDeltaMessage {
 export interface AssistantThinkingMessage {
     readonly type: "assistant_thinking";
     readonly text: string;
+}
+
+// Sent in place of `assistant_thinking` when the window asked the host not to send reasoning text.
+export interface AssistantThinkingProgressMessage {
+    readonly type: "assistant_thinking_progress";
+    // Reasoning characters since the previous progress message.
+    readonly characters: number;
 }
 
 export interface ToolStartedMessage {
@@ -236,6 +249,7 @@ export type LiveMessage =
     | UserPromptMessage
     | AssistantDeltaMessage
     | AssistantThinkingMessage
+    | AssistantThinkingProgressMessage
     | ToolStartedMessage
     | ToolFinishedMessage
     | ToolPresentationMessage
@@ -329,6 +343,7 @@ export type SessionMessage =
     | HistoryPageMessage
     | HistoryPageFailedMessage
     | SessionTitleMessage
+    | SessionShowMessage
     | PromptQueueMessage
     | PromptWithdrawnMessage
     | PromptRefusedMessage
@@ -405,6 +420,10 @@ function parseMessage(type: string, value: Fields): SessionMessage | undefined {
             return parseHistoryPageFailed(value);
         case "session_title":
             return { type: "session_title", title: str(value.title) };
+        case "session_show": {
+            const target = str(value.target);
+            return target === undefined || target.length === 0 ? undefined : { type: "session_show", target };
+        }
         case "prompt_queue": {
             const queue = isRecord(value.queue) ? queueOf(value.queue.prompts) : undefined;
             return queue === undefined ? undefined : { type: "prompt_queue", queue };
@@ -531,6 +550,12 @@ function parseLive(type: string, value: Fields): LiveMessage | undefined {
         case "assistant_thinking": {
             const text = str(value.text);
             return text === undefined ? undefined : { type: "assistant_thinking", text };
+        }
+        case "assistant_thinking_progress": {
+            const characters = value.characters;
+            return typeof characters === "number" && Number.isSafeInteger(characters) && characters >= 0
+                ? { type: "assistant_thinking_progress", characters }
+                : undefined;
         }
         case "tool_started": {
             const tool = str(value.tool);

@@ -34,7 +34,16 @@ export function sessionPlace(workspace: string, chat: boolean): Pick<SessionRout
     return workspace.length > 0 ? { workspace } : {};
 }
 
-export type Route = HomeRoute | PageRoute | SessionRoute | WorkspaceRoute;
+// A page an extension declared with its own pane, shown in the main area from the sidebar.
+export interface ExtensionRoute {
+    readonly kind: "extension";
+    // The page's annex path, such as /x/<extension>/<page>.
+    readonly path: string;
+    // The page's label, which the header shows.
+    readonly title: string;
+}
+
+export type Route = HomeRoute | PageRoute | SessionRoute | WorkspaceRoute | ExtensionRoute;
 
 export interface RouterState {
     readonly history: readonly Route[];
@@ -66,6 +75,7 @@ export function sameRoute(left: Route, right: Route): boolean {
     if (left.kind === "session") return right.kind === "session" && left.agentId === right.agentId;
     if (left.kind === "workspace") return right.kind === "workspace" && left.folder === right.folder;
     if (left.kind === "home") return right.kind === "home" && left.folder === right.folder;
+    if (left.kind === "extension") return right.kind === "extension" && left.path === right.path;
     return left.kind === right.kind;
 }
 
@@ -106,8 +116,10 @@ export function reduceRouter(state: RouterState, action: RouterAction): RouterSt
     }
 }
 
-export function routeTitle(route: Route): string {
-    if (route.kind === "session") return route.title;
+// A session route keeps the title its row had when it was opened; the live title of the same session replaces it.
+export function routeTitle(route: Route, liveSession?: { readonly agentId: string; readonly title: string }): string {
+    if (route.kind === "session") return liveSession?.agentId === route.agentId ? liveSession.title : route.title;
     if (route.kind === "workspace") return folderName(route.folder);
+    if (route.kind === "extension") return route.title;
     return PAGE_TITLES[route.kind];
 }

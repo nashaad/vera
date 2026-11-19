@@ -7,6 +7,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { sessionMetadataPath } from "../store/session-metadata.ts";
 
 export interface SessionArtifacts {
     readonly sessionPath: string;
@@ -75,6 +76,7 @@ async function existingArtifacts(
 ): Promise<Array<{ readonly path: string; readonly stagedName: string }>> {
     const candidates = [
         { path: artifacts.sessionPath, stagedName: "session.jsonl" },
+        { path: sessionMetadataPath(artifacts.sessionPath), stagedName: "session.jsonl.metadata.json" },
         ...(artifacts.eventLogPath === undefined
             ? []
             : [{ path: artifacts.eventLogPath, stagedName: "events.jsonl" }]),

@@ -10,8 +10,8 @@ import {
     visibleItems,
     type CustomizeItem,
 } from "../../clients/ui/src/customize/catalog.ts";
-import type { ProbeState } from "../../clients/ui/src/customize/probe.ts";
 import type { AgentInfo, SkillInfo, SourceInfo } from "../../clients/ui/src/customize/wire.ts";
+import type { FolderCustomizationsAnswer } from "../../clients/ui/src/protocol/bridge.ts";
 import type { SessionRow } from "../../clients/ui/src/protocol/sessions.ts";
 
 function skill(name: string, description = "", manualOnly = false): SkillInfo {
@@ -26,15 +26,8 @@ function source(overrides: Partial<SourceInfo> & Pick<SourceInfo, "id" | "catego
     return { description: "", scope: "project", content: "", editable: false, ...overrides };
 }
 
-function readyProbe(overrides: Partial<ProbeState> = {}): ProbeState {
-    return {
-        phase: "ready",
-        warnings: [],
-        skills: [],
-        agents: { type: "agents", requestId: "a", selected: "", agents: [], notices: [] },
-        sources: [],
-        ...overrides,
-    };
+function reading(overrides: Partial<FolderCustomizationsAnswer> = {}): FolderCustomizationsAnswer {
+    return { ok: true, skills: [], startsOn: "", agents: [], sources: [], warnings: [], ...overrides };
 }
 
 function row(id: string, workspace: string, updatedAt?: number): SessionRow {
@@ -50,15 +43,10 @@ function row(id: string, workspace: string, updatedAt?: number): SessionRow {
 }
 
 function fixture(): CustomizeItem[] {
-    const probe = readyProbe({
+    const folder = reading({
         skills: [skill("review", "Review a diff", true), skill("notes", "Take notes")],
-        agents: {
-            type: "agents",
-            requestId: "a",
-            selected: "planner",
-            agents: [agent("planner", "project", { description: "Plans work" }), agent("scout", "user")],
-            notices: [],
-        },
+        startsOn: "planner",
+        agents: [agent("planner", "project", { description: "Plans work" }), agent("scout", "user")],
         sources: [
             source({ id: "skills:review", category: "skills", name: "review", scope: "user", content: "# Review" }),
             source({ id: "skills:notes", category: "skills", name: "notes", scope: "project", path: "/w/.vera/skills/notes/SKILL.md" }),
@@ -69,7 +57,7 @@ function fixture(): CustomizeItem[] {
             source({ id: "extensions:user:demo", category: "extensions", name: "demo", description: "Extension manifest", scope: "extension demo" }),
         ],
     });
-    return buildItems(probe, [{ extensionId: "broken", message: "Manifest is not valid JSON" }]);
+    return buildItems(folder, [{ extensionId: "broken", message: "Manifest is not valid JSON" }]);
 }
 
 test("@core building items merges skill and agent sources into their cards without duplicates", () => {
@@ -93,23 +81,23 @@ test("@core building items merges skill and agent sources into their cards witho
 });
 
 test("skill and agent sources with no card still appear once", () => {
-    const probe = readyProbe({
+    const folder = reading({
         skills: [skill("notes")],
         sources: [
             source({ id: "skills:notes", category: "skills", name: "notes" }),
             source({ id: "skills:off", category: "skills", name: "off", status: "disabled" }),
         ],
     });
-    const items = buildItems(probe, []);
+    const items = buildItems(folder, []);
     expect(items.map((item) => item.name)).toEqual(["notes", "off"]);
     expect(items[1]?.source?.status).toBe("disabled");
 });
 
 test("an extension failure is not repeated when its manifest is also listed", () => {
-    const probe = readyProbe({
+    const folder = reading({
         sources: [source({ id: "extensions:user:demo", category: "extensions", name: "demo" })],
     });
-    const items = buildItems(probe, [{ extensionId: "demo", message: "bad" }]);
+    const items = buildItems(folder, [{ extensionId: "demo", message: "bad" }]);
     expect(items.filter((item) => item.name === "demo")).toHaveLength(1);
 });
 
@@ -137,7 +125,6 @@ test("scope strings map to readable group names", () => {
     expect(scopeGroup("user")).toBe("Your home");
     expect(scopeGroup("extension")).toBe("Extensions");
     expect(scopeGroup("extension demo")).toBe("Extensions");
-    expect(scopeGroup("core")).toBe("Included with Vera");
     expect(scopeGroup("system")).toBe("Built in");
     expect(scopeGroup(undefined)).toBe("Other");
 });

@@ -178,10 +178,19 @@ cut in one of them is not marked.
 
 ## Where history is stored
 
+In an open terminal session, paste or type an existing absolute file path in
+the message. When you send it, a chat copies the file into its own folder; a
+folder session refers to it in place. Paths inside the workspace become
+relative and paths outside it stay absolute. A message can name up to eight
+files including images, each at most 20 MB. Chats refuse folders. Non-image
+paths stay as text in the composer. The read tool reads UTF-8 text and refuses
+binary files, including local PDFs.
+
 Session files live in `~/.vera/runtime/sessions/`. A conversation started
 without a project folder, a chat, keeps its files in a folder beside its session
 file, named after it with `.files` added. See
-[Use the chat agent](agents.md#use-the-chat-agent). One host owns the home's
+[Use the chat agent](agents.md#use-the-chat-agent). Moving a chat into a folder
+from the desktop moves those files into the folder. One host owns the home's
 runtime directory at a time. Replacing that host preserves conversation
 identity; **Reconnect host** (Ctrl+P) returns to the same conversation.
 

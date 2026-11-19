@@ -5,6 +5,8 @@ export interface ApprovalLayoutInput {
     readonly width: number;
     readonly height: number;
     readonly rows: number;
+    // Rows the card holds beyond the details and the answers, such as the auto-approval suggestion.
+    readonly extraRows?: number;
     readonly title: string;
     // The line under the title, when there is one.
     readonly folderLine?: string;
@@ -56,6 +58,7 @@ export function approvalLayout(input: ApprovalLayoutInput): ApprovalLayout {
             ? 0
             : compact ? lines : Math.max(DIALOG_HEADER_HEIGHT, lines + 2);
         return header + DETAILS_ROWS + gap + input.rows
+            + (input.extraRows ?? 0)
             + approvalBottomPadding(input)
             + (hints ? HINT_ROWS : 0);
     };

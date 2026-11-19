@@ -34,12 +34,13 @@ export interface SidecarContribution {
     readonly restart: boolean;
 }
 
-/** A page the annex serves. `server` and `browser` are relative module paths. */
+/** A page the annex serves. `server` and `browser` are relative module paths. `pane` gives the page its own pane in a window. */
 export interface PageContribution {
     readonly id: string;
     readonly label: string;
     readonly server: string;
     readonly browser: string;
+    readonly pane?: true;
 }
 
 export interface ExtensionContributions {
@@ -134,7 +135,7 @@ function parsePageContributions(
                 "a page contribution must be an object",
             );
         }
-        const { id, label, server, browser } = entry;
+        const { id, label, server, browser, pane } = entry;
         if (typeof id !== "string" || !PAGE_ID_PATTERN.test(id)) {
             throw new ExtensionContributionError(
                 extensionId,
@@ -157,11 +158,18 @@ function parsePageContributions(
                 `page "${id}" needs a label of 1 to ${MAX_PAGE_LABEL_LENGTH} characters`,
             );
         }
+        if (pane !== undefined && typeof pane !== "boolean") {
+            throw new ExtensionContributionError(
+                extensionId,
+                `page "${id}" pane must be true or false`,
+            );
+        }
         pages.push(Object.freeze({
             id,
             label: label.trim(),
             server: pageModulePath(server, id, "server", extensionId),
             browser: pageModulePath(browser, id, "browser", extensionId),
+            ...(pane === true ? { pane: true as const } : {}),
         }));
     }
     return Object.freeze(pages);

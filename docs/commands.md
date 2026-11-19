@@ -74,6 +74,7 @@ compaction controls.
 | `/extensions` | Inspect and manage extension copies. |
 | `/diagnostics` | Inspect the current session or resident host. |
 | `/usage` | Open recorded usage and cost. |
+| `/feedback` | Save a bug report or feature request on this computer. |
 | `/failure-report` | Write a report of recorded model failures. |
 
 Installed skills and extensions contribute commands too. Their availability

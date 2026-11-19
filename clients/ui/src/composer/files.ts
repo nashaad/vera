@@ -1,18 +1,19 @@
 import type { DesktopBridge } from "../protocol/bridge.ts";
-import { isImageFile } from "./images.ts";
+import { FILE_SIZE_LIMIT } from "../../../../src/attachments/file-limits.ts";
 
-// Dropped or pasted files as paths the host can read. A bitmap with no file behind it is written out first.
-export async function imagePathsOf(bridge: DesktopBridge, files: readonly File[]): Promise<readonly string[]> {
+export async function pathsOfFiles(bridge: DesktopBridge, files: readonly File[]): Promise<{ readonly paths: readonly string[]; readonly refused: boolean }> {
     const paths: string[] = [];
+    let refused = false;
     for (const file of files) {
         const path = bridge.pathForFile(file);
         if (path !== undefined) {
-            if (isImageFile(path)) paths.push(path);
+            paths.push(path);
             continue;
         }
-        if (!file.type.startsWith("image/")) continue;
+        if (!file.type.startsWith("image/") || file.size > FILE_SIZE_LIMIT) { refused = true; continue; }
         const saved = await bridge.savePastedImage(new Uint8Array(await file.arrayBuffer()), file.type);
         if (saved !== undefined) paths.push(saved);
+        else refused = true;
     }
-    return paths;
+    return { paths, refused };
 }

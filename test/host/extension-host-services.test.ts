@@ -12,6 +12,7 @@ import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import { removeSessionBlock, writeSessionBlock } from "../../src/host/session-block.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import { createExtensionHostServices } from "../../src/host/extension-host-services.ts";
+import { createSessionShowHub } from "../../src/host/session-show.ts";
 import { configuredCatalog } from "../../src/host/runtime.ts";
 import { writeProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
 import { readModelRequestSnapshot } from "../../src/model-request-inspector.ts";
@@ -43,6 +44,7 @@ test("a oneshot answers from the slot's first reachable model", async () => {
     const requests: ModelRequest[] = [];
     const services = createExtensionHostServices({
         registry: unusedRegistry,
+        showHub: createSessionShowHub(),
         currentConfig: () => config,
         reachability: () => (model) => model.model !== "parrot-1",
         availableModels: () => [],
@@ -100,6 +102,7 @@ test("a oneshot uses the current host catalog's cached window", async () => {
         const requests: ModelRequest[] = [];
         const services = createExtensionHostServices({
             registry: unusedRegistry,
+            showHub: createSessionShowHub(),
             currentConfig: () => windowConfig,
             reachability: () => (model) => model.model === "crow-mini",
             availableModels: () => models,
@@ -131,6 +134,7 @@ test("a oneshot refuses an empty slot instead of using a session model", async (
     let adapters = 0;
     const services = createExtensionHostServices({
         registry: unusedRegistry,
+        showHub: createSessionShowHub(),
         currentConfig: () => config,
         reachability: () => () => true,
         availableModels: () => [],
@@ -155,6 +159,7 @@ test("a oneshot refuses an empty slot instead of using a session model", async (
 test("a cancelled oneshot rejects and the next one still answers", async () => {
     const services = createExtensionHostServices({
         registry: unusedRegistry,
+        showHub: createSessionShowHub(),
         currentConfig: () => config,
         reachability: () => () => true,
         availableModels: () => [],
@@ -430,6 +435,7 @@ async function openVoyage(script: ScriptedReply[], onBuild: () => void = () => {
     expect((await attachment.receive()).type).toBe("history");
     const services = createExtensionHostServices({
         registry,
+        showHub: createSessionShowHub(),
         currentConfig: () => config,
         reachability: () => () => true,
         availableModels: () => registry.availableModels,
@@ -513,3 +519,32 @@ function reply(text: string, spent: ModelUsage = emptyUsage()): AssistantMessage
         stopReason: "stop",
     };
 }
+
+test("@core a show request reaches the clients attached to that session and refuses an unknown screen", async () => {
+    const showHub = createSessionShowHub();
+    const services = createExtensionHostServices({
+        registry: unusedRegistry,
+        showHub,
+        currentConfig: () => ({}) as VeraConfig,
+        reachability: () => () => true,
+        availableModels: () => [],
+        createAdapter: () => new FauxAdapter([]),
+    });
+    const window: string[] = [];
+    const terminal: string[] = [];
+    const elsewhere: string[] = [];
+    showHub.subscribe("deck", "window", (target) => window.push(target.id));
+    showHub.subscribe("deck", "terminal", (target) => terminal.push(target.id));
+    showHub.subscribe("hold", "window", (target) => elsewhere.push(target.id));
+
+    expect(await services.showInSession("deck", "dialog.themes")).toEqual({ window: 1, terminal: 1, terminalCannot: 0 });
+    expect(await services.showInSession("deck", "dialog.feedback")).toEqual({ window: 1, terminal: 0, terminalCannot: 1 });
+    expect(window).toEqual(["dialog.themes", "dialog.feedback"]);
+    expect(terminal).toEqual(["dialog.themes"]);
+    expect(elsewhere).toEqual([]);
+    expect(await services.showInSession("lost", "dialog.themes")).toEqual({ window: 0, terminal: 0, terminalCannot: 0 });
+
+    await expect(services.showInSession("deck", "dialog.rudder")).rejects.toThrow("Unknown screen");
+    await expect(services.showInSession("deck", "")).rejects.toThrow("Unknown screen");
+    expect(window).toHaveLength(2);
+});

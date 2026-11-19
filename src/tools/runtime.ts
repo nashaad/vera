@@ -38,6 +38,8 @@ export class ToolRuntime {
     readonly isSubagent: boolean;
     readonly invocation: "top_level" | "subagent";
     allowedTools: readonly string[] | undefined;
+    // The selected agent's name, set by the turn. A tool limited to named agents never runs while this is unset.
+    agentName: string | undefined;
     sessionId: string | undefined;
     // Set by the executor for a tool that cannot run in parallel, so the
     // command it starts can be logged with the call that started it.
@@ -82,6 +84,7 @@ export class ToolRuntime {
         this.allowedSkills = undefined;
         this.userInvokedSkill = undefined;
         this.allowedTools = undefined;
+        this.agentName = undefined;
         this.sessionId = undefined;
         this.currentToolCallId = undefined;
         this.readApprovalMode = undefined;

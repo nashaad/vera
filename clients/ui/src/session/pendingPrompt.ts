@@ -7,6 +7,9 @@ export interface PendingPrompt {
     readonly text: string;
     // Image files to attach before the prompt goes out.
     readonly images: readonly string[];
+    readonly files?: readonly string[];
+    // The agent the session is asked to switch to first; the prompt waits for the session to confirm it.
+    readonly agent?: string;
     // Applied to the session before the prompt goes out.
     readonly model?: DraftModel;
     readonly slashCommand?: boolean;

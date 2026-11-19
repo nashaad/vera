@@ -240,6 +240,10 @@ button.file-row:focus-visible {
     font-size: var(--vera-font-size-label);
 }
 
+.view[data-merged="true"] .plan-head {
+    padding-right: calc(var(--vera-space) * 4.5);
+}
+
 .plan-title {
     flex: 1 1 auto;
     min-width: 0;
@@ -341,6 +345,21 @@ button.file-row:focus-visible {
     font-size: var(--vera-font-size-label);
     text-overflow: ellipsis;
     white-space: nowrap;
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 0;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.plan-path:hover {
+    color: var(--vera-text);
+}
+
+.plan-path:focus-visible {
+    outline: thin solid var(--vera-focus);
 }
 
 /* tasks pill */
@@ -510,6 +529,25 @@ button.file-row:focus-visible {
     flex-direction: column;
     min-width: 0;
     min-height: 0;
+}
+
+.local-preview-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--vera-space);
+    padding: var(--vera-space);
+}
+
+.local-preview-frame {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    border: 0;
+    background: var(--vera-surface-input);
+}
+
+.local-preview-controls .right-seg {
+    margin: 0;
 }
 
 .file-preview-bar {

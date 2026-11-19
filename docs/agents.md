@@ -68,21 +68,97 @@ instructions and tools. It leaves the conversation model unchanged.
 
 Chat is an included role for conversations that are not about a project. It
 has no instructions of its own. Its tools are `web_search`, `web_fetch`,
-`read`, `list`, `write`, and `edit`, so it can look things up on the web and
-keep files in the conversation's own folder.
+`read`, `list`, `write`, `edit`, `builtin_browser`, and `file_feedback`, so it
+can look things up on the web, keep files in the conversation's own folder, use
+the built-in browser when its tools are on, and save a feedback report.
 
 A conversation started without a project folder is a chat. The host creates
 its folder beside the session file, as `<session-id>.jsonl.files`, works in
-it, and starts the conversation on the chat agent. If no agent named `chat`
-exists, or selecting it fails, the conversation starts on the default agent.
-`/agent default` leaves chat, and `/agent chat` returns to it. A `chat` agent
-in your own or a project's agents folder replaces the included one.
+it, and starts the conversation on the default agent with all of its tools.
+`/agent chat` switches a chat to the chat agent, and `/agent default` switches
+it back. A `chat` agent in your own or a project's agents folder replaces the
+included one.
+
+The model is told that a chat's folder is the chat's own.
+
+## Choose the agent of a new chat
+
+On the desktop's New Chat page the composer bar has an agent pill beside the
+approval pill. It shows the agent the new session starts on, which is `default`
+until you pick another. Click it, or type `/agent` with no name, to open Choose
+Agent. It lists the agents a session started there would offer: the included
+ones, your own, and, when a folder is picked, that folder's project agents. With
+no folder picked it lists what a chat offers, which has no project agents.
+`/agent crow` picks the agent `crow` directly, and says `No agent named crow`
+when the list does not offer it. The host reads the list without starting a
+session.
+
+Picking a different folder reads the list again. If the agent you picked is not
+offered in the new folder, the pill goes back to `default` and a line under the
+composer says `The crow agent is not offered here. This chat starts on default.`
+
+When you send, the window creates the session as usual, switches it to the
+agent you picked, and sends your first message only after the session confirms
+the switch. If the host refuses the switch, the message is not sent: your text,
+images and files go back into that session's composer with the host's reason,
+such as `No agent named crow`. If the session does not answer within ten
+seconds, they come back with `The session did not answer in time`. Sending with
+the default picked starts the session on the default agent and switches nothing.
+
+The pill and the list need a host that has this request. After updating Vera,
+restart the host. A host that has not been restarted shows no agent pill on New
+Chat, and Choose Agent there says to open a session.
+
+## Suggest keeping notes
+
+Every session the desktop window creates while Settings > Agents > Suggest
+keeping notes is on, chats and folder sessions alike, carries a short
+instruction in its system prompt. The switch is on by default. The instruction tells the model that
+you may want to keep notes from the conversation, and to offer once, in one
+sentence, when documents were shared, a decision was settled or a topic keeps
+coming back, and to ask where you keep notes, such as a notes app you already
+use or a folder. If you decline or ignore the offer, the model does not offer
+again. If you agree, it keeps the notes where you say, one page per topic, and
+keeps the pages current; if its tools cannot write there, it says so. If you
+have nowhere in mind, it uses a `notes/` folder in the working directory with
+an `index.md` that links the pages.
+
+The choice is made when the session is created and does not change for that
+session, so the start of its system prompt stays the same. Turning the switch
+off affects new sessions only. The window keeps the switch in the desktop's
+browser storage. Branches and clones keep the choice of the session they came
+from; subagents do not get the instruction. Sessions started from the terminal,
+`vera -p` or the web client never have it.
 
 Moving a chat to the trash moves its folder with it. Resuming a chat
 recreates its folder when it is missing. Branching or forking a chat copies the
 folder, so the branch and its source change files independently; a branch that
 is temporary keeps working in the source's folder. Delegated children of a chat
 work in the same folder and are not chats themselves.
+
+In the desktop, a chat's folder chip has `Move to folder…`, which moves the
+conversation and its files into a folder you pick. The conversation then works
+in that folder and is no longer a chat. The host refuses the move when a file
+in that folder has the same name as one of the chat's files, or while the
+conversation is still working.
+
+## Use the help agent
+
+Help is an included role that answers questions about using Vera. It reads
+Vera's product guide a section at a time and answers from it. It can list
+which model providers are connected and which extensions failed to load, and
+it can open a screen to show where something is. It cannot change a setting,
+answer a dialog, read your files or run commands, and the other agents do not
+have its tools.
+
+In the desktop, the Help button in the sidebar's footer starts a new chat on
+the help agent each time you press it. The chat is an ordinary session and
+appears in the session list. When the agent shows you something, the window
+opens that dialog, Settings section or page. In the terminal, `/agent help`
+selects the agent. It opens the terminal's own dialog for a screen that has
+one, and says so when the terminal has none. If a dialog is already open in
+the terminal, the agent's request is declined and the notice asks you to close
+the dialog and ask again.
 
 ## Allow models for subagents
 

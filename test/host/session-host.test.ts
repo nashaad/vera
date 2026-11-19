@@ -104,3 +104,22 @@ test("a session host persists and restores sessions without a public listener", 
         await rm(home, { recursive: true, force: true });
     }
 });
+
+test("@core a session host tells the clients its server attaches to a session to open a screen", async () => {
+    const home = await mkdtemp(join(tmpdir(), "vera-session-host-show-"));
+    let opened: Awaited<ReturnType<typeof openSessionHost>> | undefined;
+    try {
+        opened = await openSessionHost(home);
+        const seen: string[] = [];
+        const stop = opened.host.handlers.subscribeSessionShow("deck", "window", (target) => seen.push(target.id));
+        expect(await opened.host.localExtensionSessions.showInSession("deck", "settings.providers"))
+            .toEqual({ window: 1, terminal: 0, terminalCannot: 0 });
+        stop();
+        expect(await opened.host.localExtensionSessions.showInSession("deck", "settings.providers"))
+            .toEqual({ window: 0, terminal: 0, terminalCannot: 0 });
+        expect(seen).toEqual(["settings.providers"]);
+    } finally {
+        await opened?.close();
+        await rm(home, { recursive: true, force: true });
+    }
+});

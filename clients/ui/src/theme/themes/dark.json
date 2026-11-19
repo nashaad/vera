@@ -16,7 +16,7 @@
         "ink-mid": "#b4b4b4",
         "ink-dim": "#8a8a8a",
         "ink-faint": "#5e5e5e",
-        "orange": "#d97757",
+        "orange": "#e8582a",
         "blue": "#7f9ff0",
         "green": "#6da678",
         "red": "#d16b5e",
@@ -28,7 +28,15 @@
         "blue-deep": "#4f7fe0",
         "rail": "#3a3a3a",
         "stop": "#ffffff59",
-        "knob": "#ffffff"
+        "knob": "#ffffff",
+        "steel": "#7f8794",
+        "violet": "#c792ea",
+        "lime": "#98c379",
+        "gold": "#d9a05b",
+        "azure": "#6fa8f5",
+        "teal": "#4fc1b0",
+        "cyan": "#56b6c2",
+        "coral": "#e5767d"
     },
     "colors": {
         "surface": "canvas",
@@ -67,7 +75,15 @@
         "slider-rail": "rail",
         "slider-fill": "blue-deep",
         "slider-stop": "stop",
-        "slider-knob": "knob"
+        "slider-knob": "knob",
+        "syntax-comment": "steel",
+        "syntax-keyword": "violet",
+        "syntax-string": "lime",
+        "syntax-number": "gold",
+        "syntax-function": "azure",
+        "syntax-type": "teal",
+        "syntax-property": "cyan",
+        "syntax-tag": "coral"
     },
     "values": {
         "shadow": "0 12px 34px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(255, 255, 255, 0.05)",

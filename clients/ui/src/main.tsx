@@ -1,12 +1,14 @@
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App.tsx";
+import { syncDesktopExtensions } from "./customize/desktop-extensions.ts";
 import { syncImportedThemes } from "./theme/sync.ts";
 import "./styles/base.css";
 import "./styles/titlebar.css";
 import "./styles/banner.css";
 import "./styles/workbench.css";
 import "./styles/views.css";
+import "./styles/pane.css";
 import "./styles/sidebar-foot.css";
 import "./styles/sidebar-nav.css";
 import "./styles/pages.css";
@@ -22,6 +24,8 @@ import "./styles/diffs.css";
 import "./styles/right-views.css";
 import "./styles/browser.css";
 import "./styles/session-panes.css";
+import "./styles/chat.css";
+import "./styles/subagents.css";
 import "./styles/search.css";
 import "./styles/workspace.css";
 import "./styles/devices.css";
@@ -40,3 +44,6 @@ if (rootElement === null) {
 
 createRoot(rootElement).render(<App />);
 void syncImportedThemes();
+void syncDesktopExtensions();
+
+import "./styles/feedback.css";

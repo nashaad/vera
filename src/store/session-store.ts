@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { scanSessionLines, readSessionLine, SESSION_SCAN_CHUNK_BYTES } from "./session-lines.ts";
 import { SessionRecordIndex, type SessionCompactionAnchor } from "./session-record-index.ts";
 import { scanSessionIndex } from "./session-index-scan.ts";
+import { readSessionArchived, sessionMetadataPath, writeSessionArchived } from "./session-metadata.ts";
 import { contextMeasurementHeader } from "./session-record-header.ts";
 import { measurementComponentsCanonical } from "./session-measurement-fields.ts";
 import { addSessionModelUsage, SessionUsageAccumulator, type SessionModelUsage } from "../model/session-usage.ts";
@@ -96,6 +97,8 @@ export interface SessionHeader {
     readonly parentId?: string;
     readonly delegation?: SessionDelegation;
     readonly contextAssemblyMode?: Exclude<ContextAssemblyMode, "default">;
+    // Fixed at creation: the prompt prefix must not change when a setting does.
+    readonly notesOffer?: true;
     readonly importedFrom?: SessionImportProvenance;
 }
 
@@ -365,6 +368,7 @@ export interface CreateSessionStoreOptions {
     readonly parentId?: string;
     readonly delegation?: SessionDelegation;
     readonly contextAssemblyMode?: Exclude<ContextAssemblyMode, "default">;
+    readonly notesOffer?: true;
     readonly importedFrom?: SessionImportProvenance;
     readonly now?: () => Date;
     readonly createId?: () => string;
@@ -747,6 +751,7 @@ export class SessionStore {
     private recordIndex: SessionRecordIndex;
     private readSource: FileHandle | undefined;
     private readonlySnapshot = false;
+    private archivedState = false;
     private onRecordAppended?: (
         lineNumber: number,
         record: Record<string, unknown>,
@@ -801,6 +806,7 @@ export class SessionStore {
             ...(options.contextAssemblyMode === undefined
                 ? {}
                 : { contextAssemblyMode: options.contextAssemblyMode }),
+            ...(options.notesOffer === true ? { notesOffer: true } : {}),
             ...(options.importedFrom === undefined
                 ? {}
                 : { importedFrom: options.importedFrom }),
@@ -818,6 +824,7 @@ export class SessionStore {
             } finally {
                 await file.close();
             }
+            await rm(sessionMetadataPath(path), { force: true });
         } catch (error) {
             if (created) {
                 await rm(path, { force: true }).catch(() => {});
@@ -856,14 +863,9 @@ export class SessionStore {
     ): Promise<SessionStore> {
         const loaded = await scanIndexedSessionFile(path, true);
         await chmod(path, 0o600);
-        return new SessionStore(
-            path,
-            loaded.header,
-            loaded.state,
-            options,
-            loaded.lineCount,
-            loaded.index,
-        );
+        const store = new SessionStore(path, loaded.header, loaded.state, options, loaded.lineCount, loaded.index);
+        store.archivedState = await readSessionArchived(path);
+        return store;
     }
 
     static async openReadOnly(path: string): Promise<SessionStore> {
@@ -871,6 +873,7 @@ export class SessionStore {
         try {
             const loaded = await scanIndexedSessionFile(path, false, file);
             const store = new SessionStore(path, loaded.header, loaded.state, {}, loaded.lineCount, loaded.index);
+            store.archivedState = await readSessionArchived(path);
             store.readSource = file;
             store.readonlySnapshot = true;
             return store;
@@ -1267,6 +1270,20 @@ export class SessionStore {
 
     name(): string | undefined {
         return this.projection.nameEntries.at(-1)?.name ?? undefined;
+    }
+
+    archived(): boolean {
+        return this.archivedState;
+    }
+
+    setArchived(archived: boolean): Promise<void> {
+        const result = this.pendingAppend.then(async () => {
+            if (this.readonlySnapshot) throw new Error(`Session snapshot ${this.path} cannot write metadata`);
+            await writeSessionArchived(this.path, archived);
+            this.archivedState = archived;
+        });
+        this.pendingAppend = result.then(() => undefined, () => undefined);
+        return result;
     }
 
     identity(): SessionIdentityEntry | undefined {
@@ -2677,6 +2694,7 @@ export interface SessionIndexMetadata {
     readonly header: SessionHeader;
     readonly title?: string;
     readonly hasUserContent: boolean;
+    readonly archived: boolean;
 }
 
 export async function readSessionIndexMetadata(
@@ -2753,9 +2771,11 @@ export async function readSessionIndexMetadata(
             pending = Buffer.concat([pending, buffer.subarray(0, bytesRead)]);
         }
         const title = name ?? firstPrompt;
+        const archived = await readSessionArchived(path);
         return {
             header,
             hasUserContent,
+            archived,
             ...(title === undefined ? {} : { title }),
         };
     } finally {
@@ -4247,6 +4267,7 @@ export function parseHeaderRecord(
             && value.parentId !== undefined
             && (value.delegation as SessionDelegation).parentId !== value.parentId)
         || storedContextAssemblyModeInvalid(value)
+        || (value.notesOffer !== undefined && value.notesOffer !== true)
         || (value.importedFrom !== undefined
             && !isSessionImportProvenance(value.importedFrom))
     ) {

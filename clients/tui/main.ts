@@ -1,3 +1,7 @@
+import { listProvidersThroughHost, loginProviderThroughHost, saveKnownProviderKeyThroughHost, saveProviderThroughHost } from "../../src/host/provider-sign-in-client.ts";
+import { openUrl } from "../../src/url-opener.ts";
+import type { SaveProviderInput } from "../../src/providers/save-provider.ts";
+import type { ProviderSignInStatus } from "../../src/providers/provider-sign-in.ts";
 import { cutStopWaitThroughHost, type CutStopWaitOutcome } from "../../src/host/stop-wait-cut-client.ts";
 import { hostRequester } from "../../src/host/requester.ts";
 import { forgetProviderThroughHost } from "../../src/host/provider-forget-client.ts";
@@ -354,6 +358,7 @@ import { showStatusNotice, showModeToast, hideModeToast, stopModeToastTimers, mo
 import { renderStatus } from "./main/render-status.ts";
 import { startStatusTimer } from "./main/animation-level.ts";
 import { setTerminalFocused, streamRenderIntervalMs } from "./main/terminal-focus.ts";
+import { watchSessionShow } from "./main/show-target.ts";
 import { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, watchStopWait, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
 export { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, watchStopWait, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent };
 export { renderStatus };
@@ -562,6 +567,9 @@ export interface TuiDependencies {
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     readonly restartRecords?: HostRestartRecords;
     readonly requestExtension?: ClientExtensionHostRequest;
+    readonly listProviders?: () => Promise<readonly ProviderSignInStatus[]>;
+    readonly saveProvider?: (input: SaveProviderInput & { readonly custom: boolean }) => Promise<ProviderSignInStatus>;
+    readonly saveProviderKey?: (provider: string, key: string) => Promise<void>;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     /** Ends one session's turn through the host. Used by the stop-now action. */
     readonly cutStopWait?: (sessionId?: string) => Promise<CutStopWaitOutcome>;
@@ -873,6 +881,15 @@ export async function startConfiguredTui(
             clientBuildId,
             installedBuildId,
             refuseOtherHostBuild: () => refuseOtherRunningHostBuild(clientBuildId),
+            listProviders: async () => (await listProvidersThroughHost(await pairedSocket())).providers,
+            saveProvider: async (input) => saveProviderThroughHost(await pairedSocket(), input),
+            saveProviderKey: async (provider, key) => saveKnownProviderKeyThroughHost(await pairedSocket(), provider, key),
+            loginProvider: async (provider, onBrowserUnavailable, onAuthorizationUrl) => {
+                await loginProviderThroughHost(await pairedSocket(), provider, (url) => {
+                    onAuthorizationUrl?.(url);
+                    void openUrl(url).then((opened) => { if (!opened) onBrowserUnavailable(url); });
+                });
+            },
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
             cutStopWait: async (sessionId) => cutStopWaitThroughHost(
                 await pairedSocket(), hostRequester("tui", "cut stop wait", { id: sessionId }),
@@ -1281,7 +1298,13 @@ export async function startTui(
             extensions: () => rt.configuredClientExtensions,
             currentModelSettings: () => focusedAgentState(rt).modelSettings,
             readSources: (signal) => requestCustomizationSources(rt, signal),
-            requestExtension: rt.dependencies.requestExtension,
+            requestExtension: rt.dependencies.requestExtension === undefined ? undefined : (extensionId, name, payload, signal) => {
+                const sessionId = focusedAgentClient(rt).agentId;
+                if (extensionId === "vera.feedback" && name === "save" && payload !== null && typeof payload === "object" && !Array.isArray(payload) && sessionId !== undefined) {
+                    return rt.dependencies.requestExtension!(extensionId, name, { ...payload, session_id: sessionId }, signal);
+                }
+                return rt.dependencies.requestExtension!(extensionId, name, payload, signal);
+            },
             currentContext: () => tuiContextSnapshot(
                 focusedAgentState(rt).context,
                 focusedAgentState(rt).modelSettings,
@@ -2636,6 +2659,8 @@ export async function startTui(
         rt.stopWatchingWorkIndex = undefined;
         rt.stopWatchingSessionTitle?.();
         rt.stopWatchingSessionTitle = undefined;
+        rt.stopWatchingSessionShow?.();
+        rt.stopWatchingSessionShow = undefined;
         rt.stopWatchingStopWait?.();
         rt.stopWatchingStopWait = undefined;
         rt.stopWait = undefined;
@@ -2710,6 +2735,7 @@ export async function startTui(
     watchBackgroundAgents(rt, rt.dependencies.client);
     watchWorkIndex(rt, rt.dependencies.client);
     watchSessionTitle(rt, rt.dependencies.client);
+    watchSessionShow(rt, rt.dependencies.client);
     watchStopWait(rt, rt.dependencies.client);
     writeTerminal(rt, FOCUS_REPORTING_ON);
 

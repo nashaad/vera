@@ -86,6 +86,7 @@ export function applyAppearance(appearance: Appearance, theme: ThemeChoice, root
         root.style.setProperty(`--vera-${token}`, appearance.reduceMotion ? scaled(values[token], 0) : values[token]);
     }
     root.setAttribute("data-density", appearance.density);
+    root.setAttribute("data-reduce-motion", String(appearance.reduceMotion));
 }
 
 function currentTheme(): ThemeChoice {
