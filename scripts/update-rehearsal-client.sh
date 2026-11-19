@@ -201,6 +201,7 @@ network_drop_leg() {
     [ "$update_status" = 1 ] || { cat "$work/update.out"; fail "dropped download: exit $update_status, expected 1"; }
     [ "$(field "$work/last" result)" = failed ] && [ "$(field "$work/last" changed)" = false ] || { cat "$work/update.out"; fail "dropped download did not end failed with changed false"; }
     cat "$work/last"
+    grep -q '"message":"Not enough disk space to download Vera ' "$work/last" || fail "full disk did not say there is not enough disk space"
     [ "$(current_build)" = "$old_build" ] && [ "$(pid_of_host)" = "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null || fail "dropped download changed current or the host"
     [ "$(ls -d "$share/releases/"vera-* | wc -l | tr -d ' ')" = 1 ] || fail "dropped download left a release beside $old_build"
     no_leftovers "dropped download"

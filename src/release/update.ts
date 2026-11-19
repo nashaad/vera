@@ -249,9 +249,18 @@ async function updateOnce(
     const release = acquireUpdateLock(prefix);
     try {
         return await stageAndSwitch(options, prefix, releases, target);
+    } catch (error) {
+        throw diskFullError(error, target.version) ?? error;
     } finally {
         release();
     }
+}
+
+export function diskFullError(error: unknown, version: string): Error | undefined {
+    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
+    const message = error instanceof Error ? error.message : String(error);
+    if (code !== "ENOSPC" && !/\bENOSPC\b|no space left on device/i.test(message)) return undefined;
+    return new Error(`Not enough disk space to download Vera ${version}.`, { cause: error });
 }
 
 async function stageAndSwitch(
