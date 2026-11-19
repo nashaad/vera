@@ -3,8 +3,9 @@ import { useState } from "react";
 import { CheckIcon, ChevronRightIcon, CopyIcon } from "../components/Icons.tsx";
 import { copyText } from "./copyText.ts";
 import type { ToolCall, ToolNoticePresentation } from "./model.ts";
+import { NoticeRow } from "./NoticeRows.tsx";
 import { RunNotice } from "./RunNotice.tsx";
-import { callPaths, callTarget, isShell, rowVerb, shellCommand, toolSummary } from "./toolTitle.ts";
+import { askTarget, callPaths, callTarget, isShell, rowVerb, shellCommand, toolSummary } from "./toolTitle.ts";
 
 // A finished run of calls is one line. Opened, each call is a line of its own, and a shell command opens to a box.
 // A call's notice shows under the run, opened or not.
@@ -12,6 +13,8 @@ export function RunLine({ calls }: { readonly calls: readonly ToolCall[] }) {
     const [open, setOpen] = useState(false);
     const failed = calls.filter((call) => call.state === "failed").length;
     const notices = calls.flatMap((call): ToolNoticePresentation[] => (call.presentation?.kind === "tool_notice" ? [call.presentation] : []));
+    const withheld = calls.length === 1 && calls[0]?.state === "withheld" ? calls[0] : undefined;
+    if (withheld !== undefined) return <WithheldCall call={withheld} />;
     return (
         <div className="run" data-open={open}>
             <button type="button" className="run-head" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -21,6 +24,27 @@ export function RunLine({ calls }: { readonly calls: readonly ToolCall[] }) {
             </button>
             {open ? <CallList calls={calls} /> : null}
             {notices.map((notice, index) => <RunNotice key={index} notice={notice} />)}
+        </div>
+    );
+}
+
+function WithheldCall({ call }: { readonly call: ToolCall }) {
+    const outcome = call.classifierOutcome;
+    const denial = outcome?.kind === "denied" ? outcome : undefined;
+    const risk = denial === undefined ? "" : denial.riskLevel.charAt(0).toUpperCase() + denial.riskLevel.slice(1);
+    const target = isShell(call) ? shellCommand(call) : askTarget(call.tool, call.args);
+    return (
+        <div className="run withheld-call">
+            <div className="call-line">
+                <span className="verb">Did not run</span>
+                <span className="arg">{call.tool}{target === "" ? "" : ` ${target}`}</span>
+            </div>
+            {denial === undefined ? null : (
+                <NoticeRow block={{
+                    kind: "notice", key: "classifier-denial", tone: "warning",
+                    title: "CLASSIFIER DENIED", text: `${risk} risk: ${denial.reason}`,
+                }} />
+            )}
         </div>
     );
 }

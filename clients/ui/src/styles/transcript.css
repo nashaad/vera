@@ -317,6 +317,17 @@
     margin: 0 0 calc(var(--vera-space) * 3.5);
 }
 
+.withheld-call > .transcript-notice {
+    margin-top: calc(var(--vera-space) * 2);
+    margin-bottom: 0;
+}
+
+.withheld-call .call-line .arg {
+    overflow: visible;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
 .run-head {
     display: inline-flex;
     gap: calc(var(--vera-space) * 1.75);
