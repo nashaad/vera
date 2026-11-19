@@ -136,9 +136,13 @@ function pairResult(blocks: Block[], entry: ToolResultEntry): Paired | undefined
     if (tail?.kind !== "tools") return undefined;
     const index = tail.calls.findIndex((call) => call.tool === entry.tool && call.state === "running");
     if (index === -1) return undefined;
-    const state: ToolState = entry.isError ? "failed" : "done";
+    const state: ToolState = entry.withheld === true || entry.classifierOutcome?.kind === "denied"
+        ? "withheld" : entry.isError ? "failed" : "done";
     const calls = tail.calls.map((call, position): ToolCall =>
-        position === index ? { ...call, state, output: entry.output } : call);
+        position === index ? {
+            ...call, state, output: entry.output,
+            ...(entry.classifierOutcome === undefined ? {} : { classifierOutcome: entry.classifierOutcome }),
+        } : call);
     blocks[blocks.length - 1] = { ...tail, calls };
     return { block: blocks.length - 1, call: index };
 }

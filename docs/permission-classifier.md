@@ -87,8 +87,11 @@ terminal's action row reads **Did not run**, followed by a **CLASSIFIER DENIED**
 error with the risk and reason. A subagent request follows the existing approval
 relay. A detached resident waits as it does for other approvals. At most 16
 denial approval cards can be pending in one session; further denials remain
-denied without a prompt. The denial is saved with the conversation, so a
-reopened terminal conversation shows it too:
+denied without a prompt. The denial is saved with the conversation. When you
+reopen it in the terminal or desktop, the withheld action and the classifier's
+risk and reason can be seen again. On desktop, a very long turn can split the
+action and result across history pages, leaving the denial out. In the terminal,
+it looks like this:
 
 ```text
 Did not run

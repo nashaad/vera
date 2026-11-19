@@ -1,11 +1,12 @@
 // What the session page shows, built from the host's `history` entries and the
 // live updates that follow them on the watch connection.
 
+import type { ClassifierOutcome } from "../../../../src/model/types.ts";
 import type { ModelRefusal, ModelSettingsReply } from "../models/settings.ts";
 import type { ApprovalState } from "./permissions.ts";
 import type { OpenRequest } from "./requests.ts";
 
-export type ToolState = "running" | "done" | "failed";
+export type ToolState = "running" | "done" | "failed" | "withheld";
 
 export interface FileDiff {
     readonly path: string;
@@ -63,6 +64,7 @@ export interface ToolCall {
     readonly args: Readonly<Record<string, unknown>>;
     readonly output?: string;
     readonly state: ToolState;
+    readonly classifierOutcome?: ClassifierOutcome;
     // What the call changed, attached after it finished.
     readonly presentation?: Presentation;
 }

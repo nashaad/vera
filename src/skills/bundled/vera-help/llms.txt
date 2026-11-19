@@ -160,7 +160,7 @@ The session permission posture is the outer ceiling. An agent may narrow it but 
 Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
 When the classifier allows an extension's operation, the rest of the conversation runs that operation without asking it again. Vera's own operations are classified every time.
 Clicking a turn's auto-approved count, or pressing Ctrl+T, lists the actions the classifier allowed and why. Manual: `docs/permission-classifier.md`.
-In auto mode, a classifier denial can be overridden once through an approval prompt. Manual: `docs/permission-classifier.md`.
+In auto mode, a classifier denial can be overridden once through an approval prompt, and saved denials can be viewed when the conversation is reopened. Manual: `docs/permission-classifier.md`.
 TUI Defaults, the Classifier entry in `/settings`, and desktop Defaults set the same classifier, with an effort choice for models that support it. TUI Settings and desktop Defaults also set a failsafe. A classifier that gives no usable decision asks you the way ask mode does. An action that cannot be described to the classifier still ends the turn with an error.
 A write or delete in a different git worktree of the session's repository counts as outside the workspace, and in auto it asks you instead of going to the classifier; a run with nobody to answer, such as `vera -p`, refuses it. Manual: `docs/permission-rules.md`.
 The permission modes are readonly, ask, auto, and full access. Full access runs everything without asking, except that Vera refuses a recursive `rm` aimed at the home directory, the workspace or anything above it, in every mode. Home config can add named custom modes with their own rules.

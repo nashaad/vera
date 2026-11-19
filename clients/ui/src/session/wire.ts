@@ -1,4 +1,4 @@
-import { isStopCause, type StopCause } from "../../../../src/model/types.ts";
+import { isClassifierOutcome, isStopCause, type ClassifierOutcome, type StopCause } from "../../../../src/model/types.ts";
 import type {
     AgentRunStatus,
     BackgroundAgents,
@@ -69,6 +69,8 @@ export interface ToolResultEntry extends EntryBase {
     readonly tool: string;
     readonly output: string;
     readonly isError: boolean;
+    readonly withheld?: boolean;
+    readonly classifierOutcome?: ClassifierOutcome;
 }
 
 export interface ErrorEntry extends EntryBase {
@@ -659,7 +661,11 @@ function parseEntry(raw: unknown): WireEntry {
             const tool = str(raw.tool);
             return tool === undefined
                 ? OTHER
-                : { kind: "tool_result", ...base, tool, output: str(raw.output) ?? "", isError: raw.isError === true };
+                : {
+                    kind: "tool_result", ...base, tool, output: str(raw.output) ?? "", isError: raw.isError === true,
+                    ...(typeof raw.withheld === "boolean" ? { withheld: raw.withheld } : {}),
+                    ...(isClassifierOutcome(raw.classifierOutcome) ? { classifierOutcome: raw.classifierOutcome } : {}),
+                };
         }
         case "error": {
             const modelFailure = parseModelFailure(raw.modelFailure);

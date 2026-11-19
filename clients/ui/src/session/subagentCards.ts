@@ -4,7 +4,7 @@ import type { ToolCall, ToolState } from "./model.ts";
 
 const TITLE_LENGTH = 80;
 
-const CALL_WORDS: Readonly<Record<ToolState, string>> = { running: "Working", done: "Done", failed: "Failed" };
+const CALL_WORDS: Readonly<Record<ToolState, string>> = { running: "Working", done: "Done", failed: "Failed", withheld: "Did not run" };
 
 export function callStatusWord(state: ToolState): string {
     return CALL_WORDS[state];
@@ -89,7 +89,10 @@ export function runSegments(calls: readonly ToolCall[]): RunSegment[] {
         pending = [];
     };
     for (const call of calls) {
-        if (isCardCall(call)) {
+        if (call.state === "withheld") {
+            flush();
+            segments.push({ kind: "calls", calls: [call] });
+        } else if (isCardCall(call)) {
             flush();
             segments.push({ kind: "card", call });
         } else pending.push(call);
