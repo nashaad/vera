@@ -20,6 +20,8 @@ export interface SlotPickerProps {
     readonly unset: UnsetChoice | undefined;
     // False when the write takes no effort.
     readonly withEffort: boolean;
+    readonly requireEffortChoice?: boolean;
+    readonly onStepChange?: (choosingEffort: boolean) => void;
     readonly style: CSSProperties | undefined;
     readonly onPick: (value: AssignedModel | undefined) => void;
 }
@@ -47,11 +49,12 @@ export function startingEffort(entry: ModelEntry, current: AssignedModel | undef
     return entry.defaultLevel ?? entry.levels[0]?.id;
 }
 
-export function SlotPicker({ title, settings, current, exclude, unset, withEffort, style, onPick }: SlotPickerProps) {
+export function SlotPicker({ title, settings, current, exclude, unset, withEffort, requireEffortChoice = false, onStepChange, style, onPick }: SlotPickerProps) {
     const [query, setQuery] = useState("");
     const [highlight, setHighlight] = useState(0);
     // The effort Left and Right chose for the highlighted row.
     const [effort, setEffort] = useState<string | undefined>(undefined);
+    const [effortEntry, setEffortEntry] = useState<ModelEntry | undefined>(undefined);
     const input = useRef<HTMLInputElement>(null);
     const list = useRef<HTMLDivElement>(null);
     const highlighted = useRef<HTMLDivElement>(null);
@@ -64,9 +67,12 @@ export function SlotPicker({ title, settings, current, exclude, unset, withEffor
 
     // The popover is placed after its first layout, so autoFocus would scroll the sheet behind it.
     useEffect(() => {
-        const frame = requestAnimationFrame(() => input.current?.focus({ preventScroll: true }));
+        const frame = requestAnimationFrame(() => {
+            if (effortEntry === undefined) input.current?.focus({ preventScroll: true });
+            else document.querySelector<HTMLButtonElement>(".slot-picker [aria-pressed='true']")?.focus({ preventScroll: true });
+        });
         return () => cancelAnimationFrame(frame);
-    }, []);
+    }, [effortEntry]);
 
     // scrollIntoView would also scroll the sheet behind the popover.
     useLayoutEffect(() => {
@@ -88,8 +94,17 @@ export function SlotPicker({ title, settings, current, exclude, unset, withEffor
             onPick(undefined);
             return;
         }
+        if (requireEffortChoice && entry.levels.length > 0 && chosen === undefined) {
+            setEffortEntry(entry);
+            onStepChange?.(true);
+            return;
+        }
         const level = chosen ?? effortOf(entry);
         onPick({ provider: entry.provider, model: entry.model, ...(level === undefined ? {} : { effort: level }) });
+    };
+    const backToModels = (): void => {
+        setEffortEntry(undefined);
+        onStepChange?.(false);
     };
     const moveTo = (index: number): void => {
         setHighlight(index);
@@ -138,7 +153,7 @@ export function SlotPicker({ title, settings, current, exclude, unset, withEffor
                     <span className="model-item-name">{entry.shortLabel ?? entry.label}</span>
                     <span className="model-item-sub">{providerLabel(settings, entry.provider)}</span>
                 </span>
-                {on && withEffort && entry.levels.length > 0 ? (
+                {on && withEffort && !requireEffortChoice && entry.levels.length > 0 ? (
                     <span className="slot-pick-efforts" title="Assign at this effort">
                         {entry.levels.map((option) => (
                             <button
@@ -166,8 +181,9 @@ export function SlotPicker({ title, settings, current, exclude, unset, withEffor
     const offset = showUnset ? 1 : 0;
 
     return (
-        <div className="slot-picker menu" role="menu" aria-label={title} data-popover="below-end" style={style}>
-            <div className="model-label slot-pick-title">{title}</div>
+        <div className="slot-picker menu" role="menu" aria-label={title} data-step={effortEntry === undefined ? "model" : "effort"} data-popover="below-end" style={style}>
+            <div className="model-label slot-pick-title">{effortEntry === undefined ? title : `Choose reasoning effort`}</div>
+            {effortEntry === undefined ? <>
             <label className="model-search">
                 <input
                     ref={input}
@@ -214,6 +230,23 @@ export function SlotPicker({ title, settings, current, exclude, unset, withEffor
                 {rows.favorites.length === 0 && rows.others.length === 0 ? <p className="model-empty">No model matches</p> : null}
             </div>
             <div className="slot-pick-foot">Any connected model can be assigned. It joins your favorites.</div>
+            </> : (
+                <div className="slot-pick-list" aria-label="Reasoning effort">
+                    <div className="model-label">{effortEntry.shortLabel ?? effortEntry.label}</div>
+                    {effortEntry.levels.map((option) => (
+                        <button
+                            key={option.id}
+                            type="button"
+                            className="menu-item model-item slot-pick-effort-choice"
+                            aria-pressed={option.id === startingEffort(effortEntry, current)}
+                            onClick={() => choose(effortEntry, option.id)}
+                        >
+                            {option.label}{option.id === startingEffort(effortEntry, current) ? " (selected)" : ""}
+                        </button>
+                    ))}
+                    <button type="button" className="menu-item model-item" data-back-effort onClick={backToModels}>Back to models</button>
+                </div>
+            )}
         </div>
     );
 }

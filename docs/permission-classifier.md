@@ -34,7 +34,12 @@ conversation model does not change the configured classifier.
 
 1. Open `/models` and choose **Defaults**.
 2. Under Dedicated jobs, choose **classifier**.
-3. Select its model and reasoning effort.
+3. Select its model. If it has reasoning levels, choose an effort next.
+
+In the TUI, you can also open `/settings`, then **Classifier**, from Home or
+an open conversation. On desktop, use **Defaults** in the Models browser.
+Escape from the effort choice returns to model selection without saving. A
+model without reasoning levels is assigned as soon as you select it.
 
 The assignment applies to the next classification, including in existing
 conversations. No host restart is needed.
@@ -47,10 +52,11 @@ conversations. No host restart is needed.
 
 ### Set a failsafe
 
-The **Classifier** entry in `/settings` sets the same classifier as Defaults,
-plus an optional failsafe model. Changing the classifier in Defaults keeps the
-failsafe. **Use the session model** clears the classifier and its failsafe,
-so the session model reviews actions instead.
+The **Classifier** entry in `/settings` and the desktop Defaults browser also
+set an optional failsafe model. A failsafe with reasoning levels has its own
+effort choice. Changing the classifier in either place keeps the failsafe.
+**Use the session model** clears the classifier and its failsafe, so the
+session model reviews actions instead.
 
 The stored key is `model_assignments.reviewer`: the first model is the
 classifier and the second is the failsafe. The interface calls the job

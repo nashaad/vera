@@ -48,7 +48,11 @@ export function DefaultsTab({ controls, settings }: DefaultsTabProps) {
         bridge === undefined ? "Defaults are set in the desktop app or the terminal." : undefined,
     );
     const [picking, setPicking] = useState<PickTarget | undefined>(undefined);
-    const close = useCallback(() => setPicking(undefined), []);
+    const [effortTarget, setEffortTarget] = useState<PickTarget | undefined>(undefined);
+    const close = useCallback(() => {
+        setPicking(undefined);
+        setEffortTarget(undefined);
+    }, []);
 
     useEffect(() => {
         if (bridge === undefined) return undefined;
@@ -94,6 +98,7 @@ export function DefaultsTab({ controls, settings }: DefaultsTabProps) {
 
     const apply = async (target: PickTarget, value: AssignedModel | undefined): Promise<void> => {
         setPicking(undefined);
+        setEffortTarget(undefined);
         if (bridge === undefined) return;
         const before = view;
         let said: string;
@@ -135,8 +140,12 @@ export function DefaultsTab({ controls, settings }: DefaultsTabProps) {
             label={label}
             unset={unset}
             add={add}
-            onOpen={() => setPicking(picking === target ? undefined : target)}
+            onOpen={() => {
+                setEffortTarget(undefined);
+                setPicking(picking === target ? undefined : target);
+            }}
             onClose={close}
+            onEscape={effortTarget === target ? () => setEffortTarget(undefined) : undefined}
             picker={(style) => (
                 <SlotPicker
                     title={PICKER_TITLE[target]}
@@ -145,6 +154,8 @@ export function DefaultsTab({ controls, settings }: DefaultsTabProps) {
                     exclude={target === "subagent" ? new Set(slotOf(view, "subagents")?.declared.map(entryKey)) : new Set()}
                     unset={unsetChoice(view, target, name)}
                     withEffort={target !== "all"}
+                    requireEffortChoice={target === "reviewer" || target === "failsafe"}
+                    onStepChange={(choosing) => setEffortTarget(choosing ? target : undefined)}
                     style={style}
                     onPick={(value) => void apply(target, value)}
                 />
@@ -317,10 +328,11 @@ interface SlotControlProps {
     readonly add: boolean;
     readonly onOpen: () => void;
     readonly onClose: () => void;
+    readonly onEscape?: () => void;
     readonly picker: (style: ReturnType<typeof usePopoverPlacement>) => ReactNode;
 }
 
-function SlotControl({ open, label, unset, add, onOpen, onClose, picker }: SlotControlProps) {
+function SlotControl({ open, label, unset, add, onOpen, onClose, onEscape, picker }: SlotControlProps) {
     const root = useRef<HTMLDivElement>(null);
     const button = useRef<HTMLButtonElement>(null);
     const placed = usePopoverPlacement(open, root);
@@ -335,7 +347,10 @@ function SlotControl({ open, label, unset, add, onOpen, onClose, picker }: SlotC
             if (event.key !== "Escape") return;
             event.stopPropagation();
             event.preventDefault();
-            onClose();
+            if (onEscape !== undefined) {
+                root.current?.querySelector<HTMLButtonElement>("[data-back-effort]")?.click();
+                onEscape();
+            } else onClose();
             button.current?.focus({ preventScroll: true });
         };
         document.addEventListener("mousedown", onPointer);
@@ -344,7 +359,7 @@ function SlotControl({ open, label, unset, add, onOpen, onClose, picker }: SlotC
             document.removeEventListener("mousedown", onPointer);
             window.removeEventListener("keydown", onKey, true);
         };
-    }, [open, onClose]);
+    }, [open, onClose, onEscape]);
 
     return (
         <div className="slot-anchor" ref={root}>

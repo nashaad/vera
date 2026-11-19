@@ -12,6 +12,9 @@ import {
 } from "../../src/model/types.ts";
 import { DEFAULT_PROMPT_CONTRIBUTION_ORDER } from
     "../../src/engine/prompt-contributions.ts";
+import { assignmentRows, writeAssignmentEdit } from
+    "../../src/model/assignment-edits.ts";
+import { loadVeraConfig } from "../../src/config.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 const REORDERED_CONTRIBUTIONS = [
@@ -137,6 +140,90 @@ test("the classifier menu and Defaults write the same classifier", async () => {
         const cleared = JSON.parse(await Bun.file(configPath).text());
         expect(cleared.model_assignments.reviewer).toBeUndefined();
         expect(host.registry.readReviewer()).toBeUndefined();
+    } finally {
+        await host.close();
+        if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
+        else process.env.VERA_HOME = previousHome;
+        if (previousPool === undefined) delete process.env.VERA_POOL_FILE;
+        else process.env.VERA_POOL_FILE = previousPool;
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a written classifier model and effort reload without losing its failsafe", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-classifier-live-"));
+    const configPath = join(root, "config.json");
+    const poolPath = join(root, "pool.json");
+    const previousHome = process.env.VERA_HOME;
+    const previousPool = process.env.VERA_POOL_FILE;
+    process.env.VERA_POOL_FILE = poolPath;
+    process.env.VERA_HOME = root;
+    await writeFile(
+        poolPath,
+        JSON.stringify({
+            models: {
+                "openrouter/faux/one": {},
+                "openrouter/faux/two": {},
+                "openrouter/faux/three": {},
+            },
+        }),
+    );
+    const initial = config("one", {
+        model_assignments: {
+            reviewer: {
+                models: [
+                    { provider: "openrouter", model: "faux/one" },
+                    { provider: "openrouter", model: "faux/two" },
+                ],
+            },
+        },
+    });
+    await writeFile(configPath, JSON.stringify(initial));
+    const host = await startResidentHost({
+        config: initial as never,
+        createAdapter: () => new FauxAdapter([]),
+        socketPath: join(root, "host.sock"),
+        lockPath: join(root, "host.json"),
+        sessionDirectory: join(root, "sessions"),
+        eventLogDirectory: join(root, "logs"),
+    });
+    try {
+        expect(host.registry.readReviewer()?.models).toEqual([
+            { provider: "openrouter", model: "faux/one" },
+            { provider: "openrouter", model: "faux/two" },
+        ]);
+        const stored = await loadVeraConfig({ path: configPath });
+        writeAssignmentEdit(
+            {
+                assignment: "reviewer",
+                provider: "openrouter",
+                model: "faux/three",
+                reasoningEffort: "high",
+            },
+            assignmentRows(stored, { configPath }),
+            { configPath },
+        );
+
+        const written = JSON.parse(await Bun.file(configPath).text());
+        expect(written.model_assignments.reviewer.models).toEqual([
+            {
+                name: "faux_three_openrouter",
+                provider: "openrouter",
+                model: "faux/three",
+                reasoning_effort: "high",
+            },
+            { name: "faux_two_openrouter", provider: "openrouter", model: "faux/two" },
+        ]);
+        expect(host.registry.readReviewer()).toMatchObject({
+            models: [
+                {
+                    provider: "openrouter",
+                    model: "faux/three",
+                    reasoningEffort: "high",
+                },
+                { provider: "openrouter", model: "faux/two" },
+            ],
+        });
     } finally {
         await host.close();
         if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;

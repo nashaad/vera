@@ -2092,6 +2092,15 @@ export function pickerSelection(
                     reasoningEffort: value as ModelReasoningEffort,
                 };
             }
+            if (pending.reviewerSlot !== undefined) {
+                return {
+                    kind: "reviewer",
+                    slot: pending.reviewerSlot,
+                    provider: pending.provider,
+                    model: pending.model,
+                    reasoningEffort: value as ModelReasoningEffort,
+                };
+            }
             return {
                 kind: "model",
                 provider: pending.provider,
