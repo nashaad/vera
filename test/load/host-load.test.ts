@@ -26,6 +26,9 @@ async function trial(): Promise<string> {
     return mkdtemp(join(base, "load-test-"));
 }
 
+// Factory clones use macOS cp -c.
+const cloneTest = process.platform === "darwin" ? socketAndLoopbackTest : test.skip;
+
 loopbackTest("faux streaming uses the chat adapter with paced chunks, tools and usage", async () => {
     const server = startProvider({ seed: 1 });
     try {
@@ -222,7 +225,7 @@ test("pin results separate owned errors and retain a worker loss as a finding", 
     } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-socketAndLoopbackTest("startup limits connection bursts and the smoke records measurements", async () => {
+cloneTest("startup limits connection bursts and the smoke records measurements", async () => {
     const root = await trial();
     const previous = process.env.VERA_HOME;
     process.env.VERA_HOME = join(root, "control");
@@ -284,7 +287,7 @@ socketAndLoopbackTest("startup limits connection bursts and the smoke records me
     }
 }, 90_000);
 
-for (const relay of [false, true]) socketAndLoopbackTest(`paging works with ${relay ? "relay" : "routed"} attachments`, async () => {
+for (const relay of [false, true]) cloneTest(`paging works with ${relay ? "relay" : "routed"} attachments`, async () => {
     const root = await trial();
     const previous = process.env.VERA_HOME;
     process.env.VERA_HOME = join(root, "control");
@@ -308,7 +311,7 @@ for (const relay of [false, true]) socketAndLoopbackTest(`paging works with ${re
     }
 }, 90_000);
 
-socketAndLoopbackTest("worker kill reconnects affected clients and leaves the other worker serving", async () => {
+cloneTest("worker kill reconnects affected clients and leaves the other worker serving", async () => {
     const root = await trial();
     const previous = process.env.VERA_HOME;
     process.env.VERA_HOME = join(root, "control");
@@ -333,7 +336,7 @@ socketAndLoopbackTest("worker kill reconnects affected clients and leaves the ot
     }
 }, 90_000);
 
-socketAndLoopbackTest("worker pin samples the selected process for the measured window", async () => {
+cloneTest("worker pin samples the selected process for the measured window", async () => {
     const root = await trial();
     const previous = process.env.VERA_HOME;
     process.env.VERA_HOME = join(root, "control");

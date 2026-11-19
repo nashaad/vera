@@ -401,7 +401,8 @@ function sandboxProfile(denied: readonly string[]): string {
     return `(version 1)\n(allow default)\n(deny network*)\n${denies.join("\n")}\n`;
 }
 
-test("vera rollback restores the previous release with the repo and network denied", async () => {
+// sandbox-exec exists only on macOS.
+test.skipIf(process.platform !== "darwin")("vera rollback restores the previous release with the repo and network denied", async () => {
     const userHome = mkdtempSync(join(tmpdir(), "vera-rollback-home-"));
     const prefix = join(userHome, "custom-prefix");
     const scratch = mkdtempSync(join(tmpdir(), "vera-rollback-scratch-"));
