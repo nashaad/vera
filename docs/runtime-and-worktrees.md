@@ -205,6 +205,11 @@ would stop a host that still answers, the question is answered no: boot fails,
 leaves the host running and names `vera host reset`. A host that holds its lock
 but does not respond properly is still restarted.
 
+When an open TUI reconnects, startup checks with a repair or warning appear as
+one notice in the TUI instead. The checks are also recorded in its client
+diagnostic log. A clean check adds no notice. Startup questions appear in the
+TUI's question card; choose Yes or No, or press Escape for No.
+
 A command run from inside a Vera session does not stop the host it runs under;
 the check reports that and asks you to run `vera` from a terminal outside Vera.
 Only one startup check runs for a home at a time. A second `vera` waits for it,

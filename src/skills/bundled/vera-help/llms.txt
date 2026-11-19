@@ -245,7 +245,7 @@ Tool results should be visibly bounded, truncated, or paginated. Oversized outpu
 How much context Vera keeps is configurable on one screen: `/settings` then Overrides. It exposes the context limit, compaction, and tool-result levers. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, asks before saving a summary target that is not under the trigger, and asks before clearing every lever at once.
 Manual: `docs/context-levers.md`.
 
-## Diagnostics and recovery [lines=31]
+## Diagnostics and recovery [lines=32]
 Vera automatically retries rate-limit, server, dropped-connection and stalled-stream failures with increasing waits; retry activity stays visible and Escape cancels the pending retry or a stuck request. A spent subscription usage limit is not retried: the turn stops at once and the error says when the limit resets.
 If Vera cannot build a request locally, it stops without retrying and the Vera report in `/diagnostics` has the error.
 If a resident agent stops unexpectedly, the conversation shows the failure and the host log records its message and stack.
@@ -265,6 +265,7 @@ Replacing a healthy host stops it for every client of the home, so each other at
 A healthy host that refuses with `busy` is a guard, not a fault. Other work is using it and it is not force-killed. On Home a dialog says to let the other work finish and retry; in a conversation the composer stays usable.
 After an unplanned dropped connection the TUI can attempt automatic recovery, but stops after repeated failures; it will not force-kill a wedged host or replace a healthy one. Ctrl+L or Reconnect host from Ctrl+P can retry manually.
 During automatic recovery the TUI keeps the conversation visible and stops its live timers.
+A reconnecting TUI shows startup repairs and questions inside its screen and records the checks in its client diagnostic log. Manual: `docs/runtime-and-worktrees.md`.
 A TUI talks only to a host of its own build. If the host comes back as a different build, the TUI stays disconnected, sends it no requests, makes no automatic restart, and says to quit and reopen Vera.
 While a host stop or update waits for running turns, an attached TUI shows the sessions it waits for above the composer.
 A terminal cold update stops an old-build host found after activation when it is idle. Ctrl+L, Reconnect host or automatic recovery relaunches a launcher-started TUI into its installation's active build with the conversation and draft when the builds differ; without the launcher, the TUI identifies the changed installation and asks you to reopen Vera, or identifies a different-build host if one is running.
