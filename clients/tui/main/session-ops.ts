@@ -319,15 +319,41 @@ export function beginParkToJsonl(rt: TuiRuntime): void {
                 "stop",
                 sourceCompanions,
             );
-            return {
-                next: await createJsonlViewClient(sessionPath),
-                leaveResult,
-            };
+            try {
+                return {
+                    next: await createJsonlViewClient(sessionPath),
+                    leaveResult,
+                };
+            } catch (error) {
+                if (
+                    (
+                        leaveResult.sourceOutcome === "stopped"
+                        || (
+                            leaveResult.sourceOutcome === "detached"
+                            && leaveResult.remainingInteractiveClients > 0
+                        )
+                    )
+                    && error !== null
+                    && typeof error === "object"
+                    && "code" in error
+                    && error.code === "ENOENT"
+                ) {
+                    return { leaveResult };
+                }
+                throw error;
+            }
         })(),
-        (value) => discardSwitchTarget(rt, value.next),
+        (value) => {
+            if (value.next !== undefined) discardSwitchTarget(rt, value.next);
+        },
     ).then(({ next, leaveResult }) => {
         if (rt.shuttingDown) {
-            discardSwitchTarget(rt, next);
+            if (next !== undefined) discardSwitchTarget(rt, next);
+            return;
+        }
+        if (next === undefined) {
+            rt.sessionSwitchPending = false;
+            returnToHome(rt);
             return;
         }
         switchToClient(rt, next, draft);

@@ -5,7 +5,7 @@ import {
     parseHeaderRecord,
     SessionStore,
 } from "../../store/session-store.ts";
-import { closeSync, openSync, readSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { scanSessionRecordLocations } from "../../store/session-index-scan.ts";
 import { sessionRecordForWire } from "../../store/session-record-projection.ts";
 import type { SessionRecordIndex } from "../../store/session-record-index.ts";
@@ -17,9 +17,12 @@ export type AppendRecordThroughHost = (
 export class WorkerSessionStore extends SessionStore {
     private lastLineNumber = 1;
     private readonly deferred = new Map<number, Record<string, unknown>>();
+    private readonly ownPending = new Map<number, Record<string, unknown>>();
     private ownAppendsInFlight = 0;
     private divergence: Error | undefined;
     private readIndex: { readonly index: SessionRecordIndex; readonly limit: number } | undefined;
+    private readonly virtualSetupRecords = new Map<number, Record<string, unknown>>();
+    private virtualReadPending = false;
     private onDiverged: (error: Error) => void = () => {};
     private hostAnswersDelivery = false;
     private send: AppendRecordThroughHost = () => {
@@ -40,6 +43,7 @@ export class WorkerSessionStore extends SessionStore {
 
     /** Applies lines 2..lineCount from the file, one record at a time; the host fixed lineCount while no append could run. */
     applyCommittedLines(lineCount: number): void {
+        this.virtualReadPending = lineCount === 1 && !existsSync(this.path);
         if (lineCount <= 1) return;
         let read: number;
         try {
@@ -72,6 +76,20 @@ export class WorkerSessionStore extends SessionStore {
         return this.lastLineNumber;
     }
 
+    protected override async pendingReadRecords(): Promise<readonly {
+        readonly number: number;
+        readonly record: Record<string, unknown>;
+    }[] | undefined> {
+        this.refreshVirtualReadState();
+        if (!this.virtualReadPending) return undefined;
+        return [
+            { number: 0, record: { ...this.header } },
+            ...[...this.virtualSetupRecords.entries()]
+                .sort(([left], [right]) => left - right)
+                .map(([number, record]) => ({ number: number - 1, record })),
+        ];
+    }
+
     protected override async recordReadIndex(): Promise<{ readonly index: SessionRecordIndex; readonly limit: number }> {
         const limit = this.lastLineNumber;
         if (this.readIndex?.limit === limit) return this.readIndex;
@@ -99,9 +117,11 @@ export class WorkerSessionStore extends SessionStore {
         record: Record<string, unknown>,
     ): void {
         this.defer(lineNumber, record);
+        this.refreshVirtualReadState();
     }
 
-    acknowledgeOwnRecord(lineNumber: number): void {
+    acknowledgeOwnRecord(lineNumber: number, record: Record<string, unknown>): void {
+        this.ownPending.set(lineNumber, record);
         this.defer(lineNumber, OWN_RECORD);
     }
 
@@ -113,7 +133,8 @@ export class WorkerSessionStore extends SessionStore {
         } finally {
             this.ownAppendsInFlight -= 1;
         }
-        this.acknowledgeOwnRecord(lineNumber);
+        this.acknowledgeOwnRecord(lineNumber, record as Record<string, unknown>);
+        this.refreshVirtualReadState();
     }
 
     protected override requireActive(): void {
@@ -136,6 +157,14 @@ export class WorkerSessionStore extends SessionStore {
         this.deferred.set(lineNumber, record);
         this.drain();
         this.requireNoGap();
+    }
+
+    private refreshVirtualReadState(): void {
+        if (this.virtualReadPending && existsSync(this.path)) {
+            this.virtualReadPending = false;
+            this.virtualSetupRecords.clear();
+            this.readIndex = undefined;
+        }
     }
 
     private requireInSync(): void {
@@ -188,12 +217,20 @@ export class WorkerSessionStore extends SessionStore {
                 return;
             }
             this.deferred.delete(next);
-            if (record !== OWN_RECORD) {
+            const own = record === OWN_RECORD;
+            const applied = own ? this.ownPending.get(next) : record;
+            this.ownPending.delete(next);
+            if (applied !== undefined && isSetupRecord(applied)) {
+                if (this.virtualReadPending) this.virtualSetupRecords.set(next, applied);
+            } else if (applied !== undefined) {
+                this.virtualSetupRecords.clear();
+            }
+            if (applied !== undefined && !own) {
                 try {
                     ingestSessionRecord(
                         this.path,
                         next,
-                        record,
+                        applied,
                         this.projection,
                     );
                 } catch (error) {
@@ -207,6 +244,12 @@ export class WorkerSessionStore extends SessionStore {
             this.lastLineNumber = next;
         }
     }
+}
+
+function isSetupRecord(record: Record<string, unknown>): boolean {
+    return record.type === "session_identity"
+        || record.type === "permissions"
+        || record.type === "model_settings";
 }
 
 const SEED_CHUNK_BYTES = 1024 * 1024;

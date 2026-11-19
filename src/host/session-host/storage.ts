@@ -1,5 +1,5 @@
 import { readdir, realpath, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { availableModels, contextWindowForModel, type ModelWindowEntry } from "../../engine/model-settings.ts";
 import { readModelFailures } from "../../store/model-failures.ts";
@@ -36,12 +36,28 @@ export async function withSessionReservation<T>(
     );
 }
 
+export async function canonicalSessionPath(path: string): Promise<string> {
+    let current = resolve(path);
+    const missing: string[] = [];
+    while (true) {
+        try {
+            return join(await realpath(current), ...missing.toReversed());
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            const parent = dirname(current);
+            if (parent === current) throw error;
+            missing.push(basename(current));
+            current = parent;
+        }
+    }
+}
+
 export async function withSessionReservations<T>(
     sessionPaths: readonly string[],
     inFlight: RestoringSessions,
     run: (canonicalPaths: readonly string[]) => Promise<T>,
 ): Promise<T> {
-    const canonicalPaths = [...new Set(await Promise.all(sessionPaths.map((path) => realpath(path))))];
+    const canonicalPaths = [...new Set(await Promise.all(sessionPaths.map(canonicalSessionPath)))];
     if (inFlight.withReservations !== undefined) {
         return await inFlight.withReservations(canonicalPaths, () => run(canonicalPaths));
     }
@@ -77,11 +93,11 @@ export async function resumeReserved(
     sessionPath: string,
     ownershipTransfer = false,
 ): Promise<ResidentAgent> {
-    const canonicalPath = await realpath(sessionPath);
+    const canonicalPath = await canonicalSessionPath(sessionPath);
     for (const summary of registry.list()) {
         let existingPath = summary.session_path;
         if (existingPath !== canonicalPath) {
-            existingPath = await realpath(existingPath).catch(() => existingPath);
+            existingPath = await canonicalSessionPath(existingPath).catch(() => existingPath);
         }
         if (existingPath === canonicalPath) {
             const agent = registry.find(summary.id);

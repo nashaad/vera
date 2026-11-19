@@ -1,6 +1,4 @@
-import { realpath } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { basename, dirname, join, resolve } from "node:path";
 
 import { isStopCause } from "../../model/types.ts";
 import { chatFolderPath } from "../../store/chat-folder.ts";
@@ -12,6 +10,7 @@ import { localMessageSubagent } from "../agent-registry/subagent.ts";
 import * as subagentEndpoint from "../agent-registry/subagent-endpoint.ts";
 import * as lifecycle from "../agent-registry/lifecycle.ts";
 import { entryUpdatedAt, type RegisteredAgentEntry } from "../agent-registry/support.ts";
+import { canonicalSessionPath } from "./storage.ts";
 
 export function sessionEndpoint(host: SessionHost): SessionEndpoint {
     const closing = new Map<string, RegisteredAgentEntry>();
@@ -44,7 +43,7 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
         return host.registry.ownedTreeIds(root);
     };
     return {
-        canonicalPath,
+        canonicalPath: canonicalSessionPath,
         setSessionTitle: (id, title) => host.localExtensionSessions.setSessionTitle(id, title),
         showInSession: (id, target) => host.localExtensionSessions.showInSession(id, target),
         sendToSession: (extensionId, id, text) => host.localExtensionSessions.sendToSession(extensionId, id, text),
@@ -67,16 +66,24 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
             return entry !== undefined && host.registry.closingCompletionRecipients.has(entry.store);
         },
         async inspect(path) {
-            const sessionPath = await realpath(path);
+            const sessionPath = await canonicalSessionPath(path);
+            for (const entry of host.registry.agents.values()) {
+                if (!entry.store.isMaterialized()
+                    && await canonicalSessionPath(entry.store.path) === sessionPath) {
+                    const header = entry.store.header;
+                    const parentId = header.delegation?.parentId ?? header.parentId;
+                    return { id: header.id, sessionPath, ...(parentId === undefined ? {} : { parentId }) };
+                }
+            }
             const header = await readSessionHeader(sessionPath);
             const parentId = header.delegation?.parentId ?? header.parentId;
             return { id: header.id, sessionPath, ...(parentId === undefined ? {} : { parentId }) };
         },
         async residentAt(path) {
-            const canonical = await realpath(path);
+            const canonical = await canonicalSessionPath(path);
             for (const id of host.registry.agents.keys()) {
                 const session = resident(id);
-                if (session !== undefined && await realpath(session.sessionPath).catch(() => session.sessionPath) === canonical) return session;
+                if (session !== undefined && await canonicalSessionPath(session.sessionPath).catch(() => session.sessionPath) === canonical) return session;
             }
             return undefined;
         },
@@ -118,6 +125,7 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
                 }
                 stores.push(entry.store);
             }
+            if (stores.some((store) => !store.isMaterialized())) return undefined;
             const result = await host.handlers.releaseAgent(members[0] ?? id);
             if (result.status !== "closed" && result.status !== "not_found") {
                 throw new Error("Session could not be released");
@@ -250,20 +258,4 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
         blockRemove: (ids) => host.handlers.blockParts.remove(ids),
         blockRelease: (ids) => host.handlers.blockParts.release(ids),
     };
-}
-
-async function canonicalPath(path: string): Promise<string> {
-    let current = resolve(path);
-    const missing: string[] = [];
-    while (true) {
-        try {
-            return join(await realpath(current), ...missing.toReversed());
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-            const parent = dirname(current);
-            if (parent === current) throw error;
-            missing.push(basename(current));
-            current = parent;
-        }
-    }
 }
