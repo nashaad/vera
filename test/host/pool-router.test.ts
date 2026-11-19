@@ -694,7 +694,13 @@ test("a stored parent completion waits for crash repair", async () => {
         expect((await readSessionTurnState(path)).turnOpen).toBe(false);
         const repaired = await SessionStore.open(path);
         expect(repaired.projectedHarnessMessages()).toEqual([
-            { afterMessage: 1, id: "harness:0", text: CRASH_CUT_MESSAGE, tone: "soft" },
+            {
+                afterMessage: 1,
+                id: "harness:0",
+                text: CRASH_CUT_MESSAGE,
+                tone: "soft",
+                stopCause: "host_stopped_unexpectedly",
+            },
         ]);
         expect(repaired.pendingDeliveries()).toContainEqual(expect.objectContaining(delivery));
         expect(await router.deliverCompletion("parent", delivery)).toBe("duplicate");

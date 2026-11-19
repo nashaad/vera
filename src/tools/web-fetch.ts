@@ -76,16 +76,25 @@ export async function fetchReadablePage(
             )}\n\nThis is the PDF's text. No file was saved. `
                 + "To put the file on disk, call web_download with this URL.";
         }
-        if (!isReadableContentType(contentType)) {
+        const sniffOctetStream = isOctetStreamContentType(contentType);
+        if (!isReadableContentType(contentType) && !sniffOctetStream) {
             await response.body?.cancel();
-            throw new Error(
-                `web_fetch cannot read content type ${contentType || "(missing)"}; `
-                + "use web_download to save this URL to a file instead",
-            );
+            throw unreadableContentTypeError(contentType);
         }
+        const validateFirstChunk = sniffOctetStream
+            ? (chunk: Uint8Array) => {
+                if (!isReadableTextChunk(chunk)) {
+                    throw unreadableContentTypeError(contentType);
+                }
+            }
+            : undefined;
         return formatReadablePage(
             url.href,
-            await readBoundedBody(response, bodyByteLimit(contentType)),
+            await readBoundedBody(
+                response,
+                bodyByteLimit(contentType),
+                validateFirstChunk,
+            ),
             contentType,
         );
     } finally {
@@ -383,38 +392,84 @@ function isReadableContentType(value: string): boolean {
         || mime.endsWith("+xml");
 }
 
+function isOctetStreamContentType(value: string): boolean {
+    const mime = mimeOf(value);
+    return mime === "application/octet-stream"
+        || mime === "binary/octet-stream";
+}
+
+function isReadableTextChunk(bytes: Uint8Array): boolean {
+    if (bytes.includes(0)) return false;
+    try {
+        new TextDecoder("utf-8", { fatal: true }).decode(bytes, {
+            stream: true,
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function unreadableContentTypeError(contentType: string): Error {
+    return new Error(
+        `web_fetch cannot read content type ${contentType || "(missing)"}; `
+        + "use web_download to save this URL to a file instead",
+    );
+}
+
 async function readBoundedBody(
     response: Response,
     limit: number,
+    validateFirstChunk?: (chunk: Uint8Array) => void,
 ): Promise<string> {
-    return new TextDecoder().decode(await readBoundedBytes(response, limit));
+    return new TextDecoder().decode(
+        await readBoundedBytes(response, limit, validateFirstChunk),
+    );
 }
 
 async function readBoundedBytes(
     response: Response,
     limit: number,
+    validateFirstChunk?: (chunk: Uint8Array) => void,
 ): Promise<Uint8Array> {
     const declaredLength = Number(response.headers.get("content-length"));
-    if (
-        Number.isFinite(declaredLength)
-        && declaredLength > limit
-    ) {
-        await response.body?.cancel();
-        throw new Error(
-            `web_fetch response exceeds ${limit} bytes`,
-        );
+    const validateDeclaredLength = (): void => {
+        if (Number.isFinite(declaredLength) && declaredLength > limit) {
+            throw new Error(`web_fetch response exceeds ${limit} bytes`);
+        }
+    };
+    if (validateFirstChunk === undefined) {
+        validateDeclaredLength();
     }
     if (response.body === null) {
+        validateFirstChunk?.(new Uint8Array(0));
+        validateDeclaredLength();
         return new Uint8Array(0);
     }
 
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let total = 0;
+    let firstChunkValidated = false;
     try {
         while (true) {
             const next = await reader.read();
-            if (next.done) break;
+            if (next.done) {
+                if (!firstChunkValidated && validateFirstChunk !== undefined) {
+                    validateFirstChunk(new Uint8Array(0));
+                    validateDeclaredLength();
+                }
+                break;
+            }
+            if (
+                !firstChunkValidated
+                && validateFirstChunk !== undefined
+                && next.value.byteLength > 0
+            ) {
+                validateFirstChunk(next.value);
+                firstChunkValidated = true;
+                validateDeclaredLength();
+            }
             total += next.value.byteLength;
             if (total > limit) {
                 throw new Error(

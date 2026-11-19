@@ -1,3 +1,8 @@
+---
+title: "Browser annotation"
+description: "Select page elements, add marks, and send captures to chat."
+---
+
 # Browser annotation
 
 ## Select or draw

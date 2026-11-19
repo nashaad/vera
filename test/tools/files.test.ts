@@ -15,6 +15,40 @@ function read(input: Record<string, unknown>, cwd: string) {
     return readTool.execute(input, new ToolRuntime(cwd), new AbortController().signal);
 }
 
+test("@core a missing path does not imply several paths", async () => {
+    const cwd = await workspace();
+    try {
+        const messages = await Promise.all([
+            read({ path: "missing.txt" }, cwd)
+                .then(() => "", (error: Error) => error.message),
+            read({ path: "folder with spaces/missing.txt" }, cwd)
+                .then(() => "", (error: Error) => error.message),
+        ]);
+
+        expect(messages).toEqual([
+            "Path not found: missing.txt.",
+            "Path not found: folder with spaces/missing.txt.",
+        ]);
+    } finally {
+        await rm(cwd, { recursive: true, force: true });
+    }
+});
+
+test("@core a missing list of paths keeps the existing guidance", async () => {
+    const cwd = await workspace();
+    try {
+        const requestedPath = "src/first.ts src/second.ts";
+        const message = await read({ path: requestedPath }, cwd)
+            .then(() => "", (error: Error) => error.message);
+
+        expect(message).toBe(
+            "Path not found: src/first.ts src/second.ts. `path` takes a single file or folder, not several paths.",
+        );
+    } finally {
+        await rm(cwd, { recursive: true, force: true });
+    }
+});
+
 test("read returns a line range and says how to continue", async () => {
     const cwd = await workspace();
     try {
