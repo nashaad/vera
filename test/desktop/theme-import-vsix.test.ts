@@ -1,12 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
-import { readdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { readManifest } from "../../clients/desktop/src/theme-import/manifest.ts";
-import { importThemeFile } from "../../clients/desktop/src/theme-import/import-theme.ts";
-import { MAX_FILE_BYTES, zipSource } from "../../clients/desktop/src/theme-import/source.ts";
-import { bufferSource, readZipDirectory, readZipEntry } from "../../clients/desktop/src/theme-import/zip.ts";
-import { ThemeStore, themesDirectory } from "../../clients/desktop/src/theme-store.ts";
+import { readManifest } from "../../extensions/vscode-theme-import/manifest.ts";
+import { importThemeFile } from "../../extensions/vscode-theme-import/import-theme.ts";
+import { MAX_FILE_BYTES, zipSource } from "../../extensions/vscode-theme-import/source.ts";
+import { bufferSource, readZipDirectory, readZipEntry } from "../../extensions/vscode-theme-import/zip.ts";
 import {
     buildZip,
     manifestText,
@@ -19,11 +18,10 @@ import {
 
 afterEach(removeScratchDirectories);
 
-function vsix(files: readonly ZipFile[]): { store: ThemeStore; home: string; path: string } {
-    const home = scratchDirectory();
+function vsix(files: readonly ZipFile[]): { path: string } {
     const path = join(scratchDirectory(), "pirate-crow-pack.vsix");
     writeFileSync(path, buildZip(files));
-    return { store: new ThemeStore(themesDirectory(home)), home, path };
+    return { path };
 }
 
 function reason(outcome: ReturnType<typeof importThemeFile>): string {
@@ -45,19 +43,20 @@ const TWO_THEMES: readonly ZipFile[] = [
 ];
 
 test("@core a .vsix with several themes imports each one as its own choice", () => {
-    const { store, path } = vsix(TWO_THEMES);
-    const outcome = importThemeFile(store, path);
-    expect(outcome.ok && outcome.imported.map((theme) => theme.name)).toEqual(["Pirate Crow Night", "Pirate Crow Day"]);
+    const { path } = vsix(TWO_THEMES);
+    const outcome = importThemeFile(path);
+    const themes = outcome.ok ? outcome.themes : [];
+    expect(themes.map((theme) => theme.name)).toEqual(["Pirate Crow Night", "Pirate Crow Day"]);
     expect(outcome.ok && outcome.skipped).toEqual([]);
-    expect(store.list().map((theme) => [theme.name, theme.type, theme.source])).toEqual([
-        ["Pirate Crow Day", "light", "Extension Pirate Crow Pack"],
+    expect(themes.map((theme) => [theme.name, theme.type, theme.source])).toEqual([
         ["Pirate Crow Night", "dark", "Extension Pirate Crow Pack"],
+        ["Pirate Crow Day", "light", "Extension Pirate Crow Pack"],
     ]);
-    expect(store.list().find((theme) => theme.slug === "pirate-crow-day")?.colors.surface).toBe("#fbf7ee");
+    expect(themes.find((theme) => theme.slug === "pirate-crow-day")?.colors.surface).toBe("#fbf7ee");
 });
 
 test("@core a theme of the .vsix that fails is skipped with its reason while the others import", () => {
-    const { store, path } = vsix([
+    const { path } = vsix([
         {
             name: "extension/package.json",
             text: manifestText([
@@ -69,25 +68,24 @@ test("@core a theme of the .vsix that fails is skipped with its reason while the
         { name: "extension/good.json", text: pirateCrowText() },
         { name: "extension/bare.json", text: JSON.stringify({ colors: { "editor.findMatchBackground": "#ff0000" } }) },
     ]);
-    const outcome = importThemeFile(store, path);
-    expect(outcome.ok && outcome.imported.map((theme) => theme.name)).toEqual(["Good Crow"]);
+    const outcome = importThemeFile(path);
+    expect(outcome.ok && outcome.themes.map((theme) => theme.name)).toEqual(["Good Crow"]);
     expect(outcome.ok && outcome.skipped).toEqual([
         "Bare Crow: \"Bare Crow\" sets none of the colors Vera reads, such as editor.background or sideBar.background, so it is not a VS Code color theme.",
         "Lost Crow: The .vsix has no file \"extension/lost.json\".",
     ]);
 });
 
-test("@core a .vsix whose themes all fail is refused with the first reason and saves nothing", () => {
-    const { home, store, path } = vsix([
+test("@core a .vsix whose themes all fail is refused with the first reason", () => {
+    const { path } = vsix([
         { name: "extension/package.json", text: manifestText([{ label: "Bare Crow", path: "./bare.json" }]) },
         { name: "extension/bare.json", text: "{ \"colors\": {} }" },
     ]);
-    expect(reason(importThemeFile(store, path))).toContain("sets none of the colors Vera reads");
-    expect(() => readdirSync(themesDirectory(home))).toThrow();
+    expect(reason(importThemeFile(path))).toContain("sets none of the colors Vera reads");
 });
 
 test("a .vsix follows include inside the archive and refuses one that leaves it", () => {
-    const { store, path } = vsix([
+    const { path } = vsix([
         {
             name: "extension/package.json",
             text: manifestText([
@@ -99,42 +97,39 @@ test("a .vsix follows include inside the archive and refuses one that leaves it"
         { name: "extension/themes/base.json", text: JSON.stringify({ colors: { "editor.background": "#101010" } }) },
         { name: "extension/themes/escape.json", text: JSON.stringify({ include: "../../../outside.json", colors: { foreground: "#eeeeee" } }) },
     ]);
-    const outcome = importThemeFile(store, path);
-    expect(outcome.ok && outcome.imported.map((theme) => theme.name)).toEqual(["Nested Crow"]);
+    const outcome = importThemeFile(path);
+    expect(outcome.ok && outcome.themes.map((theme) => theme.name)).toEqual(["Nested Crow"]);
     expect(outcome.ok && outcome.skipped[0]).toContain("points outside the .vsix");
-    expect(store.list()[0]?.colors.surface).toBe("#101010");
+    expect(outcome.ok && outcome.themes[0]?.colors.surface).toBe("#101010");
 });
 
 test("package.nls.json fills a %key% label", () => {
-    const { store, path } = vsix([
+    const { path } = vsix([
         { name: "extension/package.json", text: manifestText([{ label: "%theme.night%", path: "./night.json" }], { displayName: "%displayName%" }) },
         { name: "extension/package.nls.json", text: JSON.stringify({ "theme.night": "Crow Night", displayName: { message: "Crow Pack" } }) },
         { name: "extension/night.json", text: pirateCrowText() },
     ]);
-    const outcome = importThemeFile(store, path);
-    expect(outcome.ok && outcome.imported[0]).toMatchObject({ name: "Crow Night", source: "Extension Crow Pack" });
+    const outcome = importThemeFile(path);
+    expect(outcome.ok && outcome.themes[0]).toMatchObject({ name: "Crow Night", source: "Extension Crow Pack" });
 });
 
 test("@core an archive that is not a .vsix, has no manifest or contributes no themes is refused", () => {
-    const home = scratchDirectory();
-    const store = new ThemeStore(themesDirectory(home));
     const dir = scratchDirectory();
-    expect(reason(importThemeFile(store, writeText(join(dir, "fake.vsix"), "this is not a zip file at all")))).toBe("The file is not a readable .vsix archive.");
-    expect(reason(importThemeFile(store, writeText(join(dir, "empty.vsix"), "")))).toBe("The file is not a readable .vsix archive.");
+    expect(reason(importThemeFile(writeText(join(dir, "fake.vsix"), "this is not a zip file at all")))).toBe("The file is not a readable .vsix archive.");
+    expect(reason(importThemeFile(writeText(join(dir, "empty.vsix"), "")))).toBe("The file is not a readable .vsix archive.");
     const noManifest = join(dir, "no-manifest.vsix");
     writeFileSync(noManifest, buildZip([{ name: "other/package.json", text: "{}" }]));
-    expect(reason(importThemeFile(store, noManifest))).toContain("has no extension/package.json");
+    expect(reason(importThemeFile(noManifest))).toContain("has no extension/package.json");
     const noThemes = join(dir, "no-themes.vsix");
     writeFileSync(noThemes, buildZip([{ name: "extension/package.json", text: JSON.stringify({ name: "crow-lang", contributes: { languages: [] } }) }]));
-    expect(reason(importThemeFile(store, noThemes))).toBe("The extension does not contribute any color themes.");
+    expect(reason(importThemeFile(noThemes))).toBe("The extension does not contribute any color themes.");
 });
 
 test("a truncated archive is refused rather than read past its end", () => {
-    const store = new ThemeStore(themesDirectory(scratchDirectory()));
     const zip = buildZip(TWO_THEMES);
     const path = join(scratchDirectory(), "cut.vsix");
     writeFileSync(path, zip.subarray(0, zip.length - 40));
-    expect(reason(importThemeFile(store, path))).toBe("The file is not a readable .vsix archive.");
+    expect(reason(importThemeFile(path))).toBe("The file is not a readable .vsix archive.");
 });
 
 test("@core the zip reader reads stored and deflated entries by name and offset", () => {

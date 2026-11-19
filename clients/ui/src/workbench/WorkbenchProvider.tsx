@@ -17,18 +17,19 @@ export interface WorkbenchProviderProps {
     readonly layout: ResolvedLayout;
     readonly dispatch: (action: LayoutAction) => void;
     readonly run: (command: string, args?: unknown) => void;
+    readonly hidden: ReadonlySet<string>;
     readonly children: ReactNode;
 }
 
-export function WorkbenchProvider({ layout, dispatch, run, children }: WorkbenchProviderProps) {
+export function WorkbenchProvider({ layout, dispatch, run, hidden, children }: WorkbenchProviderProps) {
     const [menu, setMenu] = useState<OpenMenu | undefined>(undefined);
     const closeMenu = useCallback(() => setMenu(undefined), []);
     const openMenu = useCallback<WorkbenchApi["openMenu"]>((entries, at) => {
         if (entries.length > 0) setMenu({ entries, x: at.x, y: at.y });
     }, []);
     const api = useMemo<WorkbenchApi>(
-        () => ({ layout, dispatch, run, openMenu }),
-        [layout, dispatch, run, openMenu],
+        () => ({ layout, dispatch, run, hidden, openMenu }),
+        [layout, dispatch, run, hidden, openMenu],
     );
     return (
         <WorkbenchContext.Provider value={api}>

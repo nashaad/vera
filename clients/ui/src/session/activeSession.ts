@@ -14,6 +14,8 @@ export interface ActiveSession {
     readonly watch: SessionWatch;
     // Writes one command line on the session's watch connection.
     readonly send: (line: string) => void;
+    // Starts the session again after its watch ended; see `canStart`.
+    readonly start: () => void;
 }
 
 let current: ActiveSession | undefined;

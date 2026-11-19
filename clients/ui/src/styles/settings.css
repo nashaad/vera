@@ -508,3 +508,26 @@
     padding: calc(var(--vera-space) * 3) calc(var(--vera-space) * 4);
     border-top: thin solid var(--vera-border);
 }
+
+.wizard-body label {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--vera-space) * 1.5);
+    margin-top: calc(var(--vera-space) * 3);
+}
+
+.wizard-body input,
+.wizard-body select {
+    box-sizing: border-box;
+    width: 100%;
+    padding: calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    background: var(--vera-surface);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-lg);
+    font: inherit;
+}
+
+.wizard-foot {
+    gap: calc(var(--vera-space) * 2);
+}

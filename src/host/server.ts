@@ -1,3 +1,5 @@
+import { ProviderSignInCoordinator } from "./provider-sign-in.ts";
+import type { ProviderSignInService } from "../providers/provider-sign-in.ts";
 import type { JsonValue, SessionEndReason } from "../sdk/hooks.ts";
 import type { ExtensionLoadFailure, ModelOperationRequest } from "./protocol.ts";
 import type { ModelOperationResult, ModelOperationStep } from "../model/model-operations.ts";
@@ -18,6 +20,7 @@ import {
 } from "./lockfile.ts";
 import type { SessionFactName } from "../store/session-facts.ts";
 import { pageSessionListing } from "./session-listing.ts";
+import { createSessionArchiveIndex } from "./session-archive.ts";
 import {
     checkRecordIdentity,
     processIsAlive,
@@ -51,6 +54,9 @@ import type {
     RegisteredAgentSummary,
     RenameSessionOutcome,
 } from "./agent-registry.ts";
+import type { MoveSessionInput, MoveSessionOutcome } from "./agent-registry/move.ts";
+import type { NewSessionAgents } from "./agent-registry/select.ts";
+import type { FolderCustomizations } from "./agent-registry/folder-customizations.ts";
 import type {
     ImportableSessionListing,
     SessionImportOutcome,
@@ -96,6 +102,8 @@ import {
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
     HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
+    HOST_CAPABILITY_SESSION_SHOW_TERMINAL,
+    HOST_CAPABILITY_SESSION_SHOW_WINDOW,
     HOST_CAPABILITY_SESSION_TITLE,
     HOST_CAPABILITY_SESSION_ROUTING,
     HOST_CAPABILITY_STOP_WAIT,
@@ -106,6 +114,7 @@ import {
 import { MAX_FRAME_BYTES } from "./connection.ts";
 import { LineBuffer } from "./line-buffer.ts";
 import { forwardSessionConnection } from "./pool/forward.ts";
+import type { SessionShowHub } from "./session-show.ts";
 import { InteractiveAttachmentCoordinator, type AttachmentCoordinator } from "./attachment-coordinator.ts";
 
 // Both directions share one ceiling: a client that may send a frame this large must not meet a server that silently drops it at a smaller one.
@@ -160,6 +169,11 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "cut_stop_wait":
         case "restart_records":
         case "restart_record_dismiss":
+        case "provider_list":
+        case "provider_save":
+        case "provider_select_model":
+        case "provider_sign_in":
+        case "provider_sign_in_cancel":
         case "provider_forget":
         case "model_operation":
         case "model_settings":
@@ -167,6 +181,8 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "refresh_catalogs":
         case "annex_url":
         case "extension_load_failures":
+        case "new_session_agents":
+        case "folder_customizations":
         case "list_extension_commands":
         case "checkpoint_stores":
         case "search_sessions":
@@ -179,6 +195,8 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "import_session":
         case "list_importable_sessions":
         case "rename_session":
+        case "set_session_archived":
+        case "move_session":
             return true;
         default:
             return false;
@@ -234,6 +252,8 @@ export interface StartHostServerOptions {
     ) => Promise<ModelTurnSettings | undefined>;
     readonly refreshCatalogs?: () => Promise<readonly CatalogRefreshOutcome[]>;
     readonly handleExtensionRequest?: ExtensionRequestHandler;
+    readonly providerSignIn?: ProviderSignInService;
+    readonly selectProviderModel?: (provider: string, model: string) => Promise<void>;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly stopWhenIdle?: StopWhenIdleControl;
     readonly stopWaitObserver?: Pick<StopWhenIdleControl, "observe">;
@@ -244,6 +264,8 @@ export interface StartHostServerOptions {
         | { readonly unavailable: string }
         | undefined;
     readonly readExtensionLoadFailures?: () => readonly ExtensionLoadFailure[];
+    readonly readNewSessionAgents?: (workspace: string | undefined) => Promise<NewSessionAgents>;
+    readonly readFolderCustomizations?: (workspace: string | undefined) => Promise<FolderCustomizations>;
     readonly checkpointStores?: (
         destination: string,
     ) => Promise<{
@@ -264,10 +286,12 @@ export interface StartHostServerOptions {
         operation: ScheduleOperation,
     ) => Promise<Record<string, unknown>>;
     readonly onRosterChanged?: (listener: () => void) => () => void;
+    /** Where a show request for an attached session is heard. Absent when nothing can ask a client to open a screen. */
+    readonly subscribeSessionShow?: SessionShowHub["subscribe"];
     readonly createAgent?: (
         options: Pick<
             CreateRegisteredAgentOptions,
-            "workspace" | "approvalMode" | "ephemeral" | "startupProfile"
+            "workspace" | "approvalMode" | "ephemeral" | "startupProfile" | "notesOffer"
         >,
     ) => Promise<Pick<ResidentAgent, "id" | "workspace">>;
     readonly resumeAgent?: (sessionPath: string) => Promise<Pick<ResidentAgent, "id" | "workspace">>;
@@ -298,10 +322,15 @@ export interface StartHostServerOptions {
     readonly unblockSession?: (
         request: UnblockSessionRequest,
     ) => Promise<UnblockSessionOutcome>;
+    readonly setSessionArchived?: (targetAgentId: string, archived: boolean) => Promise<"updated" | "not_found" | "failed">;
     readonly renameSession?: (
         targetAgentId: string,
         name: string | null,
     ) => Promise<RenameSessionOutcome>;
+    readonly moveSession?: (
+        targetAgentId: string,
+        request: MoveSessionInput,
+    ) => Promise<MoveSessionOutcome>;
     readonly importSession?: (path: string) => Promise<SessionImportOutcome>;
     readonly listImportableSessions?: (
         workspace: string | undefined,
@@ -403,6 +432,7 @@ async function startListener(
         pid: identity.pid,
     });
     const sockets = new Set<Socket>();
+    const providerSignIn = options.providerSignIn === undefined ? undefined : new ProviderSignInCoordinator(options.providerSignIn);
     const closeAgent = options.closeAgent ?? (() => Promise.resolve({ status: "not_found" as const }));
     const interactiveAttachments = options.attachmentCoordinator ?? new InteractiveAttachmentCoordinator(
         async () => options.readAgentTree ?? ((agentId) => [agentId]),
@@ -563,6 +593,9 @@ async function startListener(
                 ?? (() => Promise.resolve({ status: "rejected" as const, reason: "failed" as const })),
             options.renameSession
                 ?? (() => Promise.resolve({ status: "not_found" })),
+            options.setSessionArchived ?? (() => Promise.resolve("not_found")),
+            options.moveSession
+                ?? (() => Promise.resolve({ status: "failed" })),
             options.importSession
                 ?? (() => Promise.resolve({
                     status: "rejected" as const,
@@ -591,14 +624,19 @@ async function startListener(
             options.refreshCatalogs,
             options.operateModels,
             options.forgetProvider,
+            providerSignIn,
+            options.selectProviderModel,
             options.readAnnex,
             options.readExtensionLoadFailures,
+            options.readNewSessionAgents,
+            options.readFolderCustomizations,
             options.checkpointStores,
             options.handleExtensionRequest,
             options.stopWhenIdle,
             options.stopWaitObserver ?? options.stopWhenIdle,
             options.restartRecords ?? { list: () => [], dismiss: () => 0 },
             resolveHostLimits(options.limits),
+            options.subscribeSessionShow,
         );
     });
     let ownedSocketStat: Stats | undefined;
@@ -743,7 +781,7 @@ function receiveConnection(
     createAgent: (
         options: Pick<
             CreateRegisteredAgentOptions,
-            "workspace" | "approvalMode" | "ephemeral" | "startupProfile"
+            "workspace" | "approvalMode" | "ephemeral" | "startupProfile" | "notesOffer"
         >,
     ) => Promise<Pick<ResidentAgent, "id" | "workspace">>,
     resumeAgent: (sessionPath: string) => Promise<Pick<ResidentAgent, "id" | "workspace">>,
@@ -774,6 +812,11 @@ function receiveConnection(
         targetAgentId: string,
         name: string | null,
     ) => Promise<RenameSessionOutcome>,
+    setSessionArchived: (targetAgentId: string, archived: boolean) => Promise<"updated" | "not_found" | "failed">,
+    moveSession: (
+        targetAgentId: string,
+        request: MoveSessionInput,
+    ) => Promise<MoveSessionOutcome>,
     importSession: (path: string) => Promise<SessionImportOutcome>,
     listImportableSessions: (
         workspace: string | undefined,
@@ -815,11 +858,15 @@ function receiveConnection(
     refreshCatalogs: (() => Promise<readonly CatalogRefreshOutcome[]>) | undefined,
     operateModels: StartHostServerOptions["operateModels"],
     forgetProvider: StartHostServerOptions["forgetProvider"],
+    providerSignIn: ProviderSignInCoordinator | undefined,
+    selectProviderModel: StartHostServerOptions["selectProviderModel"],
     readAnnex: (() =>
         | { readonly url: string }
         | { readonly unavailable: string }
         | undefined) | undefined,
     readExtensionLoadFailures: StartHostServerOptions["readExtensionLoadFailures"],
+    readNewSessionAgents: StartHostServerOptions["readNewSessionAgents"],
+    readFolderCustomizations: StartHostServerOptions["readFolderCustomizations"],
     checkpointStores: ((
         destination: string,
     ) => Promise<{
@@ -831,6 +878,7 @@ function receiveConnection(
     stopWaitObserver: Pick<StopWhenIdleControl, "observe"> | undefined,
     restartRecords: RestartRecordsPort,
     limits: HostLimits,
+    subscribeSessionShow: SessionShowHub["subscribe"] | undefined,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -872,6 +920,7 @@ function receiveConnection(
     let attachedWorkspace: string | undefined;
     let stopWatchingRoster: (() => void) | undefined;
     let stopWatchingStopWait: (() => void) | undefined;
+    let stopWatchingShow: (() => void) | undefined;
     let sentWorkIndex: WorkIndexSnapshot | undefined;
     let sentBackgroundAgents = NO_BACKGROUND_AGENTS;
     let sentSessionTitle: { readonly title: string | undefined } | undefined;
@@ -900,6 +949,8 @@ function receiveConnection(
         stopWatchingRoster = undefined;
         stopWatchingStopWait?.();
         stopWatchingStopWait = undefined;
+        stopWatchingShow?.();
+        stopWatchingShow = undefined;
         attachment?.detach();
         attachment = undefined;
         attachedAgent = undefined;
@@ -1046,6 +1097,8 @@ function receiveConnection(
             stopWatchingRoster = undefined;
             stopWatchingStopWait?.();
             stopWatchingStopWait = undefined;
+            stopWatchingShow?.();
+            stopWatchingShow = undefined;
             const detachedAgentId = attachedAgentId;
             attachment.detach();
             attachment = undefined;
@@ -1095,6 +1148,8 @@ function receiveConnection(
             stopWatchingRoster = undefined;
             stopWatchingStopWait?.();
             stopWatchingStopWait = undefined;
+            stopWatchingShow?.();
+            stopWatchingShow = undefined;
             const releasedAgentId = attachedAgentId;
             const releasedClientId = attachedClientId;
             const releasedLease = interactiveAttachment;
@@ -1504,6 +1559,34 @@ function receiveConnection(
                 .then(() => socket.end(), () => socket.destroy());
             return;
         }
+        if (request?.type === "provider_select_model") {
+            clearDeadline(); finished = true;
+            const operationClosed = operationOpened();
+            try {
+                if (selectProviderModel === undefined) throw new Error("Model selection is unavailable");
+                await selectProviderModel(request.provider, request.model);
+                await send({ type: "provider_select_model_result", request_id: request.request_id });
+            } catch (error) {
+                await send({ type: "provider_request_failed", request_id: request.request_id, reason: error instanceof Error ? error.message : "Could not select model" }).catch(() => {});
+            } finally { operationClosed(); socket.end(); }
+            return;
+        }
+        if (request?.type === "provider_list" || request?.type === "provider_save"
+            || request?.type === "provider_sign_in" || request?.type === "provider_sign_in_cancel") {
+            clearDeadline();
+            finished = true;
+            const operationClosed = operationOpened();
+            const controller = new AbortController();
+            socket.once("close", () => controller.abort());
+            if (providerSignIn === undefined) {
+                await send({ type: "provider_request_failed", request_id: request.request_id, reason: "Provider sign-in is unavailable" }).catch(() => {});
+            } else {
+                await providerSignIn.handle(request, send, controller.signal);
+            }
+            operationClosed();
+            socket.end();
+            return;
+        }
         if (request?.type === "provider_forget") {
             clearDeadline(); finished = true;
             const operationClosed = operationOpened();
@@ -1665,6 +1748,50 @@ function receiveConnection(
             ).then(() => socket.end(), () => socket.destroy());
             return;
         }
+        if (request?.type === "new_session_agents") {
+            clearDeadline();
+            finished = true;
+            if (readNewSessionAgents === undefined) {
+                void send({
+                    type: "protocol_error",
+                    reason: "unsupported_or_invalid_command",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            void readNewSessionAgents(request.workspace).then(
+                (listing) => send({
+                    type: "new_session_agents",
+                    starts_on: listing.startsOn,
+                    agents: listing.agents,
+                    notices: listing.notices,
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "folder_customizations") {
+            clearDeadline();
+            finished = true;
+            if (readFolderCustomizations === undefined) {
+                void send({
+                    type: "protocol_error",
+                    reason: "unsupported_or_invalid_command",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            void readFolderCustomizations(request.workspace).then(
+                (read) => send({
+                    type: "folder_customizations",
+                    skills: read.skills,
+                    agents: {
+                        starts_on: read.agents.startsOn,
+                        agents: read.agents.agents,
+                        notices: read.agents.notices,
+                    },
+                    sources: read.sources,
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
         if (request?.type === "checkpoint_stores") {
             clearDeadline();
             finished = true;
@@ -1693,10 +1820,15 @@ function receiveConnection(
             finished = true;
             const listRequest = request;
             void Promise.resolve().then(listAgents).then(async (agents) => {
+                const archive = createSessionArchiveIndex(agents);
                 const page = pageSessionListing(agents, listRequest);
+                const pageAgents = page.agents.map((agent) => ({
+                    ...agent,
+                    archived: archive.effectiveArchived(agent.id),
+                }));
                 const rows = listRequest.include === undefined
-                    ? page.agents
-                    : await readSessionFacts(page.agents, listRequest.include);
+                    ? pageAgents
+                    : await readSessionFacts(pageAgents, listRequest.include);
                 const unavailableWorkers = readUnavailableWorkers?.() ?? [];
                 return send({
                     type: "agent_list",
@@ -1770,6 +1902,7 @@ function receiveConnection(
                 ...(request.startup_profile === undefined
                     ? {}
                     : { startupProfile: request.startup_profile }),
+                ...(request.notes_offer === true ? { notesOffer: true } : {}),
             }));
             return;
         }
@@ -2047,6 +2180,22 @@ function receiveConnection(
                 .then(() => socket.end(), () => socket.destroy());
             return;
         }
+        if (request?.type === "set_session_archived") {
+            clearDeadline();
+            finished = true;
+            void (async () => {
+                const index = createSessionArchiveIndex(await listAgents());
+                const root = index.rootAgentId(request.target_agent_id);
+                if (root === undefined) return "not_found" as const;
+                return await setSessionArchived(root, request.archived);
+            })().then(
+                (result) => result === "updated"
+                    ? send({ type: "session_archived", agent_id: request.target_agent_id, archived: request.archived })
+                    : send({ type: "session_archive_rejected", agent_id: request.target_agent_id, reason: result }),
+                () => send({ type: "session_archive_rejected", agent_id: request.target_agent_id, reason: "failed" }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
         if (request?.type === "rename_session") {
             clearDeadline();
             finished = true;
@@ -2068,6 +2217,32 @@ function receiveConnection(
                 () => send({
                     type: "session_rename_rejected",
                     agent_id: request.target_agent_id,
+                    reason: "failed",
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "move_session") {
+            clearDeadline();
+            finished = true;
+            void moveSession(
+                request.session_id,
+                { workspace: request.workspace },
+            ).then(
+                (result) => result.status === "moved"
+                    ? send({
+                        type: "session_moved",
+                        session_id: request.session_id,
+                        workspace: result.workspace,
+                    })
+                    : send({
+                        type: "session_move_rejected",
+                        session_id: request.session_id,
+                        reason: result.status,
+                    }),
+                () => send({
+                    type: "session_move_rejected",
+                    session_id: request.session_id,
                     reason: "failed",
                 }),
             ).then(() => socket.end(), () => socket.destroy());
@@ -2228,6 +2403,7 @@ function receiveConnection(
             if (wantsWorkIndex) sendWorkIndex();
             if (wantsSessionTitle) sendSessionTitle(attachedId);
         });
+        stopWatchingShow = watchSessionShow(attachedId, negotiated);
         void send({
             type: "attached",
             agent_id: attachedId,
@@ -2330,6 +2506,30 @@ function receiveConnection(
         }
         return send(stopWaitWireMessage(event), () => !finished && attachment !== undefined)
             .catch(() => { socket.destroy(); });
+    }
+
+    function watchSessionShow(
+        attachedAgentId: string,
+        negotiated: readonly string[],
+    ): (() => void) | undefined {
+        if (subscribeSessionShow === undefined) return undefined;
+        const stops: (() => void)[] = [];
+        const surfaces = [
+            [HOST_CAPABILITY_SESSION_SHOW_WINDOW, "window"],
+            [HOST_CAPABILITY_SESSION_SHOW_TERMINAL, "terminal"],
+        ] as const;
+        for (const [capability, surface] of surfaces) {
+            if (!negotiated.includes(capability)) continue;
+            stops.push(subscribeSessionShow(attachedAgentId, surface, (target) => {
+                void send({
+                    type: "session_show",
+                    agent_id: attachedAgentId,
+                    target: target.id,
+                }, () => !finished && attachment !== undefined)
+                    .catch(() => socket.destroy());
+            }));
+        }
+        return stops.length === 0 ? undefined : () => stops.forEach((stop) => stop());
     }
 
     function sendSessionTitle(attachedAgentId: string): void {

@@ -148,6 +148,9 @@ export function createRemoteHostBoundary(
             ...(registered.invocation === undefined
                 ? {}
                 : { invocation: registered.invocation }),
+            ...(registered.agents === undefined
+                ? {}
+                : { agents: registered.agents }),
             ...(registered.commandInput === undefined
                 ? {}
                 : { commandInput: registered.commandInput }),

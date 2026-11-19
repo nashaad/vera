@@ -67,8 +67,7 @@ pruned.
 
 ### Change the instruction budget
 
-Find `vera.context` in `/customize` under Extensions and note its absolute
-path. Add an explicit entry to the home's `config.json` and set
+Find `vera.context` in `/extensions` and note its path in the details. Add an explicit entry to the home's `config.json` and set
 `instruction_budget_tokens`:
 
 ```json

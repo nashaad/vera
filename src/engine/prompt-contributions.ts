@@ -35,6 +35,8 @@ export interface PromptContributionMetadata {
 export interface PromptContributionInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly chatFolder?: boolean;
+    readonly notesOffer?: boolean;
     readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
@@ -53,6 +55,8 @@ export interface PromptContributionInput {
 export interface StablePromptContributionInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly chatFolder?: boolean;
+    readonly notesOffer?: boolean;
     readonly scratchDir?: string;
     readonly disabledContributions?: readonly string[];
     /**
@@ -98,6 +102,23 @@ interface ContextualPromptContributor {
 type BuiltInPromptContributor =
     | StablePromptContributor
     | ContextualPromptContributor;
+
+const CHAT_FOLDER_NOTE =
+    "This conversation has no project folder. The working directory is its "
+    + "own folder, created empty when the conversation started, and the "
+    + "person sees its files only under Files. Keep anything they may want "
+    + "in it.";
+
+const NOTES_OFFER =
+    "The person may want to keep notes from this conversation. When it "
+    + "would help (documents were shared, a decision was settled, a topic "
+    + "keeps coming back), offer once, in one sentence, and ask where "
+    + "they keep notes, such as a notes app they already use or a folder. "
+    + "Do not offer again if they decline or ignore it. Keep the notes "
+    + "where they say, one page per topic, current as the conversation "
+    + "goes on. If your tools cannot write there, say so. If they have "
+    + "nowhere in mind, use a notes/ folder in the working directory with "
+    + "an index.md that links the pages.";
 
 const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
     {
@@ -161,7 +182,9 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
         target: "stable",
         contribute: (input) => ({
             title: "Workspace",
-            content: `Working directory: ${input.workspace}`,
+            content: input.chatFolder === true
+                ? `Working directory: ${input.workspace}\n\n${CHAT_FOLDER_NOTE}`
+                : `Working directory: ${input.workspace}`,
         }),
     },
     {
@@ -182,6 +205,15 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
                     + "The OS deletes this directory; keep nothing you need "
                     + "later.",
             },
+    },
+    {
+        id: "core.notes",
+        owner: "core",
+        target: "stable",
+        contribute: (input) =>
+            input.notesOffer === true
+                ? { title: "Notes", content: NOTES_OFFER }
+                : null,
     },
     {
         id: "core.agent-instructions",

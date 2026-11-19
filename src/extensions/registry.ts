@@ -130,6 +130,7 @@ const CONTEXT_SIZE_TRIGGER_HOOK_CAPABILITY = "hooks.context_size_trigger";
 const SESSION_END_HOOK_CAPABILITY = "hooks.session_end";
 const SUBAGENT_FINISHED_HOOK_CAPABILITY = "hooks.subagent_finished";
 const SESSION_TITLE_CAPABILITY = "sessions.title";
+const SESSION_SHOW_CAPABILITY = "sessions.show";
 const SESSION_ASK_CAPABILITY = "sessions.ask";
 const SESSION_SEND_CAPABILITY = "sessions.send";
 const MODEL_ONESHOT_CAPABILITY = "model.oneshot";
@@ -870,6 +871,12 @@ async function activateExtension(
                 }
                 return host.setTitle(sessionId, title);
             },
+            async show(sessionId: string, target: string) {
+                if (!loaded.manifest.capabilities.includes(SESSION_SHOW_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${SESSION_SHOW_CAPABILITY}`);
+                }
+                return host.showInSession(sessionId, target);
+            },
             async ask(request: VeraSessionAskRequest) {
                 if (!loaded.manifest.capabilities.includes(SESSION_ASK_CAPABILITY)) {
                     throw new Error(`Extension did not declare ${SESSION_ASK_CAPABILITY}`);
@@ -1337,6 +1344,7 @@ function registerTool(
         permissionInputs,
         commandInput,
         invocation,
+        agents,
         timeoutMs,
         run,
     } = spec;
@@ -1362,6 +1370,7 @@ function registerTool(
             || parallel === true
         ))
         || (invocation !== undefined && invocation !== "top_level")
+        || !validToolAgents(agents)
         || !validHandlerTimeout(timeoutMs)
         || typeof run !== "function"
     ) {
@@ -1410,6 +1419,7 @@ function registerTool(
             inputSchema: structuredClone(inputSchema),
         },
         ...(invocation === undefined ? {} : { invocation }),
+        ...(agents === undefined ? {} : { agents: [...agents] }),
         ...(parallel === undefined ? {} : { parallel }),
         ...(permissionOperation === undefined
             ? {}
@@ -1542,7 +1552,11 @@ function registerTool(
             }
             const presentation = result.presentation === undefined
                 ? undefined
-                : parseToolPresentation(result.presentation);
+                : parseToolPresentation(
+                    result.presentation,
+                    loaded.manifest.id,
+                    loaded.manifest.contributes.pages.map((page) => page.id),
+                );
             if (
                 result.presentation !== undefined
                 && presentation === undefined
@@ -1566,7 +1580,11 @@ function registerTool(
     tools.push({ tool, run });
 }
 
-function parseToolPresentation(value: unknown): ToolPresentation | undefined {
+function parseToolPresentation(
+    value: unknown,
+    extensionId: string,
+    pageIds: readonly string[],
+): ToolPresentation | undefined {
     if (!isPlainObject(value) || !isToolPresentation(value)) return undefined;
     if (
         value.kind === "unified_diff"
@@ -1603,12 +1621,25 @@ function parseToolPresentation(value: unknown): ToolPresentation | undefined {
     }
     if (
         value.kind === "tool_notice"
-        && hasExactKeys(value, ["kind", "text"])
+        && (hasExactKeys(value, ["kind", "text"]) || hasExactKeys(value, ["kind", "text", "link"]))
         && typeof value.text === "string"
         && value.text.trim().length > 0
         && Buffer.byteLength(value.text) <= MAX_EXTENSION_PRESENTATION_BYTES
     ) {
-        return { kind: "tool_notice", text: value.text };
+        if (value.link === undefined) return { kind: "tool_notice", text: value.text };
+        // A link names one of the extension's own pages by id; the notice leaves with the page's annex path.
+        const link = value.link;
+        if (!hasExactKeys(link as unknown as Readonly<Record<string, unknown>>, link.query === undefined ? ["title", "page"] : ["title", "page", "query"])) return undefined;
+        if (!pageIds.includes(link.page)) return undefined;
+        return {
+            kind: "tool_notice",
+            text: value.text,
+            link: {
+                title: link.title,
+                page: `/x/${encodeURIComponent(extensionId)}/${link.page}`,
+                ...(link.query === undefined ? {} : { query: { ...link.query } }),
+            },
+        };
     }
     return undefined;
 }
@@ -1621,6 +1652,15 @@ function hasExactKeys(
     const expected = [...keys].sort();
     return actual.length === expected.length
         && actual.every((key, index) => key === expected[index]);
+}
+
+function validToolAgents(value: unknown): boolean {
+    return value === undefined
+        || (
+            Array.isArray(value)
+            && value.length > 0
+            && value.every((entry) => typeof entry === "string" && entry.trim().length > 0)
+        );
 }
 
 function validPermissionInputs(value: unknown): boolean {

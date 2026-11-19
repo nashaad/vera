@@ -1,11 +1,13 @@
 import { isLocationId, type LocationId } from "../layout/model.ts";
 import type { LayoutAction } from "../layout/reducer.ts";
+import { PANE_KINDS, paneKindCommand, type PaneKind } from "../registry/core.ts";
 import type { CommandRegistry } from "./registry.ts";
 
 export const LAYOUT_COMMANDS = {
     toggleSidebar: "layout.toggleSidebar",
     toggleRightPane: "layout.toggleRightPane",
     togglePanel: "layout.togglePanel",
+    closeTab: "layout.closeTab",
     reset: "layout.reset",
     viewMoveTo: "view.moveTo",
     viewHide: "view.hide",
@@ -18,6 +20,9 @@ export const LAYOUT_COMMANDS = {
     containerShow: "container.show",
     containerActivate: "container.activate",
     containerReset: "container.reset",
+    tabOpen: "tab.open",
+    tabActivate: "tab.activate",
+    tabClose: "tab.close",
 } as const;
 
 function field(args: unknown, name: string): unknown {
@@ -44,6 +49,7 @@ function locationArg(args: unknown): LocationId {
 export function registerLayoutCommands(
     registry: CommandRegistry,
     dispatch: (action: LayoutAction) => void,
+    kinds: readonly PaneKind[] = PANE_KINDS,
 ): () => void {
     const toggles: ReadonlyArray<readonly [string, string, LocationId]> = [
         [LAYOUT_COMMANDS.toggleSidebar, "Toggle Sidebar", "sidebar"],
@@ -56,6 +62,11 @@ export function registerLayoutCommands(
             title,
             run: () => dispatch({ type: "toggleLocation", location }),
         })),
+        registry.register({
+            id: LAYOUT_COMMANDS.closeTab,
+            title: "Close Tab",
+            run: () => dispatch({ type: "closeActiveTab" }),
+        }),
         registry.register({
             id: LAYOUT_COMMANDS.reset,
             title: "Reset Layout",
@@ -138,6 +149,31 @@ export function registerLayoutCommands(
             needsArgs: true,
             run: (args) => dispatch({ type: "activateContainer", container: textArg(args, "container") }),
         }),
+        registry.register({
+            id: LAYOUT_COMMANDS.tabOpen,
+            title: "Open Pane Tab",
+            needsArgs: true,
+            run: (args) => {
+                dispatch({ type: "openTab", container: textArg(args, "container") });
+            },
+        }),
+        registry.register({
+            id: LAYOUT_COMMANDS.tabActivate,
+            title: "Activate Pane Tab",
+            needsArgs: true,
+            run: (args) => dispatch({ type: "activateTab", tab: textArg(args, "tab") }),
+        }),
+        registry.register({
+            id: LAYOUT_COMMANDS.tabClose,
+            title: "Close Pane Tab",
+            needsArgs: true,
+            run: (args) => dispatch({ type: "closeTab", tab: textArg(args, "tab") }),
+        }),
+        ...kinds.filter((kind) => kind.shortcut !== undefined).map((kind) => registry.register({
+            id: paneKindCommand(kind.id),
+            title: `Show ${kind.title}`,
+            run: () => dispatch({ type: "activateContainer", container: kind.id }),
+        })),
         registry.register({
             id: LAYOUT_COMMANDS.containerReset,
             title: "Reset View Container Location",

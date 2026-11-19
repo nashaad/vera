@@ -312,6 +312,9 @@ export async function startWorker(
                         ...(tool.invocation === undefined
                             ? {}
                             : { invocation: tool.invocation }),
+                        ...(tool.agents === undefined
+                            ? {}
+                            : { agents: tool.agents }),
                         ...(tool.commandInput === undefined
                             ? {}
                             : { commandInput: tool.commandInput }),

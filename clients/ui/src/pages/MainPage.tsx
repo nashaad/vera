@@ -1,6 +1,7 @@
 import { CoveragePage } from "./CoveragePage.tsx";
 import { CustomizePage } from "./CustomizePage.tsx";
 import { DevicesPage } from "./DevicesPage.tsx";
+import { ExtensionPage } from "./ExtensionPage.tsx";
 import { HomePage } from "./HomePage.tsx";
 import type { Route } from "./routes.ts";
 import { SearchPage } from "./SearchPage.tsx";
@@ -39,5 +40,7 @@ export function MainPage({ route, platform }: MainPageProps) {
             return <TourPage />;
         case "coverage":
             return <CoveragePage />;
+        case "extension":
+            return <ExtensionPage key={route.path} route={route} />;
     }
 }

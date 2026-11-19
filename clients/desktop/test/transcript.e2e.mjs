@@ -149,9 +149,7 @@ try {
     if (!/sleep 4 && echo caw/.test(shell) || !/\bcaw\b/.test(shell.replace("sleep 4 && echo caw", ""))) throw new Error(`The shell box was ${JSON.stringify(shell)}`);
 
     // A flags file that turns reasoning on brings the Thought rows back after a restart.
-    const flags = join(trial.home, "machine", "desktop");
-    mkdirSync(flags, { recursive: true });
-    writeFileSync(join(flags, "flags.json"), "{\"showReasoning\": true}\n");
+    trial.writeFlags({ showReasoning: "on" });
     await app.close();
     const again = await trial.launch();
     page = await again.firstWindow();

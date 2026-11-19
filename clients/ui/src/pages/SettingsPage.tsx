@@ -9,7 +9,9 @@ import { DevicesSection } from "./settings/DevicesSection.tsx";
 import { GitSection } from "./settings/GitSection.tsx";
 import { KeyboardSection } from "./settings/KeyboardSection.tsx";
 import { ProvidersSection } from "./settings/ProvidersSection.tsx";
+import { ShowSection } from "./settings/ShowSection.tsx";
 import { filterSettings } from "./settings/filter.ts";
+import { subscribeRequestedSection, takeRequestedSection } from "./settings/requestedSection.ts";
 import { SETTINGS_SECTIONS } from "./settings/sections.ts";
 import { useNarrowRail } from "./settings/useNarrowRail.ts";
 import { WorkspacesSection } from "./settings/WorkspacesSection.tsx";
@@ -30,6 +32,18 @@ export function SettingsPage() {
     useEffect(() => {
         if (!narrow) setSearching(false);
     }, [narrow]);
+
+    // A section asked for by name, such as the one the Help chat shows.
+    useEffect(() => {
+        const apply = (): void => {
+            const id = takeRequestedSection();
+            if (id === undefined || !SETTINGS_SECTIONS.some((section) => section.id === id)) return;
+            setSelected(id);
+            setQuery("");
+        };
+        apply();
+        return subscribeRequestedSection(apply);
+    }, []);
 
     // The icon rail lists every section, so a closed search keeps no hidden query.
     const closeSearch = (): void => {
@@ -104,6 +118,7 @@ export function SettingsPage() {
                     {current?.id === "git" ? <GitSection /> : null}
                     {current?.id === "devices" ? <DevicesSection /> : null}
                     {current?.id === "keyboard" ? <KeyboardSection /> : null}
+                    {current?.id === "show" ? <ShowSection /> : null}
                     {current?.id === "data" ? <DataSection /> : null}
                 </div>
             </div>

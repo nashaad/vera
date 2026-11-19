@@ -100,7 +100,7 @@ function protocolCheck(connection: UiState): DoctorCheck {
     if (identity !== undefined) {
         return { id: "protocol", label: "Protocol", result: "ok", detail: `The host reports protocol v${identity.protocol_version}.` };
     }
-    const starting = connection.phase === "starting" || connection.phase === "waiting";
+    const starting = connection.phase === "starting" || connection.phase === "installing" || connection.phase === "waiting";
     return {
         id: "protocol",
         label: "Protocol",

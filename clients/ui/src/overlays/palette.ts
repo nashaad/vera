@@ -1,3 +1,4 @@
+import { THEME_COMMANDS } from "../commands/theme-commands.ts";
 import type { Command } from "../commands/registry.ts";
 import { acceleratorKeys, NATIVE_SHORTCUTS } from "../commands/keys.ts";
 import { rowFolderName } from "../protocol/sessionGroups.ts";
@@ -6,6 +7,8 @@ import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
 export const PALETTE_LIMIT = 50;
 
 export type CommandGroup = "Go" | "Pages" | "Window" | "Session" | "Theme" | "Help" | "Other";
+
+const BUILTIN_THEME_COMMANDS = new Set(Object.values(THEME_COMMANDS));
 
 const GROUP_ORDER: readonly CommandGroup[] = ["Go", "Pages", "Window", "Session", "Theme", "Help", "Other"];
 
@@ -19,6 +22,8 @@ export interface PaletteItem {
     readonly keys: readonly string[];
     readonly status: "working" | "waiting" | undefined;
     readonly fields: readonly string[];
+    readonly searchOnly?: true;
+    readonly labelSearchText?: string;
 }
 
 export interface RankedItem {
@@ -38,7 +43,7 @@ export function commandGroup(id: string): CommandGroup {
     if (id.startsWith("layout.") || id.startsWith("view.") || id.startsWith("container.")) return "Window";
     if (id.startsWith("session.")) return "Session";
     if (id.startsWith("theme.")) return "Theme";
-    if (id.startsWith("help.") || id.startsWith("palette.")) return "Help";
+    if (id.startsWith("help.") || id.startsWith("chat.") || id.startsWith("palette.")) return "Help";
     return "Other";
 }
 
@@ -59,11 +64,18 @@ export function buildCommandItems(commands: readonly Command[], platform: string
             age: "",
             keys: shortcutKeys(command.id, platform),
             status: undefined,
-            fields: [command.title],
+            fields: [command.paletteSearchText ?? command.title],
+            searchOnly: command.paletteSearchOnly,
+            labelSearchText: command.paletteSearchText,
         }));
     return items.sort((left, right) => {
         const byGroup = GROUP_ORDER.indexOf(left.group as CommandGroup) - GROUP_ORDER.indexOf(right.group as CommandGroup);
-        return byGroup !== 0 ? byGroup : left.label.localeCompare(right.label);
+        if (byGroup !== 0) return byGroup;
+        if (left.group === "Theme") {
+            const byBuiltin = Number(BUILTIN_THEME_COMMANDS.has(right.id)) - Number(BUILTIN_THEME_COMMANDS.has(left.id));
+            if (byBuiltin !== 0) return byBuiltin;
+        }
+        return left.label.localeCompare(right.label);
     });
 }
 
@@ -142,8 +154,13 @@ function matchItem(item: PaletteItem, words: readonly string[]): { readonly rank
         }
         if (best === undefined) return undefined;
         total += best.score;
-        const labelMatch = fuzzyMatch(word, item.label);
-        if (labelMatch !== undefined) for (const index of labelMatch.indices) indices.add(index);
+        const searchOffset = item.labelSearchText === undefined ? -1 : item.label.lastIndexOf(item.labelSearchText);
+        const labelText = searchOffset === -1 ? item.label : item.labelSearchText!;
+        const labelMatch = fuzzyMatch(word, labelText);
+        const labelOffset = searchOffset === -1 ? 0 : searchOffset;
+        if (labelMatch !== undefined && labelOffset !== -1) {
+            for (const index of labelMatch.indices) indices.add(labelOffset + index);
+        }
     }
     return { ranked: { item, indices: [...indices].sort((left, right) => left - right) }, score: total };
 }
@@ -151,7 +168,7 @@ function matchItem(item: PaletteItem, words: readonly string[]): { readonly rank
 // An empty query keeps the items' own order. Otherwise the best score comes first, ties keep their order.
 export function rankItems(items: readonly PaletteItem[], query: string, limit: number = PALETTE_LIMIT): readonly RankedItem[] {
     const words = query.trim().toLowerCase().split(/\s+/).filter((word) => word.length > 0);
-    if (words.length === 0) return items.slice(0, limit).map((item) => ({ item, indices: [] }));
+    if (words.length === 0) return items.filter((item) => !item.searchOnly).slice(0, limit).map((item) => ({ item, indices: [] }));
     const scored: { readonly ranked: RankedItem; readonly score: number }[] = [];
     for (const item of items) {
         const match = matchItem(item, words);
@@ -184,12 +201,16 @@ export function labelSegments(text: string, indices: readonly number[]): readonl
 
 // Sections keep the order of their first entry, so an empty query shows the groups in their fixed order.
 export function sectionRows(ranked: readonly RankedItem[]): readonly PaletteSection[] {
-    const sections = new Map<string, { readonly ranked: RankedItem; readonly index: number }[]>();
-    ranked.forEach((entry, index) => {
+    const sections = new Map<string, RankedItem[]>();
+    for (const entry of ranked) {
         const title = entry.item.group;
         const list = sections.get(title) ?? [];
-        list.push({ ranked: entry, index });
+        list.push(entry);
         sections.set(title, list);
-    });
-    return [...sections].map(([title, entries]) => ({ title, entries }));
+    }
+    let index = 0;
+    return [...sections].map(([title, entries]) => ({
+        title,
+        entries: entries.map((entry) => ({ ranked: entry, index: index++ })),
+    }));
 }

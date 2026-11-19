@@ -7,6 +7,7 @@ import { OVERLAY_COMMANDS } from "../../clients/ui/src/commands/overlay-ids.ts";
 import { registerPageCommands } from "../../clients/ui/src/commands/page-commands.ts";
 import { registerSessionCommands } from "../../clients/ui/src/commands/session-commands.ts";
 import { registerSessionWindowCommands } from "../../clients/ui/src/commands/session-window-commands.ts";
+import { registerSubagentCommands } from "../../clients/ui/src/commands/subagent-commands.ts";
 import {
     BUILTIN_SLASH_ENTRIES,
     buildSlashEntries,
@@ -72,7 +73,8 @@ describe("the slash entries", () => {
             backgroundCommandCount: async () => ({ ok: true, count: 0 }),
             warnAboutBackgroundCommands: () => {},
         });
-        registerPageCommands(registry, { open: () => {} });
+        registerSubagentCommands(registry, { show: () => {} });
+        registerPageCommands(registry, { open: () => {}, list: () => {} }, []);
         // The overlay commands are registered by the overlay host, which needs a window.
         const overlayIds = new Set(Object.values(OVERLAY_COMMANDS).map((command) => command.id));
         for (const entry of BUILTIN_SLASH_ENTRIES) {
@@ -221,5 +223,25 @@ describe("unknownSlashMessage", () => {
         expect(unknownSlashMessage(ENTRIES, "/tmp/a.txt")).toBeUndefined();
         expect(unknownSlashMessage(ENTRIES, "/etc/hosts")).toBeUndefined();
         expect(unknownSlashMessage(ENTRIES, "/./x")).toBeUndefined();
+    });
+});
+
+describe("hidden window commands", () => {
+    test("@core a built-in that runs a hidden command leaves the list", () => {
+        const all = buildSlashEntries([], []);
+        const hidden = new Set([OVERLAY_COMMANDS.doctor.id, OVERLAY_COMMANDS.nudges.id]);
+        const entries = buildSlashEntries([], [], hidden);
+        expect(names(all).filter((name) => !names(entries).includes(name)).sort()).toEqual(["doctor", "nudges"]);
+        for (const entry of entries) expect(entry.action.kind === "command" && hidden.has(entry.action.id)).toBe(false);
+    });
+
+    test("a skill cannot take the name of a built-in that is hidden", () => {
+        const hidden = new Set([OVERLAY_COMMANDS.doctor.id]);
+        const entries = buildSlashEntries([], [{ name: "doctor", description: "A skill named like the built-in" }], hidden);
+        expect(names(entries)).not.toContain("doctor");
+    });
+
+    test("an empty hidden set lists every built-in", () => {
+        expect(names(buildSlashEntries([], [], new Set()))).toEqual(names(BUILTIN_SLASH_ENTRIES));
     });
 });

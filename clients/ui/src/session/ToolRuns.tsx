@@ -2,13 +2,16 @@ import { useState } from "react";
 
 import { CheckIcon, ChevronRightIcon, CopyIcon } from "../components/Icons.tsx";
 import { copyText } from "./copyText.ts";
-import type { ToolCall } from "./model.ts";
+import type { ToolCall, ToolNoticePresentation } from "./model.ts";
+import { RunNotice } from "./RunNotice.tsx";
 import { callPaths, callTarget, isShell, rowVerb, shellCommand, toolSummary } from "./toolTitle.ts";
 
 // A finished run of calls is one line. Opened, each call is a line of its own, and a shell command opens to a box.
+// A call's notice shows under the run, opened or not.
 export function RunLine({ calls }: { readonly calls: readonly ToolCall[] }) {
     const [open, setOpen] = useState(false);
     const failed = calls.filter((call) => call.state === "failed").length;
+    const notices = calls.flatMap((call): ToolNoticePresentation[] => (call.presentation?.kind === "tool_notice" ? [call.presentation] : []));
     return (
         <div className="run" data-open={open}>
             <button type="button" className="run-head" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -17,6 +20,7 @@ export function RunLine({ calls }: { readonly calls: readonly ToolCall[] }) {
                 <ChevronRightIcon className="chev" />
             </button>
             {open ? <CallList calls={calls} /> : null}
+            {notices.map((notice, index) => <RunNotice key={index} notice={notice} />)}
         </div>
     );
 }

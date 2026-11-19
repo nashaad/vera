@@ -45,6 +45,7 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
     return {
         canonicalPath,
         setSessionTitle: (id, title) => host.localExtensionSessions.setSessionTitle(id, title),
+        showInSession: (id, target) => host.localExtensionSessions.showInSession(id, target),
         sendToSession: (extensionId, id, text) => host.localExtensionSessions.sendToSession(extensionId, id, text),
         askSession: (call, signal) => host.localExtensionSessions.askSession(call, signal),
         investigate: (call, signal) => host.localExtensionSessions.investigate(call, signal),
@@ -131,6 +132,12 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
         rename: (id, name, reserved) => reserved
             ? host.handlers.renameSessionReserved(id, name)
             : host.handlers.renameSession(id, name),
+        setArchived: (id, archived, reserved) => reserved
+            ? host.handlers.setSessionArchivedReserved(id, archived)
+            : host.handlers.setSessionArchived(id, archived),
+        move: (id, request, reserved) => reserved
+            ? host.handlers.moveSessionReserved(id, request)
+            : host.handlers.moveSession(id, request),
         trash: (id, reserved) => reserved
             ? host.handlers.trashSessionReserved(id)
             : host.handlers.trashSession(id),

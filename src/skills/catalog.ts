@@ -35,7 +35,8 @@ export interface SkillCatalog {
 }
 
 export interface LoadSkillCatalogOptions {
-    readonly projectRoot: string;
+    // Without a project root only built-in, extension and user skills load.
+    readonly projectRoot?: string;
     readonly systemDirectory?: string;
     readonly userDirectory?: string;
     // Both default to the home config and enabled extensions. The project's
@@ -68,9 +69,11 @@ export async function loadSkillCatalog(
         extensionRoots ??= sources.extensionRoots;
         warnings.push(...sources.warnings);
     }
-    const project = readProjectSkillSettings(options.projectRoot);
-    warnings.push(...project.warnings);
-    disabledPatterns = [...disabledPatterns, ...project.disabledSkills];
+    if (options.projectRoot !== undefined) {
+        const project = readProjectSkillSettings(options.projectRoot);
+        warnings.push(...project.warnings);
+        disabledPatterns = [...disabledPatterns, ...project.disabledSkills];
+    }
     const roots: readonly {
         readonly scope: SkillScope;
         readonly path: string;
@@ -89,10 +92,10 @@ export async function loadSkillCatalog(
             scope: "user",
             path: options.userDirectory ?? defaultUserSkillDirectory(),
         },
-        {
-            scope: "project",
+        ...(options.projectRoot === undefined ? [] : [{
+            scope: "project" as const,
             path: projectSkillDirectory(options.projectRoot),
-        },
+        }]),
     ];
     const byName = new Map<string, CatalogSkill>();
 

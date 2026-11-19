@@ -328,7 +328,7 @@ The notice is for you only; it is not sent to the model.
 
 By default it looks at the last 20 calls and warns when their re-reads are
 at least 25% of their input and at least 250,000 tokens. To change that, find
-`vera.cache` in `/customize` under Extensions, note its absolute path, and
+`vera.cache` in `/extensions`, note its path in the details, and
 add an explicit entry to the home's `config.json`:
 
 ```json

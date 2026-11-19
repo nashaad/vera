@@ -2,7 +2,15 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 
 export type DragPayload =
     | { readonly kind: "view"; readonly id: string }
-    | { readonly kind: "container"; readonly id: string };
+    | { readonly kind: "container"; readonly id: string }
+    // A tab in the right pane; dropped on another location it moves its container.
+    | { readonly kind: "tab"; readonly id: string; readonly container: string };
+
+// The container a drag stands for, when it stands for one.
+export function draggedContainer(payload: DragPayload): string | undefined {
+    if (payload.kind === "container") return payload.id;
+    return payload.kind === "tab" ? payload.container : undefined;
+}
 
 interface DragApi {
     readonly payload: DragPayload | undefined;

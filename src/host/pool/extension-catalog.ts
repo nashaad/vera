@@ -4,7 +4,7 @@ import { ToolRuntime } from "../../tools/runtime.ts";
 import type { RegisteredTool, ToolExecutionResult } from "../../tools/types.ts";
 import type { ControlChannel } from "./control.ts";
 
-export const HOST_EXTENSION_IDS: ReadonlySet<string> = new Set(["vera.mcp"]);
+export const HOST_EXTENSION_IDS: ReadonlySet<string> = new Set(["vera.mcp", "vera.desktop-browser"]);
 
 export interface CatalogTool {
     readonly extensionId: string;
@@ -104,6 +104,7 @@ function toolMetadata(tool: RegisteredTool): Omit<RegisteredTool, "execute"> {
     return {
         definition: tool.definition,
         ...(tool.invocation === undefined ? {} : { invocation: tool.invocation }),
+        ...(tool.agents === undefined ? {} : { agents: tool.agents }),
         ...(tool.parallel === undefined ? {} : { parallel: tool.parallel }),
         ...(tool.effectType === undefined ? {} : { effectType: tool.effectType }),
         ...(tool.permissionOperation === undefined ? {} : { permissionOperation: tool.permissionOperation }),

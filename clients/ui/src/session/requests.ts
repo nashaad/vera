@@ -7,7 +7,8 @@ import {
     type ApprovalAnswerGrant,
     type ApprovalDecision,
 } from "../../../shared/approval-answers.ts";
-import { describePredicate } from "./permissions.ts";
+import type { SessionPane } from "../protocol/panes.ts";
+import { describePredicate, type ApprovalState } from "./permissions.ts";
 
 export interface ApprovalRequest {
     readonly kind: "approval";
@@ -55,6 +56,8 @@ export interface SetupRequest {
     readonly requestId: string;
     readonly reason: string;
     readonly waiting: number;
+    readonly destination?: string;
+    readonly provider?: string;
 }
 
 export type OpenRequest = ApprovalRequest | QuestionRequest | SetupRequest;
@@ -184,7 +187,10 @@ function parseSetup(requestId: string, request: Fields): SetupRequest | undefine
     if (reason === undefined) return undefined;
     const pending = isRecord(request.pendingAction) ? request.pendingAction : {};
     const waiting = typeof pending.count === "number" && Number.isFinite(pending.count) ? pending.count : 1;
-    return { kind: "setup", requestId, reason, waiting };
+    const destination = isRecord(request.destination) ? request.destination : {};
+    return { kind: "setup", requestId, reason, waiting,
+        ...(typeof destination.kind === "string" ? { destination: destination.kind } : {}),
+        ...(typeof destination.provider === "string" ? { provider: destination.provider } : {}) };
 }
 
 // A subagent asked when either source field is set.
@@ -196,6 +202,11 @@ export function isSubagentApproval(request: ApprovalRequest): boolean {
 export interface ApprovalAnswerContext {
     readonly mode?: string;
     readonly modes?: readonly string[];
+}
+
+// Only the main pane's cards offer the switch to Approve for me; a Chat tab's cards leave the mode alone.
+export function paneAnswerContext(pane: SessionPane, approval: ApprovalState | undefined): ApprovalAnswerContext {
+    return approval === undefined || pane !== "main" ? {} : { mode: approval.mode, modes: approval.modes };
 }
 
 // The answers an approval offers, in order, from the shared module both clients read.

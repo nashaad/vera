@@ -1,0 +1,50 @@
+import { useMemo, type ReactNode } from "react";
+
+import type { SessionWatch } from "./model.ts";
+import { Transcript } from "./Transcript.tsx";
+import { watchOpening } from "./transcript.ts";
+import { usePinnedScroll } from "./usePinnedScroll.ts";
+import { useSlowOpening } from "./useSlowOpening.ts";
+
+export interface SubagentTranscriptProps {
+    readonly watch: SessionWatch;
+    // The folder the child works in, for paths in its tool lines.
+    readonly folder?: string | undefined;
+    // Drawn after the conversation, inside the same scroll, such as open requests and the queue.
+    readonly after?: ReactNode;
+}
+
+// A subagent's conversation, as the Subagents tab shows it.
+export function SubagentTranscript({ watch, folder, after }: SubagentTranscriptProps) {
+    const blocks = useMemo(() => [...watch.history, ...watch.live], [watch.history, watch.live]);
+    const scroller = usePinnedScroll();
+    const slowOpening = useSlowOpening(watch);
+    const message = watch.phase === "failed" || watch.phase === "closed"
+        ? watch.error ?? "The subagent closed."
+        : !watchOpening(watch)
+            ? "The subagent has not said anything yet."
+            : slowOpening
+                ? "Opening the subagent."
+                : undefined;
+
+    return (
+        <div className="transcript-scroll" ref={scroller.ref} onScroll={scroller.onScroll}>
+            <div className="transcript">
+                <div className="transcript-inner">
+                    {blocks.length === 0 ? (
+                        message === undefined ? null : <p className="transcript-empty">{message}</p>
+                    ) : (
+                        <Transcript
+                            blocks={blocks}
+                            running={watch.status !== "idle"}
+                            status={watch.status}
+                            {...(watch.retry === undefined ? {} : { retry: watch.retry })}
+                            {...(folder ? { folder } : {})}
+                        />
+                    )}
+                    {after}
+                </div>
+            </div>
+        </div>
+    );
+}

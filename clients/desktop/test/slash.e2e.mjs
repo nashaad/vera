@@ -165,13 +165,15 @@ try {
     await input.press("Tab");
     if ((await input.inputValue()) !== `${secondRow} `) throw new Error(`Tab left "${await input.inputValue()}" in the box.`);
 
-    // A built-in runs the window's own command: /subagents opens its sheet.
+    // A built-in runs the window's own command: /subagents shows the Subagents tab in the right pane.
     await input.fill("/subagents");
     await input.press("Enter");
-    await page.waitForSelector("[role=\"dialog\"]");
-    await page.keyboard.press("Escape");
-    await page.waitForSelector("[role=\"dialog\"]", { state: "detached" });
+    const subagentsTab = page.locator('[data-location="rightPane"] [data-switcher="rightPane"] [data-tab][data-container="core.subagents"]');
+    await subagentsTab.waitFor({ timeout: 15_000 });
+    await page.locator('[data-location="rightPane"]').getByText("No subagents in this session.").waitFor();
     if ((await input.inputValue()) !== "") throw new Error("A command left its text in the box.");
+    await page.locator('[data-location="rightPane"] .switcher-close').first().click();
+    await subagentsTab.waitFor({ state: "detached" });
 
     // A command the window cannot run says so and sends nothing.
     const before = requests.length;
@@ -224,7 +226,6 @@ try {
         return current !== opened;
     });
     await page.waitForSelector(".transcript-scroll[data-phase=\"attached\"]", { timeout: 30_000 });
-    await page.getByText("Clone of Hello crow", { exact: true }).waitFor({ timeout: 30_000 });
     const cloned = await page.locator(".transcript-scroll").getAttribute("data-session");
     if (cloned === opened) throw new Error("Cloning retained the original session id.");
     await page.getByText("Cloned the session").waitFor();

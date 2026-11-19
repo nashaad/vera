@@ -5,6 +5,7 @@ import {
     HOST_CAPABILITIES,
     HOST_CAPABILITY_AGENT_HISTORY_PAGING,
     HOST_CAPABILITY_AGENT_REASONING_PROGRESS,
+    HOST_CAPABILITY_SESSION_MOVE,
     HOST_CAPABILITY_SESSION_ROUTING,
     negotiateHostCapabilities,
     parseHostCapabilities,
@@ -75,4 +76,16 @@ test("@core reasoning progress is offered by the host and requested only by name
         [HOST_CAPABILITY_AGENT_REASONING_PROGRESS],
         CLIENT_CAPABILITIES,
     )).toEqual([]);
+});
+
+test("moving a session is a host capability every client requests, with no protocol bump", () => {
+    expect(HOST_CAPABILITY_SESSION_MOVE).toBe("session.move.v1");
+    expect(HOST_CAPABILITIES).toContain(HOST_CAPABILITY_SESSION_MOVE);
+    expect(CLIENT_CAPABILITIES).toContain(HOST_CAPABILITY_SESSION_MOVE);
+    expect(parseHostCapabilities([HOST_CAPABILITY_SESSION_MOVE]))
+        .toEqual([HOST_CAPABILITY_SESSION_MOVE]);
+    expect(negotiateHostCapabilities(
+        [HOST_CAPABILITY_SESSION_MOVE],
+        HOST_CAPABILITIES,
+    )).toEqual([HOST_CAPABILITY_SESSION_MOVE]);
 });

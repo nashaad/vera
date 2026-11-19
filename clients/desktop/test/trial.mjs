@@ -2,7 +2,7 @@
 // built app. Stopping only ever signals the host recorded under that home.
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative } from "node:path";
@@ -15,6 +15,8 @@ const { _electron: electron } = require("playwright-core");
 const electronPath = require("electron");
 
 export const OUT_OF_SIGHT = ["-r", join(root, "clients", "desktop", "test", "out-of-sight.cjs")];
+// Counts utility processes by service name from the start of main; see globalThis.utilityStarts.
+export const COUNT_PROCESSES = ["-r", join(root, "clients", "desktop", "test", "count-processes.cjs")];
 
 export function startTrial() {
     const trialRoot = mkdtempSync(join(tmpdir(), "vera-desktop-e2e-"));
@@ -26,14 +28,15 @@ export function startTrial() {
 
     // The tour and the bench pass visible: true; every other run stays out of sight.
     // `env` adds to the app's environment, such as a HOME that holds a fixture of VS Code extensions.
-    async function launch({ visible = false, cwd = root, env = {} } = {}) {
+    // `appDir` launches another build; `args` are node options before the app.
+    async function launch({ visible = false, cwd = root, env = {}, appDir = join(root, "clients", "desktop"), args = [] } = {}) {
         const launchHome = env.HOME ?? userHome;
         const homeRelative = relative(trialRoot, launchHome);
         if (homeRelative.startsWith("..") || isAbsolute(homeRelative)) throw new Error("Trial HOME must be inside the trial root.");
         sourceTestHome(launchHome);
         const app = await electron.launch({
             executablePath: electronPath,
-            args: [...(visible ? [] : OUT_OF_SIGHT), join(root, "clients", "desktop")],
+            args: [...(visible ? [] : OUT_OF_SIGHT), ...args, appDir],
             cwd,
             env: {
                 ...process.env,
@@ -48,6 +51,11 @@ export function startTrial() {
             timeout: 60_000,
         });
         apps.push(app);
+        // A window with a watched session raises a beforeunload prompt on close. Without a listener,
+        // Playwright answers it itself and the rejected reply crashes the script after it passed.
+        const answerUnloadPrompt = (page) => page.on("dialog", (dialog) => { dialog.accept().catch(() => {}); });
+        app.windows().forEach(answerUnloadPrompt);
+        app.on("window", answerUnloadPrompt);
         if (!visible) {
             await app.firstWindow();
             const hidden = await app.evaluate(({ app: electronApp, BrowserWindow }) => electronApp.dock?.isVisible() !== true
@@ -81,14 +89,32 @@ export function startTrial() {
         throw new Error("The trial host never appeared in the lock.");
     }
 
+    // Writes the desktop's flags file into the trial home, as a person's choices in Settings do.
+    function writeFlags(flags) {
+        const folder = join(home, "machine", "desktop");
+        mkdirSync(folder, { recursive: true });
+        writeFileSync(join(folder, "flags.json"), `${JSON.stringify(flags)}\n`);
+    }
+
     async function cleanup() {
-        for (const app of apps) await app.close().catch(() => {});
+        for (const app of apps) await closeApp(app);
         const pid = hostPid();
-        if (pid !== undefined) await stopProcess(pid);
+        if (pid !== undefined) {
+            let command;
+            try {
+                command = execFileSync("ps", ["eww", "-p", String(pid), "-o", "command="], { encoding: "utf8" });
+            } catch {
+                command = "";
+            }
+            if (command && !command.split(/\s+/).includes(`VERA_HOME=${home}`)) {
+                throw new Error("Trial host identity could not be verified; refusing to signal it.");
+            }
+            if (command) await stopProcess(pid);
+        }
         rmSync(trialRoot, { recursive: true, force: true });
     }
 
-    return { root, trialRoot, home, userHome, launch, hostPid, waitForHost, cleanup };
+    return { root, trialRoot, home, userHome, launch, hostPid, waitForHost, writeFlags, cleanup };
 }
 
 // Goes through the same path as a key typed on the keyboard: the main process's
@@ -102,6 +128,26 @@ export async function press(app, key, modifiers = []) {
 }
 
 export const MODIFIER = process.platform === "darwin" ? "meta" : "control";
+
+export async function waitForAnnexPages(page, app) {
+    await press(app, "K", [MODIFIER]);
+    await page.getByRole("textbox", { name: "Command palette" }).fill("Artifacts");
+    await page.locator('[data-command="page.extension.%2Fx%2Fvera.artifacts%2Fartifacts"]').waitFor({ timeout: 45_000 });
+    await page.keyboard.press("Escape");
+}
+
+// Playwright's close waits for the app's exit event, which a quit occasionally never delivers.
+const CLOSE_LIMIT_MS = 15_000;
+
+async function closeApp(app) {
+    let timer;
+    const limit = new Promise((resolve) => { timer = setTimeout(resolve, CLOSE_LIMIT_MS, "limit"); });
+    const outcome = await Promise.race([app.close().then(() => "closed", () => "closed"), limit]);
+    clearTimeout(timer);
+    if (outcome === "closed") return;
+    console.error(`${basename(process.argv[1])}: close timed out after ${CLOSE_LIMIT_MS / 1000} s`);
+    throw new Error("Trial app did not exit; refusing to signal an unverified process group.");
+}
 
 async function stopProcess(pid) {
     try {
@@ -118,5 +164,5 @@ async function stopProcess(pid) {
         }
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    process.kill(pid, "SIGKILL");
+    throw new Error("Trial host did not exit after SIGTERM.");
 }

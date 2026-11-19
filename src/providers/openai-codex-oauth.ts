@@ -84,6 +84,7 @@ interface PkceCodes {
 export async function loginOpenAICodex(
     options: OpenAICodexLoginOptions = {},
 ): Promise<OpenAICodexCredentials> {
+    options.signal?.throwIfAborted();
     const authStorage = options.authStorage ?? createAuthStorage();
     const fetchRequest = options.fetch ?? globalThis.fetch;
     const now = options.now ?? Date.now;
@@ -99,9 +100,16 @@ export async function loginOpenAICodex(
         pkce.challenge,
     );
 
-    options.onAuthorizationUrl?.(authorizationUrl);
+    let callbackClosed = false;
+    const closeCallback = (): void => {
+        if (callbackClosed) return;
+        callbackClosed = true;
+        callback.close();
+    };
+    options.signal?.addEventListener("abort", closeCallback, { once: true });
 
     try {
+        options.onAuthorizationUrl?.(authorizationUrl);
         // Not awaited: some openers only return once the browser exits.
         void (options.openAuthorizationUrl ?? openUrl)(authorizationUrl).then((opened) => {
             if (!opened) options.onBrowserUnavailable?.(authorizationUrl);
@@ -112,7 +120,9 @@ export async function loginOpenAICodex(
             callback.redirectUri,
             code,
             pkce.verifier,
+            options.signal,
         );
+        options.signal?.throwIfAborted();
         const credentials = credentialsFromTokens(tokens, undefined, now());
         authStorage.setCredential(OPENAI_CODEX_PROVIDER_ID, {
             type: "oauth",
@@ -120,7 +130,8 @@ export async function loginOpenAICodex(
         });
         return credentials;
     } finally {
-        callback.close();
+        options.signal?.removeEventListener("abort", closeCallback);
+        closeCallback();
     }
 }
 
@@ -259,6 +270,7 @@ async function exchangeAuthorizationCode(
     redirectUri: string,
     code: string,
     verifier: string,
+    signal?: AbortSignal,
 ): Promise<OpenAICodexTokenResponse> {
     return requestTokens(fetchRequest, {
         headers: {
@@ -271,7 +283,7 @@ async function exchangeAuthorizationCode(
             client_id: CLIENT_ID,
             code_verifier: verifier,
         }).toString(),
-    });
+    }, signal);
 }
 
 async function refreshCredentials(
@@ -293,12 +305,14 @@ async function refreshCredentials(
 async function requestTokens(
     fetchRequest: typeof globalThis.fetch,
     init: Pick<RequestInit, "headers" | "body">,
+    signal?: AbortSignal,
 ): Promise<OpenAICodexTokenResponse> {
     const response = await fetchRequest(`${AUTH_HOST}/oauth/token`, {
         method: "POST",
         ...init,
         // Refreshes run one at a time, so one that never settles blocks every later request.
-        signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
+        signal: signal === undefined ? AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS)
+            : AbortSignal.any([signal, AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS)]),
     });
     if (!response.ok) {
         const detail = await response.text();

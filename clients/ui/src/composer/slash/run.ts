@@ -1,5 +1,6 @@
 import { parseCatalogLine, selectAgentCommand } from "../../customize/wire.ts";
 import { OVERLAY_COMMANDS } from "../../commands/overlay-ids.ts";
+import { currentNewChatAgents } from "../newChatAgents.ts";
 import { freshRequestId } from "../requests.ts";
 import { askSession, type SlashSession } from "./host.ts";
 import { notImplementedMessage, type SlashEntry } from "./model.ts";
@@ -14,10 +15,12 @@ export interface SlashRunContext {
     readonly notify: (text: string) => void;
     // Puts the typed line back when the box is empty again, after a command did not go through.
     readonly restore: () => void;
+    // Runs /btw for the open session; absent where the window does not offer it.
+    readonly btw?: (args: string) => Promise<void>;
 }
 
 export const EXTENSION_BUSY = "Extension commands are available when the agent is idle";
-const NO_ANSWER = "The session did not answer in time";
+export const NO_ANSWER = "The session did not answer in time";
 
 // Runs one slash command. Everything it needs from the host goes through the session's own connection.
 export async function runSlashEntry(entry: SlashEntry, args: string, context: SlashRunContext): Promise<void> {
@@ -41,6 +44,10 @@ export async function runSlashEntry(entry: SlashEntry, args: string, context: Sl
         case "agent":
             await runAgent(args, context);
             return;
+        case "btw":
+            if (context.btw === undefined) context.notify("/btw needs an open session");
+            else await context.btw(args);
+            return;
         case "extension":
             await runExtension(entry, args, context);
             return;
@@ -57,7 +64,7 @@ async function runAgent(name: string, context: SlashRunContext): Promise<void> {
         return;
     }
     if (session === undefined) {
-        context.notify("/agent needs an open session");
+        pickForNewChat(name, context);
         return;
     }
     const requestId = freshRequestId("select-agent");
@@ -65,6 +72,22 @@ async function runAgent(name: string, context: SlashRunContext): Promise<void> {
     if (reply?.type === "agent_selected") context.notify(reply.notice ?? `Agent: ${reply.name}`);
     else if (reply?.type === "agent_rejected") context.notify(reply.reason);
     else context.notify(NO_ANSWER);
+}
+
+// New Chat has no session to ask; its composer holds the list and takes the pick.
+function pickForNewChat(name: string, context: SlashRunContext): void {
+    const offered = currentNewChatAgents();
+    if (offered === undefined) {
+        context.notify("/agent needs an open session");
+        return;
+    }
+    const agent = offered.agents.find((candidate) => candidate.name === name);
+    if (agent === undefined) {
+        context.notify(`No agent named ${name}`);
+        return;
+    }
+    offered.pick(agent.name);
+    context.notify(`Agent: ${agent.name}`);
 }
 
 async function runExtension(entry: SlashEntry, args: string, context: SlashRunContext): Promise<void> {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { ProviderWizard } from "../../pages/settings/ProviderWizard.tsx";
 import { ChevronDownIcon, LayersIcon, SearchIcon, XIcon } from "../../components/Icons.tsx";
 import { INTELLIGENCE_CUTOFFS, allModels, browseRows, type IntelligenceCutoff } from "../catalog.ts";
 import type { ModelControls, ProbeOutcome } from "../controls.ts";
@@ -36,6 +37,7 @@ interface ProbeResult {
 }
 
 export function ModelsBrowser({ controls, onClose }: ModelsBrowserProps) {
+    const [connecting, setConnecting] = useState(false);
     const [tab, setTab] = useState<BrowserTab>("All models");
     const [query, setQuery] = useState("");
     const [cutoff, setCutoff] = useState<IntelligenceCutoff>("any");
@@ -106,6 +108,7 @@ export function ModelsBrowser({ controls, onClose }: ModelsBrowserProps) {
                 <div className="sheet-head">
                     <LayersIcon className="models-head-icon" />
                     <span className="models-title">Models</span>
+                    <button type="button" className="button" onClick={() => setConnecting(true)}>Connect provider</button>
                     <button type="button" className="sheet-x" onClick={onClose} aria-label="Close">
                         <XIcon />
                     </button>
@@ -220,6 +223,7 @@ export function ModelsBrowser({ controls, onClose }: ModelsBrowserProps) {
                     </div>
                 )}
             </div>
+            {connecting ? <ProviderWizard onClose={() => setConnecting(false)} /> : null}
         </div>
     );
 }

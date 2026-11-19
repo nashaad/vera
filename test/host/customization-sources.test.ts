@@ -29,6 +29,7 @@ test("source catalog is served without a turn and includes registered definition
         expect(update.requestId).toBe("sources");
         expect(update.catalog.sources.find((source) => source.name === "reader")?.content).toContain("Read the notes");
         expect(update.catalog.sources.find((source) => source.name === "explorer")?.editable).toBe(false);
+        expect(update.catalog.sources.filter((source) => source.category === "extensions")).toEqual([]);
         expect(parseAgentUpdate(update)?.type).toBe("customization_sources");
     } finally {
         await registry.close();

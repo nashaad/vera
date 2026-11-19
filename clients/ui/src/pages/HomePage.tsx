@@ -5,6 +5,7 @@ import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
 import { PanelIcon, SidebarIcon, SidebarRightIcon } from "../components/Icons.tsx";
 import type { IconProps } from "../components/Icons.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
+import { useWorkbench } from "../workbench/context.tsx";
 import { shortcutKeys } from "../workbench/hints.ts";
 
 interface Hint {
@@ -16,7 +17,7 @@ interface Hint {
 
 const HINTS: readonly Hint[] = [
     { title: "Sidebar", detail: "Pages and sessions", command: LAYOUT_COMMANDS.toggleSidebar, Icon: SidebarIcon },
-    { title: "Right pane", detail: "The host this window is attached to", command: LAYOUT_COMMANDS.toggleRightPane, Icon: SidebarRightIcon },
+    { title: "Right pane", detail: "Review, plan, files and browser", command: LAYOUT_COMMANDS.toggleRightPane, Icon: SidebarRightIcon },
     { title: "Panel", detail: "Connection output", command: LAYOUT_COMMANDS.togglePanel, Icon: PanelIcon },
 ];
 
@@ -28,6 +29,7 @@ export interface HomePageProps {
 
 export function HomePage({ platform, folder }: HomePageProps) {
     const bridge = window.veraDesktop as DesktopBridge | undefined;
+    const { hidden } = useWorkbench();
     return (
         <div className="page-scroll">
             <div className="home">
@@ -39,7 +41,7 @@ export function HomePage({ platform, folder }: HomePageProps) {
                         </div>
                     )}
                     <ul className="home-keys">
-                        {HINTS.map(({ title, detail, command, Icon }) => (
+                        {HINTS.filter((hint) => !hidden.has(hint.command)).map(({ title, detail, command, Icon }) => (
                             <li key={command} className="home-key" data-command={command}>
                                 <Icon className="home-key-icon" />
                                 <span className="home-key-title">{title}</span>

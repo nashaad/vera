@@ -1,10 +1,13 @@
 import { useMemo, useState } from "react";
 
 import { FileIcon } from "../components/Icons.tsx";
+import { CORE_VIEWS } from "../registry/core.ts";
 import { useActiveSession, type ActiveSession } from "../session/activeSession.ts";
 import { PatchView } from "../session/DiffRollup.tsx";
 import { collectChanges, fileFolder, fileName, lastTurn, MAX_CHANGED_FILES, type FileChange } from "../session/changes.ts";
+import { gateView } from "../session/liveSession.ts";
 import type { Block } from "../session/model.ts";
+import { StartOffer } from "../session/StartSession.tsx";
 import type { ViewProps } from "./env.tsx";
 
 type Scope = "turn" | "session";
@@ -39,6 +42,9 @@ function ReviewBody({ session, visible }: { readonly session: ActiveSession; rea
     const added = changes.reduce((total, change) => total + change.added, 0);
     const removed = changes.reduce((total, change) => total + change.removed, 0);
     const noun = changes.length === 1 ? "file" : "files";
+    const gate = gateView(CORE_VIEWS.review, session.watch);
+    if (gate.kind === "start") return <StartOffer text="This session is not running. Start it to see its changes." onStart={session.start} />;
+    if (gate.kind === "unavailable") return <p className="view-empty">{gate.reason}</p>;
 
     return (
         <div className="review">

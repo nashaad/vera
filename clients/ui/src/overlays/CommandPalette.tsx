@@ -52,7 +52,8 @@ export function CommandPalette({ mode, commands, onClose }: CommandPaletteProps)
     );
     const ranked = useMemo(() => rankItems(items, query), [items, query]);
     const sections = useMemo(() => sectionRows(ranked), [ranked]);
-    const highlight = active < ranked.length ? active : 0;
+    const visibleRows = useMemo(() => sections.flatMap((section) => section.entries), [sections]);
+    const highlight = active < visibleRows.length ? active : 0;
 
     useEffect(() => {
         listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
@@ -75,7 +76,7 @@ export function CommandPalette({ mode, commands, onClose }: CommandPaletteProps)
         }
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
-            const count = ranked.length;
+            const count = visibleRows.length;
             if (count === 0) return;
             const step = event.key === "ArrowDown" ? 1 : -1;
             setActive((current) => (current + step + count) % count);
@@ -83,8 +84,8 @@ export function CommandPalette({ mode, commands, onClose }: CommandPaletteProps)
         }
         if (event.key === "Enter") {
             event.preventDefault();
-            const entry = ranked[highlight];
-            if (entry !== undefined) choose(entry);
+            const entry = visibleRows[highlight];
+            if (entry !== undefined) choose(entry.ranked);
         }
     };
 
@@ -145,15 +146,15 @@ export function CommandPalette({ mode, commands, onClose }: CommandPaletteProps)
     );
 }
 
-interface PaletteRowProps {
-    readonly mode: "commands" | "sessions";
+export interface PaletteRowProps {
+    readonly mode: "commands" | "sessions" | "pick";
     readonly entry: RankedItem;
     readonly selected: boolean;
     readonly onHover: () => void;
     readonly onRun: () => void;
 }
 
-function PaletteRow({ mode, entry, selected, onHover, onRun }: PaletteRowProps) {
+export function PaletteRow({ mode, entry, selected, onHover, onRun }: PaletteRowProps) {
     const { item } = entry;
     return (
         <button
@@ -163,6 +164,7 @@ function PaletteRow({ mode, entry, selected, onHover, onRun }: PaletteRowProps) 
             className="palette-row"
             data-command={mode === "commands" ? item.id : undefined}
             data-session={mode === "sessions" ? item.id : undefined}
+            data-pick={mode === "pick" ? item.id : undefined}
             onMouseEnter={onHover}
             onClick={onRun}
         >

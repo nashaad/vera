@@ -25,6 +25,8 @@ export type SlashAction =
     | { readonly kind: "command"; readonly id: string; readonly needsSession?: true }
     | { readonly kind: "pill"; readonly pill: PillTarget }
     | { readonly kind: "agent" }
+    // Opens the session's sidekick in a Chat tab; the window runs it, not the extension that offers it in the terminal.
+    | { readonly kind: "btw" }
     | { readonly kind: "extension" }
     | { readonly kind: "skill" }
     | { readonly kind: "unsupported" };
@@ -101,13 +103,30 @@ export const BUILTIN_SLASH_ENTRIES: readonly SlashEntry[] = [
     builtin("palette", "/palette", "Open the command palette", command(OVERLAY_COMMANDS.palette.id)),
 ];
 
-// A command from an extension or a skill that shares a built-in's name or alias is left out, as in the terminal.
+export const BTW_SLASH_ENTRY: SlashEntry = {
+    name: "btw",
+    aliases: [],
+    group: "extension",
+    description: "Open or message a readonly sidekick",
+    usage: "/btw [message]",
+    action: { kind: "btw" },
+};
+
+// A command from an extension or a skill that shares a built-in's name or alias is left out, as in the terminal,
+// including a built-in the window has hidden. `hidden` names window commands; a built-in that runs one is left out.
 export function buildSlashEntries(
     extensions: readonly ExtensionCommandInfo[],
     skills: readonly SkillCommandInfo[],
+    hidden: ReadonlySet<string> = new Set(),
+    // Whether /btw is offered: the session shown is in the main pane and the extension that provides it is on.
+    btw: boolean = false,
 ): readonly SlashEntry[] {
-    const taken = new Set(BUILTIN_SLASH_ENTRIES.flatMap((entry) => [entry.name, ...entry.aliases]));
-    const entries: SlashEntry[] = [...BUILTIN_SLASH_ENTRIES];
+    // The extension's own /btw is never listed; the window runs the sidekick itself.
+    const taken = new Set([BTW_SLASH_ENTRY.name, ...BUILTIN_SLASH_ENTRIES.flatMap((entry) => [entry.name, ...entry.aliases])]);
+    const entries: SlashEntry[] = BUILTIN_SLASH_ENTRIES.filter(
+        (entry) => entry.action.kind !== "command" || !hidden.has(entry.action.id),
+    );
+    if (btw) entries.push(BTW_SLASH_ENTRY);
     for (const info of extensions) {
         if (taken.has(info.name)) continue;
         taken.add(info.name);
