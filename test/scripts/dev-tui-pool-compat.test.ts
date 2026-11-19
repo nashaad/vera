@@ -1,10 +1,14 @@
 import { tmpdir } from "node:os";
-import { expect } from "bun:test";
+import { afterAll, expect } from "bun:test";
 import { socketTest } from "../support/socket-probe.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { runDevTui } from "../../scripts/dev-tui.ts";
+import { linkedWorktree, removeGitRepositories } from "../support/git-repositories.ts";
+
+const worktree = linkedWorktree();
+afterAll(removeGitRepositories);
 import { synthesizeFactoryHome } from "../../scripts/synthesize-factory-home.ts";
 import { forceStopHostProcess } from "../../src/host/force-stop.ts";
 import { inspectHostLockFile } from "../../src/host/lockfile.ts";
@@ -24,7 +28,7 @@ socketTest("the development pool flag respects the single-process setting", asyn
     }));
     let recorded: { pid: number; started_at: string } | undefined;
     try {
-        const result = await runDevTui(["--pool"], process.cwd(), {
+        const result = await runDevTui(["--pool"], worktree, {
             sourceHome,
             temporaryRoot: join(root, "i"),
             devInstanceRoot: join(root, "registry"),

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -25,12 +25,16 @@ test("a non-terminal launch refuses before packing", async () => {
 });
 
 import { candidateHomePath, runDevTui } from "../../scripts/dev-tui.ts";
+import { linkedWorktree, removeGitRepositories } from "../support/git-repositories.ts";
+
+const worktree = linkedWorktree();
+afterAll(removeGitRepositories);
 import { clientLaunchHome, clientRecordPath, readClientRecord, stopRecordedClient, trackClient, writeClientRecord, type DevClientProcessInfo } from "../../scripts/dev-tui-client.ts";
 
 for (const scenario of ["matching", "reused", "foreign", "unreadable", "dead", "absent"] as const) {
     test(`stop handles a ${scenario} client record`, async () => {
         const root = mkdtempSync(join(tmpdir(), "dev-tui-client-stop-"));
-        const home = candidateHomePath(process.cwd(), root);
+        const home = candidateHomePath(worktree, root);
         mkdirSync(join(home, "runtime"), { recursive: true });
         writeFileSync(join(home, "keep"), "yes");
         if (scenario !== "absent") writeClientRecord(home, { pid: 1234, startedAt: "original" });
@@ -44,7 +48,7 @@ for (const scenario of ["matching", "reused", "foreign", "unreadable", "dead", "
             graceMs: 0,
         };
         try {
-            const code = await runDevTui(["--stop"], process.cwd(), {
+            const code = await runDevTui(["--stop"], worktree, {
                 temporaryRoot: root, clientProcessInfo: info, stderr: { write: () => {} },
             });
             expect(code).toBe(0);
@@ -96,7 +100,7 @@ test("a launched client is recorded until it exits without removing a newer reco
 for (const role of ["host", "worker"] as const) {
     test(`stop leaves a recorded ${role} from another home running`, async () => {
         const root = mkdtempSync(join(tmpdir(), "dev-stop-foreign-"));
-        const home = candidateHomePath(process.cwd(), root);
+        const home = candidateHomePath(worktree, root);
         const runtime = join(home, "runtime");
         mkdirSync(join(runtime, "workers"), { recursive: true });
         const child = Bun.spawn([process.execPath, "-e", "setInterval(() => {}, 1000)"], {
@@ -112,7 +116,7 @@ for (const role of ["host", "worker"] as const) {
             } else {
                 writeFileSync(join(runtime, "workers", "w0.json"), JSON.stringify({ ...record, id: "w0" }));
             }
-            const code = await runDevTui(["--stop"], process.cwd(), {
+            const code = await runDevTui(["--stop"], worktree, {
                 temporaryRoot: root, stderr: { write: (message) => messages.push(message) },
             });
             expect(code).toBe(1);

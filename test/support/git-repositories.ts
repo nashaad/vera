@@ -28,6 +28,10 @@ export function addWorktree(repo: string, name: string): string {
     return path;
 }
 
+export function linkedWorktree(): string {
+    return addWorktree(repository(), "dev-tui");
+}
+
 export function addSubmodule(repo: string, name: string): string {
     const source = join(repo, "..", `${name}-source`);
     mkdirSync(source);
