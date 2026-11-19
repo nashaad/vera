@@ -16,6 +16,7 @@ import { connectHost } from "../../src/host/connection.ts";
 import { inProcessWorkerSocket } from "../../src/host/pool/in-process.ts";
 import { ControlPeer } from "../../src/host/pool/control.ts";
 import * as supervisor from "../../src/host/pool/supervisor.ts";
+import { RestartLedger } from "../../src/host/pool/restart-ledger.ts";
 import { processCommandLine, processStartedAt } from "../../src/host/process-identity.ts";
 import { requestHostIdentity, requestHostStop } from "../../src/host/protocol.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
@@ -23,6 +24,7 @@ import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts"
 import { TURNS_HELD_REFUSAL } from "../../src/host/stop-when-idle.ts";
 import { projectTranscript } from "../../src/engine/protocol.ts";
 import { defaultInboxPath } from "../../src/store/inbox.ts";
+import { defaultRestartRecordPath } from "../../src/store/restart-records.ts";
 import * as store from "../../src/store/session-store.ts";
 import { readSessionTurnState, SessionStore, WORKER_EXIT_TURN_MESSAGE } from "../../src/store/session-store.ts";
 
@@ -914,7 +916,7 @@ socketAndLoopbackTest("a stop refused during adoption never takes effect later",
     }
 }, 35_000);
 
-socketAndLoopbackTest("a worker repairs its turn after the host disappears beyond adoption grace", async () => {
+socketAndLoopbackTest("@core a worker records host loss after its turn closes beyond adoption grace", async () => {
     mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
     const home = await mkdtemp(join(tmpdir(), "vera-dev", "hstop-host-lost-"));
     const webRoot = join(home, "web");
@@ -976,6 +978,8 @@ socketAndLoopbackTest("a worker repairs its turn after the host disappears beyon
         } while (finished.type !== "turn_finished");
         expect(finished).toMatchObject({ stopCause: "host_stopped_unexpectedly" });
         await waitFor(() => !alive(worker!.pid), "worker host-loss exit");
+        const restartRecords = await new RestartLedger(defaultRestartRecordPath(home)).list();
+        expect(restartRecords).toContainEqual(expect.objectContaining({ session_id: session.id, cause: "crash" }));
 
         const reopened = await SessionStore.open(sessionPath!);
         expect(reopened.messages().at(-1)).toMatchObject({
