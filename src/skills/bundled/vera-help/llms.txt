@@ -140,7 +140,7 @@ If a client falls behind, Vera can skip an intermediate transcript refresh and s
 A program can read a named session's history page by page, newest first (`docs/programmatic-use.md`).
 Every client receives the latest page of a conversation when it attaches and asks for older pages as it needs them; a client that falls far behind is disconnected and reattaches. Manual: `docs/programmatic-use.md`.
 Finished tool results saved before a crash remain in the transcript.
-In the terminal transcript a `write` or `edit` that ran and returned an error is headed `Failed`, live and after reopening; a denied or halted call is headed `Did not run`. Manual: `docs/sessions.md`.
+In the terminal transcript a `write`, `edit` or generic extension tool that ran and returned an error is headed `Failed`, live and after reopening; a denied or halted call is headed `Did not run`. Manual: `docs/sessions.md`.
 While Vera works or compacts, Escape stops it and leaves any draft in the composer; when idle, Escape clears a draft.
 Ctrl+C stops the active turn without sending queued work. While a stop is already in progress it exits the TUI. When idle, it clears a composer draft first; with an empty composer, pressing it twice exits, and Escape between the presses cancels.
 When you quit the TUI with background commands in attached conversations, or the desktop with background commands in open conversations, Vera asks whether to stop them or keep them running.
@@ -256,7 +256,7 @@ The host log records why a host or session process stopped, the requester when s
 When a model request fails for good, the turn ends with an error that names the model, says what went wrong and how to fix it, and stays in the conversation when it is reopened; the Vera report in `/diagnostics` has the full error. Manual: `docs/troubleshooting.md`.
 If a key, paste or submitted command fails in the TUI, the conversation shows an error line that says what failed, the client's diagnostic log records it, and the TUI keeps running.
 The host watches TUI heartbeats and records detected stalls and unexpected exits in client diagnostic logs; older TUIs keep their own watchdog. Manual: `docs/runtime-and-worktrees.md`.
-Completed web searches show each query in the collapsed activity group; Ctrl+T expands tool details, and Ctrl+O expands provider reasoning summaries. Repeated reads of one background process fold into one Waited row. Manual: `docs/tui-dialogs.md`.
+Successful web searches show each query in the collapsed activity group; Ctrl+T expands tool details, and Ctrl+O expands provider reasoning summaries. Repeated reads of one background process fold into one Waited row. Manual: `docs/tui-dialogs.md`.
 `/diagnostics` and `/doctor` inspect the current runtime. `/diagnostics` opens on a menu with two reports, Session (this conversation) and Vera (the host); ↑↓ and Enter open one, Escape goes back to the menu, and Enter on a report copies it. `/context` explains context occupancy without making a model request.
 From Home or a conversation, press Ctrl+P and choose Reconnect host; there is no `/reconnect` command. This attaches to or replaces the host process without installing a build.
 You can switch back to the single-process host in Home config and apply the change with Reconnect host. Manual: `docs/troubleshooting.md`.
