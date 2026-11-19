@@ -262,7 +262,7 @@ export async function resolveReadPath(
     } catch (error) {
         if (!isMissingPathError(error)) throw error;
         const listHint = looksLikeSeveralPaths(requestedPath)
-            ? " `path` takes a single file or folder, not several paths."
+            ? " `path` takes one file or folder; call the tool once for each path."
             : "";
         throw new Error(`Path not found: ${requestedPath}.${listHint}`);
     }
