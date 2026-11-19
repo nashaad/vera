@@ -79,6 +79,9 @@ window. Cache-hit change is measured in percentage points.
 For ranges longer than Today, the chart shows daily spending by model.
 The legend lists the top three models and groups the rest as Other.
 
+In the model tables, Spend share is each route's share of named spending;
+unpriced routes show a dash instead of a percentage.
+
 ## Find a conversation
 
 Filter the table by workspace, kind, or model. Model searches match model IDs,

@@ -23,6 +23,7 @@ import {
 } from "./sessions-table.ts";
 import { ANNEX_BUILT_IN_PAGES } from "../../src/annex/built-in-pages.ts";
 import { money } from "./money.ts";
+import { spendShare, type SpendShare } from "./model-table.ts";
 import { SubscriptionLimitsPanel } from "./SubscriptionLimits.tsx";
 
 const WINDOWS: readonly { readonly id: UsageWindowId; readonly label: string }[] = [
@@ -974,14 +975,13 @@ function ModelTable({
     const shown = rows.slice(0, 8);
     const rest = rows.slice(8);
     const restSpend = rest.reduce((sum, row) => sum + row.spend, 0);
-    const restShare = rest.reduce((sum, row) => sum + row.share, 0);
     return (
         <div className="table-scroll">
             <table>
                 <thead>
                     <tr>
                         <th>Model</th>
-                        <th>Share</th>
+                        <th>Spend share</th>
                         <th>Tokens</th>
                         <th>Cost</th>
                         {tools ? <th>Tools</th> : undefined}
@@ -993,7 +993,7 @@ function ModelTable({
                             <td className="mono">
                                 {row.provider}/{row.model}
                             </td>
-                            <td>{shareCell(row.share)}</td>
+                            <td>{shareCell(spendShare([row]))}</td>
                             {tokenCell(row)}
                             <td>{costCell(row.spend, row.kind)}</td>
                             {tools
@@ -1005,7 +1005,7 @@ function ModelTable({
                         ? (
                             <tr>
                                 <td className="faint">Other ({rest.length})</td>
-                                <td>{shareCell(restShare)}</td>
+                                <td>{shareCell(spendShare(rest))}</td>
                                 <td className="dim">
                                     {formatTokens(rest.reduce(
                                         (sum, row) => sum + row.inputTokens + row.outputTokens,
@@ -1151,12 +1151,14 @@ function chartLabel(date: string, dated: boolean): string {
     });
 }
 
-function shareCell(share: number) {
-    const pct = Math.round(share * 100);
+function shareCell(share: SpendShare) {
+    if (share.percentage === undefined) {
+        return <span className="faint">{share.label}</span>;
+    }
     return (
         <div className="share">
-            <span>{pct}%</span>
-            <span className="bar"><i style={{ width: `${pct}%` }} /></span>
+            <span>{share.label}</span>
+            <span className="bar"><i style={{ width: `${share.percentage}%` }} /></span>
         </div>
     );
 }
