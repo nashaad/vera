@@ -375,6 +375,12 @@ stalls, recovery and unexpected exits in their logs. It records a limit being
 reached in the host log. Detection is best effort across host restarts. Older
 TUIs continue to use their own watchdog until they exit.
 
+When the TUI or `vera stdio` skips an unrecognized update or malformed notice,
+its process writes a separate `skipped-updates-*.jsonl` diagnostic log in that
+folder. The log records the kind, sequence and update type, not the update's
+payload. It limits the number of individual entries and counts further skips;
+logging is best effort and does not interrupt the conversation.
+
 Before each signal, `vera prune`, `bun run dev:sweep` and the stray-process
 cleanup in `vera doctor` check again that the PID still belongs to the process
 that was listed. The start time must match and the command line must be

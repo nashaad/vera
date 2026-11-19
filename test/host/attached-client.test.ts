@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { afterEach, expect } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 
@@ -544,6 +544,202 @@ socketTest(
             client.close();
             agent.close();
             await server.close();
+        }
+    },
+);
+
+socketTest(
+    "skipped attached-client updates are recorded in the home runtime log",
+    async () => {
+        const home = temporaryDirectory();
+        const runtime = join(home, "runtime");
+        const socketPath = join(runtime, "host.sock");
+        mkdirSync(runtime, { recursive: true });
+        const server = createServer((socket) => {
+            socket.once("data", () => {
+                socket.write(`${JSON.stringify({
+                    type: "attached",
+                    agent_id: "agent-1",
+                    workspace: "/work/one",
+                    background_agents: NO_BACKGROUND_AGENTS,
+                })}\n${JSON.stringify({ type: "history", entries: [], seq: 0 })}\n`);
+                for (let index = 1; index <= 103; index += 1) {
+                    const seq = index > 3 ? index - 1 : index;
+                    const update = index === 1
+                        ? { type: `odd type!*${"x".repeat(100)}`, seq, payload: "private-payload-marker" }
+                        : index === 2
+                        ? { ...malformedNotice, seq }
+                        : index === 3
+                        ? { type: "unknown_update", payload: "private-payload-marker" }
+                        : { type: "unknown_update", seq, payload: "private-payload-marker" };
+                    socket.write(`${JSON.stringify(update)}\n`);
+                }
+                setTimeout(() => {
+                    for (let seq = 103; seq <= 107; seq += 1) {
+                        socket.write(`${JSON.stringify({ type: "unknown_update", seq, payload: "private-payload-marker" })}\n`);
+                    }
+                }, 450);
+            });
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(socketPath, resolve);
+        });
+        const modulePath = new URL("../../src/host/attached-client.ts", import.meta.url).pathname;
+        const child = Bun.spawn(["bun", "-e", `
+            import { readdir, readFile } from "node:fs/promises";
+            import { dirname, join } from "node:path";
+            import { attachAgent } from ${JSON.stringify(modulePath)};
+            const client = await attachAgent({
+                socketPath: process.argv[1], agentId: "agent-1", maxPendingUpdates: 1,
+            });
+            await client.receive();
+            const directory = join(dirname(process.argv[1]), "logs", "clients");
+            const deadline = Date.now() + 8_000;
+            let complete = false;
+            while (Date.now() < deadline && !complete) {
+                try {
+                    const name = (await readdir(directory)).find((entry) => entry.startsWith("skipped-updates-"));
+                    const contents = await readFile(join(directory, name), "utf8");
+                    const last = contents.trimEnd().split("\\n").at(-1);
+                    complete = JSON.parse(last).count === 8;
+                } catch {}
+                if (!complete) await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+            if (!complete || client.lastSequence !== 107 || client.closed) throw new Error("Skipped updates did not complete");
+            client.close();
+        `, socketPath], {
+            env: { ...Bun.env, HOME: home, VERA_HOME: home },
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        try {
+            const exitCode = await child.exited;
+            const stderr = await new Response(child.stderr).text();
+            expect(exitCode, stderr).toBe(0);
+            const logDirectory = join(runtime, "logs", "clients");
+            const logName = readdirSync(logDirectory).find((name) =>
+                /^skipped-updates-.*\.jsonl$/.test(name)
+            );
+            expect(logName).toBeDefined();
+            const contents = readFileSync(join(logDirectory, logName!), "utf8");
+            expect(contents).not.toContain("private-payload-marker");
+            expect(Buffer.byteLength(contents)).toBeLessThanOrEqual(32 * 1_024);
+            const lines = contents.split("\n");
+            if (lines.at(-1) === "") lines.pop();
+            expect(lines.length).toBeLessThanOrEqual(101);
+            const events = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+            const details = events.filter((event) => event.event === "skipped_agent_update");
+            expect(details).toHaveLength(100);
+            expect(details[0]).toMatchObject({
+                kind: "unknown",
+                seq: 1,
+                updateType: `odd_type__${"x".repeat(54)}`,
+            });
+            expect(details[1]).toMatchObject({ kind: "invalid_notice", seq: 2, updateType: "notice" });
+            expect(details[2]).toMatchObject({ kind: "unknown", seq: null, updateType: "unknown_update" });
+            expect(details.every((event) =>
+                typeof event.updateType === "string"
+                && event.updateType.length <= 64
+                && /^[A-Za-z0-9_.-]+$/.test(event.updateType)
+            )).toBe(true);
+            expect(events.at(-1)).toMatchObject({
+                event: "skipped_agent_updates_suppressed",
+                count: 8,
+            });
+            expect(lines.at(-1)!.length).toBe(127);
+            expect(lines.at(-1)!.length).toBeGreaterThan(JSON.stringify(events.at(-1)).length);
+        } finally {
+            if (child.exitCode === null) child.kill();
+            await child.exited;
+            await closeServer(server);
+        }
+    },
+);
+
+socketTest(
+    "skipped update logging failure does not fail the attached client",
+    async () => {
+        const home = temporaryDirectory();
+        const runtime = join(home, "runtime");
+        mkdirSync(join(runtime, "logs"), { recursive: true });
+        writeFileSync(join(runtime, "logs", "clients"), "not a directory");
+        const socketPath = join(runtime, "host.sock");
+        const server = createServer((socket) => {
+            socket.once("data", () => {
+                socket.write(`${JSON.stringify({
+                    type: "attached", agent_id: "agent-1", workspace: "/work/one",
+                    background_agents: NO_BACKGROUND_AGENTS,
+                })}\n${JSON.stringify({ type: "history", entries: [], seq: 0 })}\n`);
+                socket.write(`${JSON.stringify({ type: "unknown_update", seq: 1 })}\n`);
+                setTimeout(() => socket.write(`${JSON.stringify({ type: "status", state: "idle", seq: 2 })}\n`), 500);
+            });
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(socketPath, resolve);
+        });
+        const modulePath = new URL("../../src/host/attached-client.ts", import.meta.url).pathname;
+        const child = Bun.spawn(["bun", "-e", `
+            import { attachAgent } from ${JSON.stringify(modulePath)};
+            const client = await attachAgent({ socketPath: process.argv[1], agentId: "agent-1" });
+            await client.receive();
+            const update = await client.receive();
+            if (update.type !== "status" || update.seq !== 2 || client.lastSequence !== 2 || client.closed) {
+                throw new Error("The attachment did not continue after the failed log write");
+            }
+            client.close();
+        `, socketPath], {
+            env: { ...Bun.env, HOME: home, VERA_HOME: home },
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        try {
+            expect(await child.exited).toBe(0);
+            expect(readFileSync(join(runtime, "logs", "clients"), "utf8"))
+                .toBe("not a directory");
+        } finally {
+            if (child.exitCode === null) child.kill();
+            await child.exited;
+            await closeServer(server);
+        }
+    },
+);
+
+socketTest(
+    "an attachment outside the selected home does not write its diagnostic log",
+    async () => {
+        const home = temporaryDirectory();
+        const other = temporaryDirectory();
+        const socketPath = join(other, "host.sock");
+        const server = await scriptedHost(socketPath, [
+            { type: "history", entries: [], seq: 0 },
+            { type: "future_update", seq: 1 },
+            { type: "status", state: "idle", seq: 2 },
+        ]);
+        const modulePath = new URL("../../src/host/attached-client.ts", import.meta.url).pathname;
+        const child = Bun.spawn(["bun", "-e", `
+            import { attachAgent } from ${JSON.stringify(modulePath)};
+            const client = await attachAgent({ socketPath: process.argv[1], agentId: "agent-1" });
+            await client.receive();
+            const update = await client.receive();
+            if (update.type !== "status" || client.lastSequence !== 2) throw new Error("Attachment failed");
+            await new Promise((resolve) => setTimeout(resolve, 350));
+            client.close();
+        `, socketPath], {
+            env: { ...Bun.env, HOME: home, VERA_HOME: home },
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        try {
+            const exitCode = await child.exited;
+            const stderr = await new Response(child.stderr).text();
+            expect(exitCode, stderr).toBe(0);
+            expect(existsSync(join(home, "runtime", "logs", "clients"))).toBe(false);
+        } finally {
+            if (child.exitCode === null) child.kill();
+            await child.exited;
+            await closeServer(server);
         }
     },
 );

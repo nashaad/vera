@@ -250,7 +250,7 @@ Tool results should be visibly bounded, truncated, or paginated. Oversized outpu
 How much context Vera keeps is configurable on one screen: `/settings` then Overrides. It exposes the context limit, compaction, and tool-result levers. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, asks before saving a summary target that is not under the trigger, and asks before clearing every lever at once.
 Manual: `docs/context-levers.md`.
 
-## Diagnostics and recovery [lines=32]
+## Diagnostics and recovery [lines=33]
 Vera automatically retries rate-limit, server, dropped-connection and stalled-stream failures with increasing waits; retry activity stays visible and Escape cancels the pending retry or a stuck request. A spent subscription usage limit is not retried: the turn stops at once and the error says when the limit resets.
 If Vera cannot build a request locally, it stops without retrying and the Vera report in `/diagnostics` has the error.
 If a resident agent stops unexpectedly, the conversation shows the failure and the host log records its message and stack.
@@ -258,6 +258,7 @@ The host log records why a host or session process stopped, the requester when s
 When a model request fails for good, the turn ends with an error that names the model, says what went wrong and how to fix it, and stays in the conversation when it is reopened; the Vera report in `/diagnostics` has the full error. Manual: `docs/troubleshooting.md`.
 If a key, paste or submitted command fails in the TUI, the conversation shows an error line that says what failed, the client's diagnostic log records it, and the TUI keeps running.
 The host watches TUI heartbeats and records detected stalls and unexpected exits in client diagnostic logs; older TUIs keep their own watchdog. Manual: `docs/runtime-and-worktrees.md`.
+The TUI and `vera stdio` record skipped update frames in a separate client diagnostic log. Manual: `docs/runtime-and-worktrees.md`.
 Successful web searches show each query in the collapsed activity group; Ctrl+T expands tool details, and Ctrl+O expands provider reasoning summaries. Repeated reads of one background process fold into one Waited row. Manual: `docs/tui-dialogs.md`.
 `/diagnostics` and `/doctor` inspect the current runtime. `/diagnostics` opens on a menu with two reports, Session (this conversation) and Vera (the host); ↑↓ and Enter open one, Escape goes back to the menu, and Enter on a report copies it. `/context` explains context occupancy without making a model request.
 From Home or a conversation, press Ctrl+P and choose Reconnect host; there is no `/reconnect` command. This attaches to or replaces the host process without installing a build.
