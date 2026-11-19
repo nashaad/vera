@@ -114,7 +114,8 @@ try {
     await chatTabs().first().waitFor({ timeout: 15_000 });
     await side().waitFor({ timeout: 15_000 });
     await side().locator(`text=${SIDE_REPLY}`).waitFor({ timeout: 45_000 });
-    if ((await chatTabs().first().innerText()).trim() !== "BTW") throw new Error("The sidekick tab is not titled BTW.");
+    if ((await chatTabs().first().getAttribute("title")) !== "Btw") throw new Error("The sidekick tab title attribute is not Btw.");
+    if ((await chatTabs().first().innerText()).trim() !== "Btw") throw new Error("The sidekick tab is not titled Btw.");
     if ((await input.inputValue()) !== "") throw new Error("/btw left its text in the main box.");
     const sideRequest = requests.find((entry) => entry.side);
     if (sideRequest === undefined) throw new Error("No request carried the side conversation boundary.");

@@ -107,7 +107,8 @@ describe("/btw in the desktop composer", () => {
         expect(branches).toEqual(["crow-1"]);
         expect(opened).toHaveLength(1);
         const entry = chatTabs.sidekickOf("crow-1");
-        expect(entry?.entry).toMatchObject({ kind: "sidekick", title: SIDEKICK_TITLE, folder: "/nest", primary: "crow-1" });
+        expect(SIDEKICK_TITLE).toBe("Btw");
+        expect(entry?.entry).toMatchObject({ kind: "sidekick", title: "Btw", folder: "/nest", primary: "crow-1" });
         expect(takePendingPrompt(entry?.entry.agentId ?? "")).toEqual({ text: "what did we decide?", images: [] });
         expect(notes).toEqual([]);
         expect(sent).toEqual([]);

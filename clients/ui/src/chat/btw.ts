@@ -5,7 +5,7 @@ import { setPendingPrompt } from "../session/pendingPrompt.ts";
 import { CHAT_TABS_FULL } from "./open.ts";
 import { chatTabs, type ChatSeed } from "./store.ts";
 
-export const SIDEKICK_TITLE = "BTW";
+export const SIDEKICK_TITLE = "Btw";
 export const BTW_OFF = "/btw is turned off";
 export const BTW_WORKING = "/btw is still opening";
 
