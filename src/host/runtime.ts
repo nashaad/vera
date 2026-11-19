@@ -1109,10 +1109,12 @@ async function startHostRuntime(
         }
         if (closing === undefined) {
             if (cause !== undefined) shutdownCause = cause;
+            const restorationStopped = server?.stopLockRestoration();
             announceShutdown();
             closing = (async () => {
                 try {
                     try {
+                        await restorationStopped;
                         await annex?.close();
                     } finally {
                         try {
@@ -1200,6 +1202,7 @@ async function startHostRuntime(
                 capabilities: HOST_CAPABILITIES,
                 socketPath,
                 lockPath,
+                log: hostLog,
                 ...(options.processWorker === true ? { poolWorkerCount: workerCount } : {}),
                 ...(startup === undefined ? {} : { startupClaim: startup.claim }),
                 ...(startup === undefined || !hasWorkerRecovery(startup.recovery) || startup.interruptedScan

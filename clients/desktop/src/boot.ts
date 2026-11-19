@@ -221,8 +221,8 @@ export class BootSession {
             : `The Vera command ended with code ${code} before the host was ready.`;
     }
 
-    // A question left unanswered must read as no before stdin closes; a closed
-    // stdin means yes to the boot check.
+    // A question left unanswered must read as no before stdin closes; most
+    // questions treat a closed stdin as yes.
     private shutdownChild(): void {
         const child = this.child;
         if (child === undefined) return;
