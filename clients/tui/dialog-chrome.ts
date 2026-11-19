@@ -316,6 +316,7 @@ export interface DialogRowContent {
     readonly leadingTone?: "accent" | "muted" | "positive";
     readonly spaced?: boolean;
     readonly marker?: string;
+    readonly showCursor?: boolean;
     readonly description?: string;
     /** Muted text right after the label, inside the label column rather than aligned past it. */
     readonly note?: string;
@@ -432,6 +433,10 @@ export function dialogOptionRows(
     contentWidth?: number,
 ): BoxRenderable[] {
     const inline = contents.filter((content) => content.card !== true);
+    const cursorWidth = inline.some((content) => content.showCursor === true) ? 2 : 0;
+    const availableWidth = contentWidth === undefined
+        ? undefined
+        : Math.max(0, contentWidth - cursorWidth);
     const widestLabel = Math.max(
         0,
         ...inline.map((content) => labelWithNote(content).length),
@@ -442,19 +447,19 @@ export function dialogOptionRows(
             content.meta === undefined ? 0 : metaLength(content.meta)
         ),
     );
-    const labelWidth = contentWidth === undefined ? widestLabel : Math.min(
+    const labelWidth = availableWidth === undefined ? widestLabel : Math.min(
         widestLabel,
         Math.max(
-            Math.min(widestLabel, Math.floor(contentWidth * LABEL_SHARE)),
-            contentWidth - (widestMeta === 0 ? 0 : widestMeta + META_GAP),
+            Math.min(widestLabel, Math.floor(availableWidth * LABEL_SHARE)),
+            availableWidth - (widestMeta === 0 ? 0 : widestMeta + META_GAP),
         ),
     );
-    const metaWidth = contentWidth === undefined || widestMeta === 0
+    const metaWidth = availableWidth === undefined || widestMeta === 0
         ? widestMeta
-        : Math.max(0, Math.min(widestMeta, contentWidth - labelWidth - META_GAP));
-    const budget = contentWidth === undefined
+        : Math.max(0, Math.min(widestMeta, availableWidth - labelWidth - META_GAP));
+    const budget = availableWidth === undefined
         ? undefined
-        : contentWidth - labelWidth - DESCRIPTION_GAP
+        : availableWidth - labelWidth - DESCRIPTION_GAP
             - (metaWidth === 0 ? 0 : metaWidth + META_GAP);
     return contents.map((content) => {
         if (content.card === true) {
@@ -617,6 +622,16 @@ export function dialogOptionRow(
     });
     attachRowPointer(row, content);
     addMarker(renderer, row, content.marker, TUI_ACCENT);
+    if (content.showCursor === true) {
+        row.add(new TextRenderable(renderer, {
+            content: content.active ? "▌ " : "  ",
+            fg: label,
+            bg: background,
+            width: 2,
+            height: 1,
+            flexShrink: 0,
+        }));
+    }
     if (content.leading !== undefined && content.leading.length > 0) {
         const leadingColor = content.leadingTone === "muted"
             ? detail
