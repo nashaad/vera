@@ -936,7 +936,7 @@ pane, ends the sidekick, and the next `/btw` opens a new one; this differs from 
 terminal, where `/btw close` leaves the sidekick running and the next `/btw`
 reuses it. The terminal also catches the sidekick up on every message to the main
 conversation, and the desktop does so only when `/btw` sends a question. A
-sidekick tab is titled `BTW`.
+sidekick tab is titled `Btw`.
 
 Chat tabs are limited to 6. At the limit, Help and `/btw` say `Close a Chat tab
 to open another.` and start nothing, and the launcher disables the Chat row. A
@@ -1870,7 +1870,7 @@ a relaunch brings none back. The help test answers a question typed at once on t
 Chat tab with a request to open the themes sheet, checks the question reached the
 help agent with the help tools only, and checks another chat is never offered
 them. The btw test runs a session against a local provider and checks that
-`/btw` is in the slash menu, that a question opens a BTW tab and the provider
+`/btw` is in the slash menu, that a question opens a `Btw` tab and the provider
 receives it with the boundary and the conversation while the main transcript does
 not, that a second question reuses the tab, that `/btw close` and plain `/btw`
 work, that the readonly mode shows on the sidekick, that no task process runs at

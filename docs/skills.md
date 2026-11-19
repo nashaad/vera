@@ -109,7 +109,11 @@ link or the `name` field so the two match.
 
 A new skill's command appears after the next completed turn, or when you
 attach or switch conversations. Vera does not need a restart. If you add a
-skill while idle, send any message first, then type its command.
+skill while idle, send any message first, then type its command. Closing
+`/customize` reads the list again, so a change made while it was open, such
+as a skill edited from Open in editor or turned off in `config.json`, shows
+in the `/` menu at once. Edits made from `/context sources` show after the
+next completed turn.
 
 Open `/customize` and choose Skills to confirm it loaded. A skill that fails to
 load is left out while the others still load, and the reason appears above the

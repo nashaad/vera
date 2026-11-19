@@ -24,7 +24,7 @@ let failed = false;
 async function externalSetting(enabled) {
     const { socket_path: socket } = JSON.parse(readFileSync(join(trial.home, "runtime", "host.json"), "utf8"));
     const script = `import { requestExtensionThroughHost } from "./src/host/extension-request-client.ts";
-        await requestExtensionThroughHost(process.argv[1], "vera.desktop-browser", "settings", { enabled: process.argv[2] === "true" }, AbortSignal.timeout(5000));`;
+        await requestExtensionThroughHost(process.argv[1], "vera.builtin-browser", "settings", { enabled: process.argv[2] === "true" }, AbortSignal.timeout(5000));`;
     await exec("bun", ["-e", script, socket, String(enabled)], { cwd: trial.root, timeout: 10_000 });
 }
 
