@@ -51,6 +51,50 @@ import type { KeyEvent } from "@opentui/core";
 import { randomUUID } from "node:crypto";
 import { clearTranscriptAnchorPadding } from "./transcript-nodes.ts";
 
+const ENTER_ROUTE_LOG_INTERVAL_MS = 250;
+
+function recordEnterRoutingState(
+    rt: TuiRuntime,
+    key: KeyEvent,
+    inputAt: number,
+): void {
+    if (
+        (key.name !== "enter" && key.name !== "return")
+        || key.ctrl
+        || key.shift
+        || key.meta
+        || key.super
+        || key.hyper
+    ) {
+        return;
+    }
+    if (
+        rt.lastComposerEnterRecordAt !== undefined
+        && inputAt - rt.lastComposerEnterRecordAt < ENTER_ROUTE_LOG_INTERVAL_MS
+    ) {
+        return;
+    }
+    rt.lastComposerEnterRecordAt = inputAt;
+    const focusedRenderable = rt.renderer.currentFocusedRenderable;
+    rt.flightRecorder?.record({
+        type: "composer_enter_routing",
+        surface: activeFlightSurface(rt),
+        focusTargetId: focusedRenderable?.id ?? null,
+        composerFocused: rt.composer.focused,
+        composerOwnsFocus: focusedRenderable === rt.composer,
+        recordedFocusSurface: rt.recordedFocusSurface ?? null,
+        defaultPrevented: key.defaultPrevented,
+        propagationStopped: key.propagationStopped,
+        commandSuggestionsVisible: rt.commandSuggestionsBox.visible,
+        argumentSuggestionCount: rt.argumentSuggestions.length,
+        composeSuggesterActive: activeComposeSuggester(rt) !== undefined,
+        sessionSwitchPending: rt.sessionSwitchPending,
+        connectionFailed: rt.connectionFailed,
+        promptSubmitting: rt.promptSubmitting,
+        reconnectBootQuestion: rt.reconnectBootQuestion !== undefined,
+    });
+}
+
 export function applyTranscriptScroll(rt: TuiRuntime, binding: string | undefined): boolean {
     const scrollLines = binding === "scroll_line_up"
         ? -1
@@ -103,6 +147,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             });
         });
     }
+    recordEnterRoutingState(rt, key, inputAt);
     const previousIdleEscapeAt = rt.lastIdleEscapeAt;
     rt.lastIdleEscapeAt = undefined;
     if (rt.modelPrefixPending) {

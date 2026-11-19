@@ -57,6 +57,7 @@ let page;
 try {
     await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
     configureFauxHome(trial.home, provider.address().port);
+    trial.writeFlags({ contextPill: "on" });
     const folders = join(trial.home, "..", "folders");
     const vanished = join(folders, "vanished");
     const kept = join(folders, "kept");
@@ -109,6 +110,8 @@ try {
     await startSession("Hello kept");
     const keptId = await attachedId();
 
+    await page.locator(".context-pill .pill-label").waitFor();
+
     // Switching between sessions never draws the opening or empty text, not even for one frame.
     await page.evaluate(() => {
         window.flashes = [];
@@ -116,6 +119,11 @@ try {
             for (const node of document.querySelectorAll(".transcript-empty, .session-message")) window.flashes.push(node.textContent);
             const hint = document.querySelector(".composer-input")?.getAttribute("placeholder") ?? "";
             if (/Opening|Not connected/.test(hint)) window.flashes.push(hint);
+            const contextLabel = document.querySelector(".context-pill .pill-label");
+            const contextValue = contextLabel?.querySelector(".pill-label-value")?.textContent?.trim();
+            if (contextLabel?.getAttribute("data-opening") === "true" && (contextValue === "–" || contextValue === "-")) {
+                window.flashes.push("context placeholder");
+            }
         }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
     });
     for (const id of [vanishedId, keptId, vanishedId, keptId]) {
@@ -124,6 +132,25 @@ try {
     }
     const flashes = await page.evaluate(() => window.flashes);
     if (flashes.length > 0) throw new Error(`Switching sessions flashed: ${JSON.stringify([...new Set(flashes)])}`);
+
+    const routeKey = "vera.desktop.current-session-route";
+    await page.reload();
+    await page.waitForSelector(`.transcript-scroll[data-session="${keptId}"] >> text=${REPLY}`, { timeout: LONG_TIMEOUT });
+    const restoredRoute = await page.evaluate((key) => {
+        const value = window.sessionStorage.getItem(key);
+        return value === null ? null : JSON.parse(value);
+    }, routeKey);
+    if (restoredRoute?.kind !== "session" || restoredRoute.agentId !== keptId) {
+        throw new Error(`The open session route was not restored: ${JSON.stringify(restoredRoute)}`);
+    }
+
+    await page.evaluate(({ key, route }) => window.sessionStorage.setItem(key, JSON.stringify(route)), {
+        key: routeKey,
+        route: { kind: "session", agentId: "missing-session-on-reload", title: "Missing session" },
+    });
+    await page.reload();
+    await page.locator('main[data-page="home"]').waitFor({ timeout: LONG_TIMEOUT });
+    await page.waitForFunction((key) => window.sessionStorage.getItem(key) === null, routeKey, { timeout: LONG_TIMEOUT });
 
     // The host lists the folder by its real path, which differs from the temp path where /var is a link.
     const vanishedPath = realpathSync(vanished);

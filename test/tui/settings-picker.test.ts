@@ -1795,6 +1795,7 @@ test("theme picker is curated, searchable, and keeps the current theme selected"
         "norton-commander",
         "nc-navy",
         "windows-31",
+        "vera-orange",
     ]);
     expect(themes.options[themes.selectedIndex]?.value).toBe("nightowl");
     const filtered = updateTuiSettingsPickerSearch(themes, "owl").state!;

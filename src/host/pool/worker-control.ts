@@ -27,6 +27,7 @@ import { prepareWorkerExit } from "./worker-exit.ts";
 import { removeOwnWorkerRecord } from "./worker-record.ts";
 import { indexStoredSession, withSessionReservation } from "../session-host/storage.ts";
 import { SessionStore } from "../../store/session-store.ts";
+import { repairHostLostSession } from "./worker-host-loss.ts";
 import type { StopWaitEvent } from "../stop-when-idle.ts";
 import { StopWaitRelay } from "./stop-wait-relay.ts";
 import type { ManagedProcessObservationHandlers } from "../../tools/process-runtime.ts";
@@ -423,13 +424,7 @@ export async function startControlledWorker(
                         try { await runtime.close(); }
                         finally {
                             if (hostLost) {
-                                for (const store of cutStores) {
-                                    await store.exclusively(async () => {});
-                                    await store.repairCrashedTurn({
-                                        workerExited: true,
-                                        stopCause: "host_stopped_unexpectedly",
-                                    });
-                                }
+                                for (const store of cutStores) await repairHostLostSession(store, home);
                                 await removeOwnWorkerRecord(home, hello);
                             }
                         }

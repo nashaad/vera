@@ -4,17 +4,16 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { OUT_OF_SIGHT } from "./trial.mjs";
+import { desktopTestTempRoot, OUT_OF_SIGHT } from "./trial.mjs";
 
 const root = new URL("../../..", import.meta.url).pathname;
 const require = createRequire(join(root, "clients", "desktop", "package.json"));
 const { _electron: electron } = require("playwright-core");
 const electronPath = require("electron");
 
-const trialRoot = mkdtempSync(join(tmpdir(), "vera-desktop-e2e-"));
+const trialRoot = mkdtempSync(join(desktopTestTempRoot(), "vera-desktop-e2e-"));
 const home = join(trialRoot, ".vera");
 const bun = process.env.VERA_DESKTOP_BUN
     || execFileSync("which", ["bun"], { encoding: "utf8" }).trim();

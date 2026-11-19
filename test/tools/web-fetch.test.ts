@@ -120,14 +120,74 @@ test("web_fetch rejects oversized and binary responses", async () => {
         publicAddress,
     )).rejects.toThrow("exceeds");
 
-    await expect(fetchReadablePage(
+    const imageError = await fetchReadablePage(
         "https://example.com/image",
         signal,
         async () => new Response("image", {
             headers: { "content-type": "image/png" },
         }),
         publicAddress,
-    )).rejects.toThrow("content type image/png");
+    ).then(() => "", (error: Error) => error.message);
+    expect(imageError).toBe(
+        "web_fetch cannot read content type image/png; use web_download to save this URL to a file instead",
+    );
+});
+
+test("@core web_fetch reads UTF-8 text served as an octet stream", async () => {
+    const body = "openapi: 3.0.0\ninfo:\n  title: Public API\n";
+    for (const contentType of [
+        "application/octet-stream",
+        "binary/octet-stream",
+    ]) {
+        const output = await fetchReadablePage(
+            "https://example.com/openapi.yaml",
+            signal,
+            async () => new Response(body, {
+                headers: { "content-type": contentType },
+            }),
+            publicAddress,
+        );
+        expect(output).toContain("openapi: 3.0.0");
+        expect(output).toContain("title: Public API");
+    }
+
+    await expect(fetchReadablePage(
+        "https://example.com/large-openapi.yaml",
+        signal,
+        async () => new Response("openapi: 3.0.0", {
+            headers: {
+                "content-type": "application/octet-stream",
+                "content-length": String(1024 * 1024 + 1),
+            },
+        }),
+        publicAddress,
+    )).rejects.toThrow("web_fetch response exceeds 1048576 bytes");
+});
+
+test("@core web_fetch keeps the existing refusal for non-text octet streams", async () => {
+    const cases = [
+        {
+            contentType: "application/octet-stream",
+            body: new Uint8Array([0xff, 0xfe]),
+        },
+        {
+            contentType: "binary/octet-stream",
+            body: new Uint8Array([0x79, 0x61, 0x6d, 0x6c, 0x00]),
+        },
+    ];
+    for (const { contentType, body } of cases) {
+        const error = await fetchReadablePage(
+            "https://example.com/binary",
+            signal,
+            async () => new Response(body, {
+                headers: { "content-type": contentType },
+            }),
+            publicAddress,
+        ).then(() => "", (failure: Error) => failure.message);
+        expect(error).toBe(
+            `web_fetch cannot read content type ${contentType}; use web_download to save this URL to a file instead`,
+        );
+    }
 });
 
 test("web_fetch converts HTML that is over the text byte budget", async () => {

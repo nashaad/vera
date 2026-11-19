@@ -154,11 +154,16 @@ have no divider.
 ## Sessions cut short by a restart
 
 When a single-process host stops, updates, or crashes during a turn, that turn
-is cut short. The home screen lists those sessions above its rows under
+is cut short. The TUI Home screen lists those sessions above its rows under
 `Cut short (N)`, newest first, with the cause of each. Up and Down move through
 the entries and the rows as one list. Enter opens the session, the same way the
 resume picker does, and removes its entry. Delete removes an entry without
 opening it. Removing an entry clears its records from the host's restart log.
+
+When an unexpected host loss leads a pooled session process to close an
+interrupted turn after its grace period, it records the session as crashed in
+the restart log. TUI Home lists it under Cut short even if the transcript turn
+was already repaired before a replacement host starts.
 
 With the default pool, a surviving session process can keep a turn running
 while a new host starts, as described in

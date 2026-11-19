@@ -179,7 +179,7 @@ realProcessTest(
                 if (reconnectAt === undefined && frame.includes("reconnecting…")) {
                     reconnectAt = performance.now() - startedAt;
                 }
-                return frame.includes("Vera crashed before this turn finished.");
+                return frame.includes("Host stopped unexpectedly");
             }, "crash repair");
             expect(reconnectAt).toBeDefined();
             expect(reconnectAt!).toBeLessThan(2_000);
@@ -327,7 +327,7 @@ realProcessTest(
             release.resolve();
             await waitUntil(() => pane().includes("The crow completes the voyage."), "completed turn");
             expect(pane()).toContain("A crow begins a voyage");
-            expect(pane()).not.toContain("Vera crashed before this turn finished.");
+            expect(pane()).not.toContain("Host stopped unexpectedly");
         } finally {
             release.resolve();
             tmux("kill-server");

@@ -592,6 +592,7 @@ export interface TuiRuntime {
     statusTimerInterval: number;
     lastIdleEscapeAt: number | undefined;
     lastInputRecordAt: number;
+    lastComposerEnterRecordAt?: number;
     settingsSnapshotRetries: WeakMap<TuiAgentClient, number>;
     MAX_SETTINGS_SNAPSHOT_RETRIES: 5;
     recordedFocusSurface: string | undefined;

@@ -73,3 +73,29 @@ test("a submit whose handler throws shows the error in the transcript and logs i
             .toMatchObject([{ source: "submit", error: { message: "the crow dropped the log" } }]);
     } finally { await session.close(); }
 }, 15_000);
+
+test("plain Enter records focus and routing state at a bounded rate", async () => {
+    const events: TuiFlightEvent[] = [];
+    const session = await startTuiTestSession({ home: home(), width: 120, height: 36,
+        dependencies: () => ({ ...createTuiCatalogRefreshDependencies({ pooled }),
+            flightRecorder: recordingFlightRecorder(events) }),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("Enter");
+        session.sendKey("Enter");
+        await session.settle(50);
+        const routingEvents = events.filter((event) =>
+            event.type === "composer_enter_routing"
+        );
+        expect(routingEvents).toHaveLength(1);
+        const event = routingEvents[0]!;
+        expect(typeof event.surface).toBe("string");
+        expect(typeof event.focusTargetId === "string" || event.focusTargetId === null)
+            .toBe(true);
+        expect(typeof event.composerFocused).toBe("boolean");
+        expect(typeof event.composerOwnsFocus).toBe("boolean");
+        expect(typeof event.defaultPrevented).toBe("boolean");
+        expect(typeof event.propagationStopped).toBe("boolean");
+    } finally { await session.close(); }
+}, 15_000);

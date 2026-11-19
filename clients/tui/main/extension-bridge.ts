@@ -2,6 +2,7 @@ import type { AgentUpdate, ClientCommand, SkillCatalogUpdate } from "../../../sr
 import { HOST_CAPABILITY_SKILL_COMMANDS } from "../../../src/host/capabilities.ts";
 import type { VeraClientModelSettingsPatch, VeraClientModelSettingsUpdateResult, VeraClientOneshotRequest, VeraClientOneshotResult, VeraClientPickerRequest, VeraClientPickerResult } from "../../../src/sdk/extensions.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
+import { HostConnectionClosedError } from "../../../src/host/connection.ts";
 import { updateTuiCommandPaletteCommands } from "../command-palette.ts";
 import { registerExtensionTuiCommands, registerSkillTuiCommands } from "../commands.ts";
 import { updateTuiHelpCommands } from "../help.ts";
@@ -11,8 +12,32 @@ import { invocationIsStale } from "./extension-invocation.ts";
 import { adoptFallbackSessionTitle, coreHelpCommands, registeredPaletteEntries } from "../main/chrome.ts";
 import { startTuiExtensionPicker, type TuiExtensionPickerAction } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice, beginTuiTurn, queueTuiPrompt } from "../state.ts";
+import { serializeError } from "../flight-recorder.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
+
+export function logDisconnectedExtensionCommandFailure(
+    rt: Pick<TuiRuntime, "connectionFailed" | "flightRecorder">,
+    error: unknown,
+    operation: "extension_commands" | "skill_commands",
+): boolean {
+    if (!rt.connectionFailed && !isHostConnectionClosed(error)) return false;
+    rt.flightRecorder?.record({
+        type: "extension_command_load_failed",
+        operation,
+        error: serializeError(error),
+    });
+    return true;
+}
+
+function isHostConnectionClosed(error: unknown): boolean {
+    if (error instanceof HostConnectionClosedError) return true;
+    if (!(error instanceof Error)) return false;
+    const code = (error as NodeJS.ErrnoException).code;
+    return ["ECONNRESET", "EPIPE", "ENOTCONN"].includes(code ?? "")
+        || error.message === "Agent attachment is closed"
+        || error.message === "host connection closed";
+}
 
 export function sendCommand(rt: TuiRuntime, command: ClientCommand): void {
     if (command.type === "prompt") {
@@ -339,6 +364,13 @@ async function loadExtensionCommandsFor(
         if (rt.shuttingDown || generation !== rt.extensionCommandsGeneration) {
             return false;
         }
+        if (logDisconnectedExtensionCommandFailure(
+            rt,
+            error,
+            "extension_commands",
+        )) {
+            return false;
+        }
         const message = error instanceof Error
             ? error.message
             : String(error);
@@ -378,6 +410,13 @@ export function requestSkillCommands(rt: TuiRuntime): void {
         if (rt.shuttingDown || rt.skillCatalogRequestId !== requestId) return;
         rt.skillCatalogRequestId = undefined;
         rt.skillCommandsLoading = false;
+        if (logDisconnectedExtensionCommandFailure(
+            rt,
+            error,
+            "skill_commands",
+        )) {
+            return;
+        }
         rt.state = appendTuiError(
             rt.state,
             `Could not load skill commands: ${

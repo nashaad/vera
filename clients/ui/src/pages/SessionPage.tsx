@@ -5,6 +5,7 @@ import { clearActiveSession, publishActiveSession } from "../session/activeSessi
 import { Conversation, SessionMessage, type ConversationState } from "../session/Conversation.tsx";
 import { SessionRail } from "../session/SessionRail.tsx";
 import { useIsShown } from "../workbench/context.tsx";
+import { useRouter } from "./router.tsx";
 import type { SessionRoute } from "./routes.ts";
 
 export interface SessionPageProps {
@@ -21,9 +22,11 @@ export function SessionPage({ route }: SessionPageProps) {
 
 function SessionView({ bridge, route }: { readonly bridge: DesktopBridge; readonly route: SessionRoute }) {
     const rightPaneShown = useIsShown("rightPane");
+    const { missingRestoredSession } = useRouter();
     const publish = useCallback((state: ConversationState) => {
         publishActiveSession({ bridge, agentId: route.agentId, ...state });
-    }, [bridge, route.agentId]);
+        if (state.watch.failedReason === "not_found") missingRestoredSession(route.agentId);
+    }, [bridge, route.agentId, missingRestoredSession]);
     useEffect(() => () => clearActiveSession(route.agentId), [route.agentId]);
 
     return (
