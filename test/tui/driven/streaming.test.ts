@@ -23,8 +23,8 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
     let pane = "";
 
     try {
-        pane = await session.waitForVisiblePane("test · high");
-        expect(pane).toContain("Start a conversation");
+        await session.waitForVisiblePane("test · high");
+        pane = await session.waitForVisiblePane("Start a conversation");
         expect(pane).toContain("Ctrl+P commands");
         expect(pane).not.toContain("shift+enter newline");
         session.sendText("start streaming");
