@@ -1,4 +1,5 @@
 import type { DesktopEvent } from "../protocol/bridge.ts";
+import type { HostIdentityFacts } from "../protocol/client.ts";
 import { hostRestartingBuild } from "../session/wire.ts";
 
 export type RestartStep =
@@ -38,4 +39,12 @@ export class PlannedRestartWatch {
         this.announcedPanes.clear();
         return { kind: "reconnect" };
     }
+}
+
+// A host of another build now answers at the same socket. With no session open the window never saw a
+// restart notice, so this is the only sign the pair is mixed.
+export function replacedBuild(readyBuild: string | null | undefined, identity: HostIdentityFacts): string | undefined {
+    const now = identity.build_id;
+    if (typeof readyBuild !== "string" || typeof now !== "string" || now === readyBuild) return undefined;
+    return now;
 }

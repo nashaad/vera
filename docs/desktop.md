@@ -53,7 +53,9 @@ full-width title bar and no status bar.
   host answers, and the draft in the composer stays unless the window relaunches
   into a newer build, which does not keep it. The host sends the notice
   on an open conversation's connection, so a window with no conversation open
-  sees the connection drop and offers Reconnect.
+  sees the connection drop and offers Reconnect. When a host of another build
+  is already answering, as after `vera rollback`, that window reconnects by
+  itself within a few seconds.
 - When the installed Vera is another build than the app, the app relaunches
   itself into the matching desktop package and reopens the conversation it
   showed. When it cannot, the banner says `Vera was updated` and shows the build
