@@ -1,4 +1,5 @@
 import { mergeModelSettingsReply } from "../models/settings.ts";
+import { stopCauseText } from "../../../shared/stop-cause-text.ts";
 import type { AgentRunStatus, Block, NoticeTone, Presentation, SessionWatch, ToolCall, ToolState } from "./model.ts";
 import { MAX_HISTORY_BLOCKS, MAX_IMAGE_REPLIES } from "./model.ts";
 import { foldLive, keyFor, retryAfter } from "./live.ts";
@@ -55,9 +56,9 @@ function addEntry(blocks: Block[], entry: WireEntry, key: string, paired: { last
             return;
         case "error": {
             const failure = entry.modelFailure;
-            const text = failure === undefined
+            const text = stopCauseText(entry.stopCause) ?? (failure === undefined
                 ? entry.detail ?? (entry.outcome === "aborted" ? "Stopped." : "The turn failed.")
-                : failureText(failure, entry.detail);
+                : failureText(failure, entry.detail));
             const tone: NoticeTone = entry.outcome === "aborted" && failure === undefined ? "info" : "error";
             blocks.push({
                 kind: "notice",
@@ -98,7 +99,13 @@ function addEntry(blocks: Block[], entry: WireEntry, key: string, paired: { last
             return;
         }
         case "harness":
-            blocks.push({ kind: "notice", key, tone: harnessTone(entry.tone), text: entry.text, ...timed(entry) });
+            blocks.push({
+                kind: "notice",
+                key,
+                tone: harnessTone(entry.tone),
+                text: stopCauseText(entry.stopCause) ?? entry.text,
+                ...timed(entry),
+            });
             return;
         case "other":
             return;

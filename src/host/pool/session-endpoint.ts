@@ -11,6 +11,7 @@ import type { SessionImportOutcome, ImportableSessionListing } from "../session-
 import type { StopWaitTarget } from "../stop-when-idle.ts";
 import type { WorkAgentFacts, WorkScheduleFacts } from "../work-index.ts";
 import type { SessionEndReason } from "../../sdk/hooks.ts";
+import type { StopCause } from "../../model/types.ts";
 import type { SessionFactName } from "../../store/session-facts.ts";
 import type { SessionSearchQuery, SessionSearchResults, SessionSearchShard } from "../../store/session-search.ts";
 import type { SessionOwner } from "./roster.ts";
@@ -113,7 +114,7 @@ export interface SessionEndpoint extends ExtensionSessionServices, PeerSessionSe
     listImportableSessions(workspace: string | undefined): Promise<ImportableSessionListing>;
     importedSourceHash(id: string, path: string): Promise<string | undefined>;
     suppressCompletion(id: string, suppress: boolean): Promise<void>;
-    cut(id: string, reason: string): Promise<boolean>;
+    cut(id: string, reason: string, stopCause?: StopCause): Promise<boolean>;
     stopWaitTargets(): Promise<readonly StopWaitTarget[]>;
     runningSubagents(parentId: string): Promise<number>;
     parkFacts(): Promise<readonly SessionParkFacts[]>;

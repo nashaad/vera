@@ -9,11 +9,12 @@ import { cutStopWaitThroughHost } from "../../src/host/stop-wait-cut-client.ts";
 import { requestHostStop, type HostStopResult } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { recoverCrashedTurns } from "../../src/host/restart-scan.ts";
+import { historyPageFromStore } from "../../src/host/history-page.ts";
 import {
     defaultRestartRecordPath,
     listRestartRecords,
 } from "../../src/store/restart-records.ts";
-import { readSessionTurnState } from "../../src/store/session-store.ts";
+import { readSessionTurnState, SessionStore } from "../../src/store/session-store.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
@@ -65,8 +66,15 @@ socketTest(
             });
             await waitFor(async () => announced);
 
+            const finished = (async () => {
+                while (true) {
+                    const update = await client.receive(AbortSignal.timeout(10_000));
+                    if (update.type === "turn_finished") return update;
+                }
+            })();
             const cut = await cutStopWaitThroughHost(socketPath);
             expect(cut).toEqual({ type: "cut_stop_wait_done", cut: ["cutter"], failed: [] });
+            expect(await finished).toMatchObject({ outcome: "aborted", stopCause: "host_stopped" });
             const outcome: HostStopResult = await stopping;
             expect(outcome).toEqual({ type: "stopped" });
             await client.close();
@@ -82,6 +90,17 @@ socketTest(
 
             const sessionPath = join(sessionDirectory, "cutter.jsonl");
             expect((await readSessionTurnState(sessionPath)).turnOpen).toBe(false);
+            const reopened = await SessionStore.open(sessionPath);
+            expect(reopened.messages().find((message) => message.role === "assistant"
+                && message.stopReason === "aborted")).toMatchObject({ stopCause: "host_stopped" });
+            expect(reopened.projectedHarnessMessages().some((message) =>
+                message.text === "Stopped: Vera is stopping")).toBe(false);
+            const page = await historyPageFromStore(reopened);
+            expect(page.kind).toBe("page");
+            if (page.kind !== "page") throw new Error("Expected a history page");
+            expect(page.entries).toContainEqual(expect.objectContaining({
+                kind: "error", outcome: "aborted", stopCause: "host_stopped",
+            }));
 
             const stalePath = join(root, "stale-host.json");
             await writeFile(stalePath, `${JSON.stringify({

@@ -1,7 +1,7 @@
 import { addSessionModelUsage, summarizeSessionModelUsage, type SessionModelUsage } from "../model/session-usage.ts";
 export { summarizeSessionModelUsage } from "../model/session-usage.ts";
 export type { SessionModelUsage, SessionModelUsageRow } from "../model/session-usage.ts";
-import type { HookContextPhase, TurnTiming } from "../model/types.ts";
+import { isStopCause, type HookContextPhase, type TurnTiming } from "../model/types.ts";
 import type { NoticeFacts } from "./notice-facts.ts";
 import type {
     ConfigurationRequiredUiRequest,
@@ -20,6 +20,7 @@ import type {
     ModelMessage,
     ModelReasoningEffort,
     ModelSubstitution,
+    StopCause,
     ToolPresentation,
 } from "../model/types.ts";
 import type {
@@ -137,6 +138,7 @@ export interface ErrorTranscriptEntry {
     readonly kind: "error";
     readonly outcome?: "error" | "aborted";
     readonly detail?: string;
+    readonly stopCause?: StopCause;
     readonly steered?: true;
     readonly classifierFailure?: ClassifierFailure;
     readonly modelFailure?: ModelFailure;
@@ -156,6 +158,7 @@ export interface HarnessTranscriptEntry {
     readonly kind: "harness";
     readonly text: string;
     readonly tone: "primary" | "soft" | "error";
+    readonly stopCause?: StopCause;
 }
 
 /** A hook added context to the session; the text itself stays out of the transcript. */
@@ -811,6 +814,7 @@ export interface TurnFinishedUpdate {
     readonly turnTiming?: TurnTiming;
     readonly outcome?: "error" | "aborted";
     readonly error?: string;
+    readonly stopCause?: StopCause;
     // Set with outcome "aborted" when a queue release stopped the turn.
     readonly steered?: true;
     readonly classifierFailure?: ClassifierFailure;
@@ -1836,6 +1840,7 @@ export function createProtocolEncoder(
         readonly id?: string;
         readonly text: string;
         readonly tone: "primary" | "soft" | "error";
+        readonly stopCause?: StopCause;
     }[] = () => [],
     replayContextCapacity: (
         provider: string,
@@ -2427,6 +2432,9 @@ export function createProtocolEncoder(
                     ? {} : { turnTiming: event.message.turnTiming }),
                 ...(outcome === undefined ? {} : { outcome }),
                 ...(error === undefined ? {} : { error }),
+                ...(isStopCause(event.message.stopCause)
+                    ? { stopCause: event.message.stopCause }
+                    : {}),
                 ...(event.message.steered === true ? { steered: true as const } : {}),
                 ...(event.message.classifierFailure === undefined
                     ? {}
@@ -2698,6 +2706,7 @@ export function projectTranscript(
         readonly id?: string;
         readonly text: string;
         readonly tone: "primary" | "soft" | "error";
+        readonly stopCause?: StopCause;
     }[] = [],
     deliveries?: DeliveryLookup,
 ): readonly TranscriptEntry[] {
@@ -2710,6 +2719,9 @@ export function projectTranscript(
                     ...(message.id === undefined ? {} : { id: message.id }),
                     text: message.text,
                     tone: message.tone,
+                    ...(isStopCause(message.stopCause)
+                        ? { stopCause: message.stopCause }
+                        : {}),
                 });
             }
         }
@@ -2837,6 +2849,9 @@ export function projectTranscript(
                 kind: "error",
                 outcome,
                 ...(detail === undefined ? {} : { detail }),
+                ...(isStopCause(message.stopCause)
+                    ? { stopCause: message.stopCause }
+                    : {}),
                 ...(message.steered === true ? { steered: true as const } : {}),
                 ...(message.classifierFailure === undefined
                     ? {}

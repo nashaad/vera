@@ -42,7 +42,7 @@ import type {
     PermissionPredicate,
     PermissionPreference,
 } from "./permissions.ts";
-import type { ModelMessage } from "../model/types.ts";
+import type { ModelMessage, StopCause } from "../model/types.ts";
 import type { SessionSettingOrigin } from "../store/session-store.ts";
 import type { PromptQueueState } from "./prompt-queue.ts";
 
@@ -67,6 +67,13 @@ export class TurnSteeredError extends Error {
     constructor() {
         super("Turn steered");
         this.name = "TurnSteeredError";
+    }
+}
+
+export class TurnHaltedError extends Error {
+    constructor(reason: string, readonly stopCause: StopCause) {
+        super(reason);
+        this.name = "TurnHaltedError";
     }
 }
 
@@ -870,7 +877,7 @@ export class InboundCommandRouter {
     }
 
     // Stops the active turn and every queued prompt until clearHalt. Held prompts are dropped, not replayed.
-    halt(reason: string): void {
+    halt(reason: string, stopCause?: StopCause): void {
         if (this.haltReason !== undefined) return;
         this.haltReason = reason;
         const droppedPrompts = this.queuedTurns.flatMap((queued) => queued.prompt === undefined ? [] : [queued.prompt]);
@@ -896,10 +903,12 @@ export class InboundCommandRouter {
         for (let index = 0; index < dropped; index += 1) {
             this.noteNotStarted(reason);
         }
-        if (this.activeTurn !== undefined) {
+        if (this.activeTurn !== undefined && stopCause === undefined) {
             this.noteStopped(reason);
         }
-        this.activeTurn?.abort(new Error(reason));
+        this.activeTurn?.abort(stopCause === undefined
+            ? new Error(reason)
+            : new TurnHaltedError(reason, stopCause));
         this.emitPromptQueue();
     }
 
@@ -956,7 +965,12 @@ export class InboundCommandRouter {
         ).catch(() => {});
     }
 
-    private plainAbort(): void {
+    abortActiveTurn(reason: Error): void {
+        this.plainAbort(reason);
+        this.activeTurn?.abort(reason);
+    }
+
+    private plainAbort(reason?: Error): void {
         const visibleQueuedPrompts = this.promptQueueState().prompts.length;
         const claimedTurn = this.activeTurn === undefined
             ? this.claimedQueueRelease
@@ -991,7 +1005,7 @@ export class InboundCommandRouter {
             compaction.abort(new Error("Compaction aborted"));
         } else if (this.activeTurn !== undefined) {
             this.events.emit({ type: "abort_requested" });
-            this.activeTurn.abort(new Error("Turn aborted"));
+            this.activeTurn.abort(reason ?? new Error("Turn aborted"));
         }
     }
 

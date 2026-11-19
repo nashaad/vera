@@ -223,6 +223,12 @@ export function isTurnTiming(value: unknown): value is TurnTiming {
         && Math.abs(timing.finishedAt) <= 8.64e15;
 }
 
+export type StopCause = "host_stopped" | "host_stopped_unexpectedly";
+
+export function isStopCause(value: unknown): value is StopCause {
+    return value === "host_stopped" || value === "host_stopped_unexpectedly";
+}
+
 export interface AssistantMessage {
     readonly role: "assistant";
     /** Model-visible context that clients must not render as local transcript. */
@@ -235,6 +241,7 @@ export interface AssistantMessage {
     // Present only on the final response of a whole turn.
     readonly turnTiming?: TurnTiming;
     readonly stopReason: ModelStopReason;
+    readonly stopCause?: StopCause;
     readonly errorMessage?: string;
     // An aborted turn that a queue release stopped to run the released prompts.
     readonly steered?: true;
@@ -388,7 +395,7 @@ export type ModelInputToolResultMessage =
 
 export type ModelInputMessage =
     | ModelInputUserMessage
-    | AssistantMessage
+    | Omit<AssistantMessage, "stopCause">
     | ModelInputToolResultMessage;
 
 export interface ModelUsage {

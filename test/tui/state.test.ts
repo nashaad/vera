@@ -117,6 +117,79 @@ test("soft harness prose stays visible when history is rebuilt", () => {
         .toBe(TextAttributes.ITALIC);
 });
 
+test("host stop causes render live and from error or harness history", () => {
+    for (const [stopCause, text] of [
+        ["host_stopped", "Host stopped"],
+        ["host_stopped_unexpectedly", "Host stopped unexpectedly"],
+    ] as const) {
+        const live = applyAgentUpdate(beginTuiTurn(createTuiState(), "go"), {
+            type: "turn_finished",
+            outcome: "aborted",
+            stopCause,
+            seq: 1,
+        });
+        expect(live.entries.at(-1)).toMatchObject({ kind: "notice", diagnostic: { message: text } });
+
+        const history = applyAgentUpdate(createTuiState(), {
+            type: "history",
+            entries: [{ kind: "error", outcome: "aborted", stopCause }],
+            seq: 2,
+        });
+        expect(history.entries.at(-1)).toMatchObject({ kind: "notice", diagnostic: { message: text } });
+
+        const failed = applyAgentUpdate(beginTuiTurn(createTuiState(), "go"), {
+            type: "turn_finished",
+            outcome: "error",
+            error: "The session process exited.",
+            stopCause,
+            seq: 2,
+        });
+        expect(failed.entries.at(-1)).toMatchObject({ kind: "notice", diagnostic: { message: text } });
+        const failedHistory = applyAgentUpdate(createTuiState(), {
+            type: "history",
+            entries: [{ kind: "error", outcome: "error", detail: "The session process exited.", stopCause }],
+            seq: 2,
+        });
+        expect(failedHistory.entries.at(-1)).toMatchObject({ kind: "notice", diagnostic: { message: text } });
+
+        const refreshed = applyAgentUpdate(live, {
+            type: "history",
+            entries: [{ kind: "error", outcome: "aborted", stopCause }],
+            seq: 2,
+        });
+        expect(refreshed.entries.filter((entry) =>
+            entry.kind === "notice" && entry.diagnostic?.message === text,
+        )).toHaveLength(1);
+    }
+
+    const crashed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{
+            kind: "harness",
+            text: "Vera crashed before this turn finished",
+            tone: "error",
+            stopCause: "host_stopped_unexpectedly",
+        }],
+        seq: 3,
+    });
+    expect(crashed.entries.map((entry) => entry.kind === "notice" ? entry.text : "")).toEqual([
+        "Host stopped unexpectedly",
+    ]);
+
+    const legacy = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "error", outcome: "aborted" },
+            { kind: "error", outcome: "aborted", stopCause: "unknown" } as unknown as TranscriptEntry,
+        ],
+        seq: 4,
+    });
+    expect(legacy.entries.map((entry) => entry.kind === "notice" ? entry.diagnostic?.message : "")).toEqual([
+        "Interrupted",
+        "Interrupted",
+    ]);
+});
+
 test("a success notice renders in the success color, upright", () => {
     const rendered = renderTuiEntry({
         kind: "notice",

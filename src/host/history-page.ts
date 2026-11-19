@@ -242,7 +242,16 @@ async function decorateIndexedPage(
             group = { entries: [], harness: [] };
             byRecord.set(record, group);
         }
-        group.harness.push({ ordinal, entry: { kind: "harness", id: `harness:${ordinal}`, text: entry.text, tone: entry.tone } });
+        group.harness.push({
+            ordinal,
+            entry: {
+                kind: "harness",
+                id: `harness:${ordinal}`,
+                text: entry.text,
+                tone: entry.tone,
+                ...(entry.stopCause === undefined ? {} : { stopCause: entry.stopCause }),
+            },
+        });
     }
     const result: TranscriptEntry[] = [];
     for (const [, group] of [...byRecord].sort(([left], [right]) => left - right)) {

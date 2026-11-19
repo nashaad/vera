@@ -7,6 +7,7 @@ import type { AgentLocationFailedResponse, AgentLocationResponse, BlockSessionRe
 import type { BlockSessionOutcome, CloseAgentOutcome, UnblockSessionOutcome } from "../server.ts";
 import { UserFacingError, userFacingMessage } from "../../user-facing-error.ts";
 import type { SessionEndReason } from "../../sdk/hooks.ts";
+import type { StopCause } from "../../model/types.ts";
 import type { SessionFactName } from "../../store/session-facts.ts";
 import type { SessionSearchQuery, SessionSearchResults } from "../../store/session-search.ts";
 import type { ExtensionSessionAskCall, ExtensionInvestigateCall } from "../../extensions/host-services.ts";
@@ -1017,8 +1018,8 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.flush()));
     }
 
-    cut(id: string, reason: string): Promise<boolean> {
-        return this.extensionOperation(id, (endpoint) => endpoint.cut(id, reason));
+    cut(id: string, reason: string, stopCause?: StopCause): Promise<boolean> {
+        return this.extensionOperation(id, (endpoint) => endpoint.cut(id, reason, stopCause));
     }
 
     async stopWaitTargets(): Promise<readonly StopWaitTarget[]> {

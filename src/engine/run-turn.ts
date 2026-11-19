@@ -146,6 +146,7 @@ import {
 } from "./hooks.ts";
 import {
     InboundCommandRouter,
+    TurnHaltedError,
     TurnSteeredError,
     type InboundTurnOutcome,
 } from "./inbound-command-router.ts";
@@ -1099,6 +1100,9 @@ export async function runTurn(
     const turnClock = state.inbound.beginTurnTiming();
     const withTurnTiming = (message: AssistantMessage): AssistantMessage => ({
         ...message,
+        ...(message.stopReason === "aborted" && turn.signal.reason instanceof TurnHaltedError
+            ? { stopCause: turn.signal.reason.stopCause }
+            : {}),
         turnTiming: {
             durationMs: state.inbound.finishTurnTiming(turnClock),
             finishedAt: Date.now(),

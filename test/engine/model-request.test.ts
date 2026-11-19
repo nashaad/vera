@@ -176,6 +176,56 @@ test("model requests omit empty assistant failures from durable history", () => 
     ]);
 });
 
+test("model requests omit stop causes from non-empty assistant history across requests", () => {
+    const stopped: ModelMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "partial reply" }],
+        source: { provider: "openrouter", api: "chat", model: "test-model" },
+        usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cachedInputTokens: 0,
+            reasoningTokens: 0,
+            totalTokens: 2,
+        },
+        stopReason: "aborted",
+        stopCause: "host_stopped_unexpectedly",
+    };
+    const base = {
+        model: "test-model",
+        maxTokens: 4096,
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 7, 6),
+        projectInstructions: { files: [], warnings: [] },
+        signal: new AbortController().signal,
+    };
+    const first = buildModelRequest({
+        ...base,
+        messages: [stopped],
+    });
+    const second = buildModelRequest({
+        ...base,
+        date: new Date(2026, 7, 7),
+        messages: [stopped, {
+            role: "user",
+            content: [{ type: "text", text: "continue" }],
+        }],
+    });
+
+    expect(first.messages).toEqual([{
+        role: "assistant",
+        content: [{ type: "text", text: "partial reply" }],
+        source: stopped.source,
+        usage: stopped.usage,
+        stopReason: "aborted",
+    }]);
+    expect(second.messages[0]).toEqual(first.messages[0]);
+    expect(JSON.stringify(first.messages)).not.toContain("stopCause");
+    expect(JSON.stringify(second.messages)).not.toContain("stopCause");
+    expect(stopped.stopCause).toBe("host_stopped_unexpectedly");
+});
+
 test("model requests preserve signed reasoning without visible assistant text", () => {
     const request = buildModelRequest({
         model: "test-model",

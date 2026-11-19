@@ -625,9 +625,9 @@ async function startHostRuntime(
         },
         targetProblem: updateTargetProblem,
         prepare: prepareStopForTarget,
-        cutSession: (sessionId, reason) => inProcessWorker === undefined
-            ? registry.cutSessionForStop(sessionId, reason)
-            : inProcessWorker.cutSession(sessionId, reason),
+        cutSession: (sessionId, reason, stopCause) => inProcessWorker === undefined
+            ? registry.cutSessionForStop(sessionId, reason, stopCause)
+            : inProcessWorker.cutSession(sessionId, reason, stopCause),
         ...(workerGlobals === undefined ? { recordCut: recordStopCut } : {}),
     });
     if (options.processWorker === true) {

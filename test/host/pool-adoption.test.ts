@@ -21,8 +21,10 @@ import { requestHostIdentity, requestHostStop } from "../../src/host/protocol.ts
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { startResidentHost, type ResidentHost } from "../../src/host/runtime.ts";
 import { TURNS_HELD_REFUSAL } from "../../src/host/stop-when-idle.ts";
+import { projectTranscript } from "../../src/engine/protocol.ts";
 import { defaultInboxPath } from "../../src/store/inbox.ts";
 import * as store from "../../src/store/session-store.ts";
+import { readSessionTurnState, SessionStore, WORKER_EXIT_TURN_MESSAGE } from "../../src/store/session-store.ts";
 
 interface PoolInfo {
     readonly pid: number;
@@ -637,7 +639,26 @@ socketAndLoopbackTest("adoption clears a stop wait abandoned by a dead host", as
         expect((await requestHostIdentity(inProcessWorkerSocket(home)))?.pid).toBe(info.workers[0]);
         await waitFor(() => client?.stopWait === undefined, "abandoned stop notification");
         turnRelease.resolve();
-        while ((await client.receive(AbortSignal.timeout(10_000))).type !== "turn_finished") {}
+        const updates = [];
+        while (true) {
+            const update = await client.receive(AbortSignal.timeout(10_000));
+            updates.push(update);
+            if (update.type === "turn_finished") {
+                expect(update.outcome).toBeUndefined();
+                expect(update.stopCause).toBeUndefined();
+                break;
+            }
+        }
+        expect(JSON.stringify(updates)).not.toContain("Host stopped");
+        const reopened = await attachAgent({ socketPath: session.location!.socket_path, agentId: session.id });
+        try {
+            const history = await reopened.receive(AbortSignal.timeout(10_000));
+            expect(history.type).toBe("history");
+            expect(JSON.stringify(history)).not.toContain("Host stopped");
+            expect(JSON.stringify(history)).not.toContain("host_stopped");
+        } finally {
+            reopened.close();
+        }
         await client.send({ type: "prompt", content: "Inspect the sails." });
         while ((await client.receive(AbortSignal.timeout(10_000))).type !== "turn_finished") {}
         expect(calls).toBe(2);
@@ -887,6 +908,94 @@ socketAndLoopbackTest("a stop refused during adoption never takes effect later",
         }
         if (previousHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
         else process.env.VERA_HOME = previousHome;
+        stub.stop(true);
+        await stderr;
+        await rm(home, { recursive: true, force: true });
+    }
+}, 35_000);
+
+socketAndLoopbackTest("a worker repairs its turn after the host disappears beyond adoption grace", async () => {
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hstop-host-lost-"));
+    const webRoot = join(home, "web");
+    await mkdir(webRoot);
+    await Promise.all(["index.html", "main.js", "styles.css"].map((name) => writeFile(join(webRoot, name), "")));
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const stub = Bun.serve({
+        hostname: "127.0.0.1", port: 0,
+        async fetch(request) {
+            if (!new URL(request.url).pathname.endsWith("/chat/completions")) return new Response("not found", { status: 404 });
+            entered.resolve();
+            await release.promise;
+            return new Response([
+                'data: {"id":"x","object":"chat.completion.chunk","model":"stub-model","choices":[{"index":0,"delta":{"role":"assistant","content":"The crow found the map."},"finish_reason":"stop"}]}',
+                "", "data: [DONE]", "",
+            ].join("\n"), { headers: { "content-type": "text/event-stream" } });
+        },
+    });
+    const config = {
+        schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
+        providers: { stub: { protocol: "openai-chat", base_url: `http://127.0.0.1:${stub.port}/v1`, credential: "none" } },
+    } as const;
+    await writeFile(join(home, "config.json"), JSON.stringify(config));
+    const child = Bun.spawn([process.execPath, "test/host/fixtures/pool-adoption-host.ts", "1", "1000"], {
+        cwd: process.cwd(), env: { ...process.env, VERA_HOME: home }, stdout: "ignore", stderr: "pipe",
+    });
+    const stderr = new Response(child.stderr).text();
+    const started = new Map<number, StartedProcess>();
+    let info: PoolInfo | undefined;
+    let client: AttachedAgentClient | undefined;
+    let sessionPath: string | undefined;
+    try {
+        await waitFor(() => processCommandLine(child.pid)?.includes("test/host/fixtures/pool-adoption-host.ts") === true
+            || child.exitCode !== null, "fixture process identity");
+        if (child.exitCode !== null) throw new Error(`Pool host failed: ${await stderr}`);
+        remember(started, child.pid);
+        await waitFor(() => existsSync(join(home, "ready.json")) || child.exitCode !== null, "pool startup");
+        if (!existsSync(join(home, "ready.json"))) throw new Error(`Pool host failed: ${await stderr}`);
+        info = JSON.parse(await readFile(join(home, "ready.json"), "utf8")) as PoolInfo;
+        expect(info.pid).toBe(child.pid);
+        for (const pid of [...info.workers, ...(info.annexPid === undefined ? [] : [info.annexPid])]) remember(started, pid);
+        const worker = await requestHostIdentity(inProcessWorkerSocket(home));
+        expect(worker?.pid).toBe(info.workers[0]);
+        expect(started.get(worker!.pid)!.command).toContain(join(process.cwd(), "clients/host/session-worker.ts"));
+        const session = await createAgentThroughHost(info.socket, home);
+        sessionPath = join(store.defaultSessionDirectory(home), `${session.id}.jsonl`);
+        client = await attachAgent({ socketPath: session.location!.socket_path, agentId: session.id });
+        expect((await client.receive()).type).toBe("history");
+        await client.send({ type: "prompt", content: "Inspect the map." });
+        await Promise.race([entered.promise, Bun.sleep(10_000).then(() => { throw new Error("Provider did not start"); })]);
+        await client.send({ type: "prompt", content: "Check the sails." });
+        signalStarted(started, child.pid, "SIGKILL");
+        await child.exited;
+        await waitFor(() => !alive(child.pid), "fixture host exit");
+        let finished;
+        do {
+            finished = await client.receive(AbortSignal.timeout(10_000));
+        } while (finished.type !== "turn_finished");
+        expect(finished).toMatchObject({ stopCause: "host_stopped_unexpectedly" });
+        await waitFor(() => !alive(worker!.pid), "worker host-loss exit");
+
+        const reopened = await SessionStore.open(sessionPath!);
+        expect(reopened.messages().at(-1)).toMatchObject({
+            role: "assistant", stopReason: "error", errorMessage: WORKER_EXIT_TURN_MESSAGE,
+            stopCause: "host_stopped_unexpectedly",
+        });
+        expect(reopened.unsentPrompts()).toContainEqual({ content: "Check the sails." });
+        expect(projectTranscript(reopened.messages())).toContainEqual(expect.objectContaining({
+            stopCause: "host_stopped_unexpectedly",
+        }));
+        expect((await readSessionTurnState(sessionPath!)).turnOpen).toBe(false);
+    } finally {
+        release.resolve();
+        client?.close();
+        if (child.exitCode === null && child.signalCode === null) signalStarted(started, child.pid, "SIGKILL");
+        await child.exited;
+        for (const pid of [...(info?.workers ?? []), ...(info?.annexPid === undefined ? [] : [info.annexPid])]) {
+            if (alive(pid)) signalStarted(started, pid, "SIGKILL");
+            await waitFor(() => !alive(pid), `process ${pid} exit`);
+        }
         stub.stop(true);
         await stderr;
         await rm(home, { recursive: true, force: true });

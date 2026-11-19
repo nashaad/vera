@@ -1,5 +1,6 @@
 import { workedDividerText } from "./worked-divider.ts";
 import { droppedCompactionNotice, failedDropNotice } from "../shared/compaction-notice.ts";
+import { stopCauseText } from "../shared/stop-cause-text.ts";
 import type { TurnTiming } from "../../src/model/types.ts";
 import { realpathSync } from "node:fs";
 
@@ -723,6 +724,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
         return appendPresentation(state, update.presentation);
     }
     if (update.type === "turn_finished") {
+        const stopText = stopCauseText(update.stopCause);
         let finished = clearedSubstitution({
             ...state,
             entries: settleTrailingThoughts(applyToolDetailPreference(
@@ -754,8 +756,12 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
             finished = appendTuiDiagnostic(
                 finished,
                 "turn_interrupted",
-                update.steered === true ? STEERED_TURN_TEXT : INTERRUPTED_TURN_TEXT,
+                update.steered === true
+                    ? STEERED_TURN_TEXT
+                    : stopText ?? INTERRUPTED_TURN_TEXT,
             );
+        } else if (update.outcome === "error" && stopText !== undefined) {
+            finished = appendTuiDiagnostic(finished, "turn_interrupted", stopText);
         } else if (update.classifierFailure !== undefined) {
             const text = classifierFailureText(update.classifierFailure);
             finished = appendTuiDiagnostic(
@@ -2996,6 +3002,16 @@ export function transcriptMessageId(
 function toSingleTuiTranscriptEntry(
     entry: Exclude<TranscriptEntry, { kind: "tool" | "tool_result" | "reasoning" }>,
 ): TuiTranscriptEntry {
+    if (entry.kind === "error" && entry.outcome !== "aborted") {
+        const stopText = stopCauseText(entry.stopCause);
+        if (stopText !== undefined) {
+            return {
+                kind: "notice",
+                text: "",
+                diagnostic: resolveTuiDiagnostic("turn_interrupted", stopText),
+            };
+        }
+    }
     if (entry.kind === "error" && entry.classifierFailure !== undefined) {
         const text = classifierFailureText(entry.classifierFailure);
         return {
@@ -3018,7 +3034,9 @@ function toSingleTuiTranscriptEntry(
             diagnostic: entry.outcome === "aborted"
                 ? resolveTuiDiagnostic(
                     "turn_interrupted",
-                    entry.steered === true ? STEERED_TURN_TEXT : INTERRUPTED_TURN_TEXT,
+                    entry.steered === true
+                        ? STEERED_TURN_TEXT
+                        : stopCauseText(entry.stopCause) ?? INTERRUPTED_TURN_TEXT,
                 )
                 : resolveTuiDiagnostic(failure.code, failure.message, failure.detail),
         };
@@ -3033,7 +3051,11 @@ function toSingleTuiTranscriptEntry(
         return emptyTurnEntry();
     }
     if (entry.kind === "harness") {
-        return { kind: "notice", text: entry.text, tone: entry.tone };
+        return {
+            kind: "notice",
+            text: stopCauseText(entry.stopCause) ?? entry.text,
+            tone: entry.tone,
+        };
     }
     if (entry.kind === "hook_context") {
         return hookContextEntry(entry.phase, entry.source, entry.display);

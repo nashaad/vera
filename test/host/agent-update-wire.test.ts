@@ -213,6 +213,28 @@ test("turn finished accepts an optional model error", () => {
     expect(parseAgentUpdate({ ...update, error: "   " })).toBeUndefined();
 });
 
+test("stop causes survive live and paged updates, with unknown values ignored", () => {
+    const finished = { type: "turn_finished", outcome: "aborted", seq: 1 } as const;
+    expect(parseAgentUpdate(finished)).toEqual(finished);
+    expect(parseAgentUpdate({ ...finished, stopCause: "host_stopped" }))
+        .toEqual({ ...finished, stopCause: "host_stopped" });
+    expect(parseAgentUpdate({ ...finished, stopCause: "future_cause" })).toEqual(finished);
+
+    const error = { kind: "error", outcome: "aborted", stopCause: "host_stopped" } as const;
+    const crash = {
+        kind: "harness", text: "repaired", tone: "soft", stopCause: "host_stopped_unexpectedly",
+    } as const;
+    const unknown = { kind: "error", outcome: "aborted", stopCause: "future_cause" } as const;
+    const history = { type: "history", entries: [error, crash, unknown], seq: 2 } as const;
+    const expected = [error, crash, { kind: "error", outcome: "aborted" } as const];
+    expect(parseAgentUpdate(history)).toEqual({ ...history, entries: expected });
+    const page = {
+        type: "history_page", request_id: "page", before: "next", entries: history.entries,
+        page: { pageVersion: 1, hasMore: false },
+    } as const;
+    expect(parseHistoryPagePayload(page)).toEqual({ before: "next", entries: expected, page: page.page });
+});
+
 test("turn finished and history accept only a true steered flag", () => {
     const finished = {
         type: "turn_finished" as const,

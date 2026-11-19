@@ -868,7 +868,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                 catch { return true; }
             }))).some(Boolean);
         },
-        cutSession: (id, reason) => routed.router.cut(id, reason),
+        cutSession: (id, reason, stopCause) => routed.router.cut(id, reason, stopCause),
         async clearProviderSelection(provider) {
             await Promise.all(slots.filter((slot) => slot.ready)
                 .map((slot) => requestWorker<void>(slot, "worker.clearProviderSelection", [provider])));

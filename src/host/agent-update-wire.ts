@@ -2,6 +2,7 @@ import { isExtensionSessionStates } from "../extensions/session-state.ts";
 import {
     isClassifierOutcome,
     isHookDisplay,
+    isStopCause,
     isToolPresentation,
     isTurnTiming,
 } from "../model/types.ts";
@@ -301,7 +302,7 @@ function parseKnownAgentUpdate(
             && (update.empty === undefined || update.empty === true)
             && (update.usage === undefined || isSessionModelUsage(update.usage))
             && (update.extensionState === undefined || isExtensionSessionStates(update.extensionState))
-            ? value as AgentUpdate
+            ? withoutUnknownStopCause(update) as unknown as AgentUpdate
             : undefined;
     }
     if (update.type === "agent_failed") {
@@ -1060,9 +1061,17 @@ function parseTranscriptEntries(value: unknown): TranscriptEntry[] | undefined {
         if (entry === undefined || typeof entry.kind !== "string") return undefined;
         if (!Object.hasOwn(KNOWN_TRANSCRIPT_KINDS, entry.kind)) continue;
         if (!isTranscriptEntry(item)) return undefined;
-        entries.push(item);
+        entries.push(entry.kind === "error" || entry.kind === "harness"
+            ? withoutUnknownStopCause(entry) as unknown as TranscriptEntry
+            : item);
     }
     return entries;
+}
+
+function withoutUnknownStopCause(value: Record<string, unknown>): Record<string, unknown> {
+    if (value.stopCause === undefined || isStopCause(value.stopCause)) return value;
+    const { stopCause: _stopCause, ...rest } = value;
+    return rest;
 }
 
 function isTranscriptEntry(value: unknown): value is TranscriptEntry {
