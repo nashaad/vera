@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import sharp from "sharp";
 
 import { installRelease } from "../../scripts/pack-release.ts";
 
@@ -14,11 +15,17 @@ test("an installed release activates included batteries without checkout example
             prefix: join(scratch, "prefix"), cwd: root, sourceRoot: root,
         });
         expect(existsSync(join(installed.releaseRoot, "examples"))).toBe(false);
+        const image = join(scratch, "image.png");
+        writeFileSync(image, await sharp({
+            create: { width: 2, height: 2, channels: 3, background: "blue" },
+        }).png().toBuffer());
         const script = join(installed.releaseRoot, "check-batteries.ts");
         writeFileSync(script, `
             import { includedExtensionConfigs } from "./src/extensions/included.ts";
             import { startExtensionRegistry } from "./src/extensions/registry.ts";
             import { startClientExtensionRegistry } from "./src/extensions/client-registry.ts";
+            import { executeToolHandler } from "./src/tools/execute.ts";
+            import { ToolRuntime } from "./src/tools/runtime.ts";
             const failures = [];
             const activity = [];
             const unexpected = (operation) => {
@@ -60,9 +67,14 @@ test("an installed release activates included batteries without checkout example
                 },
                 onFailure: (failure) => failures.push(failure.message),
             });
+            const runtime = new ToolRuntime(process.env.TEST_WORKSPACE);
             try {
+                const image = await executeToolHandler({
+                    type: "tool_call", id: "image", name: "view_image", input: { path: "image.png" },
+                }, runtime, new AbortController().signal, host.tools());
                 console.log(JSON.stringify({
                     failures,
+                    image,
                     activity,
                     explorer: host.agents().find((entry) => entry.name === "explorer"),
                     preHooks: host.preToolUseHooks().length,
@@ -71,13 +83,14 @@ test("an installed release activates included batteries without checkout example
                     suggestions: client.composeSuggesters().length,
                 }));
             } finally {
+                await runtime.close();
                 await client.close();
                 await host.close();
             }
         `);
         const child = Bun.spawn([process.execPath, script], {
             cwd: installed.releaseRoot,
-            env: { ...process.env, VERA_HOME: join(scratch, "home") },
+            env: { ...process.env, VERA_HOME: join(scratch, "home"), TEST_WORKSPACE: scratch },
             stdout: "pipe", stderr: "pipe",
         });
         const [stdout, stderr, code] = await Promise.all([
@@ -88,6 +101,12 @@ test("an installed release activates included batteries without checkout example
         const result = JSON.parse(stdout);
         expect(result.failures).toEqual([]);
         expect(result.activity).toEqual([]);
+        expect(result.image).toMatchObject({
+            kind: "output",
+            output: expect.stringMatching(/^image\.png: PNG, 2x2, \d+ bytes$/),
+            isError: false,
+            imagePaths: [expect.any(String)],
+        });
         expect(result.explorer.tools).toEqual(["read", "grep", "list"]);
         expect(result.preHooks).toBe(0);
         expect(result.postHooks).toBe(0);

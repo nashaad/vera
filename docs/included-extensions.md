@@ -6,8 +6,8 @@ description: "Use side conversations, workspace diffs, artifacts, context inspec
 # Included extensions
 
 Vera includes extensions for side conversations, workspace diffs,
-context inspection, commentable artifacts, and command hooks. They appear in `/extensions`,
-not in `/customize`; no separate installation is needed.
+context inspection, commentable artifacts, command hooks, and local image viewing.
+They appear in `/extensions`, not in `/customize`; no separate installation is needed.
 
 Extension code lives in four places in the repository. Vera loads the first
 two on its own:
@@ -33,7 +33,7 @@ The core and optional extensions are:
 ```text
 core       vera.chat, vera.command-hooks, vera.context, vera.customize,
            vera.explorer, vera.help, vera.monitor, vera.reasoning-cycle,
-           vera.session-identity, vera.web-search
+           vera.session-identity, vera.view-image, vera.web-search
 included   vera.artifacts, vera.btw, vera.budget, vera.cache, vera.diff,
            vera.mcp, vera.titles
 ```
@@ -68,6 +68,26 @@ Ctrl+G changes focus. Ctrl+\ cycles split and single-pane layouts.
 Use `/diff` to [review workspace changes](workspace-diff.md). Use `/context`
 to [inspect context usage](context-usage.md). The Context extension also
 provides `/dashboard`; disabling it removes both commands.
+
+## View a local image
+
+The included `vera.view-image` extension registers `view_image` for Vera to
+inspect a local still image. Give it an absolute path or a path relative to the
+workspace. It accepts PNG, JPEG, GIF, and WebP images up to 20 MiB, subject to
+the existing image dimension limits. Invalid, oversized, and animated files
+are rejected rather than downscaled. A symlink crossing the workspace boundary
+in either direction is rejected, and the error names the target path to use.
+
+The tool uses the existing `read` permission input and the same verb and path
+rules as `read`. A permission rule naming the tool `read` matches only `read`,
+not `view_image`. Deny rules apply in every mode; ask rules apply in ask and
+auto. Vera attaches the image through the existing session mechanism, and it
+replays with the conversation. If the file changes before attachment and cannot
+be attached, Vera provides an image-unavailable note. If the active model does
+not accept image input, Vera provides the existing image-omission note. The
+result reports the validated file's name, format, dimensions, and size. Both
+clients show the ordinary tool call, not an inline image preview. The included
+chat and explorer agents do not offer this tool.
 
 ## Monitor a background command
 
