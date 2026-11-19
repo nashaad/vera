@@ -181,8 +181,8 @@ window.
     with, so changing the switch affects new sessions only. The switch is kept
     in the desktop's browser storage like the Appearance settings, so other clients do not use them. The
     terminal, `vera -p` and the web client never offer notes.
-  - Approvals is described under Approvals and questions and Providers under
-    Models.
+  - Approvals is described under Approvals and questions. Providers and Models
+    are described under Models.
   - Workspaces lists the folders of the listed sessions, leaving out chats, the most recently
     active first, each with its path, session count and last activity, and Open,
     New chat here and Show in Finder.
@@ -217,7 +217,7 @@ History holds the last 50 pages. Opening a page other than the current one drops
 the forward pages, as a browser does, and opening the current page adds nothing.
 
 Cmd+N opens New Chat, Cmd+[ goes back, Cmd+] goes forward and Cmd+, opens
-Settings. The Go menu holds New Chat, Back, Forward, Search, Work, Customize,
+Settings and focuses its search. The Go menu holds New Chat, Back, Forward, Search, Work, Customize,
 Devices, Settings, Tour and Coverage. Search, Work, Customize, Devices, Tour and
 Coverage have no shortcut; the command palette reaches them. The menus leave out
 the entries of parts that are off. On other platforms the modifier is Ctrl.
@@ -1028,15 +1028,22 @@ The Models browser has four tabs:
   settings that loaded, says so, and refuses changes until the file is fixed.
 - `Help` explains the marks.
 
-Settings > Providers lists the providers the home is connected to, with how
-many models each lists and when it was last listed. `Refresh` lists a
-provider's models again. `Forget` asks first, then removes the provider's saved
-connection and what Vera learned about its models. `Add a provider` connects a
-known provider with its key or browser sign-in, or a custom endpoint with a
-key. Choose a model to check it and make it the default. The same screen opens
-on first run when no provider is connected, and from the Models browser.
-Outrider guided setup remains in the terminal. Fallback after failures is not
-available from the window.
+Settings > Providers groups connected providers and providers you can add.
+Select a connected provider to manage its credential. `Forget` asks first, then
+removes the provider's saved connection and what Vera learned about its models.
+Select an available provider or `Custom provider` to connect with a key or
+browser sign-in. Choose a model and select `Check and use` to check it and make
+it the default. Escape and the back arrow return to the previous setup screen,
+or close setup from the provider list. The same window opens on first run when
+no provider is connected, and from the Models browser. Outrider guided setup
+remains in the terminal. Fallback after failures is not available from the
+window.
+
+Settings > Models lists the kept models first and the connected providers'
+other catalog models below. Search filters both groups. A switch keeps a model
+or removes it from the model picker; it does not change the running model.
+Refresh lists models again from connected providers that support it. When no
+provider is connected, `Connect a provider` opens Settings > Providers.
 
 ## Session tools
 

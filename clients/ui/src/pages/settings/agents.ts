@@ -11,5 +11,5 @@ export function agentMeta(agent: AgentInfo): string {
     const parts: string[] = [scopeLabel(agent.scope)];
     if (agent.defaultModel !== undefined && agent.defaultModel.length > 0) parts.push(agent.defaultModel);
     if (agent.defaultEffort !== undefined && agent.defaultEffort.length > 0) parts.push(`effort ${agent.defaultEffort}`);
-    return parts.join(" · ");
+    return parts.join(", ");
 }

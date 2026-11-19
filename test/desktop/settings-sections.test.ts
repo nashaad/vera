@@ -87,9 +87,9 @@ describe("workspaceFolders", () => {
 
 describe("folderSummary", () => {
     test("counts sessions, marks a partial count, and lower-cases the last activity", () => {
-        expect(folderSummary({ sessions: "3", running: "0", needsYou: "0", lastActive: "2h ago" })).toBe("3 sessions · last active 2h ago");
-        expect(folderSummary({ sessions: "1", running: "0", needsYou: "0", lastActive: "Now" })).toBe("1 session · last active now");
-        expect(folderSummary({ sessions: "50+", running: "0", needsYou: "0", lastActive: "3d ago" })).toBe("50+ sessions · last active 3d ago");
+        expect(folderSummary({ sessions: "3", running: "0", needsYou: "0", lastActive: "2h ago" })).toBe("3 sessions, last active 2h ago");
+        expect(folderSummary({ sessions: "1", running: "0", needsYou: "0", lastActive: "Now" })).toBe("1 session, last active now");
+        expect(folderSummary({ sessions: "50+", running: "0", needsYou: "0", lastActive: "3d ago" })).toBe("50+ sessions, last active 3d ago");
     });
 });
 
@@ -147,7 +147,7 @@ describe("agent labels", () => {
     test("the meta line shows scope, model and effort when present", () => {
         const base = { name: "reviewer", scope: "project" as const, writable: false };
         expect(agentMeta(base)).toBe("This folder");
-        expect(agentMeta({ ...base, defaultModel: "model-a", defaultEffort: "high" })).toBe("This folder · model-a · effort high");
+        expect(agentMeta({ ...base, defaultModel: "model-a", defaultEffort: "high" })).toBe("This folder, model-a, effort high");
         expect(agentMeta({ ...base, scope: "user", defaultEffort: "" })).toBe("Your home");
     });
 });

@@ -73,6 +73,7 @@ export interface ModelSettings {
     readonly efforts: readonly string[];
     readonly shortlist: readonly ModelEntry[];
     readonly catalog: readonly ModelEntry[];
+    readonly refreshableProviders?: readonly string[];
     readonly contextWindow?: number;
     readonly subagentDefault?: SubagentDefault;
     readonly reviewerDefault?: ReviewerDefault;
@@ -113,6 +114,7 @@ export function parseModelSettings(value: unknown): ModelSettings | undefined {
         efforts: strings(value.availableReasoningEfforts),
         shortlist: entries(value.pooled, true),
         catalog: entries(value.availableModels, false),
+        refreshableProviders: refreshableProviders(value.refreshableProviders, value.availableModels),
         ...(contextWindow === undefined ? {} : { contextWindow }),
         ...(subagentDefault === undefined ? {} : { subagentDefault }),
         ...(reviewerDefault === undefined ? {} : { reviewerDefault }),
@@ -142,6 +144,18 @@ export function parseModelRefusal(value: Fields): ModelRefusal | undefined {
     const requestId = str(value.requestId);
     if (requestId === undefined) return undefined;
     return { requestId, reason: value.reason === "invalid" ? "invalid" : "unavailable" };
+}
+
+function refreshableProviders(providers: unknown, models: unknown): readonly string[] {
+    if (Array.isArray(providers)) return [...new Set(strings(providers))];
+    if (!Array.isArray(models)) return [];
+    const named = new Set<string>();
+    for (const model of models) {
+        if (!isRecord(model) || model.refreshable !== true) continue;
+        const provider = str(model.provider);
+        if (provider !== undefined) named.add(provider);
+    }
+    return [...named].toSorted();
 }
 
 function entries(value: unknown, pooled: boolean): readonly ModelEntry[] {

@@ -19,6 +19,13 @@ test("@core every settings section is a show target with the section's name", ()
     expect(SHOW_TARGETS.filter((target) => target.kind === "settings")).toHaveLength(SETTINGS_SECTIONS.length);
 });
 
+test("@core the Models settings target is available in the window, not the terminal", () => {
+    const models = findShowTarget("settings.models");
+    expect(models?.label).toBe("Models");
+    expect(surfaceCanShow("window", models!)).toBe(true);
+    expect(surfaceCanShow("terminal", models!)).toBe(false);
+});
+
 test("@core every Tour page that opens without a folder is a show target", () => {
     const cards = pageCards("/work/crow").filter((card) => card.id !== "workspace");
     for (const card of cards) {
