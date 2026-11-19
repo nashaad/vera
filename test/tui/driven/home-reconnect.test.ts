@@ -86,7 +86,16 @@ test("Home reconnect replaces the host, refreshes Home, and creates no session",
         await chooseReconnect(session);
         const pane = await session.waitForVisiblePane("All conversations");
         expect(pane).toContain("New conversation");
-        expect(calls).toEqual([{ replaceExisting: true, confirmWedge: true }]);
+        expect(calls).toEqual([{
+            replaceExisting: true,
+            confirmWedge: true,
+            boot: {
+                onCheck: expect.any(Function),
+                render: expect.any(Function),
+                onWaiting: expect.any(Function),
+                confirm: expect.any(Function),
+            },
+        }]);
         expect(reconnects).toBe(1);
         expect(settingsReads).toBeGreaterThan(settingsBefore);
         expect(creates).toBe(0);

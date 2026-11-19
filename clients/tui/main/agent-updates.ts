@@ -640,6 +640,10 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 for (const notice of rt.deferredKeymapNotices.splice(0)) {
                     rt.state = appendTuiNotice(rt.state, notice);
                 }
+                if (rt.pendingReconnectNotice !== undefined) {
+                    rt.state = appendTuiNotice(rt.state, rt.pendingReconnectNotice);
+                    rt.pendingReconnectNotice = undefined;
+                }
                 if (
                     rt.pendingBackNotice !== undefined
                     && update.entries.length > 0

@@ -507,6 +507,7 @@ export function setSidebarFocused(rt: TuiRuntime, focused: boolean): void {
 }
 
 export function focusedUiRequest(rt: TuiRuntime): UiRequestUpdate | undefined {
+    if (rt.reconnectBootQuestion !== undefined) return rt.reconnectBootQuestion.update;
     return rt.sidebar.isFocused() && rt.hostedSidebar.pane !== undefined
         ? rt.hostedSidebar.pane.state.pendingUiRequest
         : rt.pendingUiRequest;
