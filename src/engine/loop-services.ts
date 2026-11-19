@@ -2,6 +2,7 @@
 import type { AgentSnapshot } from "../agents/snapshot.ts";
 import type { AgentDefinition } from "../agents/definition.ts";
 import type { EffortPool } from "../model/effort-pool.ts";
+import type { ModelReasoningEffort } from "../model/types.ts";
 import type { ModelFailureLedger } from "../store/model-failures.ts";
 import type {
     SessionSettingOrigin,
@@ -56,6 +57,8 @@ export interface LoopPolicy {
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly permissionRules?: readonly PermissionRule[];
     readonly reviewer?: ToolReviewerSettings;
+    readonly reviewerFallbackEffort?: ModelReasoningEffort;
+    readonly reviewerFallbackLevels?: readonly ModelReasoningEffort[];
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly disabledPromptContributions?: readonly string[];
     readonly promptContributionOrder?: readonly string[];

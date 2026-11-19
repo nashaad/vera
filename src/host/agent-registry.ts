@@ -31,7 +31,7 @@ import type { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import { availableModels, type ReviewerModelDefault, type ReviewerSettingsPatch } from "../engine/model-settings.ts";
 import type { ModelReasoningEffort, StopCause } from "../model/types.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
-import { admittedEffortIds, availableModelsWithLevels, type PooledModel } from "../model/catalog-view.ts";
+import { admittedEffortIds, availableModelsWithLevels, knownReasoningEfforts, type PooledModel } from "../model/catalog-view.ts";
 import { projectTranscript } from "../engine/protocol.ts";
 import type { AgentInboxEffect, AgentSendEffect, AppliedToolEffectOutput, ApplyCommittedToolEffect, ApplyToolEffect, CloseSubagentEffect, MessageSubagentEffect, NotifyParentEffect, RegisteredTool, SpawnAsyncSubagentEffect, ToolEffectContext, ToolOutput } from "../tools/types.ts";
 import { ManagedProcessRegistry } from "../tools/process-runtime.ts";
@@ -642,13 +642,17 @@ export class AgentRegistry {
         statusCode?: number;
         settings?: ModelTurnSettings;
     }> {
-        return registrySettings.poolAdd(this, id, entry, onStep, options);
+        const result = await registrySettings.poolAdd(this, id, entry, onStep, options);
+        if (result.verdict === "added") this.pushWorkerStateEverywhere();
+        return result;
     }
 
     async applyPoolAddEffect(
         effect: { readonly models: readonly string[] },
     ): Promise<ToolOutput> {
-        return registrySettings.applyPoolAddEffect(this, effect);
+        const result = await registrySettings.applyPoolAddEffect(this, effect);
+        this.pushWorkerStateEverywhere();
+        return result;
     }
 
     applyAgentRosterEffect(
@@ -714,14 +718,18 @@ export class AgentRegistry {
         id: string,
         provider: string,
     ): Promise<ModelTurnSettings | undefined> {
-        return registrySettings.refreshCatalog(this, id, provider);
+        const result = await registrySettings.refreshCatalog(this, id, provider);
+        if (result !== undefined) this.pushWorkerStateEverywhere();
+        return result;
     }
 
     async poolRemove(
         id: string,
         entry: { readonly provider: string; readonly model: string },
     ): Promise<ModelTurnSettings | undefined> {
-        return registrySettings.poolRemove(this, id, entry);
+        const result = await registrySettings.poolRemove(this, id, entry);
+        if (result !== undefined) this.pushWorkerStateEverywhere();
+        return result;
     }
 
     async poolName(
@@ -813,6 +821,7 @@ export class AgentRegistry {
 
     /** Fresh host catalog facts reach every attached client, not only the session that asked. */
     notifyModelCatalogChanged(): void {
+        this.pushWorkerStateEverywhere();
         for (const entry of this.agents.values()) {
             if (entry.agent.attached) {
                 entry.inbound?.publishModelSettings();
@@ -1198,6 +1207,23 @@ export class AgentRegistry {
                 ? {}
                 : { reviewer: this.options.reviewer }),
             readReviewer: () => this.readReviewer(),
+            get reviewerFallbackEffort() {
+                return registry.options.readConfiguredTurnPolicy?.()
+                    .reviewerFallbackEffort;
+            },
+            get reviewerFallbackLevels() {
+                return knownReasoningEfforts(
+                    entry.modelSettings.provider ?? registry.defaultProvider,
+                    entry.modelSettings.model,
+                    registry.options.readPool?.(store.header.cwd),
+                    {
+                        ...registry.catalog,
+                        ...(registry.options.home === undefined
+                            ? {} : { userPath: join(registry.options.home, "pool.json") }),
+                        projectRoot: store.header.cwd,
+                    },
+                );
+            },
             mediateReviewDecision,
             ...(this.options.reviewers === undefined
                 ? {}
@@ -1371,8 +1397,22 @@ export class AgentRegistry {
                     // A delegated session never falls back to another model.
                     const modelFallback = registry.options.modelFallback
                         ?? configuredFallback;
+                    const reviewerFallbackLevels = configured.reviewerFallbackEffort === undefined
+                        ? undefined
+                        : knownReasoningEfforts(
+                            entry.modelSettings.provider ?? this.defaultProvider,
+                            entry.modelSettings.model,
+                            this.options.readPool?.(store.header.cwd),
+                            {
+                                ...this.catalog,
+                                ...(this.options.home === undefined
+                                    ? {} : { userPath: join(this.options.home, "pool.json") }),
+                                projectRoot: store.header.cwd,
+                            },
+                        );
                     return {
                         ...configured,
+                        ...(reviewerFallbackLevels === undefined ? {} : { reviewerFallbackLevels }),
                         ...(store.header.delegation !== undefined
                                 || modelFallback === undefined
                             ? {}

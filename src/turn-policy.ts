@@ -9,6 +9,7 @@ import type { LoopPolicy } from "./engine/loop-services.ts";
 export type ConfiguredTurnPolicy = Pick<
     LoopPolicy,
     | "modelFallback"
+    | "reviewerFallbackEffort"
     | "permissionModes"
     | "permissionRules"
     | "disabledPromptContributions"
@@ -20,6 +21,7 @@ export function configuredTurnPolicy(
 ): ConfiguredTurnPolicy {
     const modelFallback = configuredModelFallback(config);
     return {
+        reviewerFallbackEffort: "low",
         ...(modelFallback === undefined ? {} : { modelFallback }),
         ...(config.permission_modes === undefined
             ? {}
