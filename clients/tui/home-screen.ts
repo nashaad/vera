@@ -339,7 +339,6 @@ const HOME_RESTART_CAUSE_COLUMNS = Math.max(
 
 const HOME_RESTART_TITLE_COLUMNS = HOME_CARD_COLUMNS
     - HOME_CONTENT_INDENT
-    - "❯ ".length
     - 1
     - HOME_RESTART_CAUSE_COLUMNS;
 
@@ -385,7 +384,7 @@ function restartText(restart: HomeRestart, selected: boolean): string {
     const cause = HOME_RESTART_CAUSE_WORDS[restart.cause].padStart(
         HOME_RESTART_CAUSE_COLUMNS,
     );
-    return `${indent()}${marker} ${fitted} ${cause}`;
+    return `${marker} ${fitted} ${cause}`;
 }
 
 function selectedRowId(state: HomeState): HomeRowId {

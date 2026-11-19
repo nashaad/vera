@@ -1,14 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { createTestRenderer } from "@opentui/core/testing";
 
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import type { RestartRecordWire } from "../../src/host/protocol.ts";
 import { homeRestartsFor, listHomeRestarts } from "../../clients/tui/main/home-restarts.ts";
 import {
     createHomeState,
+    createTuiHomeView,
     handleHomeKey,
     homeCardLines,
     homeStateWithRestarts,
     HOME_CARD_COLUMNS,
+    HOME_CONTENT_INDENT,
+    type HomeAction,
     type HomeRestart,
     type HomeState,
 } from "../../clients/tui/home-screen.ts";
@@ -49,8 +53,8 @@ describe("the restart block on the home card", () => {
             restart("b", "Release notes", "stop"),
         ]));
         expect(lines[3]).toBe("  Cut short (2)");
-        expect(lines[4]).toBe(`    Fix parser${" ".repeat(13)}crashed`);
-        expect(lines[5]).toBe(`    Release notes${" ".repeat(10)}stopped`);
+        expect(lines[4]).toBe(`  Fix parser${" ".repeat(15)}crashed`);
+        expect(lines[5]).toBe(`  Release notes${" ".repeat(12)}stopped`);
         expect(lines[4]?.length).toBe(HOME_CARD_COLUMNS);
         expect(lines[6]).toBe("  enter opens  del dismisses");
         expect(lines[7]).toBe("");
@@ -81,6 +85,65 @@ describe("the restart block on the home card", () => {
             expect(line.length).toBeLessThanOrEqual(HOME_CARD_COLUMNS);
         }
     });
+
+    for (const [width, height] of [[80, 24], [120, 40]] as const) {
+        test(`aligns restart and menu rows on the rendered home card at ${width} columns`, async () => {
+            const setup = await createTestRenderer({ width, height });
+            const actions: HomeAction[] = [];
+            const view = createTuiHomeView(setup.renderer, (action) => actions.push(action));
+            setup.renderer.root.add(view.surface);
+            view.surface.visible = true;
+            const title = "Chart the crow's route to the treasure island";
+            let state = withRestarts([restart("crow", title, "stop")]);
+            try {
+                view.update(state);
+                await setup.renderOnce();
+                const menuFrame = setup.captureCharFrame().split("\n");
+                const headingRow = menuFrame.findIndex((line) => line.includes("Cut short (1)"));
+                const restartRow = headingRow + 1;
+                const menuRow = menuFrame.findIndex((line) => line.includes("New conversation"));
+                const heading = menuFrame[headingRow]!;
+                const unselectedRestart = menuFrame[restartRow]!;
+                const selectedMenu = menuFrame[menuRow]!;
+                const titleWidth = HOME_CARD_COLUMNS - HOME_CONTENT_INDENT - 1 - "stopped".length;
+                const fittedTitle = `${title.slice(0, titleWidth - 1)}…`;
+                const titleColumn = view.box.x + HOME_CONTENT_INDENT;
+                expect(headingRow).toBeGreaterThanOrEqual(0);
+                expect(menuRow).toBeGreaterThan(restartRow);
+                expect(heading.indexOf("Cut short")).toBe(titleColumn);
+                expect(unselectedRestart.indexOf("Chart")).toBe(titleColumn);
+                expect(unselectedRestart).toContain(fittedTitle);
+                expect(selectedMenu.indexOf("New conversation")).toBe(titleColumn);
+                expect(unselectedRestart.indexOf("stopped") + "stopped".length)
+                    .toBe(view.box.x + HOME_CARD_COLUMNS);
+                expect(selectedMenu.indexOf("❯")).toBe(view.box.x);
+
+                state = handleHomeKey(state, up).state!;
+                view.update(state);
+                await setup.renderOnce();
+                const restartFrame = setup.captureCharFrame().split("\n");
+                const selectedRestart = restartFrame[restartRow]!;
+                const unselectedMenu = restartFrame[menuRow]!;
+                expect(selectedRestart.indexOf(fittedTitle)).toBe(titleColumn);
+                expect(selectedRestart.indexOf("❯")).toBe(selectedMenu.indexOf("❯"));
+                expect(unselectedMenu.indexOf("New conversation")).toBe(titleColumn);
+                expect(selectedRestart.indexOf("stopped") + "stopped".length)
+                    .toBe(view.box.x + HOME_CARD_COLUMNS);
+                expect(restartFrame.map((line) => line.replace("❯", " ")))
+                    .toEqual(menuFrame.map((line) => line.replace("❯", " ")));
+
+                await setup.mockMouse.click(view.box.x, restartRow);
+                await setup.mockMouse.click(titleColumn, restartRow);
+                await setup.mockMouse.click(view.box.x + HOME_CARD_COLUMNS - 1, restartRow);
+                expect(actions).toEqual(Array.from({ length: 3 }, () => ({
+                    kind: "open_restart",
+                    sessionId: "crow",
+                })));
+            } finally {
+                setup.renderer.destroy();
+            }
+        });
+    }
 
     test("shows a window of three entries that keeps the cursor visible", () => {
         const many = ["a", "b", "c", "d", "e"].map((id) => restart(id, `Session ${id}`));
