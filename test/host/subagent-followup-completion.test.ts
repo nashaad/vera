@@ -337,11 +337,12 @@ test("@core queued follow-ups spanning turns deliver only the final result", asy
         await waitForQueue(childAttachment, ["Second bearing.", "Third bearing."]);
         release[0]!.resolve();
         await Promise.race([entered[1]!.promise, Bun.sleep(2_000).then(() => { throw new Error("Second turn did not start"); })]);
-        const records = (await readFile(join(root, "parent.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
-        expect(records.filter((record) => record.type === "delivery")).toHaveLength(0);
+        await expect(readFile(join(root, "parent.jsonl"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
         expect(hooks).toHaveLength(0);
         release[1]!.resolve();
         expect(await nextNotification(parentAttachment)).toMatchObject({ deliveryId: "completion:child", content: "Final turn." });
+        const records = (await readFile(join(root, "parent.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+        expect(records.filter((record) => record.type === "delivery")).toHaveLength(1);
         await waitFor(() => hooks.length === 1);
         expect(hooks[0]).toMatchObject({ outcome: "completed", text: "Final turn." });
         expect(calls).toBe(3);
@@ -393,8 +394,7 @@ test("@core closing a child suppresses a queued assignment completion and hook",
         release.resolve();
         expect(await closing).toMatchObject({ status: "closed" });
         await registry.close();
-        const records = (await readFile(join(root, "parent.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
-        expect(records.filter((record) => record.type === "delivery" && String(record.id).startsWith("completion:child"))).toHaveLength(0);
+        await expect(readFile(join(root, "parent.jsonl"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
         expect(hooks).toHaveLength(0);
     } finally {
         release.resolve();

@@ -6,8 +6,13 @@ description: "Understand what survives when you stop work, close the client, or 
 # Saved conversations
 
 Vera saves conversations as you work. Stopping a turn or closing the terminal
-client does not delete the conversation. You can return to its history and
+client does not delete a saved conversation. You can return to its history and
 resume it later.
+
+A new conversation that has only been opened or configured need not have a
+session file yet. Sending a message, naming the conversation, or moving it to
+another folder saves it. If an unused conversation closes before it is saved,
+it has no history to resume.
 
 The resident host owns live work. A client is the window you use to read and
 control it, so closing one client does not stop every conversation.
@@ -18,9 +23,10 @@ Run `/resume` to choose saved work. From the terminal, `vera -c` continues the
 most recent conversation. See [Switch and search conversations](session-switching.md)
 for moving between active tasks.
 
-`/close` leaves the conversation's saved file on screen for reading. That view has no worker
-attached for this client. Use its resume overlay when you want to continue
-working. Home means no conversation is open.
+`/close` leaves a saved conversation's file on screen for reading. That view has
+no worker attached for this client. Use its resume overlay when you want to
+continue working. Closing an unsaved, unused conversation returns to Home
+instead. Home means no conversation is open.
 
 ## Read the transcript
 

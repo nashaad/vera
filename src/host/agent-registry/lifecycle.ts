@@ -65,7 +65,7 @@ export async function releaseAgentTree(reg: AgentRegistry, id: string): Promise<
 // Unguarded: a trash or a move closes the tree it holds.
 export async function closeTree(reg: AgentRegistry, id: string, reason: SessionEndReason | undefined): Promise<CloseAgentTreeResult> {
         const present = reg.agents.has(id);
-        const sessionRetained = reg.agents.get(id)?.ephemeral !== true;
+        let sessionRetained = reg.agents.get(id)?.ephemeral !== true;
         const quiesced = new Map<string, RegisteredAgentEntry>();
         while (true) {
             const members = [id, ...reg.liveDescendantsOf(id)]
@@ -94,9 +94,11 @@ export async function closeTree(reg: AgentRegistry, id: string, reason: SessionE
         }
         const closed: ClosedMember[] = [];
         for (const [memberId, entry] of quiesced) {
+            const retained = entry.store.isMaterialized();
+            if (memberId === id && !retained) sessionRetained = false;
             if (reason !== undefined) announceSessionEnd(reg, entry, reason);
             await reg.reapClosedAgent(memberId, entry);
-            if (!entry.ephemeral) {
+            if (!entry.ephemeral && retained) {
                 closed.push({ id: memberId, sessionPath: entry.store.path });
             }
         }
@@ -257,6 +259,7 @@ export async function createWithKind(reg: AgentRegistry, options: CreateRegister
         }
         reg.reserveId(id);
         let createdPath: string | undefined;
+        let createdStore: SessionStore | undefined;
         let createdFolder: string | undefined;
         let ephemeralDirectory: string | undefined;
         try {
@@ -290,6 +293,12 @@ export async function createWithKind(reg: AgentRegistry, options: CreateRegister
                         ? {}
                         : { contextAssemblyMode: startupProfile }),
                     ...(options.notesOffer === true ? { notesOffer: true } : {}),
+                    ...(kind === "interactive"
+                        && inherited?.parentId === undefined
+                        && inherited?.delegation === undefined
+                        && options.ephemeral !== true
+                        ? { deferFile: true }
+                        : {}),
                     ...(inherited?.parentId === undefined
                         ? {}
                         : { parentId: inherited.parentId }),
@@ -298,6 +307,7 @@ export async function createWithKind(reg: AgentRegistry, options: CreateRegister
                         : { delegation: inherited.delegation }),
                 },
             );
+            createdStore = store;
             createdPath = store.path;
             if (inherited !== undefined) {
                 await store.appendApprovalMode(inherited.approvalMode);
@@ -321,7 +331,8 @@ export async function createWithKind(reg: AgentRegistry, options: CreateRegister
                 await rm(ephemeralDirectory, { recursive: true, force: true })
                     .catch(() => {});
             } else {
-                if (createdPath !== undefined) {
+                if (createdPath !== undefined
+                    && (createdStore === undefined || createdStore.isMaterialized())) {
                     await rm(createdPath, { force: true }).catch(() => {});
                 }
                 if (createdFolder !== undefined) {
@@ -559,6 +570,11 @@ export async function trashSession(reg: AgentRegistry, targetId: string): Promis
             reg.trashingIds.add(id);
         }
         try {
+            try {
+                await entry.store.materialize();
+            } catch {
+                return "failed";
+            }
             const closed = [...(await closeTree(reg, targetId, "deleted")).closed];
             try {
                 await reg.trashArtifacts({
@@ -658,9 +674,13 @@ export function reserveDistributedTrash(reg: AgentRegistry, ids: readonly string
     }
 
 export async function finishDistributedCloseMember(reg: AgentRegistry, id: string, entry: RegisteredAgentEntry, reason: SessionEndReason): Promise<ClosedMember | undefined> {
+        if (reason === "deleted") await entry.store.materialize();
+        const retained = entry.store.isMaterialized();
         announceSessionEnd(reg, entry, reason);
         await reg.reapClosedAgent(id, entry);
-        return entry.ephemeral ? undefined : { id, sessionPath: entry.store.path };
+        return entry.ephemeral || !retained
+            ? undefined
+            : { id, sessionPath: entry.store.path };
     }
 
 export function releaseDistributedTrash(reg: AgentRegistry, ids: readonly string[]): void {

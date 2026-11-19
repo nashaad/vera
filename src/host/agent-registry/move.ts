@@ -79,6 +79,11 @@ export async function moveSession(
     const restartable = [restartPlan(reg, entry)];
     reserve(reg, id);
     try {
+        try {
+            await entry.store.materialize();
+        } catch {
+            return { status: "failed" };
+        }
         let closed: ClosedMember[];
         try {
             closed = [...(await closeTree(reg, id, "closed")).closed];

@@ -115,6 +115,7 @@ test("@core moving an idle chat that a client is attached to carries its files a
         const folder = before.workspace;
         const attachment = before.attach();
         expect((await attachment.receive()).type).toBe("history");
+        expect(await exists(path("chat"))).toBe(false);
 
         const outcome = await registry.moveSession("chat", { workspace: project }, context.sessions);
 
@@ -150,7 +151,8 @@ test("@core a chat's top-level name that already exists in the project refuses t
         expect(await readFile(join(before.workspace, "notes.txt"), "utf8")).toBe("kept\n");
         expect(registry.find("chat")).toBe(before);
         expect(row(registry, "chat").chat).toBe(true);
-        expect((await SessionStore.open(path("chat"))).header.cwd).toBe(before.workspace);
+        expect(await exists(path("chat"))).toBe(false);
+        expect(registry.agents.get("chat")!.store.header.cwd).toBe(before.workspace);
     });
 });
 
@@ -342,6 +344,7 @@ test("a stored session's event log follows it to the new folder's key", async ()
         const { registry, project, sessions, path, eventLog } = context;
         const chat = await chatWithFiles(context);
         const from = eventLog("chat", chat.workspace);
+        await registry.renameSession("chat", "saved");
         await registry.closeAgent("chat");
         await seedEventLog(from, "old log\n");
 
@@ -412,6 +415,7 @@ test("a stored chat refuses a collision and leaves both folders as they were", a
     await withMoves(async (context) => {
         const { registry, project, sessions, path } = context;
         const chat = await chatWithFiles(context);
+        await registry.renameSession("chat", "saved");
         await registry.closeAgent("chat");
         await mkdir(join(project, "drafts"));
 
@@ -448,6 +452,7 @@ test("trashing a stored session after a stored move succeeds", async () => {
     await withMoves(async (context) => {
         const { registry, project, sessions, path } = context;
         await chatWithFiles(context);
+        await registry.renameSession("chat", "saved");
         await registry.closeAgent("chat");
         await registry.moveStoredSession("chat", { workspace: project }, sessions, async () => path("chat"));
 

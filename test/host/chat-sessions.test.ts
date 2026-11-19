@@ -81,9 +81,10 @@ test("@core a create without a workspace makes the session's own folder and reco
 
         expect((await stat(folder)).isDirectory()).toBe(true);
         expect(agent.workspace).toBe(await realpath(folder));
-        const stored = await SessionStore.open(sessionPath);
-        expect(stored.header.cwd).toBe(await realpath(folder));
-        expect(stored.selectedAgent()).toBeUndefined();
+        const store = registry.agents.get("chat")!.store;
+        expect(store.header.cwd).toBe(await realpath(folder));
+        expect(store.selectedAgent()).toBeUndefined();
+        await expect(stat(sessionPath)).rejects.toMatchObject({ code: "ENOENT" });
     });
 });
 
@@ -97,6 +98,8 @@ test("@core a chat row carries chat: true and an ordinary session's row does not
         expect(row(registry, "chat").chat).toBe(true);
         expect("chat" in row(registry, "plain")).toBe(false);
 
+        await registry.renameSession("chat", "saved chat");
+        await registry.renameSession("plain", "saved project");
         const stored = new Map<string, RegisteredAgentSummary>();
         await indexStoredSession(path("chat"), stored);
         await indexStoredSession(path("plain"), stored);
@@ -143,7 +146,8 @@ test("a create with a workspace stays on the default agent", async () => {
         await mkdir(project);
         await registry.create({ id: "plain", workspace: project, sessionPath: path("plain") });
 
-        expect((await SessionStore.open(path("plain"))).selectedAgent()).toBeUndefined();
+        expect(registry.agents.get("plain")!.store.selectedAgent()).toBeUndefined();
+        await expect(stat(path("plain"))).rejects.toMatchObject({ code: "ENOENT" });
         await expect(stat(chatFolderPath(path("plain")))).rejects.toMatchObject({ code: "ENOENT" });
     });
 });
@@ -186,6 +190,7 @@ test("resuming a chat recreates its own folder when it is missing", async () => 
         const sessionPath = path("chat");
         const agent = await registry.create({ id: "chat", sessionPath });
         const folder = agent.workspace;
+        await registry.renameSession("chat", "saved");
         await registry.closeAgent("chat");
         await rm(folder, { recursive: true });
 
@@ -202,6 +207,7 @@ test("resuming a session whose ordinary folder is missing does not recreate it",
         const project = join(root, "project");
         await mkdir(project);
         await registry.create({ id: "plain", workspace: project, sessionPath: path("plain") });
+        await registry.renameSession("plain", "saved");
         await registry.closeAgent("plain");
         await rm(project, { recursive: true });
 
@@ -486,9 +492,9 @@ test("a session created with the notes offer keeps it fixed in its header and it
         const inProject = await registry.create({ id: "project", workspace: project, sessionPath: path("project"), notesOffer: true });
         const plain = await registry.create({ id: "plain", sessionPath: path("plain") });
 
-        expect((await SessionStore.open(path("offered"))).header.notesOffer).toBe(true);
-        expect((await SessionStore.open(path("project"))).header.notesOffer).toBe(true);
-        expect("notesOffer" in (await SessionStore.open(path("plain"))).header).toBe(false);
+        expect(registry.agents.get("offered")!.store.header.notesOffer).toBe(true);
+        expect(registry.agents.get("project")!.store.header.notesOffer).toBe(true);
+        expect("notesOffer" in registry.agents.get("plain")!.store.header).toBe(false);
 
         const attachment = offered.attach();
         await runPrompt(attachment, "first");

@@ -176,7 +176,7 @@ for (const fault of ["none", "lost-acknowledgement", "admission", "lost-executor
             expect(transcript).toContain("crow found the map");
         }
         await waitFor(async () => (await listAgentsThroughHost(host!.server.socketPath)).find((row) => row.id === owner.id)?.status === "idle");
-        if (other !== undefined) expect((await listAgentsThroughHost(host.server.socketPath)).find((row) => row.id === other.id)?.live).toBe(false);
+        if (other !== undefined) expect((await listAgentsThroughHost(host.server.socketPath)).find((row) => row.id === other.id)).toBeUndefined();
         client = await attachAgent({ socketPath: socket, agentId: owner.id });
         expect((await client.receive()).type).toBe("history");
         await client.send({ type: "prompt", content: "Are you ready?" });

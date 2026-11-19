@@ -95,7 +95,7 @@ test("@core an observed command keeps only its detached owner resident through i
     }
 }, 10_000);
 
-socketTest("@core pooled idle parking preserves an observed owner but parks an unrelated worker session", async () => {
+socketTest("@core pooled idle parking preserves an observed owner and discards an unused session", async () => {
     await mkdir(join(tmpdir(), "vera-dev"), { recursive: true });
     const home = await mkdtemp(join(tmpdir(), "vera-dev", "monitor-park-"));
     const host = await startResidentHost({
@@ -128,7 +128,7 @@ socketTest("@core pooled idle parking preserves an observed owner but parks an u
         await router.parkIdle(later);
         let rows = await listAgentsThroughHost(host.server.socketPath);
         expect(rows.find((row) => row.id === owner.id)?.live).toBe(true);
-        expect(rows.find((row) => row.id === unrelated.id)?.live).toBe(false);
+        expect(rows.find((row) => row.id === unrelated.id)).toBeUndefined();
         expect(scope.read(result.snapshot.processId)?.status).toBe("running");
 
         await scope.kill(result.snapshot.processId);
@@ -136,7 +136,7 @@ socketTest("@core pooled idle parking preserves an observed owner but parks an u
         await waitUntilUnpinned(host.registry.processRegistry, owner.id);
         await router.parkIdle(later);
         rows = await listAgentsThroughHost(host.server.socketPath);
-        expect(rows.find((row) => row.id === owner.id)?.live).toBe(false);
+        expect(rows.find((row) => row.id === owner.id)).toBeUndefined();
     } finally {
         const annexPid = host.annexPid;
         try {

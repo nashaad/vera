@@ -281,6 +281,11 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             const id = name.endsWith(".jsonl") ? name.slice(0, -6) : undefined;
             const opening = this.hostOpeningPaths.get(canonical) ?? (id !== undefined && this.hostOpening.has(id) ? id : undefined);
             if (opening !== undefined) this.waitForOpen(opening);
+            const resident = await this.findResidentForPath(canonical);
+            if (resident !== undefined) {
+                const parentId = resident.parentId;
+                return { id: resident.id, sessionPath: await this.options.host.canonicalPath(resident.sessionPath), ...(parentId === undefined ? {} : { parentId }) };
+            }
             const inspected = await this.options.host.inspect(canonical);
             if (this.hostOpening.has(inspected.id)) this.waitForOpen(inspected.id);
             return inspected;
@@ -300,7 +305,10 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
                 }
                 const pathOwner = pathId === undefined ? undefined : this.owners.get(pathId);
                 if (pathId !== undefined && this.hostOpening.has(pathId)) this.waitForOpen(pathId);
-                const inspected = await this.options.host.inspect(canonical);
+                const residentAtPath = await this.findResidentForPath(canonical);
+                const inspected = residentAtPath === undefined
+                    ? await this.options.host.inspect(canonical)
+                    : { id: residentAtPath.id, sessionPath: await this.options.host.canonicalPath(residentAtPath.sessionPath), ...(residentAtPath.parentId === undefined ? {} : { parentId: residentAtPath.parentId }) };
                 if (reservedPaths !== undefined && !reservedPaths.has(inspected.sessionPath)) {
                     throw new SessionTransferReservationsChanged();
                 }
@@ -1110,6 +1118,14 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             return mergeRosters(owners.map(([owner], index) => [owner, rosters[index]!] as const),
                 (id) => residentOwners.get(id) ?? this.owners.get(id));
         });
+    }
+
+    private async findResidentForPath(path: string): Promise<RoutedSession | undefined> {
+        for (const [, endpoint] of this.activeEndpoints()) {
+            const resident = await endpoint.residentAt(path);
+            if (resident !== undefined) return resident;
+        }
+        return undefined;
     }
 
     private endpoint(owner: SessionOwner): SessionEndpoint {

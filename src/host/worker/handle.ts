@@ -152,7 +152,11 @@ export function residentWorkerSpawnCommand(
 
 // Call inside `store.exclusively`: with no append in flight the count is committed, and echoed records continue from it.
 export function sessionSeedFromStore(store: SessionStore): WorkerSessionSeed {
-    return { path: store.path, header: { ...store.header }, lineCount: store.appendedLineCount() };
+    return {
+        path: store.path,
+        header: { ...store.header },
+        lineCount: store.isMaterialized() ? store.appendedLineCount() : 1,
+    };
 }
 
 export function startSeededWorker(
@@ -285,6 +289,18 @@ export async function startWorker(
         deadlineMs: options.deadlineMs ?? NO_DEADLINE,
         processGroup: true,
     });
+
+    if (!options.store.isMaterialized() && options.session.lineCount === 1) {
+        let lineNumber = 1;
+        for (const record of options.store.pendingRecords()) {
+            lineNumber += 1;
+            pipe.notify({
+                method: "session.record",
+                lineNumber,
+                record: sessionRecordForWire(record),
+            });
+        }
+    }
 
     pipe.notify({
         method: "worker.start",

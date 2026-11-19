@@ -18,6 +18,8 @@ import { billedUsageFields } from "./session-usage-fields.ts";
 import { sessionJsonFields } from "./session-json-fields.ts";
 import {
     chmod,
+    link,
+    lstat,
     mkdir,
     open,
     rm,
@@ -373,6 +375,7 @@ export interface CreateSessionStoreOptions {
     readonly contextAssemblyMode?: Exclude<ContextAssemblyMode, "default">;
     readonly notesOffer?: true;
     readonly importedFrom?: SessionImportProvenance;
+    readonly deferFile?: boolean;
     readonly now?: () => Date;
     readonly createId?: () => string;
     readonly openAppendFile?: OpenSessionAppendFile;
@@ -494,6 +497,8 @@ export interface IndexedLiveContext {
 
 const INDEXED_HISTORY_TAIL_BYTES = 128 * 1024;
 const INDEXED_HARNESS_TAIL_BYTES = 128 * 1024;
+const PENDING_SETUP_RECORDS = 256;
+const PENDING_SETUP_BYTES = 1024 * 1024;
 
 function billedAssistant(billed: SessionCompactionBilled, api: "compaction" | "ask"): AssistantMessage {
     return { role: "assistant", content: [], stopReason: "stop",
@@ -754,6 +759,8 @@ export class SessionStore {
     private lineCount: number;
     private recordIndex: SessionRecordIndex;
     private readSource: FileHandle | undefined;
+    private pendingSetupLines: Buffer[] | undefined;
+    private pendingSetupBytes = 0;
     private readonlySnapshot = false;
     private archivedState = false;
     private onRecordAppended?: (
@@ -817,30 +824,45 @@ export class SessionStore {
         };
 
         await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-        let created = false;
-        try {
-            const file = await open(path, "wx", 0o600);
-            created = true;
+        const deferred = options.deferFile === true
+            && options.parentId === undefined
+            && options.delegation === undefined
+            && options.origin === undefined
+            && options.importedFrom === undefined;
+        if (deferred) {
+            const exists = await lstat(path).then(() => true, (error: NodeJS.ErrnoException) => {
+                if (error.code === "ENOENT") return false;
+                throw error;
+            });
+            if (exists) {
+                throw Object.assign(new Error(`EEXIST: file already exists, open '${path}'`), { code: "EEXIST" });
+            }
+        } else {
+            let created = false;
             try {
-                await file.chmod(0o600);
-                await file.writeFile(jsonLine(header), "utf8");
-                await file.sync();
-            } finally {
-                await file.close();
+                const file = await open(path, "wx", 0o600);
+                created = true;
+                try {
+                    await file.chmod(0o600);
+                    await file.writeFile(jsonLine(header), "utf8");
+                    await file.sync();
+                } finally {
+                    await file.close();
+                }
+                await rm(sessionMetadataPath(path), { force: true });
+            } catch (error) {
+                if (created) {
+                    await rm(path, { force: true }).catch(() => {});
+                }
+                throw error;
             }
-            await rm(sessionMetadataPath(path), { force: true });
-        } catch (error) {
-            if (created) {
-                await rm(path, { force: true }).catch(() => {});
-            }
-            throw error;
         }
 
         const index = new SessionRecordIndex();
         index.append(0, Buffer.byteLength(jsonLine(header)), header as unknown as Record<string, unknown>);
         const state = createSessionProjectionState(index);
         state.indexedLive = true;
-        return new SessionStore(
+        const store = new SessionStore(
             path,
             header,
             state,
@@ -859,6 +881,8 @@ export class SessionStore {
             1,
             index,
         );
+        if (deferred) store.pendingSetupLines = [];
+        return store;
     }
 
     static async open(
@@ -903,6 +927,8 @@ export class SessionStore {
 
     async readRecord(number: number): Promise<Record<string, unknown> | undefined> {
         if (!Number.isSafeInteger(number)) return undefined;
+        const pending = await this.pendingReadRecords();
+        if (pending !== undefined) return pending[number]?.record;
         const { index, limit } = await this.recordReadIndex();
         if (number < 0 || number >= limit) return undefined;
         const location = index.location(number);
@@ -912,6 +938,13 @@ export class SessionStore {
     }
 
     async *walkRecords(kind?: string): AsyncGenerator<{ readonly number: number; readonly record: Record<string, unknown> }> {
+        const pending = await this.pendingReadRecords();
+        if (pending !== undefined) {
+            for (const item of pending) {
+                if (kind === undefined || item.record.type === kind) yield item;
+            }
+            return;
+        }
         const { index, limit } = await this.recordReadIndex();
         const source = this.readSource;
         const file = source ?? await open(this.path, "r");
@@ -930,6 +963,7 @@ export class SessionStore {
     }
 
     async *walkEntries(): AsyncGenerator<SessionMessageEntry> {
+        if (await this.pendingReadRecords() !== undefined) return;
         const { index, limit } = await this.recordReadIndex();
         const source = this.readSource;
         const file = source ?? await open(this.path, "r");
@@ -1000,6 +1034,21 @@ export class SessionStore {
             if (entry.attachment.id === id) return entry.attachment.name;
         }
         return undefined;
+    }
+
+    protected async pendingReadRecords(): Promise<readonly {
+        readonly number: number;
+        readonly record: Record<string, unknown>;
+    }[] | undefined> {
+        const lines = this.pendingSetupLines;
+        if (lines === undefined) return undefined;
+        return [
+            { number: 0, record: JSON.parse(jsonLine(this.header)) as Record<string, unknown> },
+            ...lines.map((line, index) => ({
+                number: index + 1,
+                record: parseJsonObject(this.path, index + 2, line.toString("utf8")),
+            })),
+        ];
     }
 
     protected async recordReadIndex(): Promise<{ readonly index: SessionRecordIndex; readonly limit: number }> {
@@ -1206,23 +1255,11 @@ export class SessionStore {
 
     async readModelSettingsHistory(): Promise<readonly SessionModelSettingsEntry[]> {
         const entries: SessionModelSettingsEntry[] = [];
-        const { index, limit } = await this.recordReadIndex();
-        const source = this.readSource;
-        const file = source ?? await open(this.path, "r");
-        try {
-            let number = index.nextRecordOfKind("model_settings", -1);
-            while (number !== undefined && number < limit) {
-                const location = index.location(number)!;
-                const value = parseJsonObject(this.path, number + 1,
-                    await readSessionLine(this.path, location.offset, location.length, file));
-                const entry = parseModelSettingsEntry(this.path, number + 1, value);
-                entries.push({ ...entry, settings: { ...entry.settings }, origin: entry.origin ?? "user" });
-                number = index.nextRecordOfKind("model_settings", number);
-            }
-            return entries;
-        } finally {
-            if (source === undefined) await file.close();
+        for await (const { number, record } of this.walkRecords("model_settings")) {
+            const entry = parseModelSettingsEntry(this.path, number + 1, record);
+            entries.push({ ...entry, settings: { ...entry.settings }, origin: entry.origin ?? "user" });
         }
+        return entries;
     }
 
     selectedAgent(): SessionSelectedAgentEntry | undefined {
@@ -1283,6 +1320,7 @@ export class SessionStore {
     setArchived(archived: boolean): Promise<void> {
         const result = this.pendingAppend.then(async () => {
             if (this.readonlySnapshot) throw new Error(`Session snapshot ${this.path} cannot write metadata`);
+            await this.materializePending();
             await writeSessionArchived(this.path, archived);
             this.archivedState = archived;
         });
@@ -2530,6 +2568,20 @@ export class SessionStore {
         return this.lineCount;
     }
 
+    isMaterialized(): boolean {
+        return this.pendingSetupLines === undefined;
+    }
+
+    materialize(): Promise<void> {
+        return this.exclusively(() => this.materializePending());
+    }
+
+    pendingRecords(): readonly Record<string, unknown>[] {
+        return (this.pendingSetupLines ?? []).map((line, index) =>
+            parseJsonObject(this.path, index + 2, line.toString("utf8"))
+        );
+    }
+
     /** Runs task with no append in flight and none able to start. An append made inside task never finishes. */
     exclusively<T>(task: () => Promise<T>): Promise<T> {
         const result = this.pendingAppend.then(task);
@@ -2563,6 +2615,10 @@ export class SessionStore {
                 ingestSessionRecord(this.path, this.lineCount + 1, stored, copyProjectionState(this.projection));
             }
             const lineNumber = await this.writeRecordLine(stored);
+            if (this.pendingSetupLines !== undefined) {
+                ingestSessionRecord(this.path, lineNumber, stored, this.projection, true);
+                return lineNumber;
+            }
             if (this.projection.indexedLive && !(await this.applyIndexedForeignMessage(lineNumber, stored))) {
                 const loaded = await scanIndexedSessionFile(this.path, false, this.readSource,
                     stored.type === "compaction" ? { value: carried } : undefined);
@@ -2644,6 +2700,21 @@ export class SessionStore {
         }
         const line = jsonLine(record);
         const bytes = Buffer.from(line, "utf8");
+        const pending = this.pendingSetupLines;
+        if (pending !== undefined) {
+            const offset = Buffer.byteLength(jsonLine(this.header)) + this.pendingSetupBytes;
+            if (isPendingSetupRecord(record)
+                && pending.length + 1 < PENDING_SETUP_RECORDS
+                && this.pendingSetupBytes + bytes.length < PENDING_SETUP_BYTES) {
+                pending.push(bytes);
+                this.pendingSetupBytes += bytes.length;
+            } else {
+                await this.materializePending(bytes);
+            }
+            this.recordIndex.append(offset, bytes.length, record as Record<string, unknown>);
+            this.lineCount += 1;
+            return this.lineCount;
+        }
         const file = await this.openAppendFile(this.path);
         let lengthBefore = 0;
         try {
@@ -2666,6 +2737,32 @@ export class SessionStore {
         this.recordIndex.append(lengthBefore, bytes.length, record as Record<string, unknown>);
         this.lineCount += 1;
         return this.lineCount;
+    }
+
+    private async materializePending(trigger?: Buffer): Promise<void> {
+        const pending = this.pendingSetupLines;
+        if (pending === undefined) return;
+        const temporary = `${this.path}.${randomUUID()}.tmp`;
+        let created = false;
+        try {
+            const file = await open(temporary, "wx", 0o600);
+            created = true;
+            try {
+                await file.chmod(0o600);
+                await file.writeFile(jsonLine(this.header), "utf8");
+                for (const line of pending) await file.writeFile(line);
+                if (trigger !== undefined) await file.writeFile(trigger);
+                await file.sync();
+            } finally {
+                await file.close();
+            }
+            await link(temporary, this.path);
+            this.pendingSetupLines = undefined;
+            this.pendingSetupBytes = 0;
+            await rm(sessionMetadataPath(this.path), { force: true }).catch(() => {});
+        } finally {
+            if (created) await rm(temporary, { force: true }).catch(() => {});
+        }
     }
 
     // A failed append must leave no unapplied line. Another writer (a rename) can append here,
@@ -5229,6 +5326,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object"
         && value !== null
         && !Array.isArray(value);
+}
+
+function isPendingSetupRecord(record: object): boolean {
+    const type = (record as { readonly type?: unknown }).type;
+    return type === "session_identity" || type === "permissions" || type === "model_settings";
 }
 
 function jsonLine(value: object): string {
