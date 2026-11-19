@@ -7,12 +7,14 @@ import { createServer, type Server, type Socket } from "node:net";
 import { chmod, link, lstat, mkdir, mkdtemp, rmdir, stat, unlink } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { dirname, join } from "node:path";
+import type { HostLogEntry } from "./host-log.ts";
 
 import {
     createHostLockfile,
     defaultHostLockPath,
     defaultHostSocketPath,
     inspectHostLockFile,
+    publishHostLockIfAbsent,
     refuseDamagedHostLock,
     type HostLockRecord,
 } from "./lockfile.ts";
@@ -192,6 +194,7 @@ export interface StartHostServerOptions {
     readonly pid?: number;
     readonly startedAt?: string;
     readonly buildId?: string;
+    readonly log?: (entry: HostLogEntry) => void;
     readonly poolWorkerCount?: number;
     readonly projectRoot?: string;
     readonly startupClaimPath?: string;
@@ -335,6 +338,7 @@ export interface HostListener {
 
 export interface HostServer extends HostListener {
     readonly lock: HostLockRecord;
+    stopLockRestoration(): Promise<void>;
 }
 
 interface HostLimits {
@@ -444,6 +448,7 @@ async function startListener(
         }
 
         shutdownFenced = true;
+        await pauseLockRestoration();
         let idle = false;
         try {
             idle = activeAttachments === 0
@@ -454,6 +459,7 @@ async function startListener(
         }
         if (!idle) {
             shutdownFenced = false;
+            startLockRestoration();
             return { type: "shutdown_if_idle_refused", reason: "busy" };
         }
         return {
@@ -495,6 +501,7 @@ async function startListener(
             return { type: "shutdown_for_replacement_refused", reason: "busy" };
         }
         shutdownFenced = true;
+        await pauseLockRestoration();
         let replaceable = false;
         try {
             replaceable = await (options.canReplace?.() ?? false) && activeServerOperations === 0;
@@ -503,6 +510,7 @@ async function startListener(
         }
         if (!replaceable) {
             shutdownFenced = false;
+            startLockRestoration();
             return { type: "shutdown_for_replacement_refused", reason: "busy" };
         }
         return {
@@ -602,6 +610,40 @@ async function startListener(
         );
     });
     let ownedSocketStat: Stats | undefined;
+    let lockRestoreTimer: ReturnType<typeof setInterval> | undefined;
+    let lockRestorePending: Promise<void> | undefined;
+    let lockRestoreRecord: HostLockRecord | undefined;
+    let closing = false;
+    let restorationPermanentlyStopped = false;
+    const pauseLockRestoration = async (): Promise<void> => {
+        closing = true;
+        if (lockRestoreTimer !== undefined) {
+            clearInterval(lockRestoreTimer);
+            lockRestoreTimer = undefined;
+        }
+        await lockRestorePending;
+    };
+    const stopLockRestoration = async (): Promise<void> => {
+        restorationPermanentlyStopped = true;
+        await pauseLockRestoration();
+    };
+    const startLockRestoration = (): void => {
+        if (restorationPermanentlyStopped || shutdownFenced) return;
+        closing = false;
+        if (lockRestoreTimer !== undefined || lockRestoreRecord === undefined) return;
+        lockRestoreTimer = setInterval(() => {
+            if (closing || lockRestorePending !== undefined) return;
+            lockRestorePending = restoreMissingHostLock(
+                options.lockPath ?? defaultHostLockPath(),
+                socketPath,
+                ownedSocketStat,
+                lockRestoreRecord!,
+                () => !closing && !shutdownFenced && !restorationPermanentlyStopped,
+                options.log,
+            ).catch(() => {}).finally(() => { lockRestorePending = undefined; });
+        }, 1_000);
+        lockRestoreTimer.unref();
+    };
     try {
         await prepareSocketDirectory(socketPath);
         ownedSocketStat = await listenAfterRemovingStaleSocket(
@@ -623,7 +665,7 @@ async function startListener(
                 ? {}
                 : { projectRoot: options.projectRoot }),
         }).publish() : Promise.resolve(undefined);
-        let lock;
+        let lock: HostLockRecord | undefined;
         if (worker === undefined && options.publishBeforeWorkers === true) {
             await options.recoverPrevious?.();
             lock = await publish();
@@ -634,12 +676,16 @@ async function startListener(
             lock = await publish();
         }
         await startupClaim.release();
+        lockRestoreRecord = lock;
+        startLockRestoration();
 
         return {
             identity,
             ...(lock === undefined ? {} : { lock }),
             socketPath,
+            stopLockRestoration,
             async close(): Promise<void> {
+                await stopLockRestoration();
                 for (const socket of sockets) {
                     socket.destroy();
                 }
@@ -648,6 +694,7 @@ async function startListener(
             },
         };
     } catch (error) {
+        await stopLockRestoration();
         for (const socket of sockets) {
             socket.destroy();
         }
@@ -658,6 +705,41 @@ async function startListener(
         } catch {
         }
         throw error;
+    }
+}
+
+async function restoreMissingHostLock(
+    lockPath: string,
+    socketPath: string,
+    ownedSocket: Stats | undefined,
+    record: HostLockRecord,
+    canRestore: () => boolean,
+    log?: (entry: HostLogEntry) => void,
+): Promise<void> {
+    const owned = ownedSocket;
+    if (owned === undefined) return;
+    try {
+        if (!canRestore()) return;
+        try {
+            await lstat(lockPath);
+            return;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+        const ownsSocket = async (): Promise<boolean> => {
+            if (!canRestore()) return false;
+            const current = await lstat(socketPath);
+            return current.isSocket()
+                && current.dev === owned.dev
+                && current.ino === owned.ino
+                && canRestore();
+        };
+        if (!await ownsSocket()) return;
+        const published = await publishHostLockIfAbsent(lockPath, record, ownsSocket);
+        if (published) {
+            log?.({ type: "host_lock_restored", pid: record.pid, started_at: record.started_at });
+        }
+    } catch {
     }
 }
 

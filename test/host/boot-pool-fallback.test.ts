@@ -131,6 +131,7 @@ socketAndLoopbackTest("a host started before a simulated adoption timeout exits 
     try {
         const host = await bootResidentHost({
             full: true,
+            hostAnswer: () => requestHostIdentity(join(home, "runtime", "host.sock")),
             inspect: async () => ({ home, hostAnswers: false, lock: "stale", orphans: 1, unproven: 0, bootLoop: false }),
             adopt: async () => {
                 attemptedPid = (await startHost()).pid;

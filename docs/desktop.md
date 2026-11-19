@@ -821,8 +821,8 @@ layout.
 When the startup check asks a question, such as whether to restart a busy host,
 the banner shows the question text with Yes and No. The app sends only the
 answer the person picks, never an automatic yes. A closed stdin counts as yes to
-the check, so closing the window, cancelling, or timing out writes no to the
-child before closing its stdin.
+most questions, so closing the window, cancelling, or timing out writes no to
+the child before closing its stdin.
 
 ## Themes
 

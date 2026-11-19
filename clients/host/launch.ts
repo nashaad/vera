@@ -19,6 +19,7 @@ import {
 } from "../../src/host/discovery.ts";
 import {
     createHostLockfile,
+    defaultHostSocketPath,
     type HostLockRecord,
 } from "../../src/host/lockfile.ts";
 import {
@@ -121,6 +122,7 @@ export async function findOrStartResidentHost(
     let releaseRoot: string | undefined;
     const host = await bootResidentHost({
         hostPublished: async () => (await lockfile.read()) !== undefined,
+        hostAnswer: () => requestHostIdentity(defaultHostSocketPath(home)),
         inspect: () => inspectHome(),
         adopt: async () => {
             const workers = await adoptableWorkers();
@@ -364,27 +366,35 @@ async function stopStartedHost(record: HostLockRecord): Promise<void> {
     if (processIsAlive(record.pid)) throw new Error(`Host PID ${record.pid} did not stop.`);
 }
 
-// A terminal gets a card; anything else keeps the plain line, which still lets Vera start unanswered.
 async function confirmBootQuestion(question: BootQuestion): Promise<boolean> {
     const { terminalCardPresenter } = await import("../cli/startup-prompt.ts");
     const cards = terminalCardPresenter();
-    if (cards === undefined) return confirmOnTerminal(`${question.text} [Y/n] `);
+    if (cards === undefined) return confirmOnTerminal(`${question.text} [Y/n] `, question.id !== "stop_answering_host");
     const { bootQuestionCard } = await import("../cli/boot-question-card.ts");
     return cards.ask(bootQuestionCard(question));
 }
 
-async function confirmOnTerminal(question: string): Promise<boolean> {
-    // Without a terminal nobody can answer, and Vera must still start.
-    if (!process.stdin.isTTY || !process.stderr.isTTY) return true;
+async function confirmOnTerminal(question: string, unattendedAnswer: boolean): Promise<boolean> {
+    if (!process.stdin.isTTY || !process.stderr.isTTY) return unattendedAnswer;
     process.stderr.write(question);
-    const answer = await new Promise<string>((resolve) => {
-        process.stdin.resume();
-        process.stdin.once("data", (chunk) => {
+    const answer = await new Promise<string | undefined>((resolve) => {
+        const finish = (value: string | undefined) => {
+            process.stdin.off("data", onData);
+            process.stdin.off("end", onEnd);
+            process.stdin.off("close", onEnd);
+            process.stdin.off("error", onEnd);
             process.stdin.pause();
-            resolve(String(chunk).trim().toLowerCase());
-        });
+            resolve(value);
+        };
+        const onData = (chunk: Buffer | string) => finish(String(chunk).trim().toLowerCase());
+        const onEnd = () => finish(undefined);
+        process.stdin.once("data", onData);
+        process.stdin.once("end", onEnd);
+        process.stdin.once("close", onEnd);
+        process.stdin.once("error", onEnd);
+        process.stdin.resume();
     });
-    return answer === "" || answer === "y" || answer === "yes";
+    return answer === undefined ? unattendedAnswer : answer === "" || answer === "y" || answer === "yes";
 }
 
 export function residentHostEntrypoint(): string {
