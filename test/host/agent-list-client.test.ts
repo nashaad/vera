@@ -146,7 +146,7 @@ socketTest(
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-list-timeout-"));
         const socketPath = join(root, "host.sock");
-        const server = createServer(() => undefined);
+        const server = createServer((socket) => { socket.resume(); });
         await new Promise<void>((resolve, reject) => {
             server.once("error", reject);
             server.listen(socketPath, resolve);
