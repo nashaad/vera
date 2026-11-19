@@ -10,7 +10,7 @@ function mentions(directory: string): string[] {
     for (const file of new Bun.Glob("**/*.{ts,tsx}").scanSync(join(ROOT, directory))) {
         if (NOTES_OFFER.test(readFileSync(join(ROOT, directory, file), "utf8"))) found.push(`${directory}/${file}`);
     }
-    return found;
+    return found.sort();
 }
 
 test("@core only the desktop window asks for the notes offer", () => {
