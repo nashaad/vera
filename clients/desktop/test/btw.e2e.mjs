@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
-import { COUNT_PROCESSES, startTrial } from "./trial.mjs";
+import { COUNT_PROCESSES, MODIFIER, press, startTrial, waitForAnnexPages } from "./trial.mjs";
 
 const MAIN_REPLY = "Crows sail past the reef.";
 const SIDE_REPLY = "The reef lies south of the fence.";
@@ -126,6 +126,72 @@ try {
     if (requests.filter((entry) => !entry.side).length !== mainRequests) throw new Error("/btw sent a request on the main conversation.");
     const main = page.locator("main .transcript-scroll[data-session]");
     if ((await main.innerText()).includes(FIRST)) throw new Error("The question shows in the main transcript.");
+
+    const setTheme = async (theme) => {
+        await app.evaluate(({ Menu }, name) => {
+            const item = Menu.getApplicationMenu().getMenuItemById(`theme.${name}`);
+            if (!item) throw new Error(`theme.${name} menu item is missing.`);
+            item.click();
+        }, theme);
+        await until(`${theme} theme`, () => page.evaluate((name) => document.documentElement.getAttribute("data-theme") === name, theme));
+    };
+    const checkAlignment = async (label) => {
+        const boxes = await page.evaluate(() => {
+            const rect = (selector) => {
+                const element = document.querySelector(selector);
+                if (!element) throw new Error(`Missing ${selector}.`);
+                const box = element.getBoundingClientRect();
+                return { top: box.top, bottom: box.bottom, width: box.width };
+            };
+            const main = "main .session-page .composer-wrap";
+            const side = '[data-location="rightPane"] .chat-view[data-chat="sidekick"] .composer-wrap';
+            return {
+                mainChips: rect(`${main} .context-chips`),
+                sideChips: rect(`${side} .context-chips`),
+                mainComposer: rect(`${main} .composer`),
+                sideComposer: rect(`${side} .composer`),
+            };
+        });
+        for (const [part, main, side] of [
+            ["chips top", boxes.mainChips.top, boxes.sideChips.top],
+            ["composer top", boxes.mainComposer.top, boxes.sideComposer.top],
+            ["composer bottom", boxes.mainComposer.bottom, boxes.sideComposer.bottom],
+        ]) {
+            if (Math.abs(main - side) > 0.5) throw new Error(`${label} ${part}: main ${main}, side ${side}.`);
+        }
+        if (boxes.mainComposer.width <= 0 || boxes.sideComposer.width <= 0) throw new Error(`${label}: a composer is not visible.`);
+    };
+    if (await page.locator(".browser-tools-notice").count()) throw new Error("Browser tools notice is visible before the alignment check.");
+    for (const theme of ["dark", "light"]) {
+        await setTheme(theme);
+        await checkAlignment(`${theme} without Browser tools`);
+    }
+
+    await waitForAnnexPages(page, app);
+    await press(app, "K", [MODIFIER]);
+    await page.getByRole("textbox", { name: "Command palette" }).fill("Open a web page");
+    await page.locator('[data-command="page.openBrowser"]').click();
+    const rightPane = page.locator(pane);
+    const browserTab = rightPane.locator('[role="tab"][data-container="core.browser"]');
+    await browserTab.waitFor();
+    const browserTools = rightPane.getByRole("switch", { name: "Browser tools" });
+    await until("Browser tools ready", () => browserTools.isEnabled());
+    await browserTools.click();
+    const notice = page.locator(".browser-tools-notice");
+    await notice.waitFor();
+    await until("Browser tools enabled", () => browserTools.isChecked());
+    await chatTabs().first().click();
+    await side().waitFor();
+    for (const theme of ["dark", "light"]) {
+        await setTheme(theme);
+        if (!(await notice.isVisible())) throw new Error("Browser tools notice is not visible beside the sidekick.");
+        await checkAlignment(`${theme} with Browser tools`);
+    }
+    await notice.getByRole("button", { name: "Turn off" }).click();
+    await notice.waitFor({ state: "detached" });
+    await browserTab.click();
+    await browserTab.locator("..").locator(".switcher-close").click();
+    await side().waitFor();
 
     // A second /btw reuses the tab.
     await input.fill(`/btw ${SECOND}`);

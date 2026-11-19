@@ -1,5 +1,9 @@
 /* A Chat tab in the right pane: one session's conversation and composer. */
 
+.location[data-location="rightPane"] .view-body:has(> .chat-view) {
+    padding-bottom: 0;
+}
+
 .chat-view {
     display: flex;
     flex: 1 1 auto;
