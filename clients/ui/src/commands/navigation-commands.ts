@@ -1,4 +1,5 @@
 import type { PageKind, RouterAction } from "../pages/routes.ts";
+import { requestSettingsSearchFocus } from "../pages/settings/focusSearch.ts";
 import type { CommandRegistry } from "./registry.ts";
 
 export const NAVIGATION_COMMANDS = {
@@ -33,7 +34,10 @@ export function registerNavigationCommands(
         ...PAGES.map(([id, title, kind]) => registry.register({
             id,
             title,
-            run: () => dispatch({ type: "navigate", route: { kind } }),
+            run: () => {
+                if (id === NAVIGATION_COMMANDS.settings) requestSettingsSearchFocus();
+                dispatch({ type: "navigate", route: { kind } });
+            },
         })),
         registry.register({ id: NAVIGATION_COMMANDS.back, title: "Back", run: () => dispatch({ type: "back" }) }),
         registry.register({ id: NAVIGATION_COMMANDS.forward, title: "Forward", run: () => dispatch({ type: "forward" }) }),

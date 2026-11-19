@@ -57,6 +57,18 @@ describe("model settings", () => {
         expect(parseModelSettings({ provider: "x" })).toBeUndefined();
     });
 
+    test("uses host refreshability and falls back to per-model flags", () => {
+        const availableModels = [
+            { provider: "zeta", model: "one", refreshable: true },
+            { provider: "deepseek", model: "fixed", refreshable: false },
+            { provider: "alpha", model: "two", refreshable: true },
+            { provider: "zeta", model: "three", refreshable: true },
+        ];
+        expect(parseModelSettings({ model: "fixed", availableModels })?.refreshableProviders).toEqual(["alpha", "zeta"]);
+        expect(parseModelSettings({ model: "fixed", availableModels, refreshableProviders: ["zeta", "zeta"] })?.refreshableProviders).toEqual(["zeta"]);
+        expect(parseModelSettings({ model: "fixed", availableModels, refreshableProviders: [] })?.refreshableProviders).toEqual([]);
+    });
+
     test("the pill name drops a vendor prefix but keeps a name the person gave", () => {
         const settings = parseModelSettings({
             provider: "openrouter",

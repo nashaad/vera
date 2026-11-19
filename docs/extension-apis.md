@@ -334,8 +334,9 @@ counted in [`/usage`](usage.md) with its spend and requests.
 `sessions.show` asks the windows and terminals attached to a conversation to
 open one of Vera's own screens, so an extension can point at where something
 is. The `target` is an id from the fixed list Vera keeps, such as
-`dialog.themes`, `settings.providers` or `page.work`; an id that is not on the
-list rejects with `Unknown screen`.
+`dialog.themes`, `settings.providers`, `settings.models` or `page.work`; an id
+that is not on the list rejects with `Unknown screen`. The Models settings
+screen is available in the window, but not the terminal.
 
 ```ts
 const outcome = await vera.sessions.show(sessionId, "settings.providers");

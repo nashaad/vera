@@ -22,8 +22,7 @@ function activity(updatedAt: number | undefined): number {
     return updatedAt ?? Number.NEGATIVE_INFINITY;
 }
 
-// A short line for a folder row, such as "3 sessions · last active 2h ago".
 export function folderSummary(stats: WorkspaceStats): string {
     const count = stats.sessions === "1" ? "1 session" : `${stats.sessions} sessions`;
-    return `${count} · last active ${stats.lastActive.toLowerCase()}`;
+    return `${count}, last active ${stats.lastActive.toLowerCase()}`;
 }

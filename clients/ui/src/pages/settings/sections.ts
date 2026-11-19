@@ -23,8 +23,6 @@ export interface SettingsSection {
     readonly Icon: (props: IconProps) => ReactNode;
     // Extra words the rail search matches, beside the name.
     readonly terms: string;
-    // The file the section's settings live in, shown above it.
-    readonly file: string;
 }
 
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
@@ -34,7 +32,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         group: "Settings",
         Icon: EyeIcon,
         terms: "theme dark light contrast color text size font code density compact motion animation",
-        file: "The desktop's storage under machine/desktop in the Vera home",
     },
     {
         id: "agents",
@@ -42,7 +39,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         group: "Settings",
         Icon: AgentIcon,
         terms: "agent default persona subagent tools skills posture notes suggest offer keep",
-        file: "agents/*.md in the folder and the Vera home; the notes setting in the desktop's storage",
     },
     {
         id: "approvals",
@@ -50,7 +46,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         group: "Settings",
         Icon: ShieldIcon,
         terms: "permission approve deny allow mode grant always full access",
-        file: "config.json and preferences.json in the Vera home",
     },
     {
         id: "providers",
@@ -58,7 +53,13 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         group: "Settings",
         Icon: LayersIcon,
         terms: "model provider api key pricing favorites shortlist catalog refresh",
-        file: "config.json and the model catalog cache in the Vera home",
+    },
+    {
+        id: "models",
+        name: "Models",
+        group: "Settings",
+        Icon: LayersIcon,
+        terms: "model picker favorites shortlist catalog search refresh",
     },
     {
         id: "workspaces",
@@ -66,7 +67,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         group: "Settings",
         Icon: FolderIcon,
         terms: "workspace folder project directory repository",
-        file: "Read from the sessions the host lists",
     },
     {
         id: "git",
@@ -74,7 +74,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         group: "Settings",
         Icon: BranchIcon,
         terms: "git branch commit pull request pr worktree",
-        file: "Not served by the host",
     },
     {
         id: "devices",
@@ -82,7 +81,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         group: "Settings",
         Icon: LaptopIcon,
         terms: "device machine computer session trusted remote pair client sign out",
-        file: "Read from the host this window is attached to",
     },
     {
         id: "keyboard",
@@ -90,7 +88,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         group: "Settings",
         Icon: KeyIcon,
         terms: "keyboard shortcut key binding hotkey accelerator",
-        file: "Built into this window",
     },
     {
         id: "updates",
@@ -98,7 +95,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         group: "Settings",
         Icon: RefreshIcon,
         terms: "update upgrade version release check download automatic ask off install",
-        file: "config.json in the Vera home",
     },
     {
         id: "show",
@@ -106,7 +102,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         group: "Desktop",
         Icon: ViewIcon,
         terms: "show hide visible auto on off sidebar pane panel page search work customize review plan files output browser reasoning doctor developer tour coverage devices",
-        file: "flags.json under machine/desktop in the Vera home",
     },
     {
         id: "data",
@@ -114,6 +109,5 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         group: "Desktop",
         Icon: BoltIcon,
         terms: "data storage reset layout appearance sessions count folder chromium machine desktop",
-        file: "machine/desktop in the Vera home",
     },
 ];

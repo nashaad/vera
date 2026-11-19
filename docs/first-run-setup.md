@@ -6,9 +6,14 @@ description: "Connect an API, subscription, or local server and make its models 
 # Connect and manage providers
 
 In the window, choose a provider on first run, enter its key or sign in in the
-browser, then choose a model to check and use. Open the same screen later from
-Settings > Providers or the Models browser. A provider setup request can open it
-from the conversation.
+browser, then search for a model and choose **Check and use**. The back arrow
+and Escape return to the previous screen, or close setup from the provider list.
+Open the same window later from Settings > Providers or the Models browser. A
+provider setup request can open it from the conversation. Settings > Providers
+lists connected providers and connections to add. Select a connected provider to
+manage its credential, or choose **Forget** to remove the connection. Settings >
+Models searches and refreshes connected catalogs and controls which models appear
+in the model picker.
 
 In the terminal, open **Configure providers** from Ctrl+P to add a connection, refresh its
 models, or change its credentials. You can also choose **Connect a provider**

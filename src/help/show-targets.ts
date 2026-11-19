@@ -41,6 +41,7 @@ export const SHOW_TARGETS: readonly ShowTarget[] = [
     settings("agents", "Agents", true),
     settings("approvals", "Approvals", true),
     settings("providers", "Providers", true),
+    settings("models", "Models", false),
     settings("workspaces", "Workspaces", false),
     settings("git", "Git & PRs", false),
     settings("devices", "Devices", false),
