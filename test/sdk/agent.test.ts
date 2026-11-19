@@ -1223,8 +1223,13 @@ test("vera.tool runs one tool without calling the model", async () => {
 
         const missing = await vera.tool("read", { path: "absent.txt" });
         expect(missing.outcome).toBe("failed");
-        expect(missing.output).toContain("Path not found: absent.txt");
-        expect(missing.output).toContain("single file or folder");
+        expect(missing.output).toBe("Path not found: absent.txt.");
+
+        const missingList = await vera.tool("read", { path: "absent.txt other.txt" });
+        expect(missingList.outcome).toBe("failed");
+        expect(missingList.output).toBe(
+            "Path not found: absent.txt other.txt. `path` takes one file or folder; call the tool once for each path.",
+        );
 
         const write = await vera.tool("write", { path: "new.txt", content: "x" });
         expect(write.outcome).toBe("denied");
