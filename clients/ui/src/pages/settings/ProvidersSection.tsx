@@ -25,7 +25,7 @@ export function ProvidersSection() {
     const bridge = window.veraDesktop as DesktopBridge | undefined;
     const [state, setState] = useState<LoadState>({ status: "loading" });
     const [token, setToken] = useState(0);
-    const [wizard, setWizard] = useState<{ readonly provider?: string; readonly custom: boolean; readonly replace: boolean } | undefined>();
+    const [wizard, setWizard] = useState<{ readonly provider?: ProviderStatus; readonly custom: boolean; readonly replace: boolean } | undefined>();
 
     useEffect(() => {
         if (bridge === undefined) return;
@@ -59,7 +59,7 @@ export function ProvidersSection() {
     }, [bridge, token]);
 
     const reload = useCallback(() => {
-        setState({ status: "loading" });
+        setState((current) => current.status === "ready" ? current : { status: "loading" });
         setToken((value) => value + 1);
     }, []);
     const closeWizard = useCallback(() => {
@@ -84,7 +84,7 @@ export function ProvidersSection() {
                     bridge={bridge}
                     providers={state.data.providers}
                     runningProvider={state.data.settings.provider}
-                    onConnect={(provider) => setWizard({ provider: provider.id, custom: false, replace: false })}
+                    onConnect={(provider) => setWizard({ provider, custom: false, replace: false })}
                     onCustom={() => setWizard({ custom: true, replace: false })}
                     onReload={reload}
                 />
@@ -94,7 +94,7 @@ export function ProvidersSection() {
             {wizard !== undefined ? (
                 <ProviderWizard
                     onClose={closeWizard}
-                    {...(wizard.provider === undefined ? {} : { initialProvider: wizard.provider })}
+                    {...(wizard.provider === undefined ? {} : { initialProviderStatus: wizard.provider })}
                     initialCustom={wizard.custom}
                     initialReplace={wizard.replace}
                 />

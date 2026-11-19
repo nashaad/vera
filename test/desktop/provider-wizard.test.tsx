@@ -6,6 +6,7 @@ import { KeyStep, keyEcho } from "../../clients/ui/src/pages/settings/provider-w
 import { ModelStep } from "../../clients/ui/src/pages/settings/provider-wizard/ModelStep.tsx";
 import { ProviderStep } from "../../clients/ui/src/pages/settings/provider-wizard/ProviderStep.tsx";
 import { ProviderWizardFooter } from "../../clients/ui/src/pages/settings/provider-wizard/ProviderWizardFooter.tsx";
+import { ProviderWizard } from "../../clients/ui/src/pages/settings/ProviderWizard.tsx";
 import type { ModelEntry } from "../../clients/ui/src/models/settings.ts";
 import type { ProviderStatus } from "../../clients/ui/src/protocol/bridge.ts";
 
@@ -21,6 +22,25 @@ const models: readonly ModelEntry[] = [
 ];
 
 describe("provider wizard components", () => {
+    test("initial render opens a supplied provider directly and waits for an id-only open", () => {
+        const previous = Object.getOwnPropertyDescriptor(globalThis, "window");
+        Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+        try {
+            const supplied = renderToStaticMarkup(createElement(ProviderWizard, { onClose: () => undefined, initialProviderStatus: providers[0] }));
+            expect(supplied).toContain("Connect DeepSeek");
+            expect(supplied).toContain("DeepSeek API key");
+            expect(supplied).not.toContain("Connect a provider");
+            expect(supplied).not.toContain("Search providers");
+            const idOnly = renderToStaticMarkup(createElement(ProviderWizard, { onClose: () => undefined, initialProvider: "deepseek" }));
+            expect(idOnly).toBe("");
+            const withoutProvider = renderToStaticMarkup(createElement(ProviderWizard, { onClose: () => undefined }));
+            expect(withoutProvider).toBe("");
+        } finally {
+            if (previous === undefined) Reflect.deleteProperty(globalThis, "window");
+            else Object.defineProperty(globalThis, "window", previous);
+        }
+    });
+
     test("provider list shows key and local connection methods and custom row", () => {
         const html = renderToStaticMarkup(createElement(ProviderStep, { providers, runningProvider: "custom", query: "", onChoose: () => undefined, onCustom: () => undefined }));
         expect(html).toContain("Connected");

@@ -17,20 +17,22 @@ interface ProviderWizardProps {
     readonly onClose: () => void;
     readonly onComplete?: () => void;
     readonly initialProvider?: string;
+    readonly initialProviderStatus?: ProviderStatus;
     readonly initialCustom?: boolean;
     readonly initialReplace?: boolean;
 }
 
-export function ProviderWizard({ onClose, onComplete, initialProvider, initialCustom = false, initialReplace = false }: ProviderWizardProps) {
+export function ProviderWizard({ onClose, onComplete, initialProvider, initialProviderStatus, initialCustom = false, initialReplace = false }: ProviderWizardProps) {
     const bridge = window.veraDesktop as DesktopBridge | undefined;
     const [providers, setProviders] = useState<readonly ProviderStatus[]>([]);
+    const [providersLoaded, setProvidersLoaded] = useState(initialProviderStatus !== undefined);
     const [runningProvider, setRunningProvider] = useState<string | undefined>();
-    const [step, setStep] = useState<ProviderWizardStep>(initialCustom ? "key" : "provider");
-    const [selected, setSelected] = useState<ProviderStatus | undefined>();
-    const [custom, setCustom] = useState(initialCustom);
+    const [step, setStep] = useState<ProviderWizardStep>(initialProviderStatus !== undefined || initialCustom ? "key" : "provider");
+    const [selected, setSelected] = useState<ProviderStatus | undefined>(initialProviderStatus);
+    const [custom, setCustom] = useState(initialProviderStatus?.custom ?? initialCustom);
     const [replacing, setReplacing] = useState(initialReplace);
-    const [id, setId] = useState("");
-    const [endpoint, setEndpoint] = useState("");
+    const [id, setId] = useState(initialProviderStatus?.id ?? "");
+    const [endpoint, setEndpoint] = useState(initialProviderStatus?.endpoint ?? "");
     const [key, setKey] = useState("");
     const [models, setModels] = useState<readonly ModelEntry[]>([]);
     const [model, setModel] = useState("");
@@ -55,7 +57,7 @@ export function ProviderWizard({ onClose, onComplete, initialProvider, initialCu
             : step === "model" ? ".provider-wizard-model-search input"
                 : ".provider-wizard-key-step input, .provider-wizard-footer button";
         sheet.current?.querySelector<HTMLElement>(selector)?.focus();
-    }, [step]);
+    }, [step, providersLoaded]);
 
     useLayoutEffect(() => {
         const onKey = (event: globalThis.KeyboardEvent): void => {
@@ -82,8 +84,18 @@ export function ProviderWizard({ onClose, onComplete, initialProvider, initialCu
         }).catch(() => {});
         void bridge.listProviders().then((result) => {
             if (!live) return;
-            if (!result.ok) { setError(result.reason); return; }
+            setProvidersLoaded(true);
+            if (!result.ok) {
+                if (initialProviderStatus === undefined) setStep("provider");
+                setError(result.reason);
+                return;
+            }
             setProviders(result.providers);
+            if (initialProviderStatus !== undefined) {
+                const fresh = result.providers.find((provider) => provider.id === initialProviderStatus.id);
+                if (fresh !== undefined) setSelected((current) => current?.id === fresh.id ? fresh : current);
+                return;
+            }
             const initial = result.providers.find((provider) => provider.id === initialProvider);
             if (initial !== undefined) {
                 setSelected(initial);
@@ -93,9 +105,14 @@ export function ProviderWizard({ onClose, onComplete, initialProvider, initialCu
                 setReplacing(initialReplace);
                 setStep("key");
             }
-        }).catch(() => { if (live) setError("Could not connect the provider."); });
+        }).catch(() => {
+            if (!live) return;
+            setProvidersLoaded(true);
+            if (initialProviderStatus === undefined) setStep("provider");
+            setError("Could not connect the provider.");
+        });
         return () => { live = false; bridge.cancelProviderSignIn(); };
-    }, [bridge, initialProvider, initialReplace]);
+    }, [bridge, initialProvider, initialProviderStatus, initialReplace]);
 
     function choose(provider: ProviderStatus): void {
         setSelected(provider);
@@ -234,6 +251,8 @@ export function ProviderWizard({ onClose, onComplete, initialProvider, initialCu
         event.preventDefault();
         rows[next]?.focus();
     }
+
+    if (!providersLoaded) return null;
 
     return (
         <div className="provider-wizard-scrim">
