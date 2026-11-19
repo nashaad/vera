@@ -74,9 +74,10 @@ test("@core an observed command keeps only its detached owner resident through i
         expect(registry.find("unrelated")).toBeUndefined();
         expect(scope.read(result.snapshot.processId)?.status).toBe("running");
 
-        await scope.kill(result.snapshot.processId);
+        const killed = await scope.kill(result.snapshot.processId);
         await Promise.race([settlementStarted.promise, Bun.sleep(2_000).then(() => { throw new Error("Settlement timed out"); })]);
-        expect(scope.read(result.snapshot.processId)).toBeUndefined();
+        expect(killed?.status).toBe("exited");
+        expect(scope.read(result.snapshot.processId)).toEqual(killed);
         expect((await endpoint.parkFacts()).find((fact) => fact.id === owner.id)?.idle).toBe(false);
         await registry.parkExpiredIdle(later);
         expect(registry.find(owner.id)).toBeDefined();
@@ -86,6 +87,7 @@ test("@core an observed command keeps only its detached owner resident through i
         expect((await endpoint.parkFacts()).find((fact) => fact.id === owner.id)?.idle).toBe(true);
         await registry.parkExpiredIdle(later);
         expect(registry.find(owner.id)).toBeUndefined();
+        expect(scope.read(result.snapshot.processId)).toBeUndefined();
     } finally {
         releaseSettlement.resolve();
         await registry.close();
