@@ -10,6 +10,29 @@
     color: var(--vera-text-disabled);
 }
 
+.context-pill .pill-label {
+    display: grid;
+    flex-shrink: 0;
+    grid-template-areas: "label";
+    text-align: right;
+}
+
+.context-pill .pill-label-value,
+.context-pill .pill-label-reserve {
+    grid-area: label;
+}
+
+.context-pill .pill-label-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.context-pill .pill-label-reserve {
+    visibility: hidden;
+}
+
 .context-pill .pill-icon {
     width: calc(var(--vera-space) * 3.5);
     height: calc(var(--vera-space) * 3.5);

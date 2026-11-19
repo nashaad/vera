@@ -57,6 +57,7 @@ let page;
 try {
     await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
     configureFauxHome(trial.home, provider.address().port);
+    trial.writeFlags({ contextPill: "on" });
     const folders = join(trial.home, "..", "folders");
     const vanished = join(folders, "vanished");
     const kept = join(folders, "kept");
@@ -109,6 +110,8 @@ try {
     await startSession("Hello kept");
     const keptId = await attachedId();
 
+    await page.locator(".context-pill .pill-label").waitFor();
+
     // Switching between sessions never draws the opening or empty text, not even for one frame.
     await page.evaluate(() => {
         window.flashes = [];
@@ -116,6 +119,11 @@ try {
             for (const node of document.querySelectorAll(".transcript-empty, .session-message")) window.flashes.push(node.textContent);
             const hint = document.querySelector(".composer-input")?.getAttribute("placeholder") ?? "";
             if (/Opening|Not connected/.test(hint)) window.flashes.push(hint);
+            const contextLabel = document.querySelector(".context-pill .pill-label");
+            const contextValue = contextLabel?.querySelector(".pill-label-value")?.textContent?.trim();
+            if (contextLabel?.getAttribute("data-opening") === "true" && (contextValue === "–" || contextValue === "-")) {
+                window.flashes.push("context placeholder");
+            }
         }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
     });
     for (const id of [vanishedId, keptId, vanishedId, keptId]) {

@@ -8,6 +8,7 @@ import { canStart } from "./liveSession.ts";
 import type { ContextState } from "./model.ts";
 import { tokenCount } from "./notices.ts";
 import { StartSessionButton } from "./StartSession.tsx";
+import { watchOpening } from "./transcript.ts";
 
 export interface ContextPillProps {
     readonly session: ActiveSession;
@@ -30,6 +31,7 @@ export function ContextPill({ session, onCompact }: ContextPillProps) {
     useMenuDismiss(open, root, close);
     const placed = usePopoverPlacement(open, root);
     const context = session.watch.context;
+    const opening = watchOpening(session.watch);
     const stopped = canStart(session.watch);
 
     const compact = () => {
@@ -53,15 +55,18 @@ export function ContextPill({ session, onCompact }: ContextPillProps) {
                 onClick={() => setOpen(!open)}
             >
                 <GaugeIcon className="pill-icon" />
-                <span className="pill-label">{pillLabel(context)}</span>
+                <span className="pill-label" data-opening={opening}>
+                    <span className="pill-label-value">{pillLabel(context, opening)}</span>
+                    <span className="pill-label-reserve" aria-hidden="true">100%</span>
+                </span>
             </button>
             {open ? <ContextPopover context={context} onCompact={compact} onStart={stopped ? start : undefined} style={placed} /> : null}
         </div>
     );
 }
 
-function pillLabel(context: ContextState | undefined): string {
-    if (context === undefined) return "–";
+export function pillLabel(context: ContextState | undefined, opening: boolean): string {
+    if (context === undefined) return opening ? "" : "–";
     if (context.capacity === undefined) return tokenCount(context.tokens);
     return `${percentOf(context.tokens, context.capacity)}%`;
 }
