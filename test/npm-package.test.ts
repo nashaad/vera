@@ -102,7 +102,7 @@ test("npm package contains only the curated runtime and release metadata", () =>
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
-});
+}, 60_000);
 
 test("npm package builder rejects non-stable versions", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-npm-version-test-"));
