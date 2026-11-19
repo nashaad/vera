@@ -234,8 +234,10 @@ Reset does not depend on the lock file. It works on the selected home only.
 
 Reset finds this home's Vera processes and prints each one with its start time,
 the proof that it belongs to this home, and any running turns. A process
-counts as this home's when its command line has a Vera role and one of these
-holds:
+counts as this home's only when its command line has a Vera role. A source-mode
+wrapper named `host`, `worker`, or `session-worker` has a Vera role when its
+matching source or bundle entry path is the next token. One of these must also
+hold:
 
 - its launch environment sets `VERA_HOME` to this home;
 - its launch environment has no `VERA_HOME` (or it is blank), and its own

@@ -4,6 +4,7 @@ import { basename, join, resolve, sep } from "node:path";
 
 import { selectedVeraHome, veraHomeDirectory, veraRuntimeDirectoryIn } from "../profile-paths.ts";
 import { liveProcessDirectoryIn } from "../live-process.ts";
+import { RELEASE_HOST_NAME, RELEASE_SESSION_WORKER_NAME, RELEASE_WORKER_NAME } from "../release/layout.ts";
 import { type LaunchVeraHome } from "./launch-environment.ts";
 import { targetPidIsAncestor, type ProcessAncestryOptions } from "./process-ancestry.ts";
 import { classifyVeraProcess, START_TIME_TOLERANCE_MS } from "./process-identity.ts";
@@ -85,7 +86,7 @@ export function normalizeResetHome(path: string): string {
     }
 }
 
-// A Vera role is an exact argv token or a Vera entry point run under bun or node.
+// A Vera role is an exact argv token, a wrapper followed by its entry, or a Vera entry run under bun or node.
 // Substring matches are not enough: a grep over the same text must not count.
 export function veraRoleOf(command: string): ResetRole | undefined {
     const tokens = command.trim().split(/\s+/);
@@ -95,6 +96,11 @@ export function veraRoleOf(command: string): ResetRole | undefined {
     // Hosts and workers are spawned with these argv0 names; home proof is still required before any stop.
     const named = ARGV0_ROLE[executable];
     if (named !== undefined) return named;
+    const wrapper = WRAPPER_ENTRIES.get(executable);
+    const entry = tokens[1];
+    if (wrapper && entry && wrapper.paths.some((path) => entry === path || entry.endsWith(`/${path}`))) {
+        return wrapper.role;
+    }
     if (executable === "bun" || executable === "node") {
         const kind = classifyVeraProcess(command);
         if (kind === "host" || kind === "worker" || kind === "supervisor" || kind === "watchdog") return kind;
@@ -111,6 +117,15 @@ const ARGV0_ROLE: Readonly<Record<string, ResetRole>> = {
     "vera-watchdog": "watchdog",
     "vera-tui": "client",
 };
+
+const WRAPPER_ENTRIES = new Map<string, { readonly role: ResetRole; readonly paths: readonly string[] }>([
+    [RELEASE_HOST_NAME, { role: "host", paths: ["clients/host/main.ts", "bundle/clients/host/main.js"] }],
+    [RELEASE_WORKER_NAME, { role: "worker", paths: ["src/host/worker/entry.ts", "bundle/src/host/worker/entry.js"] }],
+    [RELEASE_SESSION_WORKER_NAME, {
+        role: "worker",
+        paths: ["clients/host/session-worker.ts", "bundle/clients/host/session-worker.js"],
+    }],
+]);
 
 function roleFromArgument(value: string): ResetRole | undefined {
     if (value === "host") return "host";

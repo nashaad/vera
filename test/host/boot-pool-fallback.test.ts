@@ -10,10 +10,12 @@ import { cliHostRequester } from "../../src/host/requester.ts";
 import { bootResidentHost } from "../../src/host/boot.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
+import { RELEASE_SESSION_WORKER_NAME } from "../../src/release/layout.ts";
 
 interface ProcessRecord {
     readonly pid: number;
     readonly build_id: string;
+    readonly host_pid?: number;
 }
 
 function alive(pid: number): boolean {
@@ -33,6 +35,74 @@ async function waitFor(check: () => boolean | Promise<boolean>, label: string): 
         await Bun.sleep(25);
     }
 }
+
+socketAndLoopbackTest("@core boot adopts a waiting source-wrapper session worker", async () => {
+    const root = mkdtempSync(join(tmpdir(), "boot-wrapper-"));
+    const home = join(root, "h");
+    const wrapper = join(root, RELEASE_SESSION_WORKER_NAME);
+    const workerEntry = join(process.cwd(), "clients/host/session-worker.ts");
+    const hostFixture = join(process.cwd(), "test/host/fixtures/wrapper-adoption-host.ts");
+    const hostEntry = join(process.cwd(), "clients/host/main.ts");
+    mkdirSync(home);
+    writeFileSync(join(home, "config.json"), JSON.stringify({
+        schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "",
+        providers: { stub: { protocol: "openai-chat", base_url: "http://127.0.0.1:9/v1", credential: "none" } },
+        host: { workers: 1 },
+    }));
+    writeFileSync(wrapper, `#!/bin/bash\nexec -a ${RELEASE_SESSION_WORKER_NAME} "$VERA_TEST_BUN" "$VERA_TEST_WORKER_ENTRY" "$@"\n`, { mode: 0o755 });
+    const env = {
+        ...process.env, HOME: sourceTestHome(root), VERA_HOME: home, VERA_DEV_INSTANCE: "dropwork dev", TMPDIR: root,
+        VERA_TEST_SESSION_WRAPPER: wrapper, VERA_TEST_BUN: process.execPath, VERA_TEST_WORKER_ENTRY: workerEntry,
+    };
+    const child = spawn(process.execPath, [hostFixture, "1", "30000"], {
+        cwd: process.cwd(), env, argv0: "vera-host", stdio: "ignore",
+    });
+    const workers = new Set<number>();
+    const workerRecord = join(home, "runtime", "workers", "w0.json");
+    const hostRecord = join(home, "runtime", "host.json");
+    const read = (path: string): ProcessRecord | undefined => {
+        try { return JSON.parse(readFileSync(path, "utf8")) as ProcessRecord; } catch { return undefined; }
+    };
+    let newHost: number | undefined;
+    try {
+        await waitFor(() => existsSync(join(home, "ready.json")) && read(workerRecord)?.pid !== undefined, "initial pool");
+        const initial = read(workerRecord)!;
+        workers.add(initial.pid);
+        expect(initial.build_id).toBe("dev");
+        const command = spawnSync("ps", ["-ww", "-p", String(initial.pid), "-o", "command="], { encoding: "utf8" }).stdout.trim();
+        expect(command.startsWith(`${RELEASE_SESSION_WORKER_NAME} ${workerEntry} `)).toBe(true);
+        if (child.pid === undefined || !verified(child.pid, home, hostFixture)) throw new Error("Could not verify test host");
+        child.kill("SIGKILL");
+        await waitFor(() => !alive(child.pid!), "old host exit");
+        expect(alive(initial.pid)).toBe(true);
+
+        const boot = Bun.spawn([process.execPath, "clients/cli/main.ts", "boot", "--json"], {
+            cwd: process.cwd(), env, stdout: "pipe", stderr: "pipe", stdin: "ignore",
+        });
+        const [output, errors, code] = await Promise.all([new Response(boot.stdout).text(), new Response(boot.stderr).text(), boot.exited]);
+        expect({ code, errors }).toEqual({ code: 0, errors: "" });
+        expect(output).toContain("Adopted by the new host");
+        newHost = read(hostRecord)?.pid;
+        expect(newHost).toBeDefined();
+        expect(newHost).not.toBe(child.pid);
+        await waitFor(() => read(workerRecord)?.host_pid === newHost, "adopted worker");
+        expect(read(workerRecord)?.pid).toBe(initial.pid);
+        expect(alive(initial.pid)).toBe(true);
+    } finally {
+        const currentHost = newHost ?? read(hostRecord)?.pid;
+        if (currentHost !== undefined && alive(currentHost) && verified(currentHost, home, hostEntry)) process.kill(currentHost, "SIGTERM");
+        if (child.pid !== undefined && alive(child.pid) && verified(child.pid, home, hostFixture)) child.kill("SIGTERM");
+        const currentWorker = read(workerRecord);
+        if (currentWorker !== undefined) workers.add(currentWorker.pid);
+        for (const pid of workers) {
+            if (alive(pid) && verified(pid, home, workerEntry)) process.kill(pid, "SIGTERM");
+        }
+        if (currentHost !== undefined) await waitFor(() => !alive(currentHost), "new host exit");
+        if (child.pid !== undefined) await waitFor(() => !alive(child.pid!), "old host exit");
+        for (const pid of workers) await waitFor(() => !alive(pid), `worker ${pid} exit`);
+        rmSync(root, { recursive: true, force: true });
+    }
+}, 45_000);
 
 socketAndLoopbackTest("startup resets a worker whose identity differs from its record", async () => {
     const root = mkdtempSync(join(tmpdir(), "boot-pool-"));

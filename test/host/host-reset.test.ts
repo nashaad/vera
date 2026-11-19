@@ -744,3 +744,47 @@ test("a host or worker started under its argv0 name is recognised", () => {
     expect(veraRoleOf("vera-worker --worker-index 0")).toBe("worker");
     expect(veraRoleOf("grep vera-host")).toBeUndefined();
 });
+
+test("@core source and bundle wrappers require their matching entry as the next token", () => {
+    const wrappers = [
+        { name: "host", role: "host", entries: ["clients/host/main.ts", "bundle/clients/host/main.js"] },
+        { name: "worker", role: "worker", entries: ["src/host/worker/entry.ts", "bundle/src/host/worker/entry.js"] },
+        { name: "session-worker", role: "worker", entries: ["clients/host/session-worker.ts", "bundle/clients/host/session-worker.js"] },
+    ] as const;
+    for (const wrapper of wrappers) {
+        for (const entry of wrapper.entries) {
+            expect(veraRoleOf(`${wrapper.name} /checkout/${entry} --arg`)).toBe(wrapper.role);
+            expect(veraRoleOf(`/release/${wrapper.name} ${entry}`)).toBe(wrapper.role);
+            expect(veraRoleOf(`${wrapper.name} --arg /checkout/${entry}`)).toBeUndefined();
+            expect(veraRoleOf(`${wrapper.name} /checkout/not-${entry}`)).toBeUndefined();
+            expect(veraRoleOf(`${wrapper.name} /checkout/${entry}.bak`)).toBeUndefined();
+        }
+        expect(veraRoleOf(wrapper.name)).toBeUndefined();
+    }
+    expect(veraRoleOf("host example.com")).toBeUndefined();
+    expect(veraRoleOf("grep session-worker /x/clients/host/session-worker.ts")).toBeUndefined();
+    expect(veraRoleOf("worker /x/clients/host/session-worker.ts")).toBeUndefined();
+    expect(veraRoleOf("session-worker /x/src/host/worker/entry.ts")).toBeUndefined();
+    expect(veraRoleOf("host /x/clients/host/session-worker.ts")).toBeUndefined();
+});
+
+test("@core reset discovers a recorded source wrapper only in its launch home", async () => {
+    const { home } = await setupRoots();
+    const otherHome = join(home, "..", "other-home");
+    const system = new FakeResetSystem();
+    const command = "session-worker /checkout/clients/host/session-worker.ts --worker-index 0";
+    system.add(8101, command, { launch: { state: "set", home } });
+    system.add(8102, command, { launch: { state: "set", home: otherHome } });
+    await writeWorkerRecords(home, [8101]);
+
+    const discovery = await discoverResetProcesses(system, { home });
+    expect(discovery.candidates.map(({ pid, role, proof, recorded }) => ({ pid, role, proof, recorded }))).toEqual([
+        { pid: 8101, role: "worker", proof: "launch_home", recorded: true },
+    ]);
+    expect(discovery.unproven).toEqual([]);
+
+    const transcript = newTranscript();
+    expect(await runHostReset({ home, assumeYes: true }, makeDeps(system, transcript))).toBe(0);
+    expect(system.signalLog()).toEqual(["8101 SIGTERM"]);
+    expect(system.isAlive(8102)).toBe(true);
+});
