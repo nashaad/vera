@@ -118,6 +118,7 @@ import {
 } from "./single-line-editor.ts";
 import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
 import { relativeTime } from "../../src/relative-time.ts";
+import { sessionRootIds } from "../../src/session-roots.ts";
 
 import {
     CATALOG_REFRESH_ALL_VALUE,
@@ -1376,6 +1377,14 @@ export function startTuiSessionPicker(
     const listed = agents.filter((agent) =>
         sessionPickerLists(agent, includeUntitled)
     );
+    const listedById = new Map(listed.map((agent) => [agent.id, agent]));
+    const roots = sessionRootIds(listed, (agent) => agent.parent_id);
+    const groupOf = (agent: RegisteredAgentSummary): string => {
+        const root = roots.get(agent.id);
+        return sessionPickerGroup(root === undefined || root === agent.id
+            ? agent
+            : listedById.get(root) ?? agent);
+    };
     const rows: TuiSettingsPickerOption[] = [];
     for (const group of [
         NEEDS_YOU_GROUP,
@@ -1384,11 +1393,11 @@ export function startTuiSessionPicker(
         RECENT_GROUP,
     ]) {
         const members = listed
-            .filter((agent) => sessionPickerGroup(agent) === group)
+            .filter((agent) => groupOf(agent) === group)
             .toSorted((left, right) =>
                 (right.updated_at ?? "").localeCompare(left.updated_at ?? "")
             )
-            .map((agent) => sessionPickerOption(agent, currentAgentId, now));
+            .map((agent) => sessionPickerOption(agent, currentAgentId, now, group));
         rows.push(...markSharedSessionOptions(
             threadSessionOptions(members),
             sharedAgentGroups,
@@ -1460,6 +1469,7 @@ function sessionPickerOption(
     agent: RegisteredAgentSummary,
     currentAgentId: string | undefined,
     now: Date,
+    group: string,
 ): TuiSettingsPickerOption {
     const title = sessionTitle(
         subagentTitle(agent.title ?? agent.id, agent.parent_id),
@@ -1472,9 +1482,12 @@ function sessionPickerOption(
         description: "",
         searchText: `${agent.id} ${agent.workspace}`,
         sessionId: agent.id,
-        group: sessionPickerGroup(agent),
+        group,
+        sessionWorking: agent.status === "working",
         ...(agent.title === undefined ? {} : { sessionName: agent.title }),
-        activity: sessionActivity(agent, now),
+        activity: agent.status === "working" && group !== WORKING_GROUP
+            ? "working"
+            : sessionActivity(agent, now),
         workspace: sessionWorkspace(agent),
         ...(agent.size_bytes === undefined
             ? {}
@@ -1634,7 +1647,9 @@ export function threadSessionOptions(
         if (parent === undefined || !listed.has(parent)) {
             return;
         }
-        byParent.set(parent, [...byParent.get(parent) ?? [], index]);
+        const children = byParent.get(parent);
+        if (children === undefined) byParent.set(parent, [index]);
+        else children.push(index);
     });
     if (byParent.size === 0) {
         return [...options];
