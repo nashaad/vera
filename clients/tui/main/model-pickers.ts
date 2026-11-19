@@ -489,6 +489,15 @@ export function currentModelLevels(rt: TuiRuntime): readonly ReasoningLevel[] {
     )?.levels ?? [];
 }
 
+export function noReasoningEffortSettingNotice(rt: TuiRuntime): string {
+    const targetState = focusedAgentState(rt);
+    return `${
+        targetState.modelSettings === undefined
+            ? "this model"
+            : `${targetState.modelSettings.provider}/${targetState.modelSettings.model}`
+    } has no reasoning effort setting`;
+}
+
 export function openReasoningPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState): void {
     if (parent === undefined) rt.settingsPickerAgent = focusedAgentClient(rt);
     const targetState = focusedAgentState(rt);
@@ -496,11 +505,7 @@ export function openReasoningPicker(rt: TuiRuntime, parent?: TuiSettingsPickerSt
     if (levels.length === 0) {
         rt.state = appendTuiNotice(
             rt.state,
-            `${
-                targetState.modelSettings === undefined
-                    ? "this model"
-                    : `${targetState.modelSettings.provider}/${targetState.modelSettings.model}`
-            } has no reasoning effort setting`,
+            noReasoningEffortSettingNotice(rt),
         );
         renderState(rt);
         return;

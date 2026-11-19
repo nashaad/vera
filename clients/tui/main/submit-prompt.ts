@@ -21,7 +21,12 @@ import { openExtensionsList, refreshOpenExtensionsList } from "./extensions-ops.
 import { importSessionFromTui, openImportPicker } from "./import-ops.ts";
 import { runUpdateCommand } from "./update-ops.ts";
 import { holdHomeSessionName } from "./home-session-name.ts";
-import { homeNeedsProvider } from "./model-pickers.ts";
+import { holdHomeReasoningEffort } from "./home-reasoning-effort.ts";
+import {
+    currentModelLevels,
+    homeNeedsProvider,
+    noReasoningEffortSettingNotice,
+} from "./model-pickers.ts";
 import { openOnboardingWizard } from "./onboarding-wizard-ops.ts";
 import { focusedAgentClient, focusedAgentState, hostOwnsPromptQueue, releaseFocusedQueuedPrompts, selectAgent } from "./agents-dials.ts";
 import { captureExtensionInvocation, conversationChanged, dropsLateResult } from "./extension-invocation.ts";
@@ -887,6 +892,21 @@ export function submitPrompt(rt: TuiRuntime,
     }
     if (commandAction?.type === "update_reasoning") {
         rt.composer.clearComposer();
+        if (
+            focusedAgentState(rt).modelSettings !== undefined
+            && currentModelLevels(rt).length === 0
+        ) {
+            rt.state = appendTuiNotice(
+                rt.state,
+                noReasoningEffortSettingNotice(rt),
+            );
+            renderState(rt);
+            return;
+        }
+        if (isHomeClient(focusedAgentClient(rt))) {
+            holdHomeReasoningEffort(rt, commandAction.reasoningEffort);
+            return;
+        }
         requestModelSettingsChange(rt, 
             { reasoningEffort: commandAction.reasoningEffort },
             `reasoning → ${commandAction.reasoningEffort}`,
