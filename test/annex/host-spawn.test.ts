@@ -79,7 +79,10 @@ test("ps shows vera-annex as a separate process from the host", async () => {
         expect(pid).not.toBe(process.pid);
         const args = processArgs(pid as number);
         expect(args).toContain("/src/annex/main.ts");
-        expect(processComm(pid as number)).toBe("vera-annex");
+        // Linux ps reports the bun executable, not argv0 or process.title.
+        if (process.platform === "darwin") {
+            expect(processComm(pid as number)).toBe("vera-annex");
+        }
         expect(host.health.annex).toBe("ok");
     } finally {
         await host.close();
