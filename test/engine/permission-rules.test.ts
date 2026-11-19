@@ -166,7 +166,8 @@ test("inspection includes the home's permission rules", () => {
     });
 });
 
-test("a deny on /tmp/x catches its /private/tmp spelling and the reverse", () => {
+// /tmp is a symlink to /private/tmp only on macOS.
+test.skipIf(process.platform !== "darwin")("a deny on /tmp/x catches its /private/tmp spelling and the reverse", () => {
     const call = toolCall("read", { path: "/private/tmp/x/file.txt" });
     expect(decide("ask", call, [
         rule(0, { verb: "read", path: "/tmp/x" }, "deny"),
