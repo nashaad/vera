@@ -7,7 +7,7 @@ import type { TuiAgentClient } from "../../../clients/tui/agent-client.ts";
 import { createTuiFlightRecorder } from "../../../clients/tui/flight-recorder.ts";
 import { createHomeClient } from "../../../clients/tui/home-client.ts";
 import { AsyncQueue } from "../../../src/engine/async-queue.ts";
-import type { AgentUpdate } from "../../../src/engine/protocol.ts";
+import type { AgentUpdate, ClientCommand } from "../../../src/engine/protocol.ts";
 import { HostConnectionClosedError } from "../../../src/host/connection.ts";
 import type { BootCheck } from "../../../src/host/boot.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
@@ -16,10 +16,10 @@ function home(): string {
     return mkdtempSync(join(tmpdir(), "vera-reconnect-boot-"));
 }
 
-function client(updates: AsyncQueue<AgentUpdate>, sent: string[] = []): TuiAgentClient {
+function client(updates: AsyncQueue<AgentUpdate>, sent: ClientCommand[] = []): TuiAgentClient {
     return {
         agentId: "crow-session",
-        async send(command) { sent.push(command.type); },
+        async send(command) { sent.push(command); },
         receive: (signal) => updates.receive(signal),
         async detach() {},
         close() {},
@@ -116,7 +116,7 @@ for (const choice of ["escape", "yes"] as const) {
         const initial = initialUpdates();
         const recovered = new AsyncQueue<AgentUpdate>();
         recovered.push({ type: "history", entries: [{ kind: "assistant", text: "Recovered voyage" }], seq: 0 });
-        const sent: string[] = [];
+        const sent: ClientCommand[] = [];
         let answer: boolean | undefined;
         const session = await startTuiTestSession({
             home: home(),
@@ -143,7 +143,15 @@ for (const choice of ["escape", "yes"] as const) {
             session.sendKey(choice === "escape" ? "Escape" : "Enter");
             await session.waitForVisiblePane("Recovered voyage");
             expect(answer).toBe(choice === "yes");
-            expect(sent).not.toContain("ui_response");
+            expect(sent.some((command) => command.type === "ui_response")).toBe(false);
+            session.sendText("A reply after startup checks");
+            session.sendKey("Enter");
+            await session.settle(100);
+            const prompt = sent.find((command) => command.type === "prompt");
+            expect(prompt).toMatchObject({
+                type: "prompt",
+                content: "A reply after startup checks",
+            });
         } finally {
             await session.close();
         }
