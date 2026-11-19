@@ -244,6 +244,47 @@ test("@core sandbox seam warns once per session when the sandbox is unavailable"
     expect(sandbox.unwrapped).toHaveLength(3);
 });
 
+test("@core repeated process reads preserve sandbox outcomes", async () => {
+    for (const unavailable of [false, true]) {
+        const sandbox = new FakeSandbox({ unavailable });
+        const registry = new ManagedProcessRegistry({ sandbox });
+        const scope = registry.scope("replay");
+        try {
+            const started = await scope.run({
+                command: "printf treasure",
+                cwd: workspace(),
+                env: { ...process.env, PATH: process.env.PATH ?? "" },
+                interactive: false,
+                yieldAfterMs: 0,
+            });
+            expect(started.kind).toBe("running");
+            if (started.kind !== "running") throw new Error("expected process id");
+            const deadline = Date.now() + 2_000;
+            while (registry.hasLiveProcesses()) {
+                if (Date.now() > deadline) throw new Error("process did not exit in time");
+                await Bun.sleep(10);
+            }
+            const processId = started.snapshot.processId;
+            const first = await scope.readSettled(processId);
+            expect(first?.status).toBe("exited");
+            expect(first?.output).toContain("treasure");
+            expect(first?.output).toContain(unavailable
+                ? "Sandbox unavailable: no bwrap here."
+                : "Blocked by sandbox:");
+            const reads = await Promise.all([
+                scope.readSettled(processId),
+                scope.readSettled(processId),
+            ]);
+            expect(reads).toEqual([first, first]);
+            expect(scope.read(processId)).toEqual(first);
+            expect(sandbox.unwrapped).toHaveLength(unavailable ? 1 : 0);
+        } finally {
+            await registry.close();
+        }
+        expect(sandbox.unwrapped).toHaveLength(unavailable ? 1 : 0);
+    }
+});
+
 test("@core a worker session's boundary carries the process's sandbox", async () => {
     const directory = workspace();
     const host = await SessionStore.create(join(directory, "session.jsonl"), {

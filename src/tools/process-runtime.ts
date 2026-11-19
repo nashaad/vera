@@ -524,7 +524,6 @@ export class ManagedProcessRegistry {
         const snapshot = record.finishedAt === undefined
             ? this.snapshot(record)
             : this.withSandboxOutcomeSync(record);
-        if (snapshot.status === "exited") this.remove(record);
         return snapshot;
     }
 
@@ -538,7 +537,6 @@ export class ManagedProcessRegistry {
         const snapshot = record.finishedAt === undefined
             ? this.snapshot(record)
             : await this.withSandboxOutcome(record);
-        if (snapshot.status === "exited") this.remove(record);
         return snapshot;
     }
 
@@ -553,7 +551,6 @@ export class ManagedProcessRegistry {
         const snapshot = record.finishedAt === undefined
             ? this.snapshot(record)
             : await this.withSandboxOutcome(record);
-        if (record.finishedAt !== undefined) this.remove(record);
         return snapshot;
     }
 

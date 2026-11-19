@@ -75,9 +75,17 @@ code. Vera does not rerun the command. If formatting or saving a notice fails,
 Vera shows an error in the live owning conversation; any saved outcome is
 retried when the host restarts.
 
-The `process` tool can still read or stop a running command. Disable this
-extension with `/extension disable vera.monitor` to remove `monitor` and
-prevent new monitor notices; ordinary `bash` and `process` remain available.
+The `process` tool can still read or stop a running command. After a command
+exits or is stopped, its conversation can read its final status and captured
+output again for up to ten minutes. Reading does not extend that time. A
+conversation holds at most 32 command records, including running commands;
+older finished records may be discarded sooner to make room for a new command.
+Closing the conversation removes its records. An expired, invalid or
+out-of-conversation ID is reported as unavailable.
+
+Disable this extension with `/extension disable vera.monitor` to remove
+`monitor` and prevent new monitor notices; ordinary `bash` and `process` remain
+available.
 
 ## Run command hooks
 
