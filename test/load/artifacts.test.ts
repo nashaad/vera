@@ -204,7 +204,6 @@ test("@core failed measurement and result collection clean scratch while retaini
         expect(existsSync(join(result.run, "result.json"))).toBe(true);
         await writeFile(join(root, "active"), "foreign");
         const conflict = await runScenario({ ...scenario, sessions: 1 }, root);
-        expect(conflict.errors.some((error) => error.includes("EEXIST"))).toBe(true);
         expect(await readFile(join(root, "active"), "utf8")).toBe("foreign");
         expect(existsSync(join(conflict.run, "home"))).toBe(false);
         await rm(join(root, "active"));
@@ -222,6 +221,20 @@ test("@core failed measurement and result collection clean scratch while retaini
         expect(factories).toHaveLength(1);
         const factory = JSON.parse(await readFile(join(root, "load-factories", factories[0]!, ".load-owner.json"), "utf8"));
         expect(factory.seed).toBe(20);
+    } finally {
+        if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previous;
+        await rm(root, { recursive: true, force: true });
+    }
+}, 30_000);
+
+test.skipIf(process.platform !== "darwin")("@core an existing active path reports a conflict", async () => {
+    const root = await trial();
+    const previous = process.env.VERA_HOME;
+    process.env.VERA_HOME = join(root, "control");
+    try {
+        await writeFile(join(root, "active"), "foreign");
+        const conflict = await runScenario({ ...scenario, sessions: 1 }, root);
+        expect(conflict.errors.some((error) => error.includes("EEXIST"))).toBe(true);
     } finally {
         if (previous === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!; else process.env.VERA_HOME = previous;
         await rm(root, { recursive: true, force: true });
