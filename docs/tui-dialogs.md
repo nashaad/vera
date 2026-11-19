@@ -19,8 +19,10 @@ waits its turn. It does not change the dialog's size.
 
 ## Read conversation activity
 
-Completed web searches show a count and a short query for each search in the
-collapsed group. Ctrl+T shows or hides the full tool calls and results.
+Successful web searches show a count and a short query for each search in the
+collapsed group. Failed extension tool calls show a Failed heading and an
+error preview, including when a conversation is reopened. Ctrl+T shows or
+hides the full tool calls and results.
 Reads of one background process fold into one Waited row, named by the command
 that started the process. Each read replaces the result under the row, and
 Ctrl+T shows the newest result in full.

@@ -112,6 +112,38 @@ test("a failed edit updates the rendered heading and keeps its result", async ()
     }
 });
 
+test("an extension failure renders with the built-in failure colors and spacing", async () => {
+    const colors = [];
+    for (const tool of ["edit", "view_image"]) {
+        const setup = await createTestRenderer({ width: 60, height: 6 });
+        let state = applyAgentUpdate(createTuiState(), {
+            type: "tool_started", tool, args: { path: "missing.png" }, seq: 1,
+        });
+        state = applyAgentUpdate(state, {
+            type: "tool_finished", tool, output: "Missing image file", isError: true, seq: 2,
+        });
+        const header = state.entries.find((entry) => entry.kind === "tool_header");
+        if (header?.kind !== "tool_header") throw new Error("Missing tool header");
+        setup.renderer.root.add(createTuiToolHeader(setup.renderer, `failed-${tool}`, header, 0));
+        try {
+            await setup.flush();
+            const rows = setup.captureCharFrame().split("\n");
+            expect(rows[0]).toContain(tool === "edit" ? "  Failed  Edit missing.png" : "  Failed  view_image missing.png");
+            expect(rows[1]).toContain("  └ Missing image file");
+            expect(rows[2]?.trim()).toBe("");
+            const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
+            const heading = spans.find((span) => span.text.includes("Failed"));
+            const preview = spans.find((span) => span.text.includes("Missing image file"));
+            if (heading === undefined || preview === undefined) throw new Error("Missing failure spans");
+            colors.push({ heading: heading.fg, preview: preview.fg });
+        } finally {
+            setup.renderer.destroy();
+        }
+    }
+    expect(colors[1]!.heading.equals(colors[0]!.heading)).toBe(true);
+    expect(colors[1]!.preview.equals(colors[0]!.preview)).toBe(true);
+});
+
 test("a wrapped tool row hangs under its own text", async () => {
     const setup = await createTestRenderer({ width: 20, height: 8 });
     setup.renderer.root.add(createTuiToolRow(
