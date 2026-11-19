@@ -37,6 +37,24 @@ test("list returns sorted top-level paths", async () => {
     }
 });
 
+test("@core list leaves a single missing path unchanged", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-list-"));
+    try {
+        const error = await listTool.execute(
+            { path: "folder with spaces/missing.txt" },
+            new ToolRuntime(workspace),
+            new AbortController().signal,
+        ).then(() => undefined, (failure: unknown) => failure);
+
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe(
+            "Path not found: folder with spaces/missing.txt.",
+        );
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
 test("list treats an empty path as the workspace", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-list-"));
     try {

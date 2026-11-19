@@ -261,10 +261,31 @@ export async function resolveReadPath(
         return await realpath(candidate);
     } catch (error) {
         if (!isMissingPathError(error)) throw error;
-        throw new Error(
-            `Path not found: ${requestedPath}. \`path\` takes a single file or folder, not several paths.`,
-        );
+        const listHint = looksLikeSeveralPaths(requestedPath)
+            ? " `path` takes a single file or folder, not several paths."
+            : "";
+        throw new Error(`Path not found: ${requestedPath}.${listHint}`);
     }
+}
+
+function looksLikeSeveralPaths(requestedPath: string): boolean {
+    const explicitlySeparated = requestedPath.split(/[,;\r\n]/).map((part) =>
+        part.trim()
+    );
+    if (
+        explicitlySeparated.length > 1
+        && explicitlySeparated.every(looksLikePathPart)
+    ) {
+        return true;
+    }
+
+    const spaceSeparated = requestedPath.trim().split(/\s+/);
+    return spaceSeparated.length > 1
+        && spaceSeparated.every(looksLikePathPart);
+}
+
+function looksLikePathPart(path: string): boolean {
+    return /[\\/]/.test(path) || /^[^/\\\s]+\.[^/\\\s]+$/.test(path);
 }
 
 export interface WriteTarget {
