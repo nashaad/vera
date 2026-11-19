@@ -20,7 +20,7 @@ export function ProvidersSection() {
     const [state, setState] = useState<LoadState>({ status: "loading" });
     const [token, setToken] = useState(0);
     const [adding, setAdding] = useState(false);
-    const closeWizard = useCallback(() => setAdding(false), []);
+    const closeWizard = useCallback(() => { setAdding(false); setToken((value) => value + 1); }, []);
 
     useEffect(() => {
         if (bridge === undefined) return;
@@ -66,7 +66,7 @@ export function ProvidersSection() {
                 <>
                     {(state.settings.providers ?? []).length === 0 ? (
                         <p className="provider-empty">
-                            No providers are connected. Run <code>vera</code> in a terminal and use <code>/provider</code> to connect one.
+                            No providers are connected.
                         </p>
                     ) : null}
                     {(state.settings.providers ?? []).map((provider) => (

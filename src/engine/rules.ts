@@ -32,7 +32,8 @@ export interface RuleSnapshot {
 /** Defaulted from the home; passed explicitly by callers that must not read the real home. */
 export interface RuleDirectories {
     readonly user: string;
-    readonly project: string;
+    // Absent when there is no project folder.
+    readonly project?: string;
 }
 
 export function userRulesDir(): string {
@@ -43,8 +44,10 @@ export function projectRulesDir(workspace: string): string {
     return projectRulesDirectory(workspace);
 }
 
-export function ruleDirectories(workspace: string): RuleDirectories {
-    return { user: userRulesDir(), project: projectRulesDir(workspace) };
+export function ruleDirectories(workspace?: string): RuleDirectories {
+    return workspace === undefined
+        ? { user: userRulesDir() }
+        : { user: userRulesDir(), project: projectRulesDir(workspace) };
 }
 
 export async function loadRules(
@@ -53,8 +56,9 @@ export async function loadRules(
     const rules: Rule[] = [];
     const warnings: RuleWarning[] = [];
     for (const scope of ["user", "project"] as const) {
-        const loaded = await loadScope(scope, directories[scope], warnings);
-        rules.push(...loaded);
+        const directory = directories[scope];
+        if (directory === undefined) continue;
+        rules.push(...await loadScope(scope, directory, warnings));
     }
     return { rules, warnings };
 }

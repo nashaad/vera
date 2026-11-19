@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 
 import { CommandRegistry } from "../../clients/ui/src/commands/registry.ts";
+import { registerThemeCommands } from "../../clients/ui/src/commands/theme-commands.ts";
+import { parseImportedSummary } from "../../clients/ui/src/theme/imported.ts";
 import type { SessionRow } from "../../clients/ui/src/protocol/sessions.ts";
 import {
     buildCommandItems,
@@ -38,7 +40,7 @@ test("@core a prefix or word-start match outranks a scattered match", () => {
 
     const items = buildCommandItems(
         registryWith([
-            { id: "session.cycleLayout", title: "Session Cycle Agent Panes" },
+            { id: "session.compact", title: "Session Compact" },
             { id: "go.settings", title: "Settings" },
         ]).list(),
         "darwin",
@@ -63,15 +65,52 @@ test("@core command entries leave out commands that need arguments and the palet
     expect(items.find((item) => item.id === "go.newChat")?.keys).toEqual(["⌘", "N"]);
 });
 
+test("@core theme commands appear only in a nonblank search without affecting execution", () => {
+    const registry = new CommandRegistry();
+    const applied: string[] = [];
+    const imported = parseImportedSummary({ slug: "crow.night", name: "Crow Night", type: "dark", source: "Crow" });
+    expect(imported).toBeDefined();
+    registerThemeCommands(registry, (choice) => applied.push(choice), [imported!]);
+    registry.register({ id: "theme.choose", title: "Choose Theme", run() {} });
+    registry.register({ id: "import.theme", title: "Import Theme", run() {} });
+    const items = buildCommandItems(registry.list(), "darwin");
+    for (const query of ["", "  \t "]) {
+        expect(rankItems(items, query).map(({ item }) => item.id)).toEqual(["theme.choose", "import.theme"]);
+    }
+    expect(rankItems(items, "theme").map(({ item }) => item.id)).toEqual(["theme.choose", "import.theme"]);
+    const dark = rankItems(items, "dark").find(({ item }) => item.id === "theme.dark");
+    expect(dark?.indices).toEqual([7, 8, 9, 10]);
+    const onyx = rankItems(items, "onx").find(({ item }) => item.id === "theme.onyx");
+    expect(onyx?.indices).toEqual([7, 8, 10]);
+    const crow = rankItems(items, "crow night").find(({ item }) => item.id === "theme.imported.crow.night");
+    expect(crow?.indices).toEqual([7, 8, 9, 10, 12, 13, 14, 15, 16]);
+    expect(labelSegments(crow!.item.label, crow!.indices).filter((segment) => segment.hit).map((segment) => segment.text)).toEqual(["Crow", "Night"]);
+    expect(registry.execute("theme.dark")).toBe(true);
+    expect(registry.execute("theme.imported.crow.night")).toBe(true);
+    expect(applied).toEqual(["dark", "imported:crow.night"]);
+});
+
+test("palette search text highlights the name when it repeats the title prefix", () => {
+    const registry = new CommandRegistry();
+    registry.register({ id: "example", title: "Theme: Theme", paletteSearchText: "Theme", run() {} });
+    const [result] = rankItems(buildCommandItems(registry.list(), "darwin"), "theme");
+    expect(result?.indices).toEqual([7, 8, 9, 10, 11]);
+    expect(labelSegments(result!.item.label, result!.indices)).toEqual([
+        { text: "Theme: ", hit: false },
+        { text: "Theme", hit: true },
+    ]);
+});
+
 test("command groups follow the id prefix and sort by group, then title", () => {
     expect(commandGroup("go.back")).toBe("Go");
     expect(commandGroup("page.usage")).toBe("Pages");
     expect(commandGroup("layout.togglePanel")).toBe("Window");
     expect(commandGroup("view.open")).toBe("Window");
     expect(commandGroup("container.focus")).toBe("Window");
-    expect(commandGroup("session.cycleLayout")).toBe("Session");
+    expect(commandGroup("session.compact")).toBe("Session");
     expect(commandGroup("theme.dark")).toBe("Theme");
     expect(commandGroup("help.shortcuts")).toBe("Help");
+    expect(commandGroup("chat.help")).toBe("Help");
     expect(commandGroup("palette.sessions")).toBe("Help");
     expect(commandGroup("extension.run")).toBe("Other");
 
@@ -87,6 +126,38 @@ test("command groups follow the id prefix and sort by group, then title", () => 
     expect(items.map((item) => item.group)).toEqual(["Go", "Go", "Theme", "Other"]);
     expect(items.map((item) => item.label)).toEqual(["Back", "Settings", "Dark", "Thing"]);
     expect(sectionRows(rankItems(items, "")).map((section) => section.title)).toEqual(["Go", "Theme", "Other"]);
+});
+
+test("@core interleaved palette groups number entries in screen order", () => {
+    const items = buildCommandItems(registryWith([
+        { id: "theme.light", title: "Theme: Light" },
+        { id: "import.theme", title: "A Theme Import" },
+        { id: "theme.choose", title: "Choose Theme" },
+    ]).list(), "darwin");
+    const ranked = rankItems(items, "theme");
+    expect(ranked.map((entry) => entry.item.id)).toEqual(["theme.light", "import.theme", "theme.choose"]);
+    const sections = sectionRows(ranked);
+    expect(sections.map((section) => section.title)).toEqual(["Theme", "Other"]);
+    expect(sections.flatMap((section) => section.entries).map((entry) => [entry.ranked.item.id, entry.index])).toEqual([
+        ["theme.light", 0],
+        ["theme.choose", 1],
+        ["import.theme", 2],
+    ]);
+    expect(sections[0]?.entries[0]?.index).toBe(0);
+    expect(sections[0]?.entries[0]?.ranked).toBe(ranked[0]);
+});
+
+test("session palette indexes preserve unsectioned ranked order", () => {
+    const ranked = rankItems(buildSessionItems([
+        row({ id: "a1", name: "Review notes" }),
+        row({ id: "b2", name: "Review" }),
+    ], 0), "review");
+    const sections = sectionRows(ranked);
+    expect(sections).toEqual([{
+        title: "",
+        entries: ranked.map((entry, index) => ({ ranked: entry, index })),
+    }]);
+    expect(sectionRows([])).toEqual([]);
 });
 
 test("a chat entry says Chat, not its internal folder", () => {

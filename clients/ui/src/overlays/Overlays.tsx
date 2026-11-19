@@ -7,15 +7,18 @@ import { ConfigureSheet } from "./ConfigureSheet.tsx";
 import { DiagnosticsSheet } from "./DiagnosticsSheet.tsx";
 import { DoctorSheet } from "./DoctorSheet.tsx";
 import { ExtensionsSheet } from "./ExtensionsSheet.tsx";
+import { FeedbackSheet } from "./FeedbackSheet.tsx";
 import { FailuresSheet } from "./FailuresSheet.tsx";
 import { NudgesSheet } from "./NudgesSheet.tsx";
 import { ShortcutsSheet } from "./ShortcutsSheet.tsx";
-import { closeOverlay, useOverlay } from "./store.ts";
+import { PickerSheet } from "./PickerSheet.tsx";
+import { closeOverlay, closePicker, useOverlay, usePicker } from "./store.ts";
 import { ThemesSheet } from "./ThemesSheet.tsx";
 import { Toasts } from "./Toasts.tsx";
 
 export function Overlays({ commands }: { readonly commands: CommandRegistry }) {
     const overlay = useOverlay();
+    const picker = usePicker();
     const onClose = useCallback(() => closeOverlay(), []);
     return (
         <>
@@ -29,7 +32,9 @@ export function Overlays({ commands }: { readonly commands: CommandRegistry }) {
             {overlay === "doctor" ? <DoctorSheet onClose={onClose} /> : null}
             {overlay === "configure" ? <ConfigureSheet onClose={onClose} /> : null}
             {overlay === "failures" ? <FailuresSheet onClose={onClose} /> : null}
+            {overlay === "feedback" ? <FeedbackSheet onClose={onClose} /> : null}
             {overlay === "nudges" ? <NudgesSheet onClose={onClose} /> : null}
+            {picker === undefined ? null : <PickerSheet request={picker} onClose={closePicker} />}
             <Toasts />
         </>
     );

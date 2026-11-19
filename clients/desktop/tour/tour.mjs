@@ -178,6 +178,8 @@ async function main() {
             giveCrowEffortLevels(trial.home);
         }
 
+        // The tour visits every page and pane, so the parts that wait under Auto are turned on.
+        trial.writeFlags({ search: "on", work: "on", customize: "on", review: "on", plan: "on", files: "on", output: "on", contextPill: "on", doctor: "on" });
         app = await trial.launch({ visible: true });
         const page = await app.firstWindow();
         await page.waitForSelector(".app", { timeout: 45_000 });

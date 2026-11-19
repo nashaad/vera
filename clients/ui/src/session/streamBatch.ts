@@ -14,7 +14,7 @@ export interface StreamBatcher {
 }
 
 export function isStreamedText(message: SessionMessage): boolean {
-    return message.type === "assistant_delta" || message.type === "assistant_thinking";
+    return message.type === "assistant_delta" || message.type === "assistant_thinking" || message.type === "assistant_thinking_progress";
 }
 
 function scheduleTimeout(run: () => void, ms: number): () => void {

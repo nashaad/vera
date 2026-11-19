@@ -1,6 +1,8 @@
 import { OVERLAY_COMMANDS, type Overlay } from "../commands/overlay-ids.ts";
 import { folderName, rowFolderName } from "../protocol/sessionGroups.ts";
 import type { SessionRow, SessionStatus } from "../protocol/sessions.ts";
+import type { FlagKey } from "../state/desktopFlags.ts";
+import { ALL_VISIBLE, type Visibility } from "../state/surfaces.ts";
 import { SETTINGS_SECTIONS } from "./settings/sections.ts";
 import { sessionPlace, type Route, type SessionRoute } from "./routes.ts";
 
@@ -48,6 +50,7 @@ export const SHEET_DESCS: Readonly<Record<Overlay, string>> = {
     configure: "The files Vera reads its settings from",
     failures: "Where Vera records model failures",
     nudges: "Where standing nudges are managed",
+    feedback: "Save a bug report or feature request",
 };
 
 // The newest row with the status. Timed rows beat untimed ones; ties and untimed rows keep the host's order.
@@ -105,7 +108,25 @@ export function sessionCards(
     });
 }
 
-export function pageCards(newestFolder: string | undefined): readonly TourCard[] {
+// The flag that shows or hides a card. A card with no entry is always listed.
+const PAGE_FLAGS: Readonly<Record<string, FlagKey>> = {
+    work: "work",
+    search: "search",
+    devices: "devices",
+    customize: "customize",
+    coverage: "coverage",
+};
+
+const SHEET_FLAGS: Readonly<Partial<Record<Overlay, FlagKey>>> = {
+    extensions: "extensions",
+    diagnostics: "diagnostics",
+    doctor: "doctor",
+    configure: "configure",
+    failures: "failures",
+    nudges: "nudges",
+};
+
+export function pageCards(newestFolder: string | undefined, visible: Visibility = ALL_VISIBLE): readonly TourCard[] {
     const workspace: TourCard = newestFolder === undefined
         ? { id: "workspace", name: "Workspace", desc: "No folder has a session", action: undefined }
         : {
@@ -123,15 +144,22 @@ export function pageCards(newestFolder: string | undefined): readonly TourCard[]
         page("customize", "Customize", "Skills, agents, extensions and instructions a folder loads", { kind: "customize" }),
         page("settings", "Settings", `${SETTINGS_SECTIONS.length} sections`, { kind: "settings" }),
         page("coverage", "Coverage", "What this window does at each step of a session", { kind: "coverage" }),
-    ];
+    ].filter((card) => {
+        const flag = PAGE_FLAGS[card.id];
+        return flag === undefined || visible[flag];
+    });
 }
 
 function page(id: string, name: string, desc: string, route: Route): TourCard {
     return { id, name, desc, action: { kind: "route", route } };
 }
 
-export function sheetCards(): readonly TourCard[] {
-    return (Object.keys(OVERLAY_COMMANDS) as Overlay[]).map((overlay): TourCard => {
+export function sheetCards(visible: Visibility = ALL_VISIBLE): readonly TourCard[] {
+    const shown = (Object.keys(OVERLAY_COMMANDS) as Overlay[]).filter((overlay) => {
+        const flag = SHEET_FLAGS[overlay];
+        return flag === undefined || visible[flag];
+    });
+    return shown.map((overlay): TourCard => {
         const entry = OVERLAY_COMMANDS[overlay];
         return {
             id: `sheet-${overlay}`,
@@ -146,10 +174,11 @@ export function tourGroups(
     rows: readonly SessionRow[] | undefined,
     attached: boolean,
     newestFolder: string | undefined,
+    visible: Visibility,
 ): readonly TourGroup[] {
     return [
         { title: "Sessions", cards: sessionCards(rows, attached) },
-        { title: "Pages", cards: pageCards(newestFolder) },
-        { title: "Sheets", cards: sheetCards() },
+        { title: "Pages", cards: pageCards(newestFolder, visible) },
+        { title: "Sheets", cards: sheetCards(visible) },
     ];
 }

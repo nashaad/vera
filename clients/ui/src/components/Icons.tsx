@@ -320,6 +320,14 @@ export function ShieldIcon({ className }: IconProps) {
     );
 }
 
+export function ChatIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M4 5h16v11H9l-5 4V5Z" />
+        </Icon>
+    );
+}
+
 export function QuestionIcon({ className }: IconProps) {
     return (
         <Icon className={className}>
@@ -422,11 +430,32 @@ export function AgentIcon({ className }: IconProps) {
     );
 }
 
+export function FeedbackIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M5 4h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H10l-5 4v-4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
+            <path d="M12 7.5v3.5" />
+            <path d="M12 13.5v.01" />
+        </Icon>
+    );
+}
+
 export function FileIcon({ className }: IconProps) {
     return (
         <Icon className={className}>
             <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
             <path d="M14 3v5h5" />
+        </Icon>
+    );
+}
+
+export function PageIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="4" y="4" width="16" height="16" rx="2.5" />
+            <path d="M4 9h16" />
+            <path d="M8 13h8" />
+            <path d="M8 16h5" />
         </Icon>
     );
 }

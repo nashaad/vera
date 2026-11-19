@@ -51,9 +51,7 @@ export const processTool: RegisteredTool = {
 function unknownProcess(processId: string): ToolOutput {
     return {
         kind: "output",
-        output:
-            `Process ${processId} is unknown. It may already have been read, `
-            + "or the host may have restarted.",
+        output: `Process ${processId} is not available in this conversation.`,
         isError: true,
     };
 }

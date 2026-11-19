@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { loadVeraConfig } from "../../src/config.ts";
 import { resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, type AttachedAgentClient } from "../../src/host/attached-client.ts";
+import { HOST_CAPABILITY_SESSION_SHOW_WINDOW } from "../../src/host/capabilities.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { emptyUsage, type AssistantMessage, type ModelRequest } from "../../src/model/types.ts";
 import type { JsonValue } from "../../src/sdk/hooks.ts";
@@ -19,11 +20,12 @@ socketTest("host extensions reach the session owner before and after a move", as
     await mkdir(extension, { recursive: true });
     await writeFile(join(extension, "vera.extension.json"), JSON.stringify({
         id: "test.route", sdk: "1", version: "1.0.0", entrypoint: "extension.ts",
-        capabilities: ["requests.handle", "sessions.title", "sessions.send", "sessions.ask", "agents.investigate"],
+        capabilities: ["requests.handle", "sessions.title", "sessions.send", "sessions.show", "sessions.ask", "agents.investigate"],
     }));
     await writeFile(join(extension, "extension.ts"), `export function activate(api) {
     api.requests.handle("title", (p) => api.sessions.setTitle(p.id, p.title));
     api.requests.handle("send", (p) => api.sessions.send(p.id, p.text));
+    api.requests.handle("show", (p) => api.sessions.show(p.id, p.target));
     api.requests.handle("ask", (p, {signal}) => api.sessions.ask({sessionId: p.id, question: p.question, signal}));
     api.requests.handle("investigate", (p, {signal}) => api.agents.investigate({sessionId: p.id, question: p.question, timeoutMs: 10000, signal}));
 }`);
@@ -80,6 +82,24 @@ socketTest("host extensions reach the session owner before and after a move", as
         expect(beforeInvestigation).toMatchObject({ outcome: "answered", text: "The crow found the map." });
         expect(await request("send", { id: session.id, text: "A message from the lookout." })).toBe("queued");
         await waitUntil(() => registry.deliveryTasks.size === 0 && session.idleForShutdown());
+
+        const shown: string[] = [];
+        const viewer = await attachAgent({
+            socketPath: host.server.socketPath,
+            agentId: session.id,
+            requestedCapabilities: [HOST_CAPABILITY_SESSION_SHOW_WINDOW],
+        });
+        viewer.onSessionShow((target) => shown.push(target));
+        try {
+            expect(await request("show", { id: session.id, target: "dialog.themes" }))
+                .toEqual({ window: 1, terminal: 0, terminalCannot: 0 });
+            await waitUntil(() => shown.length === 1);
+            expect(shown).toEqual(["dialog.themes"]);
+            await expect(request("show", { id: session.id, target: "dialog.rudder" })).rejects.toThrow("Unknown screen");
+        } finally {
+            viewer.close();
+        }
+        await waitUntil(() => !session.attached);
 
         await resumeAgentThroughHost(host.server.socketPath, entry.store.path);
         expect(registry.agents.has(session.id)).toBe(false);

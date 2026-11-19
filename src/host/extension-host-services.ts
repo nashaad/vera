@@ -10,11 +10,14 @@ import {
     type ExtensionHostServices,
 } from "../extensions/host-services.ts";
 import type { ModelAdapter } from "../model/types.ts";
+import { findShowTarget } from "../help/show-targets.ts";
 import type { AgentRegistry } from "./agent-registry.ts";
 import { oneshotModelMessage } from "./agent-registry/helpers.ts";
+import type { SessionShowHub } from "./session-show.ts";
 
 export interface ExtensionHostServiceOptions {
     readonly registry: AgentRegistry;
+    readonly showHub: SessionShowHub;
     readonly currentConfig: () => VeraConfig;
     readonly reachability: () => ReachabilityCheck;
     readonly createAdapter: () => ModelAdapter;
@@ -91,6 +94,11 @@ export function createExtensionHostServices(
         },
         setSessionTitle(sessionId, title) {
             return options.registry.setTitleIfUnnamed(sessionId, title);
+        },
+        async showInSession(sessionId, target) {
+            const found = findShowTarget(target);
+            if (found === undefined) throw new Error("Unknown screen");
+            return options.showHub.show(sessionId, found);
         },
         investigate(call, signal) {
             return options.registry.investigateSession(

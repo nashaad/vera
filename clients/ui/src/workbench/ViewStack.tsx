@@ -103,13 +103,15 @@ function ViewPane({ container, view, active, merged }: ViewPaneProps) {
 export interface ViewStackProps {
     readonly container: ResolvedContainer;
     readonly active: boolean;
+    // The right pane tab this stack is drawn for.
+    readonly tab?: string;
 }
 
-// Every shown container stays mounted; only the active one is displayed.
-export function ViewStack({ container, active }: ViewStackProps) {
+// Every shown container, and every right pane tab, stays mounted; only the active one is displayed.
+export function ViewStack({ container, active, tab }: ViewStackProps) {
     const shown = container.views.filter((view) => !view.hidden);
     return (
-        <div className="view-stack" data-container-body={container.id} hidden={!active}>
+        <div className="view-stack" data-container-body={container.id} data-tab-body={tab} hidden={!active}>
             {shown.map((view) => (
                 <ViewPane
                     key={view.id}

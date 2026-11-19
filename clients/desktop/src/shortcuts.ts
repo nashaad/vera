@@ -1,6 +1,6 @@
 import { NATIVE_SHORTCUTS } from "../../ui/src/commands/keys.ts";
 
-export { GO_SHORTCUTS, HELP_SHORTCUTS, LAYOUT_SHORTCUTS, SESSION_SHORTCUTS } from "../../ui/src/commands/keys.ts";
+export { GO_SHORTCUTS, HELP_SHORTCUTS, LAYOUT_SHORTCUTS } from "../../ui/src/commands/keys.ts";
 
 export interface ShortcutInput {
     readonly type: string;

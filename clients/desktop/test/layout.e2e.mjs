@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { MODIFIER, press, startTrial } from "./trial.mjs";
 
 const trial = startTrial();
+// Under Auto these parts wait for a session or for something to report; the layout is what is under test.
+trial.writeFlags({ work: "on", output: "on", review: "on", plan: "on", files: "on" });
 const sessionsHeader = "[data-view-header=\"core.sessions\"]";
 
 function location(name) {
@@ -212,6 +214,7 @@ try {
     await second.page.click(activity, { button: "right" });
     await second.page.getByRole("menuitem", { name: "Move to Right Pane" }).click();
     await assertIn(second.page, "rightPane", outputHeader);
+    await second.page.waitForSelector("[data-switcher=\"rightPane\"] [data-container=\"core.output\"]", { timeout: 10_000 });
     await second.app.evaluate(({ Menu }) => {
         Menu.getApplicationMenu().getMenuItemById("layout.reset").click();
     });

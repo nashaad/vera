@@ -4,64 +4,45 @@ import { createPortal } from "react-dom";
 import type { MenuEntry } from "../commands/menus.ts";
 import { SESSION_COMMANDS } from "../commands/session-commands.ts";
 import { MoreIcon } from "../components/Icons.tsx";
+import { useSurface } from "../state/useSurfaces.ts";
 import { useWorkbench } from "../workbench/context.tsx";
-import { shortcutLabel } from "../workbench/hints.ts";
 import { useActiveSession, type ActiveSession } from "./activeSession.ts";
 import { requestCompaction } from "./compact.ts";
 import { ContextPill } from "./ContextPill.tsx";
-import { usePaneLayout, type PaneLayout } from "./paneLayout.ts";
 import { RenameSheet } from "./RenameSheet.tsx";
 import { RewindSheet } from "./RewindSheet.tsx";
 import { closeSessionSheet, openSessionSheet, useSessionSheet, type SessionSheet } from "./sessionSheets.ts";
-import { SubagentsSheet } from "./SubagentsSheet.tsx";
 import { TasksIndicator } from "./TasksIndicator.tsx";
 import { TasksSheet } from "./TasksSheet.tsx";
 
-const PANE_LABELS: ReadonlyArray<readonly [PaneLayout, string]> = [
-    ["single", "One Pane"],
-    ["split", "Subagent Beside"],
-    ["stack", "Subagent Below"],
+const SESSION_MENU: readonly MenuEntry[] = [
+    { kind: "item", label: "Copy Conversation", command: SESSION_COMMANDS.copy },
+    { kind: "separator" },
+    { kind: "item", label: "Rewind or Fork…", command: SESSION_COMMANDS.rewind },
+    { kind: "item", label: "Compact", command: SESSION_COMMANDS.compact },
+    { kind: "item", label: "Subagents", command: SESSION_COMMANDS.subagents },
 ];
-
-function sessionMenu(layout: PaneLayout): readonly MenuEntry[] {
-    return [
-        { kind: "item", label: "Copy Conversation", command: SESSION_COMMANDS.copy },
-        { kind: "separator" },
-        { kind: "item", label: "Rewind or Fork…", command: SESSION_COMMANDS.rewind },
-        { kind: "item", label: "Compact", command: SESSION_COMMANDS.compact },
-        { kind: "item", label: "Subagents", command: SESSION_COMMANDS.subagents },
-        { kind: "separator" },
-        ...PANE_LABELS.map(([value, label]): MenuEntry => ({
-            kind: "item",
-            label,
-            command: SESSION_COMMANDS.setLayout,
-            args: value,
-            checked: value === layout,
-        })),
-    ];
-}
 
 // The title bar's tools for the open session: running tasks, context use and the session menu.
 export function SessionTitleTools() {
     const session = useActiveSession();
     const sheet = useSessionSheet();
     const { openMenu } = useWorkbench();
-    const panes = usePaneLayout();
+    const contextPill = useSurface("contextPill");
     if (session === undefined) return null;
     const more = (event: MouseEvent<HTMLButtonElement>): void => {
         const box = event.currentTarget.getBoundingClientRect();
-        openMenu(sessionMenu(panes.layout), { x: box.left, y: box.bottom });
+        openMenu(SESSION_MENU, { x: box.left, y: box.bottom });
     };
-    const cycle = shortcutLabel(SESSION_COMMANDS.cycleLayout, window.veraDesktop?.platform ?? "");
     return (
         <span className="title-tools">
             <TasksIndicator session={session} onOpen={() => openSessionSheet("tasks")} />
-            <ContextPill session={session} onCompact={() => requestCompaction(session)} />
+            {contextPill ? <ContextPill session={session} onCompact={() => requestCompaction(session)} /> : null}
             <button
                 type="button"
                 className="header-button"
                 aria-label="Session menu"
-                title={cycle === "" ? "Session menu" : `Session menu (agent panes: ${cycle})`}
+                title="Session menu"
                 data-session-menu="true"
                 onClick={more}
             >
@@ -78,8 +59,6 @@ function OpenSheet({ sheet, session }: { readonly sheet: SessionSheet; readonly 
             return <RewindSheet session={session} onClose={closeSessionSheet} />;
         case "tasks":
             return <TasksSheet session={session} onClose={closeSessionSheet} />;
-        case "subagents":
-            return <SubagentsSheet session={session} onClose={closeSessionSheet} />;
         case "rename":
             return <RenameSheet session={session} onClose={closeSessionSheet} />;
     }

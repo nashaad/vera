@@ -31,6 +31,39 @@ test("@core the renderer bundles for the browser without Bun-only imports", asyn
     }
 });
 
+test("@core code grammars build as chunks that main.js loads on demand", async () => {
+    const out = await mkdtemp(join(tmpdir(), "vera-renderer-chunks-"));
+    try {
+        const result = await Bun.build({
+            entrypoints: [join(root, "clients", "ui", "src", "main.tsx")],
+            outdir: out,
+            target: "browser",
+            format: "esm",
+            splitting: true,
+            define: {
+                "process.env.NODE_ENV": JSON.stringify("production"),
+            },
+            naming: { entry: "[name].[ext]", chunk: "chunks/[name]-[hash].[ext]", asset: "[name].[ext]" },
+        });
+        expect(result.success).toBe(true);
+        const main = await Bun.file(join(out, "main.js")).text();
+        expect(main).not.toContain("highlightAuto");
+        expect(main).toMatch(/import\("\.\/chunks\/typescript-[a-z0-9]+\.js"\)/);
+        const names = result.outputs.map((output) => output.path.split("/").pop() ?? "");
+        expect(names.some((name) => /^core-.*\.js$/.test(name))).toBe(true);
+        expect(names.some((name) => /^typescript-.*\.js$/.test(name))).toBe(true);
+        expect(names).toContain("main.css");
+        for (const output of result.outputs) {
+            if (!output.path.endsWith(".js")) continue;
+            const text = await output.text();
+            expect(text).not.toContain("Bun.");
+            expect(text).not.toMatch(/["']node:/);
+        }
+    } finally {
+        await rm(out, { recursive: true, force: true });
+    }
+});
+
 test("@core the page applies the stored theme from a blocking script before the stylesheet", async () => {
     const html = await Bun.file(join(root, "clients", "desktop", "index.html")).text();
     const script = html.indexOf("<script src=\"./theme-boot.js\"></script>");

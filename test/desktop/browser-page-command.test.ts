@@ -1,0 +1,246 @@
+import { describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { browserFrame, PageCommandService } from "../../clients/desktop/src/extension-commands/page.ts";
+
+class Contents extends EventEmitter {
+    readonly scripts: string[] = [];
+    captured: unknown;
+    result: unknown = null;
+    isDestroyed(): boolean { return false; }
+    async executeJavaScriptInIsolatedWorld(world: number, entries: readonly { code: string }[]): Promise<unknown> {
+        expect(world).toBe(1004);
+        const code = entries[0]!.code;
+        this.scripts.push(code);
+        if (code.includes("delete globalThis")) return undefined;
+        if (code.includes("typeof globalThis.__veraPageNext")) return false;
+        return this.result;
+    }
+    async capturePage(rect: unknown): Promise<unknown> {
+        this.captured = rect;
+        const image = {
+            toPNG: () => Buffer.from("capture"),
+            getSize: () => ({ width: 20, height: 30 }),
+            resize: () => image,
+            toDataURL: () => "data:image/png;base64,Y2FwdHVyZQ==",
+        };
+        return image;
+    }
+    contents(): Parameters<PageCommandService["run"]>[1] {
+        return this as unknown as Parameters<PageCommandService["run"]>[1];
+    }
+}
+
+describe("page command boundary", () => {
+    test("captures a validated rectangle through the real pasted-image writer", async () => {
+        const directory = mkdtempSync(join(tmpdir(), "vera-page-capture-"));
+        const contents = new Contents();
+        contents.result = { rect: { x: 1.5, y: 2.5, width: 20, height: 30 }, text: "Selection text" };
+        try {
+            const result = await new PageCommandService().run("pageScript()", contents.contents(), directory);
+            expect(result.ok && result.kind).toBe("capture");
+            if (!result.ok || result.kind !== "capture") return;
+            expect(readFileSync(result.capture.path, "utf8")).toBe("capture");
+            expect(contents.captured).toEqual({ x: 2, y: 3, width: 20, height: 30 });
+            expect(contents.scripts.at(-1)).toContain("__veraPageCleanup");
+            expect(contents.listenerCount("did-start-navigation")).toBe(0);
+        } finally { rmSync(directory, { recursive: true, force: true }); }
+    });
+    test.each([false, true])("@core targets a cross-process annex frame by URL and name, reusing world: %s", async (reuse) => {
+        const contents = new Contents();
+        let attached = false;
+        const calls: string[] = [];
+        const debuggerEvents = new EventEmitter();
+        Object.assign(contents, { debugger: Object.assign(debuggerEvents, {
+            isAttached: () => attached,
+            attach: () => { attached = true; },
+            detach: () => { attached = false; },
+            sendCommand: async (method: string, parameters?: Record<string, unknown>, session?: string) => {
+                calls.push(method);
+                if (method === "Page.getFrameTree") return { frameTree: { frame: session === undefined ? { id: "main", url: "file:///index.html" } : { id: "annex", url: "http://localhost/usage", name: "browser-tab" } } };
+                if (method === "Target.getTargets") return { targetInfos: [{ targetId: "annex", type: "iframe", url: "http://localhost/usage" }] };
+                if (method === "Target.attachToTarget") return { sessionId: "child" };
+                if (method === "Page.enable") return {};
+                if (method === "Runtime.enable") {
+                    expect(session).toBe("child");
+                    const context = { id: 42, name: "vera-page-command", auxData: { frameId: "annex" } };
+                    debuggerEvents.emit("message", {}, "Runtime.executionContextCreated", { context }, "another-child");
+                    debuggerEvents.emit("message", {}, "Runtime.executionContextCreated", { context: { ...context, auxData: { frameId: "another-frame" } } }, "child");
+                    if (reuse) debuggerEvents.emit("message", {}, "Runtime.executionContextCreated", { context }, "child");
+                    return {};
+                }
+                expect(session).toBe("child");
+                if (method === "Page.createIsolatedWorld") {
+                    expect(parameters?.frameId).toBe("annex");
+                    return { executionContextId: 42 };
+                }
+                expect(parameters?.contextId).toBe(42);
+                return { result: { value: null } };
+            },
+        }) });
+        expect(await new PageCommandService().run("pageScript()", contents.contents(), "unused", { url: "http://localhost/usage", name: "browser-tab", x: 10, y: 20, width: 300, height: 400 })).toEqual({ ok: true, kind: "closed" });
+        expect(debuggerEvents.listenerCount("message")).toBe(0);
+        expect(calls).toContain("Runtime.enable");
+        expect(calls.includes("Page.createIsolatedWorld")).toBe(!reuse);
+        expect(attached).toBe(false);
+    });
+    test("frame detach cancels a pending command and releases its debugger listener", async () => {
+        const contents = new Contents();
+        const events = new EventEmitter();
+        let attached = false;
+        let cleanup = false;
+        Object.assign(contents, { debugger: Object.assign(events, {
+            isAttached: () => attached,
+            attach: () => { attached = true; },
+            detach: () => { attached = false; },
+            sendCommand: async (method: string, parameters?: Record<string, unknown>) => {
+                if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" }, childFrames: [{ frame: { id: "annex", url: "http://localhost/usage", name: "browser-tab" } }] } };
+                if (method === "Page.createIsolatedWorld") return { executionContextId: 42 };
+                if (method === "Runtime.evaluate") {
+                    if (String(parameters?.expression).includes("delete globalThis")) cleanup = true;
+                    else return new Promise(() => {});
+                }
+                return { result: { value: null } };
+            },
+        }) });
+        const service = new PageCommandService();
+        const pending = service.run("pageScript()", contents.contents(), "unused", { url: "http://localhost/usage", name: "browser-tab", x: 0, y: 0, width: 300, height: 400 });
+        while (events.listenerCount("message") === 0) await Promise.resolve();
+        events.emit("message", {}, "Page.frameDetached", { frameId: "annex" });
+        expect(await pending).toEqual({ ok: true, kind: "closed" });
+        expect(events.listenerCount("message")).toBe(0);
+        expect(attached).toBe(false);
+        expect(cleanup).toBe(false);
+    });
+    test("failed isolated-world creation removes the debugger listener", async () => {
+        const contents = new Contents();
+        const events = new EventEmitter();
+        let attached = false;
+        Object.assign(contents, { debugger: Object.assign(events, {
+            isAttached: () => attached,
+            attach: () => { attached = true; },
+            detach: () => { attached = false; },
+            sendCommand: async (method: string) => {
+                if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" }, childFrames: [{ frame: { id: "annex", url: "http://localhost/usage", name: "browser-tab" } }] } };
+                if (method === "Page.createIsolatedWorld") throw new Error("frame gone");
+                return {};
+            },
+        }) });
+        expect(await new PageCommandService().run("pageScript()", contents.contents(), "unused", { url: "http://localhost/usage", name: "browser-tab", x: 0, y: 0, width: 300, height: 400 })).toEqual({ ok: false, reason: "The page could not be read." });
+        expect(events.listenerCount("message")).toBe(0);
+        expect(attached).toBe(false);
+    });
+    test("refuses a replacement frame with the same name and origin", async () => {
+        const contents = new Contents();
+        const events = new EventEmitter();
+        const original = { name: "preview-abc", url: "http://localhost/preview" };
+        const frames = [original];
+        let attached = false;
+        Object.assign(contents, {
+            mainFrame: { framesInSubtree: frames },
+            executeJavaScript: async () => ({ ...original, x: 10, y: 20, width: 300, height: 400 }),
+            debugger: Object.assign(events, {
+                isAttached: () => attached,
+                attach: () => { attached = true; },
+                detach: () => { attached = false; },
+                sendCommand: async (method: string, parameters?: Record<string, unknown>) => {
+                    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" }, childFrames: [{ frame: { id: "child", ...original } }] } };
+                    if (method === "Page.createIsolatedWorld") return { executionContextId: 42 };
+                    if (method === "Runtime.evaluate") {
+                        const expression = String(parameters?.expression);
+                        if (expression.includes("pageScript()")) {
+                            frames[0] = { ...original };
+                            return { result: { value: { rect: { x: 1, y: 2, width: 20, height: 30 }, text: "Selection" } } };
+                        }
+                        return { result: { value: false } };
+                    }
+                    return {};
+                },
+            }),
+        });
+        const frame = await browserFrame(contents.contents(), () => true, original.name);
+        expect(frame).toBeDefined();
+        expect(await new PageCommandService().run("pageScript()", contents.contents(), "unused", frame)).toEqual({ ok: false, reason: "The page could not be read." });
+        expect(contents.captured).toBeUndefined();
+        expect(attached).toBe(false);
+    });
+    test("rejects subpixel iframe dimensions and accepts a later capture", async () => {
+        const directory = mkdtempSync(join(tmpdir(), "vera-page-floor-"));
+        const contents = new Contents();
+        const events = new EventEmitter();
+        const original = { name: "preview-floor", url: "http://localhost/preview" };
+        let attached = false;
+        const values = [
+            { rect: { x: 1, y: 2, width: 1, height: 20 }, text: "Narrow" },
+            { rect: { x: 1, y: 2, width: 20, height: 1 }, text: "Short" },
+            { rect: { x: 1, y: 2, width: 20, height: 30 }, text: "Normal" },
+            null,
+        ];
+        Object.assign(contents, {
+            mainFrame: { framesInSubtree: [original] },
+            executeJavaScript: async () => ({ ...original, x: 10, y: 20, width: 300, height: 400 }),
+            getZoomFactor: () => 0.8,
+            debugger: Object.assign(events, {
+                isAttached: () => attached,
+                attach: () => { attached = true; },
+                detach: () => { attached = false; },
+                sendCommand: async (method: string, parameters?: Record<string, unknown>) => {
+                    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" }, childFrames: [{ frame: { id: "child", ...original } }] } };
+                    if (method === "Page.createIsolatedWorld") return { executionContextId: 42 };
+                    if (method === "Runtime.evaluate") {
+                        const expression = String(parameters?.expression);
+                        if (expression.includes("typeof globalThis.__veraPageNext")) return { result: { value: true } };
+                        if (expression.includes("delete globalThis")) return { result: { value: undefined } };
+                        return { result: { value: values.shift() } };
+                    }
+                    return {};
+                },
+            }),
+        });
+        const results: unknown[] = [];
+        try {
+            const frame = await browserFrame(contents.contents(), () => true, original.name);
+            expect(frame?.identity).toBe(original as unknown as Electron.WebFrameMain);
+            const outcome = await new PageCommandService().run("pageScript()", contents.contents(), directory, frame, (result) => {
+                results.push(result);
+                if (!result.ok) {
+                    expect(contents.captured).toBeUndefined();
+                    expect(readdirSync(directory)).toEqual([]);
+                }
+            });
+            expect(outcome).toEqual({ ok: true, kind: "closed" });
+            expect(results).toHaveLength(3);
+            expect(results.slice(0, 2)).toEqual([{ ok: false, reason: "The page could not be read." }, { ok: false, reason: "The page could not be read." }]);
+            const success = results[2] as { ok: boolean; kind: string; capture: { path: string; text: string } };
+            expect(success.ok && success.kind).toBe("capture");
+            expect(success.capture.text).toBe("Normal");
+            expect(readFileSync(success.capture.path, "utf8")).toBe("capture");
+            expect(contents.captured).toEqual({ x: 9, y: 18, width: 16, height: 24 });
+            expect(attached).toBe(false);
+        } finally { rmSync(directory, { recursive: true, force: true }); }
+    });
+    test("refuses malformed output before capturing", async () => {
+        const contents = new Contents();
+        contents.result = { rect: { x: NaN, y: 0, width: 20, height: 30 }, text: "Selection text" };
+        expect(await new PageCommandService().run("pageScript()", contents.contents(), "unused")).toEqual({ ok: false, reason: "The page could not be read." });
+        expect(contents.captured).toBeUndefined();
+        expect(contents.listenerCount("destroyed")).toBe(0);
+    });
+    test("closing or navigating cancels one pending run and refuses a second", async () => {
+        const contents = new Contents();
+        contents.result = new Promise(() => {});
+        const service = new PageCommandService();
+        const pending = service.run("pageScript()", contents.contents(), "unused");
+        await Promise.resolve();
+        expect(await service.run("otherScript()", contents.contents(), "unused")).toEqual({ ok: true, kind: "closed" });
+        contents.emit("did-start-navigation");
+        expect(await pending).toEqual({ ok: true, kind: "closed" });
+        expect(contents.captured).toBeUndefined();
+        expect(contents.listenerCount("did-start-navigation")).toBe(0);
+        contents.result = null;
+        expect(await service.run("pageScript()", contents.contents(), "unused")).toEqual({ ok: true, kind: "closed" });
+    });
+});

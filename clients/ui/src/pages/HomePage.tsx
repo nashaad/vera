@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 
 import { Composer } from "../composer/Composer.tsx";
+import type { DraftCaptureOwner } from "../composer/draft-capture-owner.ts";
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
 import { PanelIcon, SidebarIcon, SidebarRightIcon } from "../components/Icons.tsx";
 import type { IconProps } from "../components/Icons.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
+import { useWorkbench } from "../workbench/context.tsx";
 import { shortcutKeys } from "../workbench/hints.ts";
 
 interface Hint {
@@ -16,7 +18,7 @@ interface Hint {
 
 const HINTS: readonly Hint[] = [
     { title: "Sidebar", detail: "Pages and sessions", command: LAYOUT_COMMANDS.toggleSidebar, Icon: SidebarIcon },
-    { title: "Right pane", detail: "The host this window is attached to", command: LAYOUT_COMMANDS.toggleRightPane, Icon: SidebarRightIcon },
+    { title: "Right pane", detail: "Review, plan, files and browser", command: LAYOUT_COMMANDS.toggleRightPane, Icon: SidebarRightIcon },
     { title: "Panel", detail: "Connection output", command: LAYOUT_COMMANDS.togglePanel, Icon: PanelIcon },
 ];
 
@@ -24,10 +26,13 @@ const HINTS: readonly Hint[] = [
 export interface HomePageProps {
     readonly platform: string;
     readonly folder?: string;
+    readonly active?: boolean;
+    readonly captureOwner?: DraftCaptureOwner;
 }
 
-export function HomePage({ platform, folder }: HomePageProps) {
+export function HomePage({ platform, folder, active = true, captureOwner }: HomePageProps) {
     const bridge = window.veraDesktop as DesktopBridge | undefined;
+    const { hidden } = useWorkbench();
     return (
         <div className="page-scroll">
             <div className="home">
@@ -35,11 +40,11 @@ export function HomePage({ platform, folder }: HomePageProps) {
                     <h1 className="greeting">Where to, captain?</h1>
                     {bridge === undefined ? null : (
                         <div className="home-composer">
-                            <Composer key={folder ?? ""} mode="new" bridge={bridge} {...(folder === undefined ? {} : { folder })} />
+                            <Composer key={folder ?? ""} mode="new" bridge={bridge} active={active} captureOwner={captureOwner} {...(folder === undefined ? {} : { folder })} />
                         </div>
                     )}
                     <ul className="home-keys">
-                        {HINTS.map(({ title, detail, command, Icon }) => (
+                        {HINTS.filter((hint) => !hidden.has(hint.command)).map(({ title, detail, command, Icon }) => (
                             <li key={command} className="home-key" data-command={command}>
                                 <Icon className="home-key-icon" />
                                 <span className="home-key-title">{title}</span>

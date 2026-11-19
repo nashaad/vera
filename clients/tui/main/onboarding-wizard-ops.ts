@@ -301,23 +301,6 @@ export function wizardTookModelSettings(rt: TuiRuntime): boolean {
     return true;
 }
 
-function storeKey(rt: TuiRuntime, provider: string, key: string): boolean {
-    try {
-        rt.authStorage.setCredential(provider, { type: "api_key", key });
-        requestAgentSettings(rt, focusedAgentClient(rt));
-        return true;
-    } catch (error) {
-        rt.state = appendTuiError(
-            rt.state,
-            `could not store the ${provider} API key: ${
-                error instanceof Error ? error.message : String(error)
-            }`,
-        );
-        renderState(rt);
-        return false;
-    }
-}
-
 function chooseProvider(
     rt: TuiRuntime,
     session: WizardSession,
@@ -678,11 +661,24 @@ export function runOnboardingWizardAction(
     if (action.kind === "submit") {
         const provider = session.chosen;
         if (provider === undefined || action.value === "") return;
-        if (!storeKey(rt, provider, action.value)) return;
-        rt.state = appendTuiNotice(rt.state, `stored ${provider} API key`);
-        const { alert: _dropped, ...rest } = session;
-        updateWizardSession(rt, { ...rest, at: "model" });
-        requestWizardModels(rt, provider);
+        if (rt.connectingProviders.has(provider)) return;
+        const save = rt.dependencies.saveProviderKey;
+        rt.connectingProviders.add(provider);
+        void (save === undefined ? Promise.reject(new Error("This host does not support provider sign-in.")) : save(provider, action.value)).then(() => {
+            rt.connectingProviders.delete(provider);
+            const live = rt.onboardingWizard;
+            if (live === undefined || live.chosen !== provider || live.at !== "key") return;
+            rt.state = appendTuiNotice(rt.state, `stored ${provider} API key`);
+            requestAgentSettings(rt, focusedAgentClient(rt));
+            const { alert: _dropped, ...rest } = live;
+            updateWizardSession(rt, { ...rest, at: "model" });
+            requestWizardModels(rt, provider);
+        }, (error: unknown) => {
+            rt.connectingProviders.delete(provider);
+            const live = rt.onboardingWizard;
+            if (live === undefined || live.chosen !== provider || live.at !== "key") return;
+            updateWizardSession(rt, { ...live, alert: error instanceof Error ? error.message : String(error) });
+        });
         return;
     }
     if (action.kind !== "choose") return;

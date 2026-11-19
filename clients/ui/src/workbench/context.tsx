@@ -9,6 +9,8 @@ export interface WorkbenchApi {
     readonly layout: ResolvedLayout;
     readonly dispatch: (action: LayoutAction) => void;
     readonly run: (command: string, args?: unknown) => void;
+    // Commands the show flags have taken out of the palette, menus and slash list.
+    readonly hidden: ReadonlySet<string>;
     readonly openMenu: (entries: readonly MenuEntry[], at: { readonly x: number; readonly y: number }) => void;
 }
 

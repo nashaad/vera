@@ -2,6 +2,8 @@ import { userInfo } from "node:os";
 
 import type { VeraAnnexPageApi, VeraMarkdownBlock } from "../../src/sdk/annex-pages.ts";
 import {
+    ARTIFACT_LIST_LIMIT,
+    ARTIFACT_PAGE_SIZE,
     addComment,
     deleteComment,
     artifactTitle,
@@ -28,7 +30,10 @@ export function activatePage(page: VeraAnnexPageApi): void {
     const root = (): string => page.storage.profile;
     const viewer = viewerName();
 
-    page.route("artifacts", () => json({ artifacts: listArtifacts(root()) }));
+    page.route("artifacts", (_request, url) => {
+        const limit = Number(url.searchParams.get("limit") ?? ARTIFACT_PAGE_SIZE);
+        return json({ ...listArtifacts(root(), limit), limit: ARTIFACT_LIST_LIMIT });
+    });
 
     page.route("artifact", (_request, url) => {
         const ref = artifactRef(url.searchParams.get("session"), url.searchParams.get("artifact"));

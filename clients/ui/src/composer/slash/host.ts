@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { DesktopBridge } from "../../protocol/bridge.ts";
+import type { DesktopBridge, SessionPane } from "../../protocol/bridge.ts";
 import { freshRequestId } from "../requests.ts";
 import type { ExtensionCommandInfo, SkillCommandInfo } from "./model.ts";
 import { listExtensionCommandsLine, listSkillsLine, parseSlashReply } from "./wire.ts";
@@ -9,9 +9,14 @@ import { listExtensionCommandsLine, listSkillsLine, parseSlashReply } from "./wi
 export interface SlashSession {
     readonly bridge: DesktopBridge;
     readonly agentId: string;
+    // The watch connection `send` writes to and replies come back on.
+    readonly pane: SessionPane;
     readonly send: (line: string) => void;
     readonly attached: boolean;
     readonly running: boolean;
+    // Where the session runs; a sidekick opened from here works in the same place.
+    readonly folder?: string | undefined;
+    readonly chat?: boolean;
 }
 
 const REPLY_TIMEOUT_MS = 10_000;
@@ -19,7 +24,7 @@ const REPLY_TIMEOUT_MS = 10_000;
 // Writes one line on the session's watch connection and resolves with the first reply that
 // `parse` accepts, or undefined if none arrives in time.
 export function askSession<Reply extends { readonly requestId: string }>(
-    session: Pick<SlashSession, "bridge" | "agentId" | "send">,
+    session: Pick<SlashSession, "bridge" | "agentId" | "pane" | "send">,
     requestId: string,
     line: string,
     parse: (text: string) => Reply | undefined,
@@ -33,7 +38,7 @@ export function askSession<Reply extends { readonly requestId: string }>(
         };
         const timer = setTimeout(() => finish(undefined), timeoutMs);
         const off = session.bridge.onEvent((event) => {
-            if (event.type !== "session_frame" || event.pane !== "main" || event.agentId !== session.agentId) return;
+            if (event.type !== "session_frame" || event.pane !== session.pane || event.agentId !== session.agentId) return;
             const reply = parse(event.text);
             if (reply !== undefined && reply.requestId === requestId) finish(reply);
         });

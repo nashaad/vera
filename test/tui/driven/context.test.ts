@@ -253,14 +253,16 @@ test("resuming a session with large instructions warns once and /context repeats
         },
     });
 
-    const session = await startTuiTestSession({
+    const startSession = () => startTuiTestSession({
         home,
         width: 100,
         height: 40,
         dependencies: () => createTuiChildDependencies({
             resumeSessionPath: sessionPath,
+            agentId: "budget-session",
         }),
     });
+    const session = await startSession();
 
     try {
         const pane = await session.waitForVisiblePane("Starting instructions are 8,018 tokens");
@@ -275,5 +277,14 @@ test("resuming a session with large instructions warns once and /context repeats
         expect(report).not.toContain("rides every turn");
     } finally {
         await session.close();
+    }
+
+    const resumed = await startSession();
+    try {
+        await resumed.waitForVisiblePane("hello from a heavy session");
+        await resumed.settle(300);
+        expect(resumed.captureVisiblePane()).not.toContain("Starting instructions are");
+    } finally {
+        await resumed.close();
     }
 }, 15_000);

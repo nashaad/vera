@@ -307,3 +307,25 @@ test("prompt diagnostics stay outside the provider request", () => {
     );
     expect(Object.isFrozen(projection.promptContributions)).toBe(true);
 });
+
+test("a request carries the notes contribution in its stable prompt only when the snapshot asks for it", () => {
+    const base = {
+        model: "test-model",
+        maxTokens: 4096,
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] satisfies ModelMessage[],
+        tools: [] satisfies ModelTool[],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+        signal: new AbortController().signal,
+    };
+    const offered = projectModelRequest({ ...base, notesOffer: true });
+    const plain = projectModelRequest(base);
+
+    expect(offered.request.systemPrompt).toContain("## Notes\n");
+    expect(plain.request.systemPrompt).not.toContain("## Notes\n");
+    expect(offered.promptContributions.map((entry) => entry.id)).toContain("core.notes");
+    expect(plain.promptContributions.map((entry) => entry.id)).not.toContain("core.notes");
+    const stable = (prompt: string | undefined): string => (prompt ?? "").split("\n\n## Date")[0]!;
+    expect(stable(offered.request.systemPrompt).replace(/\n\n## Notes\n[^\n]*/, "")).toBe(stable(plain.request.systemPrompt));
+});

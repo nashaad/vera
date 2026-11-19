@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 
 import { ChevronDownIcon, ChevronRightIcon, DiffIcon, FileIcon } from "../components/Icons.tsx";
 import { CORE_CONTAINERS } from "../registry/core.ts";
+import { useSurface } from "../state/useSurfaces.ts";
 import { useWorkbench } from "../workbench/context.tsx";
 import { revealContainer } from "../workbench/reveal.ts";
 import { type FileChange, fileFolder, fileName } from "./changes.ts";
@@ -17,6 +18,7 @@ export interface DiffRollupProps {
 
 export function DiffRollup({ changes, folder }: DiffRollupProps) {
     const workbench = useWorkbench();
+    const review = useSurface("review");
     const [showAll, setShowAll] = useState(false);
     const added = changes.reduce((total, change) => total + change.added, 0);
     const removed = changes.reduce((total, change) => total + change.removed, 0);
@@ -30,13 +32,15 @@ export function DiffRollup({ changes, folder }: DiffRollupProps) {
                     Edited {changes.length} {changes.length === 1 ? "file" : "files"}
                 </span>
                 <Tally added={added} removed={removed} />
-                <button
-                    type="button"
-                    className="diff-review"
-                    onClick={() => revealContainer(workbench, CORE_CONTAINERS.review)}
-                >
-                    Review
-                </button>
+                {review ? (
+                    <button
+                        type="button"
+                        className="diff-review"
+                        onClick={() => revealContainer(workbench, CORE_CONTAINERS.review)}
+                    >
+                        Review
+                    </button>
+                ) : null}
             </div>
             <div className="diff-files">
                 {shown.map((change) => (

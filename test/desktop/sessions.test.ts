@@ -15,10 +15,21 @@ test("@core session rows carry a name, folder, status and the last activity, and
         ],
     });
     expect(rows).toEqual([
-        { id: "abc", name: "First", workspace: "/w/crow", status: "working", updatedAt: Date.parse("2026-01-02T03:04:05Z"), live: true, chat: false, parentId: "p1" },
-        { id: "def12345678", name: "Titled", workspace: "", status: "other", live: false, chat: false },
-        { id: "ghi12345678", name: "ghi12345", workspace: "", status: "other", live: false, chat: false },
+        { id: "abc", name: "First", workspace: "/w/crow", status: "working", updatedAt: Date.parse("2026-01-02T03:04:05Z"), live: true, chat: false, archived: false, parentId: "p1" },
+        { id: "def12345678", name: "Titled", workspace: "", status: "other", live: false, chat: false, archived: false },
+        { id: "ghi12345678", name: "ghi12345", workspace: "", status: "other", live: false, chat: false, archived: false },
     ]);
+});
+
+test("@core a row shows the title, which carries a rename, and falls back to the identity name before there is a title", () => {
+    const rows = sessionRows({
+        agents: [
+            { id: "renamed1", name: "swift-stone:d14d", title: "crow map" },
+            { id: "untitled", name: "mellow-summit:a5bd", title: "  " },
+            { id: "identity", name: "glad-fern:17b8" },
+        ],
+    });
+    expect(rows.map((item) => item.name)).toEqual(["crow map", "mellow-summit:a5bd", "glad-fern:17b8"]);
 });
 
 test("a row the host marks as a chat is a chat, and only an exact true counts", () => {
@@ -41,8 +52,8 @@ test("a row the host marks as a chat is a chat, and only an exact true counts", 
 test("an unreadable time leaves the row without one", () => {
     expect(sessionRows({ agents: [{ id: "a", updated_at: "not a date" }, { id: "b", updated_at: 5 }] }))
         .toEqual([
-            { id: "a", name: "a", workspace: "", status: "other", live: false, chat: false },
-            { id: "b", name: "b", workspace: "", status: "other", live: false, chat: false },
+            { id: "a", name: "a", workspace: "", status: "other", live: false, chat: false, archived: false },
+            { id: "b", name: "b", workspace: "", status: "other", live: false, chat: false, archived: false },
         ]);
 });
 

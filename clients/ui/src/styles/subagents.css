@@ -1,0 +1,150 @@
+/* The Subagents tab in the right pane, and the cards a session's subagent calls draw in the transcript. */
+
+.subagent-detail {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.subagent-head {
+    display: flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 1.75);
+    align-items: center;
+    padding: calc(var(--vera-space) * 1) calc(var(--vera-space) * 2) calc(var(--vera-space) * 1) calc(var(--vera-space) * 1);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+    border-bottom: thin solid var(--vera-border);
+}
+
+.subagent-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.25);
+    height: calc(var(--vera-space) * 3.25);
+}
+
+.subagent-title {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.subagent-state {
+    flex: 0 0 auto;
+    padding: 0 calc(var(--vera-space) * 1.5);
+    color: var(--vera-accent);
+    border: thin solid color-mix(in srgb, var(--vera-accent) 40%, transparent);
+    border-radius: var(--vera-radius-xl);
+}
+
+.subagent-detail .subagent-error {
+    padding: calc(var(--vera-space) * 1) calc(var(--vera-space) * 4);
+}
+
+.subagent-detail .transcript {
+    padding-right: calc(var(--vera-space) * 2);
+    padding-left: calc(var(--vera-space) * 2);
+}
+
+.subagents-row {
+    display: flex;
+    gap: calc(var(--vera-space) * 2);
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 4);
+    color: var(--vera-text);
+    font: inherit;
+    font-size: var(--vera-font-size);
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-bottom: thin solid var(--vera-border);
+}
+
+button.subagents-row {
+    cursor: pointer;
+}
+
+button.subagents-row:hover {
+    background: var(--vera-surface-hover);
+}
+
+button.subagents-row:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.subagent-list-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.25);
+    height: calc(var(--vera-space) * 3.25);
+    color: var(--vera-text-muted);
+}
+
+.subagents-status {
+    flex: 0 0 auto;
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+}
+
+.subagent-card {
+    display: flex;
+    gap: calc(var(--vera-space) * 1.75);
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    margin: 0 0 calc(var(--vera-space) * 3.5);
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2.5);
+    color: var(--vera-text-muted);
+    font: inherit;
+    font-size: var(--vera-font-size-chat);
+    text-align: left;
+    background: var(--vera-surface);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+}
+
+.subagent-card:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.subagent-card:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.subagent-card-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 3.25);
+    height: calc(var(--vera-space) * 3.25);
+}
+
+.subagent-card-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.subagent-card-status {
+    flex: 0 0 auto;
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+}
+
+.subagent-card .session-dot[data-failed="true"] {
+    background: var(--vera-danger);
+    border-color: var(--vera-danger);
+}
+
+.subagent-detail .subagent-message {
+    padding-right: calc(var(--vera-space) * 2);
+    padding-left: calc(var(--vera-space) * 2);
+}

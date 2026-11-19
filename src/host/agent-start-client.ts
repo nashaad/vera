@@ -61,6 +61,7 @@ export function createAgentThroughHost(
     approvalMode?: string,
     lifetime?: "ephemeral" | "durable",
     startupProfile: StartupProfile = "default",
+    notesOffer?: boolean,
 ): Promise<ReadyAgent> {
     return requestAgentStart(socketPath, {
         type: "create_agent",
@@ -72,6 +73,7 @@ export function createAgentThroughHost(
         ...(startupProfile === "default"
             ? {}
             : { startup_profile: startupProfile }),
+        ...(notesOffer === true ? { notes_offer: true } : {}),
     });
 }
 
@@ -241,6 +243,7 @@ interface CreateAgentMessage {
     readonly approval_mode?: string;
     readonly lifetime?: "ephemeral" | "durable";
     readonly startup_profile?: StartupProfile;
+    readonly notes_offer?: true;
 }
 
 interface ResumeAgentMessage {

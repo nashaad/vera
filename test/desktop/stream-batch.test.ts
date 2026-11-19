@@ -11,6 +11,7 @@ function line(value: unknown): SessionMessage {
 
 const delta = (text: string): SessionMessage => line({ type: "assistant_delta", text });
 const thinking = (text: string): SessionMessage => line({ type: "assistant_thinking", text });
+const progress = (characters: number): SessionMessage => line({ type: "assistant_thinking_progress", characters });
 const turnFinished = (): SessionMessage => line({ type: "turn_finished" });
 const toolStarted = (): SessionMessage => line({ type: "tool_started", tool: "bash", args: { command: "ls" } });
 
@@ -52,9 +53,10 @@ function fire(timer: Scheduled | undefined): void {
 }
 
 describe("stream batching", () => {
-    test("only assistant text and thinking count as streamed", () => {
+    test("only assistant text, thinking and thinking progress count as streamed", () => {
         expect(isStreamedText(delta("a"))).toBe(true);
         expect(isStreamedText(thinking("a"))).toBe(true);
+        expect(isStreamedText(progress(8))).toBe(true);
         expect(isStreamedText(turnFinished())).toBe(false);
         expect(isStreamedText(toolStarted())).toBe(false);
     });

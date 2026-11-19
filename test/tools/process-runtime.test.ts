@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { signalVerifiedProcess, signalVerifiedProcessGroup } from "../../src/process-group.ts";
 import {
     ManagedProcessRegistry,
+    MAX_RETAINED_PROCESSES_PER_OWNER,
     type ManagedProcessRunResult,
 } from "../../src/tools/process-runtime.ts";
 
@@ -135,14 +136,14 @@ test("a yielded process survives its former turn signal and can be killed", asyn
 
         const killed = await scope.kill(running.processId);
         expect(killed).toMatchObject({ status: "exited", processId: "p-survives" });
-        expect(scope.read(running.processId)).toBeUndefined();
+        expect(scope.read(running.processId)).toEqual(killed);
     } finally {
         await registry.close();
     }
 });
 
-test("an exited process is retained until its first completed read", async () => {
-    const registry = new ManagedProcessRegistry({ id: () => "p-once" });
+test("@core an exited process can be read repeatedly by its owner", async () => {
+    const registry = new ManagedProcessRegistry({ id: () => "p-repeat" });
     const scope = registry.scope("session-a");
     try {
         const result = await scope.run({
@@ -153,12 +154,107 @@ test("an exited process is retained until its first completed read", async () =>
             interactive: false,
         });
         const processId = expectRunning(result).processId;
-        const exited = await untilValue(() => {
-            const snapshot = scope.read(processId);
+        const exited = await untilValue(async () => {
+            const snapshot = await scope.readSettled(processId);
             return snapshot?.status === "exited" ? snapshot : undefined;
         });
         expect(exited).toMatchObject({ exitCode: 0, output: "done" });
-        expect(scope.read(processId)).toBeUndefined();
+        expect(scope.read(processId)).toEqual(exited);
+        expect(await scope.readSettled(processId)).toEqual(exited);
+        expect(await registry.scope("session-b").readSettled(processId)).toBeUndefined();
+        await scope.close();
+        expect(await registry.scope("session-a").readSettled(processId)).toBeUndefined();
+    } finally {
+        await registry.close();
+    }
+});
+
+test("@core a read after a confirmed kill returns its final output", async () => {
+    const registry = new ManagedProcessRegistry({ id: () => "p-killed" });
+    const scope = registry.scope("session-a");
+    try {
+        const running = expectRunning(await scope.run({
+            command: "printf ready; sleep 60",
+            cwd: process.cwd(),
+            env: ENV,
+            yieldAfterMs: 0,
+            interactive: false,
+        }));
+        await untilValue(() => scope.read(running.processId)?.output.includes("ready")
+            ? true : undefined);
+        const killed = await scope.kill(running.processId);
+        expect(killed).toMatchObject({ status: "exited", output: "ready" });
+        expect(await scope.readSettled(running.processId)).toEqual(killed);
+        expect(await scope.readSettled(running.processId)).toEqual(killed);
+    } finally {
+        await registry.close();
+    }
+});
+
+test("@core repeated reads do not extend an exited process's retention", async () => {
+    let now = 1_000;
+    const registry = new ManagedProcessRegistry({
+        exitRetentionMs: 1_000,
+        now: () => now,
+        id: () => "p-retained",
+    });
+    const scope = registry.scope("session-a");
+    try {
+        const result = await scope.run({
+            command: "printf done",
+            cwd: process.cwd(),
+            env: ENV,
+            yieldAfterMs: 0,
+            interactive: false,
+        });
+        const processId = expectRunning(result).processId;
+        const exited = await untilValue(async () => {
+            const snapshot = await scope.readSettled(processId);
+            return snapshot?.status === "exited" ? snapshot : undefined;
+        });
+        now = 1_999;
+        expect(await scope.readSettled(processId)).toEqual(exited);
+        now = 2_000;
+        expect(await scope.readSettled(processId)).toBeUndefined();
+    } finally {
+        await registry.close();
+    }
+});
+
+test("@core replay retains at most 32 process records per owner", async () => {
+    let sequence = 0;
+    let now = 1_000;
+    const registry = new ManagedProcessRegistry({
+        id: () => `p-cap-${++sequence}`,
+        now: () => now,
+        processGroupAlive: () => false,
+    });
+    const scope = registry.scope("session-a");
+    try {
+        const ids: string[] = [];
+        for (let index = 0; index < MAX_RETAINED_PROCESSES_PER_OWNER + 1; index++) {
+            now += 1;
+            const result = await scope.run({
+                command: `printf output-${index}`,
+                cwd: process.cwd(),
+                env: ENV,
+                yieldAfterMs: 0,
+                interactive: false,
+            });
+            const processId = expectRunning(result).processId;
+            ids.push(processId);
+            const exited = await untilValue(async () => {
+                const snapshot = await scope.readSettled(processId);
+                return snapshot?.status === "exited" ? snapshot : undefined;
+            });
+            expect(exited.output).toBe(`output-${index}`);
+            if (index === MAX_RETAINED_PROCESSES_PER_OWNER - 1) {
+                expect(await scope.readSettled(ids[0]!)).toMatchObject({ output: "output-0" });
+            }
+        }
+        expect(await scope.readSettled(ids[0]!)).toBeUndefined();
+        expect(await scope.readSettled(ids[1]!)).toMatchObject({ output: "output-1" });
+        expect(await scope.readSettled(ids.at(-1)!)).toMatchObject({ output: "output-32" });
     } finally {
         await registry.close();
     }

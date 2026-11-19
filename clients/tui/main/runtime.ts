@@ -262,6 +262,7 @@ export interface TuiRuntime {
     terminalFocused: boolean;
     stopWatchingWorkIndex: (() => void) | undefined;
     stopWatchingSessionTitle: (() => void) | undefined;
+    stopWatchingSessionShow: (() => void) | undefined;
     stopWait: TuiStopWait | undefined;
     stopWaitCard: TuiStopWaitCard | undefined;
     stopWatchingStopWait: (() => void) | undefined;

@@ -11,6 +11,8 @@ export function foldLive(live: readonly Block[], message: LiveMessage): readonly
             return [...live, { kind: "user", key: keyFor(live), text: message.content }];
         case "assistant_thinking":
             return addThinking(live, message.text);
+        case "assistant_thinking_progress":
+            return addThinkingProgress(live, message.characters);
         case "assistant_delta":
             return addText(closeTail(settleThought(live)), message.text);
         case "tool_started":
@@ -53,6 +55,7 @@ export function retryAfter(retry: RetryState | undefined, message: LiveMessage):
             return message.retry;
         case "assistant_delta":
         case "assistant_thinking":
+        case "assistant_thinking_progress":
         case "tool_started":
         case "turn_finished":
         case "agent_failed":
@@ -96,6 +99,15 @@ function addThinking(live: readonly Block[], text: string): readonly Block[] {
         return replaceTail(live, { ...tail, text: tail.text + text });
     }
     return [...live, { kind: "thought", key: keyFor(live), text, live: true }];
+}
+
+// Keeps a count and no text, so a window that hides reasoning holds nothing of it.
+function addThinkingProgress(live: readonly Block[], characters: number): readonly Block[] {
+    const tail = live.at(-1);
+    if (tail?.kind === "thought" && tail.live) {
+        return replaceTail(live, { ...tail, hiddenCharacters: (tail.hiddenCharacters ?? 0) + characters });
+    }
+    return [...live, { kind: "thought", key: keyFor(live), text: "", live: true, hiddenCharacters: characters }];
 }
 
 function addText(blocks: readonly Block[], text: string): readonly Block[] {

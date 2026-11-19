@@ -119,6 +119,24 @@ try {
     await page.waitForSelector(".queue-strip", { state: "detached" });
     await until("the released turn to finish", async () => (await sendMode()) === "send");
 
+    await input.fill("SLOW file draft");
+    await input.press("Enter");
+    await until("the stop button", async () => (await sendMode()) === "stop");
+    await input.fill("held file draft");
+    await input.press("Enter");
+    await page.waitForSelector('.queue-strip .queue-first:has-text("held file draft")');
+    await page.getByRole("button", { name: "Attach files" }).click();
+    await page.waitForSelector('.chip-file[data-attaching="false"]');
+    await input.press("Enter");
+    if (await page.locator('.queue-strip .queue-first:has-text("held file draft")').count() !== 1) throw new Error("Enter released a queue with a file draft.");
+    await input.press("Escape");
+    await until("the stopped turn", async () => (await input.getAttribute("placeholder")) === "Reply to Vera");
+    if (await page.locator('.queue-strip .queue-first:has-text("held file draft")').count() !== 1) throw new Error("Escape released a queue with a file draft.");
+    await page.locator(".chip-file .chip-x").click();
+    await page.locator(".queue-release").click();
+    await page.waitForSelector(`${USER}:text-is("held file draft")`, { timeout: 30_000 });
+    await until("the held turn to finish", async () => (await input.getAttribute("placeholder")) === "Reply to Vera");
+
     // Stop a running turn from the button.
     await input.fill("SLOW two");
     await input.press("Enter");
@@ -127,8 +145,25 @@ try {
     await until("the stopped turn", async () => (await sendMode()) === "send"
         && (await input.getAttribute("placeholder")) === "Reply to Vera");
 
+    for (const target of [input, page.locator(".transcript-scroll[data-session]")]) {
+        await input.fill("SLOW escape");
+        await input.press("Enter");
+        await until("the stop button", async () => (await sendMode()) === "stop");
+        if (target === input) {
+            await input.fill("/mo");
+            await page.waitForSelector('[role="listbox"]');
+            await input.press("Escape");
+            await page.waitForSelector('[role="listbox"]', { state: "detached" });
+            if (await sendMode() !== "send") throw new Error("Closing the menu stopped the turn.");
+        }
+        await target.press("Escape");
+        await until("the stopped turn", async () => (await input.getAttribute("placeholder")) === "Reply to Vera");
+        if (target === input && await input.inputValue() !== "/mo") throw new Error("Escape lost the draft.");
+        await input.fill("");
+    }
+
     // Attach an image from the picker; the prompt carries it once the host has a copy.
-    await page.getByRole("button", { name: "Attach images" }).click();
+    await page.getByRole("button", { name: "Attach files" }).click();
     await page.waitForSelector(".chip-file[data-attaching=\"false\"]", { timeout: 15_000 });
     const before = requests.length;
     await input.fill("What is in the picture?");
@@ -136,6 +171,20 @@ try {
     await page.waitForSelector(`${USER}:text-is("What is in the picture?")`, { timeout: 30_000 });
     await page.waitForSelector(".chip-file", { state: "detached" });
     await until("the image request", async () => requests.slice(before).some((text) => text.includes("data:image/png")));
+
+    const inside = join(folder, "inside.txt");
+    const outside = join(trial.home, "..", "outside.txt");
+    writeFileSync(inside, "inside");
+    writeFileSync(outside, "outside");
+    await app.evaluate(({ dialog }, files) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: files });
+    }, [inside, outside]);
+    await page.getByRole("button", { name: "Attach files" }).click();
+    await page.waitForSelector('.chip-file:has-text("outside.txt")');
+    const beforeFiles = requests.length;
+    await input.fill("Read both files");
+    await input.press("Enter");
+    await until("the file references", async () => requests.slice(beforeFiles).some((text) => text.includes("inside.txt") && text.includes(outside)));
     console.log("compose e2e passed");
 } catch (error) {
     failed = true;

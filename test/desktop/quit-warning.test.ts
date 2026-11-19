@@ -88,7 +88,7 @@ test("@core renderer reload does not begin a quit warning or close the window", 
     expect(windowsClosed).toBe(0);
 });
 
-test("@core desktop quit counts only distinct main and companion panes", () => {
+test("@core desktop quit counts distinct sessions across main, chat and subagent panes", () => {
     const watched: string[] = [];
     const unwatched: string[] = [];
     const bridge = {
@@ -97,59 +97,51 @@ test("@core desktop quit counts only distinct main and companion panes", () => {
     } as unknown as DesktopBridge;
     try {
         watchDesktopSession(bridge, "main", "crow");
-        watchDesktopSession(bridge, "companion", "raven");
-        watchDesktopSession(bridge, "probe", "gull");
-        expect(watchedDesktopSessions()).toEqual(["crow", "raven"]);
-        watchDesktopSession(bridge, "companion", "crow");
-        expect(watchedDesktopSessions()).toEqual(["crow"]);
+        watchDesktopSession(bridge, "chat:0", "raven");
+        watchDesktopSession(bridge, "subagent", "gull");
+        expect(watchedDesktopSessions()).toEqual(["crow", "raven", "gull"]);
+        watchDesktopSession(bridge, "chat:0", "crow");
+        expect(watchedDesktopSessions()).toEqual(["crow", "gull"]);
         unwatchDesktopSession(bridge, "main");
-        expect(watchedDesktopSessions()).toEqual(["crow"]);
-        unwatchDesktopSession(bridge, "companion");
-        expect(watchedDesktopSessions()).toEqual([]);
+        expect(watchedDesktopSessions()).toEqual(["crow", "gull"]);
+        unwatchDesktopSession(bridge, "chat:0");
+        expect(watchedDesktopSessions()).toEqual(["gull"]);
     } finally {
         unwatchDesktopSession(bridge, "main");
-        unwatchDesktopSession(bridge, "companion");
-        unwatchDesktopSession(bridge, "probe");
+        unwatchDesktopSession(bridge, "chat:0");
+        unwatchDesktopSession(bridge, "subagent");
     }
-    expect(watched).toEqual(["main:crow", "companion:raven", "probe:gull", "companion:crow"]);
-    expect(unwatched).toEqual(["main", "companion", "main", "companion", "probe"]);
+    expect(watchedDesktopSessions()).toEqual([]);
+    expect(watched).toEqual(["main:crow", "chat:0:raven", "subagent:gull", "chat:0:crow"]);
+    expect(unwatched).toEqual(["main", "chat:0", "main", "chat:0", "subagent"]);
 });
 
-test("@core a probe-only watch does not show a quit warning", async () => {
+test("@core a subagent pane with background commands shows a quit warning", async () => {
     const bridge = {
         watchSession: () => {},
         unwatchSession: () => {},
     } as unknown as DesktopBridge;
     const warnings: Array<QuitWarning | undefined> = [];
-    let reads = 0;
-    let closedSessions = 0;
-    let closedWindows = 0;
     const controller = new QuitWarningController({
         watchedSessions: watchedDesktopSessions,
-        listAgents: async () => {
-            reads += 1;
-            return { agents: [{ id: "gull", background_commands: 1 }] };
-        },
-        closeSession: async () => { closedSessions += 1; },
+        listAgents: async () => ({ agents: [{ id: "gull", background_commands: 1 }] }),
+        closeSession: async () => {},
         showWarning: (warning) => { warnings.push(warning); },
-        closeWindow: () => { closedWindows += 1; },
+        closeWindow: () => {},
     });
-    watchDesktopSession(bridge, "probe", "gull");
+    watchDesktopSession(bridge, "subagent", "gull");
     try {
         const event = unload();
         controller.beforeUnload(event.event, true);
         await tick();
-        expect(event.prevented()).toBe(false);
-        expect(reads).toBe(0);
-        expect(warnings).toEqual([]);
-        expect(closedSessions).toBe(0);
-        expect(closedWindows).toBe(0);
+        expect(event.prevented()).toBe(true);
+        expect(warnings).toEqual([{ count: 1, agentIds: ["gull"] }]);
     } finally {
-        unwatchDesktopSession(bridge, "probe");
+        unwatchDesktopSession(bridge, "subagent");
     }
 });
 
-test("@core stop and quit ignores the probe while stopping open panes", async () => {
+test("@core stop and quit closes every counted pane", async () => {
     const bridge = {
         watchSession: () => {},
         unwatchSession: () => {},
@@ -168,18 +160,18 @@ test("@core stop and quit ignores the probe while stopping open panes", async ()
         closeWindow: () => {},
     });
     watchDesktopSession(bridge, "main", "crow");
-    watchDesktopSession(bridge, "companion", "raven");
-    watchDesktopSession(bridge, "probe", "gull");
+    watchDesktopSession(bridge, "chat:0", "raven");
+    watchDesktopSession(bridge, "subagent", "gull");
     try {
         controller.beforeUnload(unload().event, true);
         await tick();
-        expect(warnings).toEqual([{ count: 3, agentIds: ["crow", "raven"] }]);
+        expect(warnings).toEqual([{ count: 8, agentIds: ["crow", "raven", "gull"] }]);
         await controller.stopAndQuit();
-        expect(closed).toEqual(["crow", "raven"]);
+        expect(closed).toEqual(["crow", "raven", "gull"]);
     } finally {
         unwatchDesktopSession(bridge, "main");
-        unwatchDesktopSession(bridge, "companion");
-        unwatchDesktopSession(bridge, "probe");
+        unwatchDesktopSession(bridge, "chat:0");
+        unwatchDesktopSession(bridge, "subagent");
     }
 });
 

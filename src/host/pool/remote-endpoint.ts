@@ -2,13 +2,13 @@ import type { SessionEndpoint } from "./session-endpoint.ts";
 import type { ControlPeer } from "./control.ts";
 
 const METHODS = {
-    setSessionTitle: true, sendToSession: true, askSession: true, investigate: true,
+    setSessionTitle: true, showInSession: true, sendToSession: true, askSession: true, investigate: true,
     peerRoster: true, peerSend: true, peerLabel: true, messageSubagent: true,
     closeSubagent: true, notifyParent: true, deliverCompletion: true,
     completionFailure: true, childApproval: true, parentClosing: true,
     canonicalPath: true, inspect: true, residentAt: true, resident: true, residents: true,
     tree: true, find: true, create: true, resume: true, release: true, list: true,
-    rememberStored: true, forgetStored: true, rename: true, trash: true,
+    rememberStored: true, forgetStored: true, rename: true, setArchived: true, move: true, trash: true,
     reserveTrash: true, quiesceClose: true, waitClose: true, finishCloseMember: true,
     forgetClose: true, canClose: true, recordClosedMembers: true, moveTrashArtifact: true,
     restartTrashMember: true, abandonTrashRestart: true, recordTrashOutcome: true,

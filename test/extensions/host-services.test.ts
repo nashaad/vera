@@ -213,7 +213,7 @@ test("model, title, ask, send and investigate calls are capability-gated, wait f
         export function activate(vera) {
             globalThis.__hostApi = vera;
         }
-    `, ["model.oneshot", "sessions.title", "sessions.ask", "sessions.send", "agents.investigate"]);
+    `, ["model.oneshot", "sessions.title", "sessions.ask", "sessions.send", "sessions.show", "agents.investigate"]);
     const bare = createExtension("bare.extension", `
         export function activate(vera) {
             globalThis.__bareApi = vera;
@@ -238,6 +238,8 @@ test("model, title, ask, send and investigate calls are capability-gated, wait f
     await expect(api.sessions.ask(ask)).rejects.toThrow("not ready");
     await expect(bareApi.sessions.send("session-1", "caw")).rejects.toThrow("sessions.send");
     await expect(api.sessions.send("session-1", "caw")).rejects.toThrow("not ready");
+    await expect(bareApi.sessions.show("session-1", "dialog.themes")).rejects.toThrow("sessions.show");
+    await expect(api.sessions.show("session-1", "dialog.themes")).rejects.toThrow("not ready");
     const hunch = { sessionId: "session-1", question: "Is the map really missing from the chest?" };
     await expect(bareApi.agents.investigate(hunch)).rejects.toThrow("agents.investigate");
     await expect(api.agents.investigate(hunch)).rejects.toThrow("not ready");
@@ -246,11 +248,16 @@ test("model, title, ask, send and investigate calls are capability-gated, wait f
     const titles: string[] = [];
     const asks: ExtensionSessionAskCall[] = [];
     const sent: string[] = [];
+    const shown: string[] = [];
     const investigations: ExtensionInvestigateCall[] = [];
     const services: ExtensionHostServices = {
         async oneshot(call) {
             calls.push(call);
             return { text: "Raid on the button factory", model: "crow-mini", provider: "rookery" };
+        },
+        async showInSession(sessionId, target) {
+            shown.push(`${sessionId}=${target}`);
+            return { window: 1, terminal: 0, terminalCannot: 1 };
         },
         async setSessionTitle(sessionId, title) {
             titles.push(`${sessionId}=${title}`);
@@ -292,6 +299,12 @@ test("model, title, ask, send and investigate calls are capability-gated, wait f
     expect(asks).toEqual([{ ...ask, maxTokens: 64 }]);
     expect(await api.sessions.send("session-1", "Bury it deeper")).toBe("queued");
     expect(sent).toEqual(["host.extension>session-1=Bury it deeper"]);
+    expect(await api.sessions.show("session-1", "dialog.themes")).toEqual({ window: 1, terminal: 0, terminalCannot: 1 });
+    expect(shown).toEqual(["session-1=dialog.themes"]);
+    await expect(api.sessions.show("", "dialog.themes")).rejects.toThrow("Invalid session ID");
+    await expect(api.sessions.show("session-1", "")).rejects.toThrow("Invalid screen");
+    await expect(api.sessions.show("session-1", "x".repeat(101))).rejects.toThrow("Invalid screen");
+    expect(shown).toHaveLength(1);
     await expect(api.sessions.send("session-1", "  ")).rejects.toThrow("bytes of text");
     await expect(api.sessions.send("session-1", "x".repeat(16 * 1024 + 1))).rejects.toThrow("bytes of text");
     expect(await api.agents.investigate(hunch)).toEqual({
@@ -310,6 +323,7 @@ test("model, title, ask, send and investigate calls are capability-gated, wait f
     await expect(api.sessions.setTitle("session-1", "Loot")).rejects.toThrow("closed");
     await expect(api.sessions.ask(ask)).rejects.toThrow("closed");
     await expect(api.sessions.send("session-1", "caw")).rejects.toThrow("closed");
+    await expect(api.sessions.show("session-1", "dialog.themes")).rejects.toThrow("closed");
     await expect(api.agents.investigate(hunch)).rejects.toThrow("closed");
 });
 
@@ -328,6 +342,7 @@ test("bad oneshot, title, ask and investigate requests are refused before reachi
             reached += 1;
             return { text: "", model: "crow-mini" };
         },
+        async showInSession() { return { window: 0, terminal: 0, terminalCannot: 0 }; },
         async setSessionTitle() {
             reached += 1;
             return "set";
@@ -388,6 +403,7 @@ test("closing the registry cancels a oneshot in flight", async () => {
                 signal.addEventListener("abort", () => reject(signal.reason));
             });
         },
+        async showInSession() { return { window: 0, terminal: 0, terminalCannot: 0 }; },
         async setSessionTitle() {
             return "set";
         },
@@ -419,6 +435,7 @@ interface HostApi {
         setTitle(sessionId: string, title: string): Promise<unknown>;
         ask(request: unknown): Promise<unknown>;
         send(sessionId: string, text: string): Promise<unknown>;
+        show(sessionId: string, target: string): Promise<unknown>;
     };
     readonly agents: { investigate(request: unknown): Promise<unknown> };
 }

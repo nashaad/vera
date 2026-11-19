@@ -4,6 +4,7 @@ import { TitleBar } from "../components/TitleBar.tsx";
 import { MainPage } from "../pages/MainPage.tsx";
 import { useRouter } from "../pages/router.tsx";
 import { routeTitle } from "../pages/routes.ts";
+import { useActiveSession } from "../session/activeSession.ts";
 import { LOCATION_SIZES, MAIN_MIN_WIDTH, type LocationId } from "../layout/model.ts";
 import { DropStrip } from "./DropStrip.tsx";
 import { useIsShown, useWorkbench } from "./context.tsx";
@@ -39,6 +40,7 @@ export function Workbench({ platform, banner, onTitleBarHeight }: WorkbenchProps
     const rightPane = useIsShown("rightPane");
     const panel = useIsShown("panel");
     const { route } = useRouter();
+    const active = useActiveSession();
     return (
         <div className="workbench">
             {sidebar ? (
@@ -51,7 +53,7 @@ export function Workbench({ platform, banner, onTitleBarHeight }: WorkbenchProps
             )}
             <div className="stage" style={{ minWidth: MAIN_MIN_WIDTH }}>
                 <TitleBar
-                    title={routeTitle(route)}
+                    title={routeTitle(route, active)}
                     sidebarShown={sidebar}
                     {...(onTitleBarHeight === undefined ? {} : { onHeight: onTitleBarHeight })}
                 />

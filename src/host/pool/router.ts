@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 
 import type { CreateRegisteredAgentOptions, RegisteredAgentSummary, RenameSessionOutcome } from "../agent-registry.ts";
+import type { MoveSessionInput, MoveSessionOutcome } from "../agent-registry/move.ts";
 import type { AgentLocationFailedResponse, AgentLocationResponse, BlockSessionRequest, UnblockSessionRequest } from "../protocol.ts";
 import type { BlockSessionOutcome, CloseAgentOutcome, UnblockSessionOutcome } from "../server.ts";
 import { UserFacingError, userFacingMessage } from "../../user-facing-error.ts";
@@ -9,7 +10,7 @@ import type { SessionEndReason } from "../../sdk/hooks.ts";
 import type { SessionFactName } from "../../store/session-facts.ts";
 import type { SessionSearchQuery, SessionSearchResults } from "../../store/session-search.ts";
 import type { ExtensionSessionAskCall, ExtensionInvestigateCall } from "../../extensions/host-services.ts";
-import type { VeraInvestigateResult, VeraSessionAskResult, VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../../sdk/extensions.ts";
+import type { VeraInvestigateResult, VeraSessionAskResult, VeraSessionSendOutcome, VeraSessionShowOutcome, VeraSessionTitleOutcome } from "../../sdk/extensions.ts";
 import type { ExtensionSessionServices } from "../session-host/types.ts";
 import type { PeerCaller, PeerRosterEntry, PeerSessionServices } from "../agent-registry/peer-services.ts";
 import type { AgentSendEffect, ToolOutput } from "../../tools/types.ts";
@@ -106,6 +107,8 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     private readonly hostOpeningPaths = new Map<string, string>();
     private readonly closing = new Map<string, number>();
     private readonly trashing = new Set<string>();
+    // Subset of trashing: the same gates apply, with a message that says a move is under way.
+    private readonly moving = new Set<string>();
     private readonly subagentStarts = new Map<string, number>();
     private readonly subagentStartCompletions = new Map<string, OperationCompletion>();
     private readonly hostOpeningParents = new Map<string, string>();
@@ -242,7 +245,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     create(options: Pick<CreateRegisteredAgentOptions,
-        "workspace" | "approvalMode" | "ephemeral" | "startupProfile">): Promise<RoutedSession> {
+        "workspace" | "approvalMode" | "ephemeral" | "startupProfile" | "notesOffer">): Promise<RoutedSession> {
         return this.serial(async () => {
             let id = randomUUID();
             while (this.hostOpening.has(id) || this.owners.has(id)
@@ -266,7 +269,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     assertResumeAvailable(id: string, parentId?: string): void {
         if (this.trashing.has(id) || (parentId !== undefined && this.trashing.has(parentId))) {
-            throw new UserFacingError("This conversation is being moved to the trash.");
+            throw new UserFacingError(this.reservedMessage(id, parentId));
         }
     }
 
@@ -472,6 +475,10 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         return this.extensionOperation(id, (endpoint) => endpoint.setSessionTitle(id, title));
     }
 
+    showInSession(id: string, target: string): Promise<VeraSessionShowOutcome> {
+        return this.extensionOperation(id, (endpoint) => endpoint.showInSession(id, target));
+    }
+
     sendToSession(extensionId: string, id: string, text: string): Promise<VeraSessionSendOutcome> {
         return this.extensionOperation(id, (endpoint) => endpoint.sendToSession(extensionId, id, text));
     }
@@ -599,7 +606,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             const canonical = path === undefined ? undefined : await this.options.host.canonicalPath(path);
             const waiting = await this.serial(async (): Promise<WaitForOperation | undefined> => {
                 signal?.throwIfAborted();
-                if (this.trashing.has(id)) throw new UserFacingError("This conversation is being moved to the trash.");
+                if (this.trashing.has(id)) throw new UserFacingError(this.reservedMessage(id));
                 const pathOwner = canonical === undefined ? undefined : this.hostOpeningPaths.get(canonical);
                 const existing = this.operationCompletions.get(pathOwner ?? id);
                 if (existing !== undefined) {
@@ -697,6 +704,51 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     rename(id: string, name: string | null, reserved = false): Promise<RenameSessionOutcome> {
         return this.serial(async () => this.endpoint(await this.claimOwner(id)).rename(id, name, reserved));
+    }
+
+    setArchived(id: string, archived: boolean, reserved = false): Promise<"updated" | "not_found" | "failed"> {
+        return this.serial(async () => this.endpoint(await this.claimOwner(id)).setArchived(id, archived, reserved));
+    }
+
+    private reservedMessage(id: string, parentId?: string): string {
+        return this.moving.has(id) || (parentId !== undefined && this.moving.has(parentId))
+            ? "This conversation is being moved to another folder."
+            : "This conversation is being moved to the trash.";
+    }
+
+    // Children of the session may live on other owners, so the check runs here and not in one registry.
+    async move(id: string, request: MoveSessionInput, reserved = false): Promise<MoveSessionOutcome> {
+        const owner = await this.serial(async (): Promise<SessionOwner | "busy"> => {
+            if (this.trashing.has(id)) return "busy";
+            const recorded = this.owners.get(id);
+            if (recorded !== undefined && recorded !== "host" && !this.worker(recorded).ready()) {
+                throw new UserFacingError("The session process is unavailable.");
+            }
+            const residents = await this.allResidents();
+            if (this.descendants(id, residents).some((entry) => entry.session.closed !== true && entry.session.failed !== true)) {
+                return "busy";
+            }
+            const claimed = await this.claimOwner(id);
+            this.trashing.add(id);
+            this.moving.add(id);
+            this.startOperation(id);
+            this.closing.set(id, (this.closing.get(id) ?? 0) + 1);
+            return claimed;
+        });
+        if (owner === "busy") return { status: "busy" };
+        try {
+            const outcome = await this.endpoint(owner).move(id, request, reserved);
+            if (outcome.status === "moved") {
+                // The owner re-indexed it; another process may still hold the old row.
+                await Promise.all([...this.endpoints.entries()]
+                    .filter(([endpointOwner]) => endpointOwner !== owner)
+                    .map(([, endpoint]) => endpoint.forgetStored(id)));
+            }
+            return outcome;
+        } finally {
+            this.moving.delete(id);
+            this.finishTrash([id]);
+        }
     }
 
     async trash(id: string, reserved = false): Promise<"trashed" | "busy" | "not_found" | "failed"> {
@@ -1165,7 +1217,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         if (this.options.ownershipUncertain?.() === true && !this.isResident(id)) {
             throw new UserFacingError("The session process is unavailable.");
         }
-        if (waitForStore && this.trashing.has(id)) throw new UserFacingError("This conversation is being moved to the trash.");
+        if (waitForStore && this.trashing.has(id)) throw new UserFacingError(this.reservedMessage(id));
         if (waitForStore && this.hostOpening.has(id)) this.waitForOpen(id);
         const recorded = this.owners.get(id);
         if (this.options.keepResidentOwner === true && recorded !== undefined) return recorded;

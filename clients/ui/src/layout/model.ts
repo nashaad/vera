@@ -32,6 +32,10 @@ export interface ContainerContribution {
     readonly title: string;
     readonly icon: string;
     readonly location: LocationId;
+    // The most tabs of this kind the right pane holds at once; no limit when absent.
+    readonly maxTabs?: number;
+    // Tabs of this kind are left out of the saved layout.
+    readonly transientTabs?: boolean;
 }
 
 export interface ViewContribution {
@@ -57,6 +61,15 @@ export interface GeneratedContainer {
     readonly icon: string;
 }
 
+// The most tabs the right pane holds, of every kind together.
+export const MAX_TABS = 16;
+
+// One tab in the right pane. Its container is the kind of the tab; two tabs can share one.
+export interface PaneTab {
+    readonly id: string;
+    readonly container: string;
+}
+
 // The saved layout holds only what the person changed, plus explicit order lists.
 // Ids that are no longer registered stay in it so a re-registered view returns.
 export interface LayoutState {
@@ -67,6 +80,13 @@ export interface LayoutState {
     readonly viewContainer: Readonly<Record<string, string>>;
     readonly viewOrder: Readonly<Record<string, readonly string[]>>;
     readonly hiddenContainers: readonly string[];
+    // The right pane's tabs in strip order; its `active` in `locations` is the id of one of them.
+    // The other locations show every container and have no tabs.
+    readonly tabs: readonly PaneTab[];
+    // Tab ids, the most recently active first.
+    readonly recentTabs: readonly string[];
+    // Counts the tab ids made so far, so an id is never used twice.
+    readonly tabSeq: number;
     readonly hiddenViews: readonly string[];
     readonly collapsedViews: readonly string[];
     readonly generated: Readonly<Record<string, GeneratedContainer>>;
@@ -85,6 +105,9 @@ export function defaultLayout(): LayoutState {
         viewContainer: {},
         viewOrder: {},
         hiddenContainers: [],
+        tabs: [],
+        recentTabs: [],
+        tabSeq: 0,
         hiddenViews: [],
         collapsedViews: [],
         generated: {},

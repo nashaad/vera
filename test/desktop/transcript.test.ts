@@ -12,7 +12,7 @@ import {
     type SessionMessage,
 } from "../../clients/ui/src/session/wire.ts";
 import { toolTitle } from "../../clients/ui/src/session/toolTitle.ts";
-import { keepTurns } from "../../clients/ui/src/session/turns.ts";
+import { keepTurns, toTurns } from "../../clients/ui/src/session/turns.ts";
 
 function line(value: unknown): SessionMessage {
     const message = parseSessionLine(JSON.stringify(value));
@@ -400,5 +400,89 @@ describe("keeping turn renders", () => {
         expect(shorter.renders.length).toBe(2);
         expect(shorter.byKey.has("u3")).toBe(false);
         expect(shorter.byKey.get("u1")).toBe(first.renders[0]);
+    });
+});
+
+describe("reasoning progress", () => {
+    const progress = (characters: number): unknown => ({ type: "assistant_thinking_progress", characters, seq: 9 });
+
+    test("a progress update keeps its character count and nothing else", () => {
+        expect(parseSessionLine(JSON.stringify(progress(120)))).toEqual({ type: "assistant_thinking_progress", characters: 120 });
+        expect(parseSessionLine(JSON.stringify(progress(0)))).toEqual({ type: "assistant_thinking_progress", characters: 0 });
+        for (const characters of [-1, 1.5, "12", null, Number.MAX_VALUE]) {
+            expect(parseSessionLine(JSON.stringify({ type: "assistant_thinking_progress", characters }))).toBeUndefined();
+        }
+        expect(parseSessionLine('{"type":"assistant_thinking_progress","seq":4}')).toBeUndefined();
+    });
+
+    test("progress folds into one live thought that holds a count and no text", () => {
+        let state = watchWithHistory([]);
+        for (const step of [{ type: "user_prompt", content: "hi" }, progress(40), progress(25)]) state = reduceWatch(state, line(step));
+        expect(state.live).toEqual([
+            { kind: "user", key: "l0", text: "hi" },
+            { kind: "thought", key: "l1", text: "", live: true, hiddenCharacters: 65 },
+        ]);
+        state = reduceWatch(state, line({ type: "assistant_delta", text: "Done" }));
+        expect(state.live[1]).toEqual({ kind: "thought", key: "l1", text: "", live: false, hiddenCharacters: 65 });
+    });
+
+    test("progress clears a pending retry, as reasoning text does", () => {
+        let state = watchWithHistory([]);
+        state = reduceWatch(state, line({
+            type: "model_activity",
+            phase: "retrying",
+            model: "crow-1",
+            nextAttempt: 2,
+            maxAttempts: 4,
+            delayMs: 1000,
+            retryAt: "1970-01-01T00:00:05.000Z",
+            failure: { kind: "server", statusCode: 502 },
+        }));
+        expect(state.retry).toBeDefined();
+        state = reduceWatch(state, line(progress(10)));
+        expect(state.retry).toBeUndefined();
+    });
+
+    test("a turn counts reasoning characters whether or not the thoughts are drawn", () => {
+        let state = watchWithHistory([]);
+        for (const step of [
+            { type: "user_prompt", content: "hi" },
+            progress(100),
+            { type: "tool_started", tool: "bash", args: { command: "ls" } },
+            { type: "assistant_thinking", text: "twelve chars" },
+            { type: "assistant_delta", text: "ok" },
+        ]) state = reduceWatch(state, line(step));
+        const blocks = [...state.history, ...state.live];
+        const hidden = toTurns(blocks, { reasoning: false });
+        const shown = toTurns(blocks, { reasoning: true });
+        expect(hidden[0]?.thoughtCharacters).toBe(112);
+        expect(shown[0]?.thoughtCharacters).toBe(112);
+        expect(hidden[0]?.work.some((block) => block.kind === "thought")).toBe(false);
+        expect(shown[0]?.work.filter((block) => block.kind === "thought")).toHaveLength(2);
+    });
+
+    test("a turn that gains only reasoning characters draws again", () => {
+        let state = watchWithHistory([]);
+        state = reduceWatch(state, line({ type: "user_prompt", content: "hi" }));
+        state = reduceWatch(state, line(progress(10)));
+        const options = { reasoning: false };
+        const first = keepTurns(new Map(), [...state.history, ...state.live], options);
+        state = reduceWatch(state, line(progress(10)));
+        const second = keepTurns(first.byKey, [...state.history, ...state.live], options);
+        expect(second.renders[0]).not.toBe(first.renders[0]);
+        expect(second.renders[0]?.turn.thoughtCharacters).toBe(20);
+        const third = keepTurns(second.byKey, [...state.history, ...state.live], options);
+        expect(third.renders[0]).toBe(second.renders[0]);
+    });
+
+    test("history reasoning entries still count toward a finished turn", () => {
+        const turns = toTurns(blocksOf([
+            { kind: "user", id: "u1", text: "go" },
+            { kind: "reasoning", id: "r1", text: "abcd efgh" },
+            { kind: "assistant", id: "a1", text: "done" },
+        ]), { reasoning: false });
+        expect(turns).toHaveLength(1);
+        expect(turns[0]?.thoughtCharacters).toBe(9);
+        expect(turns[0]?.work).toEqual([]);
     });
 });

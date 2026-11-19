@@ -1,0 +1,56 @@
+# Browser annotation
+
+## Select or draw
+
+Open a website in the desktop's Browser pane. The pointer button at the right
+of the address bar opens the annotation toolbar on the page, whether a session
+is open or not. In a session's Files view, open an HTML file and choose Preview;
+the pointer beside the preview opens the same toolbar. Vera's pages do not have
+annotation.
+
+Select element outlines the element under the pointer. Click to keep that
+selection. Use Pen for freehand marks, Shapes for a line, arrow, rectangle,
+ellipse or numbered step, and Text for a label. Press Enter or click elsewhere
+to finish a label. Move drags a mark or label without changing the selected
+element. Color and line width apply to the next mark. Undo, Redo and Clear
+affect the marks.
+
+Add to chat puts the selection or drawing into the open session's composer, or
+into New Chat when no session is open. It captures the selected element with its marks, or the visible page when no
+element is selected. The toolbar and selection outline are not in the image.
+The tools and selected outline remain so you can add another capture. Select a
+different element to replace the selection. Close or Escape hides the tools
+and keeps the page's draft, including pending text. Reopen the pointer tool to
+restore the marks, selected element and Undo/Redo. Clear removes the marks.
+Reloading or leaving the page discards its draft; captures already added stay
+in the composer.
+
+## Include with a message
+
+A selection shows as a chip with a pointer, the element's tag and a text
+excerpt. Hover or focus it to see the screenshot, Element and Text. Show more
+details expands the card and shows Computed styles, HTML and Siblings, each in
+one readable code block. For longer HTML and sibling excerpts, Show more expands
+the block and Show less returns it to the shorter excerpt. Removing the chip
+removes both its image and selection text.
+
+Send your message as usual. In New Chat, sending creates the session and sends
+the message; adding a capture alone does not start a session. Captures added
+while the session is starting stay unsent in that session's composer. Vera receives the screenshot as an image and a
+plain-text block naming the page and describing the selection. There is no
+separate annotation request. Drawings without an element include the page
+address and screenshot, without element details. A local preview also names the
+source file.
+
+## Execution
+
+The tool is the included desktop extension `vera.browser-annotate`. It is always
+on and not listed in Customize. Its page script runs only after the pointer
+button is pressed, in an isolated world of the page. It has no Node or file
+access. The app captures the pixels and writes the image through the pasted-image
+path under the current home. No background task process is started.
+
+Navigation, closing the page or closing the window ends the tool. A capture
+that cannot be read says `The page could not be read.` and attaches nothing.
+The terminal and web clients have no page annotation toolbar; sent messages use
+the same host prompt and image attachment requests as their other messages.
