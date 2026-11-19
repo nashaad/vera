@@ -102,7 +102,8 @@ import {
 } from "../model/openai-discovery.ts";
 import {
     normalizeOpenRouterModels,
-    refreshOpenRouterCatalog,
+    refreshOpenRouterCatalogResult,
+    type OpenRouterCatalogFailure,
     type OpenRouterCatalogRefreshOptions,
 } from "../model/openrouter-catalog.ts";
 import { admitToPool } from "../model/pool-admission.ts";
@@ -1617,7 +1618,7 @@ export async function refreshProviderCatalogs(
                 : { host: config.provider_endpoints.ollama }),
         }),
         hasOpenRouterCredential(config)
-            ? discoveredOpenRouterModels(config, {
+            ? discoveredOpenRouterModelsResult(config, {
                 ...cacheOptions,
                 maxAgeMs: 0,
             })
@@ -1640,7 +1641,15 @@ export async function refreshProviderCatalogs(
             : { provider: "ollama", failure: "unavailable" as const },
         openrouter === undefined
             ? { provider: "openrouter", failure: "missing_credential" }
-            : { provider: "openrouter", models: openrouter.length },
+            : openrouter.failure !== undefined
+                ? {
+                    provider: "openrouter",
+                    failure: openrouter.failure,
+                    ...(openrouter.keptModels === 0
+                        ? {}
+                        : { keptModels: openrouter.keptModels }),
+                }
+                : { provider: "openrouter", models: openrouter.models.length },
         ...standard.map((result, index) => standardRefreshOutcome(
             standardProviderDescriptors(config)[index]!.id,
             result,
@@ -2506,17 +2515,38 @@ export async function discoveredOpenRouterModels(
     config: VeraConfig,
     options: OpenRouterDiscoveryOptions = {},
 ): Promise<readonly SuggestedModel[]> {
+    return (await discoveredOpenRouterModelsResult(config, options)).models;
+}
+
+export interface OpenRouterDiscoveryResult {
+    readonly models: readonly SuggestedModel[];
+    readonly failure?: OpenRouterCatalogFailure;
+    /** Models already on disk when the fetch failed or returned nothing usable. */
+    readonly keptModels: number;
+}
+
+export async function discoveredOpenRouterModelsResult(
+    config: VeraConfig,
+    options: OpenRouterDiscoveryOptions = {},
+): Promise<OpenRouterDiscoveryResult> {
     if (!hasOpenRouterCredential(config)) {
-        return [];
+        return { models: [], keptModels: 0 };
     }
     const moved = config.provider_endpoints?.openrouter;
-    const catalog = await refreshOpenRouterCatalog(
+    const refreshed = await refreshOpenRouterCatalogResult(
         moved === undefined || options.endpoint !== undefined
             ? options
             : { ...options, endpoint: providerEndpointUrl(moved, "/models") },
     );
+    const catalog = refreshed.catalog;
     if (catalog === undefined) {
-        return [];
+        return {
+            models: [],
+            keptModels: 0,
+            ...(refreshed.failure === undefined
+                ? {}
+                : { failure: refreshed.failure }),
+        };
     }
     const hidden = reduceModels(catalog.models, {
         now: Math.floor(Date.now() / 1000),
@@ -2532,19 +2562,25 @@ export async function discoveredOpenRouterModels(
                 .map((model) => model.id),
         ),
     });
-    return catalog.models.map((model) => ({
-        provider: "openrouter",
-        model: model.id,
-        label: model.label,
-        description: model.description ?? "",
-        ...(model.context_window === undefined
+    return {
+        models: catalog.models.map((model) => ({
+            provider: "openrouter",
+            model: model.id,
+            label: model.label,
+            description: model.description ?? "",
+            ...(model.context_window === undefined
+                ? {}
+                : { contextWindow: model.context_window }),
+            ...(model.created === undefined ? {} : { created: model.created }),
+            ...(hidden.has(model.id)
+                ? { hiddenByDefault: hidden.get(model.id) }
+                : {}),
+        })),
+        ...(refreshed.failure === undefined
             ? {}
-            : { contextWindow: model.context_window }),
-        ...(model.created === undefined ? {} : { created: model.created }),
-        ...(hidden.has(model.id)
-            ? { hiddenByDefault: hidden.get(model.id) }
-            : {}),
-    }));
+            : { failure: refreshed.failure }),
+        keptModels: refreshed.keptModels,
+    };
 }
 
 async function closeResidentHost(

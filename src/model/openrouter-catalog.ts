@@ -26,9 +26,24 @@ export interface OpenRouterCatalogRefreshOptions {
     readonly maxAgeMs?: number;
 }
 
+export type OpenRouterCatalogFailure = "unavailable" | "empty_response";
+
+export interface OpenRouterCatalogRefreshResult {
+    readonly catalog: ProviderCatalog | undefined;
+    readonly failure?: OpenRouterCatalogFailure;
+    /** Models already on disk that this refresh left in place. */
+    readonly keptModels: number;
+}
+
 export async function refreshOpenRouterCatalog(
     options: OpenRouterCatalogRefreshOptions = {},
 ): Promise<ProviderCatalog | undefined> {
+    return (await refreshOpenRouterCatalogResult(options)).catalog;
+}
+
+export async function refreshOpenRouterCatalogResult(
+    options: OpenRouterCatalogRefreshOptions = {},
+): Promise<OpenRouterCatalogRefreshResult> {
     const cacheOptions = options.cacheDir === undefined
         ? {}
         : { cacheDir: options.cacheDir };
@@ -38,7 +53,7 @@ export async function refreshOpenRouterCatalog(
         cacheOptions,
     );
     if (fresh !== undefined) {
-        return fresh;
+        return { catalog: fresh, keptModels: 0 };
     }
     let raw: unknown;
     try {
@@ -47,24 +62,34 @@ export async function refreshOpenRouterCatalog(
             { signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS) },
         );
         if (!response.ok) {
-            return cachedCatalog(cacheOptions);
+            return keptOrFailure(cacheOptions, "unavailable");
         }
         raw = await response.json();
     } catch {
-        return cachedCatalog(cacheOptions);
+        return keptOrFailure(cacheOptions, "unavailable");
     }
 
     const fetched = normalizeOpenRouterModels(raw);
-    const catalog = mergeCatalogReleaseDates(fetched, cachedCatalog(cacheOptions));
-    if (catalog.models.length === 0) {
-        return cachedCatalog(cacheOptions);
+    if (fetched.models.length === 0) {
+        return keptOrFailure(cacheOptions, "empty_response");
     }
+    const catalog = mergeCatalogReleaseDates(fetched, cachedCatalog(cacheOptions));
 
     try {
         writeProviderCatalogSnapshot(catalog, cacheOptions);
     } catch {
     }
-    return catalog;
+    return { catalog, keptModels: 0 };
+}
+
+function keptOrFailure(
+    options: { readonly cacheDir?: string },
+    failure: OpenRouterCatalogFailure,
+): OpenRouterCatalogRefreshResult {
+    const held = cachedCatalog(options);
+    return held === undefined
+        ? { catalog: undefined, failure, keptModels: 0 }
+        : { catalog: held, failure, keptModels: held.models.length };
 }
 
 function cachedCatalog(
