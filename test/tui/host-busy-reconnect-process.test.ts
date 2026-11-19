@@ -164,7 +164,7 @@ realProcessTest("Reconnect host inside a busy conversation keeps its host and to
         expect(isAlive(toolPid)).toBe(true);
         expect(spawnSync("ps", ["-o", "command=", "-p", String(toolPid)], { encoding: "utf8" }).stdout.trim())
             .toBe("sleep 45");
-        expect(pane()).not.toContain("Vera crashed before this turn finished.");
+        expect(pane()).not.toContain("Host stopped unexpectedly");
         expect(pane()).not.toContain("Start a conversation with Vera.");
         expect(pane()).not.toContain("The running Vera host is not responding properly");
     } finally {
