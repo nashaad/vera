@@ -5,8 +5,8 @@ import { join } from "node:path";
 
 import { BrowserCdp, NO_WEB_PAGE_ERROR } from "../../clients/desktop/src/browser/cdp.ts";
 import type { BrowserPane } from "../../clients/desktop/src/browser/pane.ts";
-import type { BrowserRequest } from "../../extensions/desktop-browser/arguments.ts";
-import { activate } from "../../extensions/desktop-browser/extension.ts";
+import type { BrowserRequest } from "../../extensions/builtin-browser/arguments.ts";
+import { activate } from "../../extensions/builtin-browser/extension.ts";
 import type { VeraExtensionApi, VeraExtensionToolSpec } from "../../src/sdk/extensions.ts";
 import type { JsonValue } from "../../src/sdk/hooks.ts";
 

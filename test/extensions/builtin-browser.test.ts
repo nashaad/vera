@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { parseBrowserRequest } from "../../extensions/desktop-browser/arguments.ts";
-import { activate } from "../../extensions/desktop-browser/extension.ts";
+import { parseBrowserRequest } from "../../extensions/builtin-browser/arguments.ts";
+import { activate } from "../../extensions/builtin-browser/extension.ts";
+import { startExtensionRegistry } from "../../src/extensions/registry.ts";
 import type { VeraExtensionApi, VeraExtensionToolSpec } from "../../src/sdk/extensions.ts";
 import type { JsonValue } from "../../src/sdk/hooks.ts";
 
@@ -33,6 +34,35 @@ describe("built-in browser requests", () => {
         expect(parseBrowserRequest({ action: "type", ref: "r1", text: "x".repeat(4001) })).toBeUndefined();
         expect(parseBrowserRequest({ action: "scroll", amount: 2001 })).toBeUndefined();
         expect(parseBrowserRequest({ action: "read", code: "x" })).toBeUndefined();
+    });
+
+    test("old extension settings stay separate from the new store", async () => {
+        const home = mkdtempSync(join(tmpdir(), "vera-browser-registry-"));
+        const oldId = ["vera.desktop", "browser"].join("-");
+        const oldDirectory = join(home, "extension-data", oldId);
+        const oldSettings = join(oldDirectory, "settings.json");
+        const newSettings = join(home, "extension-data", "vera.builtin-browser", "settings.json");
+        mkdirSync(oldDirectory, { recursive: true });
+        writeFileSync(oldSettings, JSON.stringify({ enabled: true }));
+        const options = {
+            extensions: [{ path: join(import.meta.dir, "../../extensions/builtin-browser"), enabled: true, config: {} }],
+            storageRoots: { profile: home, machine: join(home, "machine") },
+        };
+        const signal = new AbortController().signal;
+        try {
+            const registry = await startExtensionRegistry(options);
+            try {
+                expect(await registry.handleRequest("vera.builtin-browser", "settings", {}, signal)).toEqual({ enabled: false });
+                expect(existsSync(newSettings)).toBe(false);
+                expect(await registry.handleRequest("vera.builtin-browser", "settings", { enabled: true }, signal)).toEqual({ enabled: true });
+                expect(JSON.parse(readFileSync(newSettings, "utf8"))).toEqual({ enabled: true });
+                expect(JSON.parse(readFileSync(oldSettings, "utf8"))).toEqual({ enabled: true });
+            } finally { await registry.close(); }
+            const restarted = await startExtensionRegistry(options);
+            try {
+                expect(await restarted.handleRequest("vera.builtin-browser", "settings", {}, signal)).toEqual({ enabled: true });
+            } finally { await restarted.close(); }
+        } finally { rmSync(home, { recursive: true, force: true }); }
     });
 
     test("the switch is off by default, persists, and calls need a window", async () => {

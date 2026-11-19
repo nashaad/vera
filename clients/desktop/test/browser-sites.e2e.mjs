@@ -152,7 +152,7 @@ try {
     if (!seen.some((result) => result.includes("Typed."))) throw new Error("Type result did not reach the model");
     if (!seen.some((result) => result.includes("Screenshot captured."))) throw new Error("Screenshot result did not reach the model");
     if (!imageReachedModel) throw new Error("Screenshot image did not reach the model");
-    const captures = join(trial.home, "extension-data", "vera.desktop-browser", "captures");
+    const captures = join(trial.home, "extension-data", "vera.builtin-browser", "captures");
     const captureFiles = readdirSync(captures);
     if (captureFiles.length === 0) throw new Error("Screenshot capture was not stored");
     if ((await readSite("document.querySelector('#out').textContent")) !== "Button worked") throw new Error("The page button was not clicked");
