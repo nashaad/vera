@@ -6,7 +6,7 @@ import { HostProtocolClient, sessionCount, type AgentListFacts, type ListAgentsO
 import { INITIAL_STATE, reduceConnection, type UiState } from "./connection.ts";
 import { HOST_POLL_MS } from "./frameBudget.ts";
 import { describeEvent, type OutputLog } from "./outputLog.ts";
-import { PlannedRestartWatch, type RestartStep } from "./plannedRestart.ts";
+import { PlannedRestartWatch, replacedBuild, type RestartStep } from "./plannedRestart.ts";
 
 export interface HostConnection {
     readonly state: UiState;
@@ -23,6 +23,7 @@ export function useHostConnection(log: OutputLog): HostConnection {
     // Bumped whenever the connection changes, so a late reply never lands on a newer one.
     const generationRef = useRef(0);
     const restartRef = useRef(new PlannedRestartWatch());
+    const readyBuildRef = useRef<string | null>(null);
 
     const dropClient = (reason: string): void => {
         generationRef.current += 1;
@@ -49,7 +50,12 @@ export function useHostConnection(log: OutputLog): HostConnection {
     const refresh = (client: HostProtocolClient, generation: number): void => {
         const current = (): boolean => generationRef.current === generation;
         client.hostIdentity().then((identity) => {
-            if (current()) dispatch({ type: "identity", identity });
+            if (!current()) return;
+            if (replacedBuild(readyBuildRef.current, identity) !== undefined) {
+                reconnect("The host restarted. Reconnecting.");
+                return;
+            }
+            dispatch({ type: "identity", identity });
         }).catch((error: unknown) => {
             if (!current()) return;
             dropClient(messageOf(error));
@@ -100,6 +106,7 @@ export function useHostConnection(log: OutputLog): HostConnection {
             }
             if (event.type === "ready") {
                 restartRef.current.clear();
+                readyBuildRef.current = event.buildId;
                 dropClient("Reconnecting.");
                 const client = new HostProtocolClient((text) => window.veraDesktop.send(text));
                 clientRef.current = client;

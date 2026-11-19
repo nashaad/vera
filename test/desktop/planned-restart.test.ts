@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import type { DesktopEvent, SessionPane } from "../../clients/ui/src/protocol/bridge.ts";
 import { hostRestartingBuild, parseSessionLine } from "../../clients/ui/src/session/wire.ts";
 import { initialWatch, reduceWatch } from "../../clients/ui/src/session/transcript.ts";
-import { PlannedRestartWatch } from "../../clients/ui/src/state/plannedRestart.ts";
+import { PlannedRestartWatch, replacedBuild } from "../../clients/ui/src/state/plannedRestart.ts";
 
 const notice = (buildId: unknown): string => `${JSON.stringify({ type: "host_restarting", build_id: buildId })}\n`;
 
@@ -84,4 +84,14 @@ test("a new host, a failure or a manual reconnect ends the wait", () => {
     watch.clear();
     expect(watch.observe(closed())).toEqual({ kind: "none" });
     expect(watch.lost()).toEqual({ kind: "none" });
+});
+
+test("@core a poll answered by a host of another build asks the window to reconnect", () => {
+    const facts = (build_id: string | null | undefined) => ({ pid: 42, protocol_version: 1, build_id });
+    expect(replacedBuild("build-1", facts("build-0"))).toBe("build-0");
+    expect(replacedBuild("build-1", facts("build-1"))).toBeUndefined();
+    expect(replacedBuild("build-1", facts(null))).toBeUndefined();
+    expect(replacedBuild("build-1", facts(undefined))).toBeUndefined();
+    expect(replacedBuild(null, facts("build-0"))).toBeUndefined();
+    expect(replacedBuild(undefined, facts("build-0"))).toBeUndefined();
 });
