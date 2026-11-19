@@ -1,5 +1,6 @@
 import { folderName } from "../protocol/sessionGroups.ts";
 import type { SessionRow } from "../protocol/sessions.ts";
+import type { SessionMoveReason } from "../protocol/sessionMove.ts";
 
 export const FOLDER_MENU_LIMIT = 8;
 export const TITLE_LIMIT = 60;
@@ -7,6 +8,20 @@ export const FOLDER_MISSING_TITLE = "Folder missing";
 
 export function folderMissingNotice(folder: string): string {
     return `The folder ${folder} no longer exists.`;
+}
+
+export const MOVE_TO_FOLDER_LABEL = "Move to folder…";
+
+const MOVE_REFUSALS: Readonly<Record<SessionMoveReason, string>> = {
+    collision: "Some of this chat's files have the same names as files in that folder.",
+    busy: "Vera is still working in this conversation. Try again when it finishes.",
+    invalid: "That folder can't be used.",
+    not_found: "This conversation no longer exists.",
+    failed: "The conversation could not be moved.",
+};
+
+export function moveRefusalNotice(reason: SessionMoveReason): string {
+    return MOVE_REFUSALS[reason];
 }
 
 export interface FolderChoice {

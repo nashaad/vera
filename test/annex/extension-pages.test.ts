@@ -32,7 +32,10 @@ function crowExtension(): string {
         entrypoint: "extension.ts",
         capabilities: [],
         contributes: {
-            pages: [{ id: "loot", label: "Loot", server: "server.ts", browser: "page.ts" }],
+            pages: [
+                { id: "loot", label: "Loot", server: "server.ts", browser: "page.ts" },
+                { id: "nest", label: "Nest", server: "server.ts", browser: "page.ts", pane: true },
+            ],
         },
     }));
     writeFileSync(join(directory, "extension.ts"), "export function activate() {}\n");
@@ -76,7 +79,10 @@ test("an extension page is listed, served in the annex shell, and its browser mo
 
     const pages = await (await fetch(`${url}api/pages`)).json();
     expect(pages).toEqual({
-        pages: [{ extensionId: "acme.crow", pageId: "loot", label: "Loot", href: "/x/acme.crow/loot" }],
+        pages: [
+            { extensionId: "acme.crow", pageId: "loot", label: "Loot", href: "/x/acme.crow/loot" },
+            { extensionId: "acme.crow", pageId: "nest", label: "Nest", href: "/x/acme.crow/nest", pane: true },
+        ],
     });
 
     const shell = await fetch(`${url}x/acme.crow/loot`);

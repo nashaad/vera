@@ -59,6 +59,7 @@ test("pageUrl names a declared page under the annex and is absent while the anne
         async oneshot() {
             return { text: "", model: "crow-mini" };
         },
+        async showInSession() { return { window: 0, terminal: 0, terminalCannot: 0 }; },
         async setSessionTitle() {
             return "set";
         },

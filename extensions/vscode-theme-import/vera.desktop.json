@@ -1,0 +1,44 @@
+{
+    "id": "vera.vscode-theme-import",
+    "version": "1.0.0",
+    "engine": "vera-gui@^1",
+    "contributes": {
+        "tasks": [
+            { "id": "import", "title": "Vera Theme Import", "main": "theme-import.cjs" }
+        ],
+        "commands": [
+            {
+                "command": "vera.vscode-theme-import.import",
+                "title": "Import VS Code Theme…",
+                "category": "Theme",
+                "task": "import",
+                "file": { "label": "VS Code themes", "extensions": ["json", "jsonc", "vsix"] }
+            },
+            {
+                "command": "vera.vscode-theme-import.installed",
+                "title": "Import Theme Installed in VS Code…",
+                "category": "Theme",
+                "task": "import"
+            }
+        ],
+        "menus": {
+            "appearance": [
+                {
+                    "command": "vera.vscode-theme-import.import",
+                    "title": "Import a VS Code theme",
+                    "description": "Choose a theme .json file or a .vsix extension package. Colors carry over; fonts, sizes and spacing stay Vera's.",
+                    "button": "Import…"
+                },
+                {
+                    "command": "vera.vscode-theme-import.installed",
+                    "title": "Installed in VS Code",
+                    "description": "Themes from the extensions installed in VS Code on this machine.",
+                    "button": "Show themes"
+                }
+            ],
+            "theme": [
+                { "command": "vera.vscode-theme-import.import" }
+            ]
+        }
+    }
+}

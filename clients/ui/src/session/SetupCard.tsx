@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { ProviderWizard } from "../pages/settings/ProviderWizard.tsx";
 import { GearIcon } from "../components/Icons.tsx";
 import { setupResponse, type SetupRequest } from "./requests.ts";
 
@@ -8,6 +10,7 @@ export interface SetupCardProps {
 }
 
 export function SetupCard({ request, answered, onRespond }: SetupCardProps) {
+    const [open, setOpen] = useState(false);
     return (
         <div className="request-card" data-kind="setup" data-request-id={request.requestId} data-answered={answered}>
             <div className="request-head">
@@ -19,11 +22,10 @@ export function SetupCard({ request, answered, onRespond }: SetupCardProps) {
             <div className="request-body">
                 <p>{request.reason}</p>
                 {request.waiting > 1 ? <p>{request.waiting} actions are waiting on this</p> : null}
-                <p className="request-muted">
-                    This window cannot open this setup. Dismiss it here and finish the setup from the terminal.
-                </p>
+                {request.destination === "provider" ? null : <p className="request-muted">This setup is available in the terminal.</p>}
             </div>
             <div className="request-actions">
+                {request.destination === "provider" ? <button type="button" className="button" disabled={answered} onClick={() => setOpen(true)}>Connect provider</button> : null}
                 <span className="request-spacer" />
                 <button
                     type="button"
@@ -34,6 +36,8 @@ export function SetupCard({ request, answered, onRespond }: SetupCardProps) {
                     Dismiss <kbd className="kbd">esc</kbd>
                 </button>
             </div>
+            {open ? <ProviderWizard {...(request.provider === undefined ? {} : { initialProvider: request.provider })}
+                onClose={() => setOpen(false)} onComplete={() => onRespond(setupResponse(request.requestId, "configured"))} /> : null}
         </div>
     );
 }

@@ -6,12 +6,14 @@ import type {
     AssignmentsResult,
     AssignmentWriteResult,
 } from "../../ui/src/protocol/assignments.ts";
+import type { IncludedExtensionsResult } from "../../ui/src/protocol/included-extensions.ts";
 import type { AssignmentTask, AssignmentTaskReply } from "./model-assignments/task-protocol.ts";
 
 export type RunAssignmentTask = (task: AssignmentTask) => Promise<AssignmentTaskReply>;
 
 type TaskBody =
     | { readonly kind: "read" }
+    | { readonly kind: "included-extensions" }
     | { readonly kind: "edit"; readonly change: AssignmentChange }
     | { readonly kind: "assign-all"; readonly provider: string; readonly model: string };
 
@@ -27,6 +29,10 @@ export class AssignmentService {
 
     read(): Promise<AssignmentsResult> {
         return this.request({ kind: "read" }, (reply) => (reply.kind === "read" ? reply.result : undefined));
+    }
+
+    readIncludedExtensions(): Promise<IncludedExtensionsResult> {
+        return this.request({ kind: "included-extensions" }, (reply) => (reply.kind === "included-extensions" ? reply.result : undefined));
     }
 
     edit(change: AssignmentChange): Promise<AssignmentWriteResult> {

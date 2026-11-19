@@ -1,27 +1,30 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { CommandRegistry } from "../commands/registry.ts";
+import { registerReloadPage } from "../commands/reload-page.ts";
 import { registerLayoutCommands } from "../commands/layout-commands.ts";
 import { registerOverlayCommands } from "../commands/overlay-commands.ts";
 import { registerSessionCommands } from "../commands/session-commands.ts";
 import { registerThemeCommands } from "../commands/theme-commands.ts";
+import { registerExtensionCommands } from "../extensions/commands.ts";
+import { runExtensionCommand } from "../extensions/run-command.ts";
+import { useDesktopExtensions } from "../extensions/useExtensionOn.ts";
 import { ContributionRegistry } from "../registry/contributions.ts";
-import { registerCoreContributions } from "../registry/core.ts";
+import { registerCoreContributions, registerPaneKind, type PaneKind } from "../registry/core.ts";
 import { switchTheme } from "../theme/activate.ts";
-import { importThemeFromPicker } from "../theme/import-flow.ts";
 import { showToast } from "../overlays/toasts.ts";
 import { useImportedThemes } from "../theme/useImportedThemes.ts";
 import { defaultLayout, type LayoutState } from "./model.ts";
 import { createLayoutSaver } from "./persist.ts";
+import { forSave } from "./saved.ts";
 import { reduceLayout, type LayoutAction } from "./reducer.ts";
 import { resolveLayout, type ResolvedLayout } from "./resolve.ts";
 
 const SAVE_DELAY_MS = 400;
+const NO_KINDS: readonly PaneKind[] = [];
 
-function importFromCommand(): void {
-    void importThemeFromPicker().then((report) => {
-        if (report !== undefined) showToast(report.message, report.ok ? "success" : "danger");
-    });
+function runFromCommand(command: string): void {
+    void runExtensionCommand(command, (report) => showToast(report.message, report.ok ? "success" : "danger"));
 }
 
 export interface LayoutController {
@@ -45,13 +48,25 @@ function createServices(): Services {
     return { contributions, commands: new CommandRegistry() };
 }
 
-export function useLayout(): LayoutController {
+// `unavailable` names the containers the show flags turn off; they are left out of the layout, not removed from it.
+// `extraKinds` are pane kinds known only at run time; the array must keep its identity while the kinds do.
+export function useLayout(unavailable: ReadonlySet<string>, extraKinds: readonly PaneKind[] = NO_KINDS): LayoutController {
     const [services] = useState(createServices);
     const { contributions, commands } = services;
+    useLayoutEffect(() => {
+        const removers = extraKinds.map((kind) => registerPaneKind(contributions, kind));
+        return () => {
+            for (const remove of removers) remove();
+        };
+    }, [contributions, extraKinds]);
+    // Set before paint so a pane that just turned off never draws once more.
+    useLayoutEffect(() => contributions.setUnavailable(unavailable), [contributions, unavailable]);
     const [state, setState] = useState<LayoutState>(defaultLayout);
     const [loaded, setLoaded] = useState(false);
     // The state that came from disk or the last save, so loading alone never writes.
     const baseline = useRef<LayoutState>(state);
+    // What was last written, so a change that saving leaves out, such as opening a Browser tab, writes nothing.
+    const written = useRef<string | undefined>(undefined);
     const saver = useMemo(
         () => createLayoutSaver((layout) => window.veraDesktop?.saveLayout(layout), SAVE_DELAY_MS),
         [],
@@ -65,6 +80,7 @@ export function useLayout(): LayoutController {
             if (cancelled) return;
             if (saved !== undefined) {
                 baseline.current = saved;
+                written.current = JSON.stringify(saved);
                 setState(saved);
             }
             setLoaded(true);
@@ -77,8 +93,12 @@ export function useLayout(): LayoutController {
     useEffect(() => {
         if (!loaded || state === baseline.current) return;
         baseline.current = state;
-        saver.schedule(state);
-    }, [loaded, state, saver]);
+        const toSave = forSave(state, (container) => contributions.keepsTabsOut(container));
+        const text = JSON.stringify(toSave);
+        if (text === written.current) return;
+        written.current = text;
+        saver.schedule(toSave);
+    }, [loaded, state, saver, contributions]);
 
     useEffect(() => {
         const flush = (): void => saver.flush();
@@ -106,16 +126,22 @@ export function useLayout(): LayoutController {
 
     useEffect(() => registerLayoutCommands(commands, dispatch), [commands, dispatch]);
     const importedThemes = useImportedThemes();
+    useEffect(() => registerThemeCommands(commands, switchTheme, importedThemes), [commands, importedThemes]);
+    const extensions = useDesktopExtensions();
     useEffect(
-        () => registerThemeCommands(commands, switchTheme, importedThemes, window.veraDesktop === undefined ? undefined : importFromCommand),
-        [commands, importedThemes],
+        () => (extensions === undefined ? undefined : registerExtensionCommands(commands, extensions, runFromCommand)),
+        [commands, extensions],
     );
+    useEffect(() => registerReloadPage(commands), [commands]);
     useEffect(() => registerSessionCommands(commands), [commands]);
     useEffect(() => registerOverlayCommands(commands), [commands]);
 
-    // Native menu items and shortcuts arrive as command events.
+    // Native menu items and shortcuts arrive as command events. A hidden command has no menu item,
+    // so one that arrives is a shortcut for a part that is off.
     useEffect(() => window.veraDesktop?.onEvent((event) => {
-        if (event.type === "command") commands.execute(event.id);
+        if (event.type !== "command") return;
+        if (event.id === "page.reload.native") commands.execute("page.reload", "native");
+        else if (!commands.isHidden(event.id)) commands.execute(event.id);
     }), [commands]);
 
     const run = useCallback((command: string, args?: unknown): void => {

@@ -1,5 +1,9 @@
 /* The pages of the main area: New Chat, and the shared page frame the others use. */
 
+.home-retained {
+    height: 100%;
+}
+
 .page-scroll {
     height: 100%;
     overflow-y: auto;

@@ -1477,6 +1477,7 @@ export function renderListPickerRows(
                     : {}),
                 card: row.option.card,
                 ...(listedHeader ? { background: TUI_INPUT } : {}),
+                showCursor: state.kind === "reasoning",
                 active: row.index === state.selectedIndex,
                 // The list keeps its cursor while another section is being
                 // used: the actions there act on this row, and hiding it is

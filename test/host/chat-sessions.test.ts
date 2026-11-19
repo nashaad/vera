@@ -22,6 +22,13 @@ import { copyChatFolder } from "../../src/host/agent-registry/chat.ts";
 import { indexStoredSession } from "../../src/host/session-host/storage.ts";
 import { trashSessionArtifacts } from "../../src/host/session-trash.ts";
 import { chatFolderPath, isChatFolder } from "../../src/store/chat-folder.ts";
+import type { AgentAttachment } from "../../src/host/resident-agent.ts";
+import {
+    emptyUsage,
+    type AssistantMessage,
+    type ModelAdapter,
+    type ModelRequest,
+} from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
@@ -31,17 +38,20 @@ async function withChats<T>(
         readonly registry: AgentRegistry;
         readonly path: (name: string) => string;
     }) => Promise<T>,
-    options: { readonly agents?: boolean; readonly trash?: (path: string) => Promise<void> } = {},
+    options: {
+        readonly trash?: (path: string) => Promise<void>;
+        readonly createAdapter?: () => ModelAdapter;
+    } = {},
 ): Promise<T> {
     const root = await mkdtemp(join(tmpdir(), "vera-chat-"));
     const extensions = await startExtensionRegistry({
         extensions: includedExtensionConfigs([]),
     });
     const registry = new AgentRegistry({
-        createAdapter: () => new FauxAdapter([]),
+        createAdapter: options.createAdapter ?? (() => new FauxAdapter([])),
         model: "faux/test",
         approvalMode: "auto",
-        ...(options.agents === false ? {} : { registeredAgents: extensions.agents() }),
+        registeredAgents: extensions.agents(),
         trashSessionArtifacts: (artifacts) => trashSessionArtifacts(artifacts, {
             moveToTrash: async ([bundle]) => {
                 await options.trash?.(bundle!);
@@ -73,9 +83,7 @@ test("@core a create without a workspace makes the session's own folder and reco
         expect(agent.workspace).toBe(await realpath(folder));
         const stored = await SessionStore.open(sessionPath);
         expect(stored.header.cwd).toBe(await realpath(folder));
-        expect(stored.selectedAgent()?.name).toBe("chat");
-        expect([...(stored.selectedAgent()?.snapshot.tools ?? [])].sort())
-            .toEqual(["edit", "list", "read", "web_fetch", "web_search", "write"]);
+        expect(stored.selectedAgent()).toBeUndefined();
     });
 });
 
@@ -116,14 +124,17 @@ test("a chat folder is recognised through a symlinked parent and nowhere else", 
     }
 });
 
-test("a chat starts on the default agent when the catalog has no chat agent", async () => {
+test("the chat agent can still be picked in a chat", async () => {
     await withChats(async ({ registry, path }) => {
         await registry.create({ id: "chat", sessionPath: path("chat") });
+        await registry.selectAgentFor("chat", "chat");
 
         const stored = await SessionStore.open(path("chat"));
-        expect(stored.selectedAgent()).toBeUndefined();
+        expect(stored.selectedAgent()?.name).toBe("chat");
+        expect([...(stored.selectedAgent()?.snapshot.tools ?? [])].sort())
+            .toEqual(["builtin_browser", "edit", "file_feedback", "list", "read", "web_fetch", "web_search", "write"]);
         expect(row(registry, "chat").chat).toBe(true);
-    }, { agents: false });
+    });
 });
 
 test("a create with a workspace stays on the default agent", async () => {
@@ -396,5 +407,124 @@ test("a delegated child of a chat works in its parent's folder and is not a chat
         expect(child.workspace).toBe(parent.workspace);
         expect("chat" in row(registry, "child")).toBe(false);
         await expect(stat(chatFolderPath(path("child")))).rejects.toMatchObject({ code: "ENOENT" });
+    });
+});
+
+const CHAT_FOLDER_PARAGRAPH = "This conversation has no project folder. The working directory is its own folder, created empty when the conversation started, and the person sees its files only under Files. Keep anything they may want in it.";
+
+function textResponse(text: string): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+}
+
+async function runPrompt(attachment: AgentAttachment, content: string): Promise<void> {
+    expect((await attachment.receive()).type).toBe("history");
+    attachment.send({ type: "prompt", content });
+    while ((await attachment.receive()).type !== "turn_finished") {
+        // Drain the ordered update stream up to the turn boundary.
+    }
+}
+
+test("a chat's system prompt says its folder is its own, on every turn and after a resume, and a project session's does not", async () => {
+    const requests: ModelRequest[] = [];
+    await withChats(async ({ root, registry, path }) => {
+        const project = join(root, "project");
+        await mkdir(project);
+        const chat = await registry.create({ id: "chat", sessionPath: path("chat") });
+        const plain = await registry.create({ id: "plain", workspace: project, sessionPath: path("plain") });
+
+        const chatAttachment = chat.attach();
+        await runPrompt(chatAttachment, "first");
+        chatAttachment.send({ type: "prompt", content: "second" });
+        while ((await chatAttachment.receive()).type !== "turn_finished") {
+            // Drain the second turn.
+        }
+        await runPrompt(plain.attach(), "first");
+        await registry.closeAgent("chat");
+        const resumed = await registry.resume({ sessionPath: path("chat") });
+        await runPrompt(resumed.attach(), "after resume");
+
+        const promptOf = (request: ModelRequest): string => request.systemPrompt ?? "";
+        const stable = (request: ModelRequest): string =>
+            promptOf(request).split("\n\n## Date")[0]!;
+        expect(requests).toHaveLength(4);
+        const [first, second, plainRequest, afterResume] = requests as [
+            ModelRequest, ModelRequest, ModelRequest, ModelRequest,
+        ];
+        for (const request of [first, second, afterResume]) {
+            expect(promptOf(request)).toContain(
+                `Working directory: ${chat.workspace}\n\n${CHAT_FOLDER_PARAGRAPH}`,
+            );
+        }
+        expect(stable(second)).toBe(stable(first));
+        expect(stable(afterResume)).toBe(stable(first));
+        expect(promptOf(plainRequest)).toContain(`Working directory: ${plain.workspace}`);
+        expect(promptOf(plainRequest)).not.toContain("This conversation has no project folder");
+    }, {
+        createAdapter: () => ({
+            stream(request) {
+                requests.push(request);
+                return new FauxAdapter([textResponse("done")]).stream(request);
+            },
+        }),
+    });
+});
+
+const NOTES_PARAGRAPH = "The person may want to keep notes from this conversation. When it would help (documents were shared, a decision was settled, a topic keeps coming back), offer once, in one sentence, and ask where they keep notes, such as a notes app they already use or a folder. Do not offer again if they decline or ignore it. Keep the notes where they say, one page per topic, current as the conversation goes on. If your tools cannot write there, say so. If they have nowhere in mind, use a notes/ folder in the working directory with an index.md that links the pages.";
+
+test("a session created with the notes offer keeps it fixed in its header and its stable prompt, through turns, a resume and a branch", async () => {
+    const requests: ModelRequest[] = [];
+    await withChats(async ({ root, registry, path }) => {
+        const project = join(root, "project");
+        await mkdir(project);
+        const offered = await registry.create({ id: "offered", sessionPath: path("offered"), notesOffer: true });
+        const inProject = await registry.create({ id: "project", workspace: project, sessionPath: path("project"), notesOffer: true });
+        const plain = await registry.create({ id: "plain", sessionPath: path("plain") });
+
+        expect((await SessionStore.open(path("offered"))).header.notesOffer).toBe(true);
+        expect((await SessionStore.open(path("project"))).header.notesOffer).toBe(true);
+        expect("notesOffer" in (await SessionStore.open(path("plain"))).header).toBe(false);
+
+        const attachment = offered.attach();
+        await runPrompt(attachment, "first");
+        attachment.send({ type: "prompt", content: "second" });
+        while ((await attachment.receive()).type !== "turn_finished") {
+            // Drain the second turn.
+        }
+        await runPrompt(inProject.attach(), "first");
+        await runPrompt(plain.attach(), "first");
+        await registry.closeAgent("offered");
+        const resumed = await registry.resume({ sessionPath: path("offered") });
+        await runPrompt(resumed.attach(), "after resume");
+        const branched = await registry.branch({ sourceId: "offered", id: "copy", sessionPath: path("copy"), position: "at" });
+        await runPrompt(branched!.agent.attach(), "in the copy");
+
+        expect((await SessionStore.open(path("copy"))).header.notesOffer).toBe(true);
+        const promptOf = (request: ModelRequest): string => request.systemPrompt ?? "";
+        const stable = (request: ModelRequest): string => promptOf(request).split("\n\n## Date")[0]!;
+        expect(requests).toHaveLength(6);
+        const [first, second, projectRequest, plainRequest, afterResume, copyRequest] = requests as [
+            ModelRequest, ModelRequest, ModelRequest, ModelRequest, ModelRequest, ModelRequest,
+        ];
+        for (const request of [first, second, projectRequest, afterResume, copyRequest]) {
+            expect(promptOf(request)).toContain(`## Notes\n${NOTES_PARAGRAPH}`);
+        }
+        expect(promptOf(plainRequest)).not.toContain("## Notes");
+        expect(promptOf(plainRequest)).not.toContain("notes/");
+        expect(stable(second)).toBe(stable(first));
+        expect(stable(afterResume)).toBe(stable(first));
+        expect(promptOf(first).indexOf("## Notes")).toBeLessThan(promptOf(first).indexOf("## Date"));
+    }, {
+        createAdapter: () => ({
+            stream(request) {
+                requests.push(request);
+                return new FauxAdapter([textResponse("done")]).stream(request);
+            },
+        }),
     });
 });

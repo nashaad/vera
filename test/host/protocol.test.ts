@@ -150,6 +150,17 @@ test("host protocol parses identity requests and encodes responses", () => {
         .toEqual({ type: "create_agent" });
     expect(parseHostRequest(JSON.stringify({
         type: "create_agent",
+        workspace: "/work/one",
+        notes_offer: true,
+    }))).toEqual({ type: "create_agent", workspace: "/work/one", notes_offer: true });
+    expect(parseHostRequest(JSON.stringify({ type: "create_agent", notes_offer: false })))
+        .toEqual({ type: "create_agent" });
+    expect(parseHostRequest(JSON.stringify({ type: "create_agent", notes_offer: "yes" })))
+        .toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({ type: "create_agent", notes_offer: 1 })))
+        .toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
+        type: "create_agent",
         approval_mode: "readonly",
     }))).toEqual({ type: "create_agent", approval_mode: "readonly" });
     expect(parseHostRequest('{"type":"create_agent","workspace":7}'))
@@ -310,6 +321,37 @@ test("host protocol parses identity requests and encodes responses", () => {
         type: "rename_session",
         target_agent_id: "saved",
     }))).toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
+        type: "move_session",
+        session_id: "chat",
+        workspace: "/work/project",
+    }))).toEqual({
+        type: "move_session",
+        session_id: "chat",
+        workspace: "/work/project",
+    });
+    expect(parseHostRequest(JSON.stringify({
+        type: "move_session",
+        session_id: "chat",
+        workspace: "/work/project",
+        agent: "reviewer",
+    }))).toEqual({
+        type: "move_session",
+        session_id: "chat",
+        workspace: "/work/project",
+    });
+    for (const malformed of [
+        { session_id: "", workspace: "/work/project" },
+        { workspace: "/work/project" },
+        { session_id: "chat" },
+        { session_id: "chat", workspace: "" },
+        { session_id: "chat", workspace: "relative/project" },
+        { session_id: "chat", workspace: "/work/pro\u0000ject" },
+        { session_id: "chat", workspace: 7 },
+    ]) {
+        expect(parseHostRequest(JSON.stringify({ type: "move_session", ...malformed })))
+            .toBeUndefined();
+    }
     expect(parseHostRequest('{"type":"create_agent","workspace":""}'))
         .toBeUndefined();
     expect(parseHostRequest('{"type":"resume_agent","session_path":""}'))

@@ -14,6 +14,7 @@ import {
     type AssignmentEdit,
     type AssignmentFiles,
 } from "../../../../src/model/assignment-edits.ts";
+import type { IncludedExtensionsResult } from "../../../ui/src/protocol/included-extensions.ts";
 import type {
     AssignAllResult,
     AssignedModel,
@@ -76,6 +77,18 @@ export class AssignmentStore {
                 assigned: result.assigned,
                 ...(result.failure === undefined ? {} : { failure: result.failure }),
             };
+        } catch (error) {
+            return { ok: false, reason: reasonOf(error) };
+        }
+    }
+
+    // The included extensions config.json turns off, from the same read of the file the assignments use.
+    readDisabledIncluded(): IncludedExtensionsResult {
+        try {
+            const read = this.readConfig();
+            const notice = lastGoodConfigNotice(read);
+            if (read.config === undefined && notice !== undefined) return { ok: false, reason: notice };
+            return { ok: true, disabled: read.config?.disabled_included_extensions ?? [], ...(notice === undefined ? {} : { notice }) };
         } catch (error) {
             return { ok: false, reason: reasonOf(error) };
         }

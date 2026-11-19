@@ -31,7 +31,7 @@ removing a favorite does not clear a default assignment.
 
 1. Enter `/model` to open **Switch model**.
 2. Type a model name. On Favorites, search stays inside your favorites. Ctrl+G searches every connected model.
-3. Use Up/Down to highlight a model, then press Enter.
+3. The `▌` bar marks the model Enter will select. Use Up/Down to move it, then press Enter.
 4. If the model offers reasoning effort levels, choose one to finish.
 
 When favorites exist, the picker opens on its saved scope, or Favorites by
@@ -200,6 +200,7 @@ and `max` is slowest and costs the most. When a provider publishes its own
 wording for a level, Vera shows that instead. `/effort <level>` sets one
 directly. Levels differ by model, and not every model has an off setting.
 
+The `▌` bar marks the level Enter will select. Use Up/Down to move it.
 Switching to a model with effort levels always asks which level to run, with
 your current level highlighted when the new model has it.
 
@@ -327,7 +328,7 @@ The notice is for you only; it is not sent to the model.
 
 By default it looks at the last 20 calls and warns when their re-reads are
 at least 25% of their input and at least 250,000 tokens. To change that, find
-`vera.cache` in `/customize` under Extensions, note its absolute path, and
+`vera.cache` in `/extensions`, note its path in the details, and
 add an explicit entry to the home's `config.json`:
 
 ```json

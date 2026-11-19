@@ -14,14 +14,14 @@ import {
     type KindFilter,
 } from "../customize/catalog.ts";
 import { CustomizeDetail, KindIcon } from "../customize/CustomizeDetail.tsx";
-import { probeTarget } from "../customize/probe.ts";
-import { useCatalogProbe } from "../customize/useCatalogProbe.ts";
+import { DesktopExtensions } from "../customize/DesktopExtensions.tsx";
+import { DiscoverThemes } from "../customize/DiscoverThemes.tsx";
+import { useFolderCustomizations } from "../customize/useFolderCustomizations.ts";
 import type { DesktopBridge, ExtensionFailure } from "../protocol/bridge.ts";
 import { folderName } from "../protocol/sessionGroups.ts";
 import { useActiveSession } from "../session/activeSession.ts";
 import { useViewEnvironment } from "../views/env.tsx";
 import { EmptyState, Page } from "./Page.tsx";
-import { useRouter } from "./router.tsx";
 
 type FailureState =
     | { readonly phase: "loading" }
@@ -30,7 +30,7 @@ type FailureState =
 
 const KIND_PILLS: readonly KindFilter[] = ["all", "skills", "agents", "extensions", "instructions", "memory"];
 
-// Discover has no catalog behind it: the host serves only what is installed, so it shows an unavailable state.
+// Discover lists the themes in the desktop catalog. The web client has no desktop bridge, so it shows an unavailable state.
 type CustomizeMode = "yours" | "discover";
 
 function desktopBridge(): DesktopBridge | undefined {
@@ -164,16 +164,15 @@ function CustomizeCard({ item, onOpen }: { readonly item: CustomizeItem; readonl
 
 export function CustomizePage() {
     const { connection } = useViewEnvironment();
-    const { navigate } = useRouter();
     const active = useActiveSession();
     const bridge = desktopBridge();
     const rows = connection.sessionRows ?? [];
     const folders = folderChoices(rows);
 
-    // Starts at the folder on screen or the newest session's folder; until the user picks, the first listed folder.
-    const [chosen, setChosen] = useState<string | undefined>(() => (active === undefined || active.chat ? undefined : active.folder) ?? probeTarget(rows)?.workspace);
+    // Starts at the folder on screen; until the user picks, the folder of the most recently active session.
+    // With no folder to offer, the read is what a new chat loads.
+    const [chosen, setChosen] = useState<string | undefined>(() => (active === undefined || active.chat ? undefined : active.folder));
     const folder = chosen ?? folders[0];
-    const target = probeTarget(rows, folder);
 
     const [reload, setReload] = useState(0);
     const [kind, setKind] = useState<KindFilter>("all");
@@ -183,16 +182,17 @@ export function CustomizePage() {
     const yours = mode === "yours";
 
     const attached = connection.phase === "attached";
-    const probe = useCatalogProbe(bridge, target?.id, attached, reload);
+    const reading = useFolderCustomizations(bridge, folder, attached, reload);
     const failures = useExtensionFailures(bridge, reload);
 
     const failureList = failures.phase === "ok" ? failures.failures : [];
-    const items = probe.phase === "ready" ? buildItems(probe, failureList) : [];
+    const items = reading.phase === "ready" ? buildItems(reading.reading, failureList) : [];
     const counts = kindCounts(items);
     const sections = groupByScope(visibleItems(items, kind, query));
     const folderLabel = folder === undefined ? undefined : folderName(folder);
 
     function discoverBody() {
+        if (bridge !== undefined) return <DiscoverThemes bridge={bridge} />;
         return (
             <EmptyState title="Nothing to browse">
                 <span>
@@ -216,34 +216,18 @@ export function CustomizePage() {
                 </EmptyState>
             );
         }
-        if (target === undefined) {
-            return (
-                <EmptyState title="No session in this folder">
-                    <span>Customize reads what a session in this folder loads. Start one to see it.</span>
-                    <span className="customize-empty-action">
-                        <button
-                            type="button"
-                            className="solid-btn"
-                            onClick={() => navigate(folder === undefined ? { kind: "home" } : { kind: "home", folder })}
-                        >
-                            New chat here
-                        </button>
-                    </span>
-                </EmptyState>
-            );
-        }
-        if (probe.phase === "failed") {
+        if (reading.phase === "failed") {
             return (
                 <>
-                    <p className="customize-note" data-tone="danger">{probe.error ?? "Customize could not read this session."}</p>
+                    <p className="customize-note" data-tone="danger">{reading.reason}</p>
                     <button type="button" className="ghost-btn" onClick={() => setReload(reload + 1)}>Retry</button>
                 </>
             );
         }
-        if (probe.phase !== "ready") return <p className="customize-note">Reading…</p>;
+        if (reading.phase !== "ready") return <p className="customize-note">Reading…</p>;
         return (
             <>
-                <div className="toolbar">
+                <div className="toolbar customize-filters">
                     {KIND_PILLS.map((pill) => (
                         <button
                             key={pill}
@@ -279,10 +263,10 @@ export function CustomizePage() {
     return (
         <Page
             title="Customize"
-            lede={folderLabel === undefined ? "What Vera loads for a session in a folder." : `What Vera loads for ${folderLabel}.`}
+            lede={folderLabel === undefined ? "What Vera loads for a new chat." : `What Vera loads for ${folderLabel}.`}
             wide
         >
-            <div className="toolbar">
+            <div className="toolbar customize-toolbar">
                 <FolderMenu folder={folder} folders={folders} onPick={setChosen} />
                 <div className="customize-seg" role="group" aria-label="Customize view">
                     <button type="button" aria-pressed={yours} onClick={() => setMode("yours")}>
@@ -293,12 +277,12 @@ export function CustomizePage() {
                     </button>
                 </div>
                 {yours ? (
-                    <button type="button" className="ghost-btn" onClick={() => setReload(reload + 1)} disabled={target === undefined}>
+                    <button type="button" className="ghost-btn" onClick={() => setReload(reload + 1)}>
                         <RefreshIcon />
                         Reload
                     </button>
                 ) : null}
-                {yours && attached && probe.phase === "ready" ? (
+                {yours && attached && reading.phase === "ready" ? (
                     <label className="search-field">
                         <SearchIcon />
                         <input
@@ -311,13 +295,13 @@ export function CustomizePage() {
                     </label>
                 ) : null}
             </div>
-            {yours && target !== undefined && attached ? <p className="customize-source">Read through {target.name}</p> : null}
-            {yours && probe.phase === "ready" ? probe.warnings.map((warning, index) => (
+            {yours && reading.phase === "ready" ? reading.reading.warnings.map((warning, index) => (
                 <p key={`${index}:${warning}`} className="customize-note">{warning}</p>
             )) : null}
             {yours && failures.phase === "failed" ? (
                 <p className="customize-note">Extension failures could not be read: {failures.reason}</p>
             ) : null}
+            {yours ? <DesktopExtensions bridge={bridge} /> : null}
             {yours ? body() : discoverBody()}
             {picked === undefined ? null : <CustomizeDetail item={picked} onClose={() => setPicked(undefined)} />}
         </Page>

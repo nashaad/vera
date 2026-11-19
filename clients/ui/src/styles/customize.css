@@ -1,5 +1,49 @@
 /* The Customize page: the folder menu, kind pills, scope groups and the card grid. */
 
+main[data-page="customize"] .section-title {
+    margin: 0 0 calc(var(--vera-space) * 3);
+}
+
+main[data-page="customize"] section {
+    margin-bottom: calc(var(--vera-space) * 5);
+}
+
+main[data-page="customize"] .toolbar {
+    margin-bottom: calc(var(--vera-space) * 3);
+}
+
+main[data-page="customize"] .customize-toolbar {
+    margin-bottom: calc(var(--vera-space) * 5);
+}
+
+.customize-toolbar .ghost-btn,
+.customize-toolbar .search-field,
+.customize-seg button {
+    height: calc(var(--vera-space) * 7.5);
+}
+
+.customize-toolbar .search-field {
+    flex-basis: calc(var(--vera-space) * 52);
+    min-width: 0;
+    max-width: 100%;
+}
+
+.customize-toolbar .search-field svg {
+    flex-shrink: 0;
+}
+
+.customize-filters {
+    display: block;
+    text-wrap: balance;
+}
+
+.customize-filters .filter-pill {
+    gap: var(--vera-space);
+    height: calc(var(--vera-space) * 6.5);
+    margin: 0 calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 1.5) 0;
+    padding: 0 calc(var(--vera-space) * 2);
+}
+
 .customize-folder {
     position: relative;
     display: inline-flex;
@@ -8,12 +52,6 @@
 .customize-folder .folder-menu {
     max-height: min(calc(var(--vera-space) * 90), var(--popover-room));
     overflow-y: auto;
-}
-
-.customize-source {
-    margin: calc(var(--vera-space) * -3) 0 calc(var(--vera-space) * 4);
-    color: var(--vera-text-disabled);
-    font-size: var(--vera-font-size-label);
 }
 
 .customize-note {
@@ -39,14 +77,13 @@
 }
 
 .customize-count {
-    margin-left: calc(var(--vera-space) * 1);
-    color: var(--vera-text-disabled);
+    color: var(--vera-text-dim);
 }
 
 .customize-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: calc(var(--vera-space) * 2.5);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--vera-space) * 90)), 1fr));
+    gap: calc(var(--vera-space) * 3);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -65,10 +102,14 @@
     background: none;
     border: thin solid var(--vera-border);
     border-radius: var(--vera-radius-lg);
+    cursor: default;
+}
+
+button.customize-card {
     cursor: pointer;
 }
 
-.customize-card:hover {
+button.customize-card:hover {
     background: var(--vera-surface-hover);
     border-color: var(--vera-border-input);
 }
@@ -127,7 +168,7 @@
     gap: calc(var(--vera-space) * 1.5);
     align-items: center;
     margin-top: calc(var(--vera-space) * 1.5);
-    color: var(--vera-text-disabled);
+    color: var(--vera-text-dim);
     font-size: calc(var(--vera-font-size) * 12.5 / 13);
 }
 
@@ -151,7 +192,7 @@
 .customize-facts {
     display: grid;
     grid-template-columns: max-content minmax(0, 1fr);
-    gap: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 3);
+    gap: calc(var(--vera-space) * 2) calc(var(--vera-space) * 3);
     margin: 0;
     font-size: var(--vera-font-size-label);
 }
@@ -173,7 +214,7 @@
 .customize-content {
     max-height: calc(var(--vera-space) * 90);
     margin: calc(var(--vera-space) * 3) 0 0;
-    padding: calc(var(--vera-space) * 2.5);
+    padding: calc(var(--vera-space) * 3);
     overflow: auto;
     color: var(--vera-text-dim);
     font-family: var(--vera-font-code);
@@ -192,7 +233,6 @@
 }
 
 .customize-seg button {
-    height: calc(var(--vera-space) * 6);
     padding: 0 calc(var(--vera-space) * 2.5);
     color: var(--vera-text-dim);
     font: inherit;
@@ -215,4 +255,87 @@
 .customize-seg button:focus-visible {
     outline: thin solid var(--vera-focus);
     outline-offset: calc(var(--vera-space) / 2);
+}
+
+.customize-card-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 2);
+    align-items: center;
+}
+
+[data-desktop-extensions] .customize-grid {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+[data-desktop-extension],
+.customize-preview,
+[data-catalog-theme] {
+    flex-wrap: wrap;
+}
+
+[data-desktop-extension] .customize-card-body,
+.customize-preview .customize-card-body,
+[data-catalog-theme] .customize-card-body {
+    flex-basis: calc(var(--vera-space) * 52);
+}
+
+[data-desktop-extension] .customize-card-name,
+.customize-preview .customize-card-name,
+[data-catalog-theme] .customize-card-name {
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
+[data-desktop-extension] .customize-card-desc,
+.customize-preview .customize-card-desc {
+    display: block;
+    overflow: visible;
+    overflow-wrap: anywhere;
+}
+
+.customize-card-actions {
+    margin-left: auto;
+}
+
+.customize-preview {
+    margin: 0 0 calc(var(--vera-space) * 3);
+}
+
+.catalog-swatches {
+    display: flex;
+    gap: calc(var(--vera-space) * 1);
+    margin-top: calc(var(--vera-space) * 2);
+}
+
+.catalog-swatch {
+    width: calc(var(--vera-space) * 5);
+    height: calc(var(--vera-space) * 5);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-sm);
+}
+
+/* Fixed, so it stays in view while the page is scrolled; the page behind it shows the previewed theme. */
+.catalog-bar {
+    position: fixed;
+    right: 50%;
+    bottom: calc(var(--vera-space) * 6);
+    z-index: 20;
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--vera-space) * 3);
+    align-items: center;
+    width: max-content;
+    max-width: calc(100% - var(--vera-space) * 8);
+    padding: calc(var(--vera-space) * 2.5) calc(var(--vera-space) * 3);
+    color: var(--vera-text);
+    background: var(--vera-surface-raised);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+    box-shadow: var(--vera-shadow);
+    transform: translateX(50%);
+}
+
+.catalog-bar-text {
+    font-size: var(--vera-font-size);
 }

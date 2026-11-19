@@ -82,6 +82,36 @@ describe("presentations", () => {
         expect(group.calls.map((call) => call.presentation?.kind)).toEqual(["diff", "tool_notice"]);
     });
 
+    test("@core a notice's link is read with its query, and one that does not read is dropped with the notice kept", () => {
+        const notice = (link: unknown) => parseSessionLine(JSON.stringify({
+            type: "tool_presentation",
+            tool: "artifact_write",
+            presentation: { kind: "tool_notice", text: "Artifact page", link },
+        }));
+        expect(notice({ title: "Raid", page: "/x/vera.artifacts/artifacts", query: { session: "s1", artifact: "raid", skipped: 3 } })).toMatchObject({
+            presentation: { kind: "tool_notice", text: "Artifact page", link: { title: "Raid", page: "/x/vera.artifacts/artifacts", query: { session: "s1", artifact: "raid" } } },
+        });
+        expect(notice({ title: "Raid", page: "/x/vera.artifacts/artifacts" })).toMatchObject({
+            presentation: { link: { title: "Raid", page: "/x/vera.artifacts/artifacts" } },
+        });
+        for (const unreadable of [{ title: "Raid" }, { page: "/x/a/b" }, "text", 4, null]) {
+            const parsed = notice(unreadable);
+            expect(parsed).toMatchObject({ presentation: { kind: "tool_notice", text: "Artifact page" } });
+            expect(JSON.stringify(parsed)).not.toContain("link");
+        }
+    });
+
+    test("notice action and link survive live and history decoding", () => {
+        const presentation = { kind: "tool_notice", text: "Browser tools are off", action: "open_browser", link: { title: "Raid", page: "/x/a/b" } };
+        const live = line({ type: "tool_presentation", tool: "builtin_browser", presentation });
+        expect(live).toMatchObject({ presentation });
+        const history = line({ type: "history", entries: [{ kind: "presentation", presentation }] });
+        expect(history).toMatchObject({ entries: [{ presentation }] });
+        const unknown = line({ type: "tool_presentation", tool: "builtin_browser", presentation: { ...presentation, action: "other" } });
+        expect(unknown).toMatchObject({ presentation: { kind: "tool_notice", text: presentation.text, link: presentation.link } });
+        expect(JSON.stringify(unknown)).not.toContain("action");
+    });
+
     test("a presentation of an unknown kind does not parse", () => {
         expect(parseSessionLine(JSON.stringify({ type: "tool_presentation", tool: "edit", presentation: { kind: "chart" } })))
             .toBeUndefined();

@@ -2,14 +2,17 @@ import type { SessionRow } from "./sessions.ts";
 
 export interface SessionEntry {
     readonly row: SessionRow;
-    // One level only: a child of a child is listed under the top parent in the group.
+    readonly archiveRoot?: SessionRow;
+    // One level only: a child of a child is listed under the top parent.
     readonly nested: boolean;
+    // How many rows are listed under this one; 0 on a nested row.
+    readonly nestedCount: number;
 }
 
 export interface SessionGroup {
-    // Unique among groups; the Pinned and Chats groups have their own keys.
+    // Special groups have their own keys, separate from folder paths.
     readonly key: string;
-    // Empty for the Pinned and Chats groups and for sessions with no folder.
+    // Empty for special groups and sessions with no folder.
     readonly workspace: string;
     readonly title: string;
     // Chats share one group and its title opens no workspace page.
@@ -19,6 +22,8 @@ export interface SessionGroup {
 
 export const CHATS_TITLE = "Chats";
 export const PINNED_TITLE = "Pinned";
+export const ARCHIVED_KEY = "archived";
+export const ARCHIVED_TITLE = "Archived";
 export const CHAT_FOLDER_LABEL = "Chat";
 
 // The folder a session is shown under: a chat has none of its own to name.
@@ -43,61 +48,96 @@ const PINNED_KEY = "pinned";
 const CHATS_KEY = "chats";
 const FOLDER_KEY = "folder:";
 
-// Pinned rows come first in pin order and leave their own group. The other groups keep the order
-// of their most recent session; rows keep the host's order, and a row whose parent is in the same
-// group follows that parent. Chats share one group.
+function archiveRoot(row: SessionRow, byId: ReadonlyMap<string, SessionRow>): SessionRow {
+    let current = row;
+    const seen = new Set([row.id]);
+    for (;;) {
+        const parent = current.parentId === undefined ? undefined : byId.get(current.parentId);
+        if (parent === undefined) return current;
+        if (seen.has(parent.id)) return row;
+        seen.add(parent.id);
+        current = parent;
+    }
+}
+
 export function groupSessions(rows: readonly SessionRow[], pins: readonly string[] = []): readonly SessionGroup[] {
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const active: SessionRow[] = [];
+    const archived: SessionRow[] = [];
+    for (const row of rows) {
+        const root = archiveRoot(row, byId);
+        if (root.archived === true || row.archived === true) archived.push(row);
+        else active.push(row);
+    }
+    const groups = groupActiveSessions(active, pins);
+    const result = archived.length === 0 ? groups : [...groups, {
+        key: ARCHIVED_KEY,
+        workspace: "",
+        title: ARCHIVED_TITLE,
+        chats: false,
+        entries: groupActiveSessions(archived).flatMap((group) => group.entries),
+    }];
+    return result.map((group) => ({
+        ...group,
+        entries: group.entries.map((entry) => ({ ...entry, archiveRoot: archiveRoot(entry.row, byId) })),
+    }));
+}
+
+function groupActiveSessions(rows: readonly SessionRow[], pins: readonly string[] = []): readonly SessionGroup[] {
     const pinned = pinnedRows(rows, pins);
     const pinnedIds = new Set(pinned.map((row) => row.id));
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    // The row a session is listed under: the nearest pinned ancestor, else the top parent among
+    // all listed rows. A pinned row, a row with no listed parent and a row in a loop lead their own.
+    const topOf = (row: SessionRow): SessionRow => {
+        if (pinnedIds.has(row.id)) return row;
+        let current = row;
+        const seen = new Set<string>([row.id]);
+        for (;;) {
+            const parent = current.parentId === undefined ? undefined : byId.get(current.parentId);
+            if (parent === undefined) return current;
+            if (pinnedIds.has(parent.id)) return parent;
+            if (seen.has(parent.id)) return row;
+            seen.add(parent.id);
+            current = parent;
+        }
+    };
+    const nestedUnder = new Map<string, SessionRow[]>();
+    const leadersByKey = new Map<string, SessionRow[]>();
+    for (const row of rows) {
+        const top = topOf(row);
+        if (top !== row) {
+            const list = nestedUnder.get(top.id);
+            if (list === undefined) nestedUnder.set(top.id, [row]);
+            else list.push(row);
+        }
+        if (pinnedIds.has(top.id)) continue;
+        const key = top.chat ? CHATS_KEY : `${FOLDER_KEY}${top.workspace}`;
+        let leaders = leadersByKey.get(key);
+        if (leaders === undefined) {
+            leaders = [];
+            leadersByKey.set(key, leaders);
+        }
+        if (top === row) leaders.push(row);
+    }
+    const entriesOf = (leaders: readonly SessionRow[]): SessionEntry[] => leaders.flatMap((leader) => {
+        const kids = nestedUnder.get(leader.id) ?? [];
+        return [
+            { row: leader, nested: false, nestedCount: kids.length },
+            ...kids.map((row) => ({ row, nested: true, nestedCount: 0 })),
+        ];
+    });
     const groups: SessionGroup[] = pinned.length === 0 ? [] : [{
         key: PINNED_KEY,
         workspace: "",
         title: PINNED_TITLE,
         chats: false,
-        entries: pinned.map((row) => ({ row, nested: false })),
+        entries: entriesOf(pinned),
     }];
-    const byKey = new Map<string, SessionRow[]>();
-    for (const row of rows) {
-        if (pinnedIds.has(row.id)) continue;
-        const key = row.chat ? CHATS_KEY : `${FOLDER_KEY}${row.workspace}`;
-        const members = byKey.get(key);
-        if (members === undefined) byKey.set(key, [row]);
-        else members.push(row);
-    }
-    for (const [key, members] of byKey) {
+    for (const [key, leaders] of leadersByKey) {
         const chats = key === CHATS_KEY;
         const workspace = chats ? "" : key.slice(FOLDER_KEY.length);
-        const byId = new Map(members.map((row) => [row.id, row]));
-        const rootOf = (row: SessionRow): string => {
-            let current = row;
-            const seen = new Set<string>([row.id]);
-            for (;;) {
-                const parent = current.parentId === undefined ? undefined : byId.get(current.parentId);
-                if (parent === undefined) return current.id;
-                // A loop in the parent links lists the row on its own.
-                if (seen.has(parent.id)) return row.id;
-                seen.add(parent.id);
-                current = parent;
-            }
-        };
-        const children = new Map<string, SessionRow[]>();
-        const roots: SessionRow[] = [];
-        for (const row of members) {
-            const root = rootOf(row);
-            if (root === row.id) {
-                roots.push(row);
-                continue;
-            }
-            const list = children.get(root);
-            if (list === undefined) children.set(root, [row]);
-            else list.push(row);
-        }
-        const entries: SessionEntry[] = [];
-        for (const root of roots) {
-            entries.push({ row: root, nested: false });
-            for (const child of children.get(root.id) ?? []) entries.push({ row: child, nested: true });
-        }
-        groups.push({ key, workspace, title: chats ? CHATS_TITLE : folderName(workspace), chats, entries });
+        groups.push({ key, workspace, title: chats ? CHATS_TITLE : folderName(workspace), chats, entries: entriesOf(leaders) });
     }
     return groups;
 }

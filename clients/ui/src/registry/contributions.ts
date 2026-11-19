@@ -11,6 +11,7 @@ export class ContributionRegistry {
     private readonly views = new Map<string, ViewContribution>();
     private readonly listeners = new Set<() => void>();
     private cached: RegistrySnapshot | undefined;
+    private unavailable: ReadonlySet<string> = new Set();
 
     registerContainer(container: ContainerContribution): () => void {
         if (container.id.length === 0 || container.title.length === 0) {
@@ -45,11 +46,24 @@ export class ContributionRegistry {
         };
     }
 
+    // Containers the show flags turn off, and the views in them, leave the snapshot as if never registered.
+    // The saved layout keeps its entries for them, so turning a flag on restores the arrangement.
+    setUnavailable(ids: ReadonlySet<string>): void {
+        if (ids.size === this.unavailable.size && [...ids].every((id) => this.unavailable.has(id))) return;
+        this.unavailable = ids;
+        this.changed();
+    }
+
+    // Whether tabs of the container are left out of the saved layout. A show flag turning it off does not change this.
+    keepsTabsOut(id: string): boolean {
+        return this.containers.get(id)?.transientTabs === true;
+    }
+
     // The same object until something registers or unregisters.
     snapshot(): RegistrySnapshot {
         this.cached ??= {
-            containers: [...this.containers.values()],
-            views: [...this.views.values()],
+            containers: [...this.containers.values()].filter((container) => !this.unavailable.has(container.id)),
+            views: [...this.views.values()].filter((view) => !this.unavailable.has(view.id) && !this.unavailable.has(view.container)),
         };
         return this.cached;
     }

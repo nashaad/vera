@@ -1,0 +1,8 @@
+{
+    "id": "vera.help",
+    "version": "1.0.0",
+    "sdk": "1",
+    "entrypoint": "./extension.ts",
+    "capabilities": ["agents.register", "tools.register", "sessions.show"],
+    "unreviewed_tools": ["help_guide", "help_providers", "help_extension_failures", "help_show"]
+}

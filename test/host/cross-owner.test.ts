@@ -1017,3 +1017,25 @@ function toolCall(id: string, name: string, input: Readonly<Record<string, unkno
 function textResponse(text: string): AssistantMessage {
     return { role: "assistant", content: [{ type: "text", text }], source: { provider: "faux", api: "scripted", model: "test" }, usage: emptyUsage(), stopReason: "stop" };
 }
+
+socketTest("the notes offer reaches a session a worker owns, and only when the request asks", async () => {
+    const home = await createTestHome();
+    const host = await startResidentHost({ home, config, inProcessWorker: true, createAdapter: () => new FauxAdapter([]) });
+    try {
+        const offered = await createAgentThroughHost(host.server.socketPath, home, undefined, undefined, "default", true);
+        const plain = await createAgentThroughHost(host.server.socketPath, home);
+        const rows = await listAgentsThroughHost(host.server.socketPath);
+        const header = async (id: string) =>
+            (await SessionStore.open(rows.find((candidate) => candidate.id === id)!.session_path)).header;
+        expect((await header(offered.id)).notesOffer).toBe(true);
+        expect("notesOffer" in await header(plain.id)).toBe(false);
+    } finally {
+        const annexPid = host.annexPid;
+        try {
+            await host.close();
+            if (annexPid !== undefined) expect(() => process.kill(annexPid, 0)).toThrow();
+        } finally {
+            await rm(home, { recursive: true, force: true });
+        }
+    }
+}, 20_000);

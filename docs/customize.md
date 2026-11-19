@@ -21,6 +21,10 @@ shows where a source comes from and whether it belongs to the project or home.
 A skill turned off by `disabled_skills` stays in the Skills list, marked
 disabled. See [Turn a skill off](skills.md#turn-a-skill-off).
 
+Extensions lists the ones you installed or added to `config.json`. The
+extensions included with Vera are not listed; manage them with `/extensions`.
+Their skills and agents still appear under Skills and Agents.
+
 A Markdown file opens rendered. Press `s` to see its source.
 
 ## Edit a source

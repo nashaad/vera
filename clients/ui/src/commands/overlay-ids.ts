@@ -10,7 +10,8 @@ export type Overlay =
     | "doctor"
     | "configure"
     | "failures"
-    | "nudges";
+    | "nudges"
+    | "feedback";
 
 export const OVERLAY_COMMANDS: Readonly<Record<Overlay, { readonly id: string; readonly title: string }>> = {
     palette: { id: "palette.commands", title: "Command Palette" },
@@ -23,5 +24,6 @@ export const OVERLAY_COMMANDS: Readonly<Record<Overlay, { readonly id: string; r
     doctor: { id: "help.doctor", title: "Check Vera's Health" },
     configure: { id: "help.configure", title: "Configuration Files" },
     failures: { id: "help.failures", title: "Model Failures" },
+    feedback: { id: "help.feedback", title: "Feedback" },
     nudges: { id: "help.nudges", title: "Standing Nudges" },
 };

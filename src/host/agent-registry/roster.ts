@@ -413,6 +413,7 @@ export async function updateSessionName(reg: AgentRegistry, id: string, name: st
             return undefined;
         }
         await entry.store.appendName(name);
+        reg.notifyRosterChanged();
         reg.announceSessionUpdated(entry);
         return entry.store.name() ?? null;
     }

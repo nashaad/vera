@@ -4,6 +4,7 @@ import { DEFAULT_AGENT, type AgentDefinition } from "../../agents/definition.ts"
 import { agentSnapshotDrift, resolveAgentSnapshot, type AgentSnapshot } from "../../agents/snapshot.ts";
 import { writeAgentDefaultPair } from "../../agents/writer.ts";
 import { EngineEventBus, type EngineEvent } from "../../engine/events.ts";
+import type { AgentCatalogUpdate } from "../../engine/protocol.ts";
 import type { ModelTurnSettings } from "../../engine/model-settings.ts";
 import { PermissionModeSyncError } from "../../engine/inbound-command-router.ts";
 import { BUILT_IN_PERMISSION_MODE_NAMES, builtInPermissionMode, isApprovalMode, type ApprovalMode } from "../../engine/permissions.ts";
@@ -94,25 +95,51 @@ export function selectedAgentPosture(reg: AgentRegistry, entry: RegisteredAgentE
             : reg.defaultApprovalMode;
     }
 
-export async function listAgentsFor(reg: AgentRegistry, id: string): Promise<{
-        readonly selected: string;
-        readonly agents: readonly {
-            readonly name: string;
-            readonly description?: string;
-            readonly scope: "project" | "user" | "extension";
-            readonly writable: boolean;
-            readonly tools?: readonly string[];
-            readonly skills?: readonly string[];
-            readonly posture?: string;
-            readonly forbiddenAccess?: readonly string[];
-            readonly subagentAssignment?: string;
-            readonly defaultPair?: {
-                readonly name: string;
-                readonly effort?: string;
-            };
-        }[];
-        readonly notices: readonly string[];
-    }> {
+export type ListedAgent = AgentCatalogUpdate["agents"][number];
+
+export interface AgentListing {
+    readonly selected: string;
+    readonly agents: readonly ListedAgent[];
+    readonly notices: readonly string[];
+}
+
+export interface NewSessionAgents {
+    readonly startsOn: string;
+    readonly agents: readonly ListedAgent[];
+    readonly notices: readonly string[];
+}
+
+// The wire shape of a catalog; both the per-session list and the new-session list use it.
+export function listedAgents(catalog: AgentCatalog): readonly ListedAgent[] {
+    return catalog.agents.map((agent) => ({
+        name: agent.definition.name,
+        ...(agent.definition.description === undefined
+            ? {}
+            : { description: agent.definition.description }),
+        scope: agent.scope,
+        writable: agent.writable,
+        ...(agent.definition.tools === undefined
+            ? {}
+            : { tools: agent.definition.tools }),
+        ...(agent.definition.skills === undefined
+            ? {}
+            : { skills: agent.definition.skills }),
+        ...(agent.definition.posture === undefined
+            ? {}
+            : { posture: agent.definition.posture }),
+        ...(agent.definition.forbiddenAccess === undefined
+            ? {}
+            : { forbiddenAccess: agent.definition.forbiddenAccess }),
+        ...(agent.definition.subagentAssignment === undefined ? {} : {
+            subagentAssignment: agent.definition.subagentAssignment,
+        }),
+        ...(agent.definition.defaultPair === undefined
+            ? {}
+            : { defaultPair: agent.definition.defaultPair }),
+    }));
+}
+
+export async function listAgentsFor(reg: AgentRegistry, id: string): Promise<AgentListing> {
         const entry = reg.agents.get(id);
         if (entry === undefined) {
             return { selected: DEFAULT_AGENT.name, agents: [], notices: [] };
@@ -120,32 +147,20 @@ export async function listAgentsFor(reg: AgentRegistry, id: string): Promise<{
         const catalog = await reg.agentCatalogFor(entry);
         return {
             selected: entry.selectedAgent?.name ?? DEFAULT_AGENT.name,
-            agents: catalog.agents.map((agent) => ({
-                name: agent.definition.name,
-                ...(agent.definition.description === undefined
-                    ? {}
-                    : { description: agent.definition.description }),
-                scope: agent.scope,
-                writable: agent.writable,
-                ...(agent.definition.tools === undefined
-                    ? {}
-                    : { tools: agent.definition.tools }),
-                ...(agent.definition.skills === undefined
-                    ? {}
-                    : { skills: agent.definition.skills }),
-                ...(agent.definition.posture === undefined
-                    ? {}
-                    : { posture: agent.definition.posture }),
-                ...(agent.definition.forbiddenAccess === undefined
-                    ? {}
-                    : { forbiddenAccess: agent.definition.forbiddenAccess }),
-                ...(agent.definition.subagentAssignment === undefined ? {} : {
-                    subagentAssignment: agent.definition.subagentAssignment,
-                }),
-                ...(agent.definition.defaultPair === undefined
-                    ? {}
-                    : { defaultPair: agent.definition.defaultPair }),
-            })),
+            agents: listedAgents(catalog),
+            notices: catalog.notices,
+        };
+    }
+
+// A new session, folder or chat, starts on the default agent. A chat has no project folder to read.
+export async function listNewSessionAgents(reg: AgentRegistry, workspace: string | undefined): Promise<NewSessionAgents> {
+        return newSessionAgentsOf(await loadAgentCatalogFor(reg, workspace));
+    }
+
+export function newSessionAgentsOf(catalog: AgentCatalog): NewSessionAgents {
+        return {
+            startsOn: DEFAULT_AGENT.name,
+            agents: listedAgents(catalog),
             notices: catalog.notices,
         };
     }
@@ -179,8 +194,12 @@ export async function decideSkillInvocationFor(reg: AgentRegistry, id: string, n
     }
 
 export async function agentCatalogFor(reg: AgentRegistry, entry: RegisteredAgentEntry): Promise<AgentCatalog> {
+        return loadAgentCatalogFor(reg, entry.store.header.cwd);
+    }
+
+export async function loadAgentCatalogFor(reg: AgentRegistry, projectRoot: string | undefined): Promise<AgentCatalog> {
         return loadAgentCatalog({
-            projectRoot: entry.store.header.cwd,
+            ...(projectRoot === undefined ? {} : { projectRoot }),
             permissionModes: [
                 ...BUILT_IN_PERMISSION_MODE_NAMES,
                 ...Object.keys(reg.options.permissionModes ?? {}),

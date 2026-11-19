@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { VeraExtensionConfig } from "../config.ts";
+import { isIncludedExtensionOn } from "./included-state.ts";
 import { EXTENSION_MANIFEST_FILENAME, loadExtensionManifest } from "./manifest.ts";
 
 export const CORE_EXTENSIONS_DIRECTORY = runtimePath(fileURLToPath(new URL("../core-extensions", import.meta.url)), "src/core-extensions");
@@ -32,7 +33,7 @@ export function includedExtensionConfigs(
     disabledIds: readonly string[],
 ): readonly VeraExtensionConfig[] {
     return includedExtensions()
-        .filter((extension) => extension.id === undefined || !disabledIds.includes(extension.id))
+        .filter((extension) => extension.id === undefined || isIncludedExtensionOn(extension.id, disabledIds))
         .map((extension) => ({ path: extension.path, enabled: true, config: {} }));
 }
 

@@ -3,7 +3,6 @@ import { activeSession } from "../session/activeSession.ts";
 import { requestCompaction } from "../session/compact.ts";
 import { conversationText } from "../session/conversationText.ts";
 import { offerDraft } from "../session/drafts.ts";
-import { cyclePaneLayout, setPaneLayout, type PaneLayout } from "../session/paneLayout.ts";
 import { quoteReply } from "../session/quote.ts";
 import { openSessionSheet, type SessionSheet } from "../session/sessionSheets.ts";
 import type { CommandRegistry } from "./registry.ts";
@@ -15,8 +14,6 @@ export const SESSION_COMMANDS = {
     tasks: "session.tasks",
     copy: "session.copyConversation",
     quote: "session.quote",
-    cycleLayout: "session.cycleLayout",
-    setLayout: "session.setLayout",
     rename: "session.rename",
     clone: "session.clone",
     close: "session.close",
@@ -25,15 +22,8 @@ export const SESSION_COMMANDS = {
 
 const SHEETS: ReadonlyArray<readonly [string, string, SessionSheet]> = [
     [SESSION_COMMANDS.rewind, "Rewind or Fork", "rewind"],
-    [SESSION_COMMANDS.subagents, "Show Subagents", "subagents"],
     [SESSION_COMMANDS.tasks, "Show Background Tasks", "tasks"],
 ];
-
-const LAYOUTS: readonly PaneLayout[] = ["single", "split", "stack"];
-
-function isPaneLayout(value: unknown): value is PaneLayout {
-    return LAYOUTS.some((layout) => layout === value);
-}
 
 // Session commands do nothing while no session page is open.
 export function registerSessionCommands(registry: CommandRegistry): () => void {
@@ -74,15 +64,6 @@ export function registerSessionCommands(registry: CommandRegistry): () => void {
                 const session = activeSession();
                 if (session === undefined || typeof args !== "string" || args.trim() === "") return;
                 offerDraft(session.agentId, quoteReply(args));
-            },
-        }),
-        registry.register({ id: SESSION_COMMANDS.cycleLayout, title: "Cycle Agent Panes", run: () => cyclePaneLayout() }),
-        registry.register({
-            id: SESSION_COMMANDS.setLayout,
-            title: "Set Agent Panes",
-            needsArgs: true,
-            run: (args) => {
-                if (isPaneLayout(args)) setPaneLayout(args);
             },
         }),
     ];

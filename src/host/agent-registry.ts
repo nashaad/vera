@@ -74,10 +74,13 @@ import { PEER_MESSAGE_KIND, VERA_INBOX_SOURCE, parsePeerMessage, type PeerMessag
 import { IMAGE_ATTACHMENT_LIMITS, resolveInstructionRoot, type RegisteredAgentKind, type RegisteredAgentSummary, type AgentRegistryOptions, type CloseAgentTreeResult, type CloseDescendantTreeResult, type ClosedMember, type CreateRegisteredAgentOptions, type ResumeRegisteredAgentOptions, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type RenameSessionOutcome, type InheritedAgentSettings, type BoundSessionIdentity, type RegisteredAgentEntry, type PendingSubagentLaunch, type PendingSubagentConfigurationBatch } from "./agent-registry/support.ts";
 import { ReportedWorkerFailure, supportedModelSettings, settingsForClient, oneshotModelMessage, delegatedSubagentPolicy } from "./agent-registry/helpers.ts";
 import * as registryLifecycle from "./agent-registry/lifecycle.ts";
+import * as registryMove from "./agent-registry/move.ts";
+import type { MoveSessionInput, MoveSessionOutcome } from "./agent-registry/move.ts";
 import { askSession, sessionModelAdapter, type SessionAskCall, type SessionAskResult } from "./agent-registry/ask.ts";
 import { investigateSession, type SessionInvestigateCall } from "./agent-registry/investigate.ts";
 import * as registrySettings from "./agent-registry/settings.ts";
 import * as registrySelect from "./agent-registry/select.ts";
+import { listFolderCustomizations, type FolderCustomizations } from "./agent-registry/folder-customizations.ts";
 import * as registryRoster from "./agent-registry/roster.ts";
 import type { PeerCaller, PeerRosterEntry, PeerSessionServices } from "./agent-registry/peer-services.ts";
 import type { SubagentAdmission, SubagentSessionServices } from "./agent-registry/subagent-services.ts";
@@ -107,6 +110,8 @@ export class AgentRegistry {
     readonly agents = new Map<string, RegisteredAgentEntry>();
     readonly startingIds = new Set<string>();
     readonly trashingIds = new Set<string>();
+    // Subset of trashingIds: the same gates apply, with a message that says a move is under way.
+    readonly movingIds = new Set<string>();
     readonly deliveryTasks = new Set<Promise<void>>();
     readonly suppressedCompletionDeliveries = new WeakSet<
         RegisteredAgentEntry
@@ -364,6 +369,23 @@ export class AgentRegistry {
         return registryLifecycle.trashStoredSession(this, targetId, locate);
     }
 
+    async moveSession(
+        targetId: string,
+        request: MoveSessionInput,
+        sessionsDirectory: string,
+    ): Promise<MoveSessionOutcome> {
+        return registryMove.moveSession(this, targetId, request, sessionsDirectory);
+    }
+
+    async moveStoredSession(
+        targetId: string,
+        request: MoveSessionInput,
+        sessionsDirectory: string,
+        locate: () => Promise<string | undefined>,
+    ): Promise<MoveSessionOutcome> {
+        return registryMove.moveStoredSession(this, targetId, request, sessionsDirectory, locate);
+    }
+
     find(id: string): ResidentAgent | undefined {
         return registryLifecycle.find(this, id);
     }
@@ -527,26 +549,20 @@ export class AgentRegistry {
         return registrySelect.selectedAgentPosture(this, entry);
     }
 
-    async listAgentsFor(id: string): Promise<{
-        readonly selected: string;
-        readonly agents: readonly {
-            readonly name: string;
-            readonly description?: string;
-            readonly scope: "project" | "user" | "extension";
-            readonly writable: boolean;
-            readonly tools?: readonly string[];
-            readonly skills?: readonly string[];
-            readonly posture?: string;
-            readonly forbiddenAccess?: readonly string[];
-            readonly subagentAssignment?: string;
-            readonly defaultPair?: {
-                readonly name: string;
-                readonly effort?: string;
-            };
-        }[];
-        readonly notices: readonly string[];
-    }> {
+    async listAgentsFor(id: string): Promise<registrySelect.AgentListing> {
         return registrySelect.listAgentsFor(this, id);
+    }
+
+    async listNewSessionAgents(
+        workspace: string | undefined,
+    ): Promise<registrySelect.NewSessionAgents> {
+        return registrySelect.listNewSessionAgents(this, workspace);
+    }
+
+    async listFolderCustomizations(
+        workspace: string | undefined,
+    ): Promise<FolderCustomizations> {
+        return listFolderCustomizations(this, workspace);
     }
 
     async listSkillsFor(id: string): Promise<SkillCommandCatalog> {

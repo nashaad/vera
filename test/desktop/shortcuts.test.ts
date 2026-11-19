@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 
 import { buildMenuTemplate } from "../../clients/desktop/src/app-menu.ts";
-import { THEME_COMMANDS, THEME_IMPORT_COMMAND, importedThemeCommand } from "../../clients/ui/src/commands/theme-commands.ts";
+import { THEME_COMMANDS, importedThemeCommand } from "../../clients/ui/src/commands/theme-commands.ts";
+import type { DesktopMenuItem } from "../../clients/ui/src/protocol/extensions.ts";
+import { THEME_LABELS } from "../../clients/ui/src/theme/registry.ts";
 import { THEME_NAMES, importedThemeId, type ThemeChoice } from "../../clients/ui/src/theme/tokens.ts";
 import { GO_SHORTCUTS, LAYOUT_SHORTCUTS, shortcutCommand, type ShortcutInput } from "../../clients/desktop/src/shortcuts.ts";
 import { acceleratorKeys, shortcutGroups } from "../../clients/ui/src/commands/keys.ts";
@@ -25,6 +27,59 @@ test("@core the three toggles are bound directly on the platform modifier", () =
     expect(shortcutCommand(key("KeyB", { meta: true, alt: true }), "darwin")).toBe("layout.toggleRightPane");
     expect(shortcutCommand(key("KeyB", { control: true }), "linux")).toBe("layout.toggleSidebar");
     expect(shortcutCommand(key("KeyB", { control: true, alt: true }), "win32")).toBe("layout.toggleRightPane");
+});
+
+test("@core reload shortcuts dispatch only the page command", () => {
+    for (const platform of ["darwin", "linux"]) {
+        for (const shift of [false, true]) {
+            const modifier = platform === "darwin" ? { meta: true } : { control: true };
+            expect(shortcutCommand(key("KeyR", { ...modifier, shift }), platform)).toBe("page.reload");
+        }
+    }
+    const commands: string[] = [];
+    const view = buildMenuTemplate("darwin", (id) => commands.push(id)).find((entry) => entry.label === "View");
+    const items = Array.isArray(view?.submenu) ? view.submenu : [];
+    expect(items.some((entry) => entry.role === "reload" || entry.role === "forceReload")).toBe(false);
+    const reload = items.find((entry) => entry.id === "page.reload");
+    expect(reload?.accelerator).toBe("CmdOrCtrl+R");
+    (reload?.click as () => void)();
+    expect(commands).toEqual(["page.reload"]);
+});
+
+test("history opens on the platform modifier, Shift and Delete", () => {
+    expect(shortcutCommand(key("Delete", { meta: true, shift: true }), "darwin")).toBe("browser.history");
+    expect(shortcutCommand(key("Backspace", { meta: true, shift: true }), "darwin")).toBe("browser.history");
+    expect(shortcutCommand(key("Delete", { control: true, shift: true }), "linux")).toBe("browser.history");
+    expect(shortcutCommand(key("Backspace", { control: true, shift: true }), "win32")).toBe("browser.history");
+    expect(shortcutCommand(key("Delete", { meta: true }), "darwin")).toBeUndefined();
+    expect(shortcutCommand(key("Delete", { meta: true, shift: true, alt: true }), "darwin")).toBeUndefined();
+    expect(shortcutCommand(key("Delete", { meta: true, shift: true, isAutoRepeat: true }), "darwin")).toBeUndefined();
+    expect(shortcutCommand(key("Delete", { meta: true, shift: true, type: "keyUp" }), "darwin")).toBeUndefined();
+    const run: string[] = [];
+    const template = buildMenuTemplate("darwin", (id) => run.push(id));
+    const view = template.find((entry) => entry.label === "View");
+    const items = Array.isArray(view?.submenu) ? view.submenu : [];
+    const history = items.find((entry) => entry.id === "browser.history");
+    expect(history?.accelerator).toBe("CmdOrCtrl+Shift+Delete");
+    (history?.click as () => void)();
+    expect(run).toEqual(["browser.history"]);
+    const matches: string[] = [];
+    const walk = (entries: readonly { id?: string; accelerator?: unknown; submenu?: unknown }[]): void => {
+        for (const entry of entries) {
+            if (entry.accelerator === "CmdOrCtrl+Shift+Delete") matches.push(entry.id ?? "");
+            if (Array.isArray(entry.submenu)) walk(entry.submenu);
+        }
+    };
+    walk(template);
+    expect(matches).toEqual(["browser.history"]);
+});
+
+test("@core Cmd+W closes the shown tab and never reaches the window", () => {
+    expect(shortcutCommand(key("KeyW", { meta: true }), "darwin")).toBe("layout.closeTab");
+    expect(shortcutCommand(key("KeyW", { control: true }), "linux")).toBe("layout.closeTab");
+    const view = buildMenuTemplate("darwin", () => undefined).find((entry) => entry.label === "View");
+    const items = Array.isArray(view?.submenu) ? view.submenu : [];
+    expect(items.find((entry) => entry.id === "layout.closeTab")?.accelerator).toBe("CmdOrCtrl+W");
 });
 
 test("@core page shortcuts open New Chat and Settings and walk back and forward", () => {
@@ -79,8 +134,9 @@ test("the View menu opens the palette and the Help menu lists the keys", () => {
     expect(ids.slice(0, 2)).toEqual(["palette.commands", "palette.sessions"]);
     const help = template.find((entry) => entry.role === "help");
     const helpItems = Array.isArray(help?.submenu) ? help.submenu.filter((entry) => entry.type !== "separator") : [];
-    expect(helpItems[0]?.accelerator).toBe("CmdOrCtrl+/");
+    expect(helpItems[1]?.accelerator).toBe("CmdOrCtrl+/");
     expect(helpItems.map((entry) => entry.id)).toEqual([
+        "chat.help",
         "help.shortcuts",
         "help.diagnostics",
         "help.doctor",
@@ -109,8 +165,8 @@ test("the View menu carries each toggle with its accelerator, plus Reset Layout"
     expect(run).toEqual([...LAYOUT_SHORTCUTS.map((shortcut) => shortcut.command), "layout.reset"]);
 });
 
-function themeMenuEntries(current?: ThemeChoice, imported: { slug: string; name: string }[] = [], run: (id: string) => void = () => {}) {
-    const template = buildMenuTemplate("darwin", run, current, imported);
+function themeMenuEntries(current?: ThemeChoice, imported: { slug: string; name: string }[] = [], run: (id: string) => void = () => {}, extensionItems: readonly DesktopMenuItem[] = []) {
+    const template = buildMenuTemplate("darwin", run, current, imported, new Set(), extensionItems);
     const view = template.find((entry) => entry.label === "View");
     const submenu = Array.isArray(view?.submenu) ? view.submenu : [];
     const themeMenu = submenu.find((entry) => entry.label === "Theme");
@@ -121,30 +177,39 @@ function themeMenuEntries(current?: ThemeChoice, imported: { slug: string; name:
 test("@core the View menu has a Theme submenu of radio items that run the theme commands", () => {
     const run: string[] = [];
     const items = themeMenuEntries(undefined, [], (id) => run.push(id)).filter((entry) => entry.type === "radio");
-    expect(items.map((entry) => entry.label)).toEqual(["Dark", "Light", "High contrast"]);
+    expect(items.map((entry) => entry.label)).toEqual(THEME_NAMES.map((name) => THEME_LABELS[name]));
     expect(items.map((entry) => entry.id)).toEqual(THEME_NAMES.map((name) => THEME_COMMANDS[name]));
-    expect(items.map((entry) => entry.checked)).toEqual([true, false, false]);
+    expect(items.map((entry) => entry.checked)).toEqual(THEME_NAMES.map((name) => name === "dark"));
     const radios = (current: ThemeChoice) => themeMenuEntries(current).filter((entry) => entry.type === "radio").map((entry) => entry.checked);
-    expect(radios("light")).toEqual([false, true, false]);
-    expect(radios("high-contrast")).toEqual([false, false, true]);
+    expect(radios("light")).toEqual(THEME_NAMES.map((name) => name === "light"));
+    expect(radios("high-contrast")).toEqual(THEME_NAMES.map((name) => name === "high-contrast"));
     for (const item of items) (item.click as () => void)();
     expect(run).toEqual(THEME_NAMES.map((name) => THEME_COMMANDS[name]));
 });
 
-test("@core imported themes follow the built-in ones in the Theme submenu, then Import VS Code Theme", () => {
+const THEME_IMPORT_COMMAND = "vera.vscode-theme-import.import";
+const IMPORT_ITEM: DesktopMenuItem = { command: THEME_IMPORT_COMMAND, title: "Import VS Code Theme…" };
+
+test("@core imported themes follow the built-in ones in the Theme submenu, then the commands an enabled extension lists", () => {
     const run: string[] = [];
     const imported = [{ slug: "pirate-crow", name: "Pirate & Crow" }, { slug: "crow-nest", name: "Crow Nest" }];
-    const entries = themeMenuEntries(importedThemeId("crow-nest"), imported, (id) => run.push(id));
+    const entries = themeMenuEntries(importedThemeId("crow-nest"), imported, (id) => run.push(id), [IMPORT_ITEM]);
     const radios = entries.filter((entry) => entry.type === "radio");
-    expect(radios.map((entry) => entry.label)).toEqual(["Dark", "Light", "High contrast", "Pirate && Crow", "Crow Nest"]);
-    expect(radios.map((entry) => entry.checked)).toEqual([false, false, false, false, true]);
-    expect(radios.slice(3).map((entry) => entry.id)).toEqual(imported.map((entry) => importedThemeCommand(entry.slug)));
+    expect(radios.map((entry) => entry.label)).toEqual([...THEME_NAMES.map((name) => THEME_LABELS[name]), "Pirate && Crow", "Crow Nest"]);
+    expect(radios.map((entry) => entry.checked)).toEqual([...THEME_NAMES.map(() => false), false, true]);
+    expect(radios.slice(THEME_NAMES.length).map((entry) => entry.id)).toEqual(imported.map((entry) => importedThemeCommand(entry.slug)));
     const last = entries[entries.length - 1];
     expect(last?.label).toBe("Import VS Code Theme…");
     expect(last?.id).toBe(THEME_IMPORT_COMMAND);
-    for (const item of radios.slice(3)) (item.click as () => void)();
+    for (const item of radios.slice(THEME_NAMES.length)) (item.click as () => void)();
     (last?.click as () => void)();
     expect(run).toEqual([...imported.map((entry) => importedThemeCommand(entry.slug)), THEME_IMPORT_COMMAND]);
+});
+
+test("@core the Theme submenu has no extension command while none is listed", () => {
+    const entries = themeMenuEntries(undefined, [{ slug: "crow-nest", name: "Crow Nest" }]);
+    expect(entries.some((entry) => entry.id === THEME_IMPORT_COMMAND || entry.label === "Import VS Code Theme…")).toBe(false);
+    expect(entries[entries.length - 1]?.label).toBe("Crow Nest");
 });
 
 test("the menu has a File menu with Quit off macOS and the app menu on it", () => {
@@ -159,5 +224,35 @@ test("shortcut groups merge a command's accelerators and list page keys by where
     expect(palette?.chords).toEqual([["⌘", "K"], ["⇧", "⌘", "P"]]);
     const composer = groups.find((group) => group.title === "Composer");
     expect(composer?.rows.map((row) => row.chords[0]?.[0])).toContain("↑");
-    expect(groups.map((group) => group.title).slice(0, 4)).toEqual(["Window", "Go", "Session", "Help"]);
+    expect(groups.map((group) => group.title).slice(0, 3)).toEqual(["Window", "Go", "Help"]);
+});
+
+test("@core the menu leaves out the commands the window hides and tidies the separators around them", () => {
+    const hidden = new Set(["go.search", "go.work", "go.customize", "go.devices", "go.tour", "go.coverage", "help.diagnostics", "help.doctor", "help.configure", "help.failures", "help.nudges", "help.extensions", "layout.togglePanel"]);
+    const template = buildMenuTemplate("darwin", () => {}, undefined, [], hidden);
+    const ids: string[] = [];
+    const walk = (items: readonly { id?: string; submenu?: unknown }[]): void => {
+        for (const entry of items) {
+            if (entry.id !== undefined) ids.push(entry.id);
+            if (Array.isArray(entry.submenu)) walk(entry.submenu);
+        }
+    };
+    walk(template);
+    for (const id of hidden) expect(ids).not.toContain(id);
+    expect(ids).toContain("go.newChat");
+    expect(ids).toContain("go.settings");
+    for (const label of ["Go", "View", "Help"]) {
+        const menu = template.find((entry) => entry.label === label || entry.role === label.toLowerCase());
+        if (!Array.isArray(menu?.submenu)) throw new Error(`There is no ${label} menu.`);
+        const types = menu.submenu.map((entry) => entry.type);
+        expect(types[0]).not.toBe("separator");
+        expect(types[types.length - 1]).not.toBe("separator");
+        types.forEach((type, index) => {
+            if (type === "separator") expect(types[index - 1]).not.toBe("separator");
+        });
+    }
+});
+
+test("the menu with nothing hidden is the same as the one built before the window reports", () => {
+    expect(JSON.stringify(buildMenuTemplate("darwin", () => {}, undefined, [], new Set()))).toBe(JSON.stringify(buildMenuTemplate("darwin", () => {})));
 });

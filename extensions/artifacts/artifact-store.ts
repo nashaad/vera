@@ -163,25 +163,40 @@ export function isOutdated(comment: ArtifactComment, markdown: string): boolean 
     return !markdown.includes(comment.quote.trim());
 }
 
-export function listArtifacts(root: string): readonly ArtifactSummary[] {
+export const ARTIFACT_PAGE_SIZE = 50;
+export const ARTIFACT_LIST_LIMIT = 200;
+
+export interface ArtifactPage {
+    readonly artifacts: readonly ArtifactSummary[];
+    /** Every artifact in the profile, listed or not. */
+    readonly total: number;
+}
+
+/** The newest artifacts across all sessions, at most `limit`. Only the ones returned are read. */
+export function listArtifacts(root: string, limit = ARTIFACT_PAGE_SIZE): ArtifactPage {
     const directory = join(root, "artifacts");
-    if (!existsSync(directory)) return [];
-    const artifacts: ArtifactSummary[] = [];
+    if (!existsSync(directory)) return { artifacts: [], total: 0 };
+    const found: { readonly ref: ArtifactRef; readonly modified: number }[] = [];
     for (const sessionId of readdirSync(directory)) {
         for (const name of sessionArtifactNames(root, sessionId)) {
-            const ref = { sessionId, name };
-            const artifact = readArtifact(root, ref);
-            if (artifact === undefined) continue;
-            artifacts.push({
-                ...ref,
-                title: artifactTitle(artifact.markdown, name),
-                updatedAt: artifact.updatedAt,
-                openComments: listComments(root, ref)
-                    .filter((comment) => comment.status === "open").length,
-            });
+            const modified = statSync(join(artifactDirectory(root, { sessionId, name }), "artifact.md")).mtimeMs;
+            found.push({ ref: { sessionId, name }, modified });
         }
     }
-    return artifacts.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    found.sort((left, right) => right.modified - left.modified);
+    const count = Math.min(Math.max(Math.floor(limit) || ARTIFACT_PAGE_SIZE, 1), ARTIFACT_LIST_LIMIT);
+    const artifacts: ArtifactSummary[] = [];
+    for (const { ref } of found.slice(0, count)) {
+        const artifact = readArtifact(root, ref);
+        if (artifact === undefined) continue;
+        artifacts.push({
+            ...ref,
+            title: artifactTitle(artifact.markdown, ref.name),
+            updatedAt: artifact.updatedAt,
+            openComments: listComments(root, ref).filter((comment) => comment.status === "open").length,
+        });
+    }
+    return { artifacts, total: found.length };
 }
 
 export function artifactTitle(markdown: string, fallback: string): string {

@@ -1,8 +1,14 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type WebContents } from "electron";
+import { listProvidersThroughHost, loginProviderThroughHost, saveProviderThroughHost, selectProviderModelThroughHost } from "../../../src/host/provider-sign-in-client.ts";
+import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell, type WebContents } from "electron";
 import { mkdirSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { extname, isAbsolute, join } from "node:path";
 
+import { requestExtensionThroughHost } from "../../../src/host/extension-request-client.ts";
 import { AgentStartError, createAgentThroughHost } from "../../../src/host/agent-start-client.ts";
+import { moveSessionThroughHost } from "../../../src/host/session-move-client.ts";
+import { setSessionArchivedThroughHost } from "../../../src/host/session-archive-client.ts";
+import { checkFile, prepareFiles } from "../../../src/attachments/files.ts";
+import { FILE_COUNT_LIMIT } from "../../../src/attachments/file-limits.ts";
 import { selectedVeraHome } from "../../../src/profile-paths.ts";
 import type {
     BranchSessionResult,
@@ -11,19 +17,38 @@ import type {
     DesktopEvent,
     FilePreview,
     FolderListing,
-    SessionPane,
+    OpenSidekickResult,
+    SyncSidekickResult,
 } from "../../ui/src/protocol/bridge.ts";
 import { NO_PINS } from "../../ui/src/protocol/pins.ts";
-import type { ThemeImportResult } from "../../ui/src/protocol/themes.ts";
+import type { MoveSessionOutcome } from "../../ui/src/protocol/sessionMove.ts";
+import type { ExtensionCommandResult } from "../../ui/src/protocol/extension-commands.ts";
+import { BROWSER_STATE_CHANGED } from "../../ui/src/browser/native-types.ts";
+import { hiddenCommandsFor, parseHiddenIds } from "../../ui/src/state/surfaces.ts";
 import { DEFAULT_THEME, importedThemeSlug, isThemeChoice, type ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import { annexAddress, readAnnexPages } from "./annex-requests.ts";
 import { buildMenuTemplate } from "./app-menu.ts";
+import { BrowserPane } from "./browser/pane.ts";
+import { BrowserCdp } from "./browser/cdp.ts";
+import { BrowserGateway } from "./browser/gateway.ts";
 import { AssignmentService } from "./assignments.ts";
-import { BootSession } from "./boot.ts";
+import { BootSession, type BootPreflight } from "./boot.ts";
+import { bundledInstallPreflight } from "./install-preflight.ts";
 import { CHANNELS } from "./channels.ts";
-import { DEFAULT_DESKTOP_FLAGS, flagsPath, readFlags } from "./desktop-flags.ts";
+import { DEFAULT_DESKTOP_FLAGS, FlagsStore, flagsPath } from "./desktop-flags.ts";
+import { CATALOG_TASK_FILE, CATALOG_TASK_SERVICE, parseCatalogReply, type CatalogTask } from "./extension-catalog/task-protocol.ts";
+import { EXTENSION_TASK_FILE, EXTENSION_TASK_SERVICE, parseInstallReply, type InstallTask } from "./extension-install/task-protocol.ts";
+import { catalogAddress } from "./extensions/catalog-address.ts";
+import { ExtensionCatalogService } from "./extensions/catalog-service.ts";
+import { registerExtensionHandlers } from "./extensions/ipc.ts";
+import { migrateSavedThemes } from "./extensions/migrate.ts";
+import { extensionsDirectory, extensionStatePath, includedExtensionsDirectory } from "./extensions/paths.ts";
+import { ExtensionService } from "./extensions/service.ts";
+import { ExtensionStateStore } from "./extensions/state.ts";
+import { ExtensionStore } from "./extensions/store.ts";
 import { existingFolders, folderListArgument } from "./folder-existence.ts";
 import { readFilePreview } from "./file-preview.ts";
+import { LOCAL_PREVIEW_SCHEME, LocalPreviewScopes } from "./local-preview.ts";
 import { listFolder, pathArgument } from "./folder-listing.ts";
 import { readBranch } from "./git-branch.ts";
 import { HostPipe } from "./host-pipe.ts";
@@ -40,17 +65,27 @@ import {
 } from "./model-requests.ts";
 import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
 import { PinStore, pinsPath } from "./pin-store.ts";
+import { BUNDLED_RELEASE_DIRECTORY } from "./release-install.ts";
 import { readExtensionFailures } from "./extension-requests.ts";
+import { readNewSessionAgents } from "./agent-requests.ts";
+import { readFolderCustomizations } from "./customization-requests.ts";
 import { searchArgument, searchSessions } from "./search-requests.ts";
-import { SessionPipe } from "./session-pipe.ts";
+import { moveSessionToFolder } from "./session-move.ts";
+import { SessionPanes } from "./session-panes.ts";
 import { branchSession, cloneSession, closeSession, idArgument } from "./session-requests.ts";
+import { openSidekick, syncSidekick } from "./sidekick-requests.ts";
 import { shortcutCommand } from "./shortcuts.ts";
 import { startTaskProcess } from "./tasks/process.ts";
 import { TaskRunner } from "./tasks/runner.ts";
-import { parseThemeTaskReply, THEME_TASK_FILE, THEME_TASK_SERVICE, type ThemeTask } from "./theme-import/task-protocol.ts";
+import { ExtensionCommandService } from "./extension-commands/service.ts";
+import { browserFrame, PageCommandService } from "./extension-commands/page.ts";
+import { parseCommandReply, type CommandReply, type CommandTask } from "./extension-commands/task-protocol.ts";
 import { ThemeService } from "./theme-service.ts";
 import { themesDirectory } from "./theme-store.ts";
 import { parseWindowBackground } from "./window-background.ts";
+
+protocol.registerSchemesAsPrivileged([{ scheme: LOCAL_PREVIEW_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
+const localPreviews = new LocalPreviewScopes();
 
 const MAX_SEND_BYTES = 1_048_576;
 const MAX_AGENT_ID_CHARS = 256;
@@ -72,22 +107,58 @@ let windowClosing = false;
 let activeTheme: ThemeChoice = DEFAULT_THEME;
 // Set from the ready event; cleared on disconnect, failure, a new boot, or app stop.
 let hostSocketPath: string | undefined;
-// The annex base URL from the last page list the window read; the browser frame may only load from it.
+// The annex base URL from the last page list the window read; app frames may only load from it.
 let annexUrl: string | undefined;
+let annexReadVersion = 0;
+let browserPane: BrowserPane | undefined;
+let browserGateway: BrowserGateway | undefined;
 
 const pipe = new HostPipe(sendEvent);
-const sessionPanes: Readonly<Record<SessionPane, SessionPipe>> = {
-    main: new SessionPipe(sendEvent, "main"),
-    companion: new SessionPipe(sendEvent, "companion"),
-    probe: new SessionPipe(sendEvent, "probe"),
-};
-const panes = Object.values(sessionPanes);
+const flagsStore = new FlagsStore(flagsPath(selectedVeraHome()), app.isPackaged);
+// With Reasoning off the window asks the host for a character count in place of the reasoning text.
+const hidesReasoning = (): boolean => flagsStore.read().showReasoning !== "on";
+const sessionPanes = new SessionPanes(sendEvent, hidesReasoning);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
 const pinStore = new PinStore(pinsPath(selectedVeraHome()));
+// Until the window reports, the menus hide every part the flags file does not turn on.
+let hiddenCommands: ReadonlySet<string> = hiddenCommandsFor(flagsStore.read());
 const assignmentTasks = new TaskRunner(() => startTaskProcess<AssignmentTask>(ASSIGNMENT_TASK_FILE, ASSIGNMENT_TASK_SERVICE), parseAssignmentTaskReply);
 const assignments = new AssignmentService(selectedVeraHome(), (task) => assignmentTasks.run(task));
-const themeTasks = new TaskRunner(() => startTaskProcess<ThemeTask>(THEME_TASK_FILE, THEME_TASK_SERVICE), parseThemeTaskReply);
-const themeService = new ThemeService(themesDirectory(selectedVeraHome()), (task) => themeTasks.run(task), undefined, () => installMenu());
+const extensionStore = new ExtensionStore(
+    extensionsDirectory(selectedVeraHome()),
+    new ExtensionStateStore(extensionStatePath(selectedVeraHome())),
+    includedExtensionsDirectory(import.meta.dirname),
+);
+const themeService = new ThemeService(extensionStore, themesDirectory(selectedVeraHome()), () => installMenu());
+const installTasks = new TaskRunner(() => startTaskProcess<InstallTask>(EXTENSION_TASK_FILE, EXTENSION_TASK_SERVICE), parseInstallReply);
+const extensionService = new ExtensionService(extensionStore, themeService, (task) => installTasks.run(task), () => installMenu());
+const catalogTasks = new TaskRunner(() => startTaskProcess<CatalogTask>(CATALOG_TASK_FILE, CATALOG_TASK_SERVICE), parseCatalogReply);
+const extensionCatalog = new ExtensionCatalogService(catalogAddress(), extensionStore, extensionService, (task) => catalogTasks.run(task));
+
+// One runner per worker file, so runs of the same worker go one at a time.
+const commandRunners = new Map<string, TaskRunner<CommandTask, CommandReply>>();
+const pageCommands = new PageCommandService();
+const extensionCommands = new ExtensionCommandService(
+    {
+        target: (command) => extensionStore.commandTarget(command),
+        run: (target, task) => {
+            const key = `${target.taskFile}\n${target.taskTitle}`;
+            const runner = commandRunners.get(key)
+                ?? new TaskRunner<CommandTask, CommandReply>(() => startTaskProcess<CommandTask>(target.taskFile, target.taskTitle), parseCommandReply);
+            commandRunners.set(key, runner);
+            return runner.run(task);
+        },
+        chooseFile: async (filter) => {
+            if (window === undefined) return undefined;
+            const result = await dialog.showOpenDialog(window, {
+                properties: ["openFile"],
+                filters: [{ name: filter.label, extensions: [...filter.extensions] }],
+            });
+            return result.canceled ? undefined : result.filePaths[0];
+        },
+    },
+    themeService,
+);
 
 function sendEvent(event: DesktopEvent): void {
     if (window === undefined || window.isDestroyed()) return;
@@ -99,40 +170,74 @@ function receiveEvent(event: DesktopEvent): void {
     if (event.type === "ready") {
         hostSocketPath = event.socketPath;
         pipe.connect(event.socketPath);
-        for (const pane of panes) pane.connect(event.socketPath);
+        browserGateway?.start(event.socketPath);
+        sessionPanes.connect(event.socketPath);
     } else if (event.type === "disconnected" || event.type === "failed") {
         hostSocketPath = undefined;
+        annexReadVersion += 1;
+        annexUrl = undefined;
+        browserPane?.setAnnexUrl(undefined);
+        browserGateway?.stop();
     }
 }
 
 function startBoot(): void {
     boot?.cancel();
     hostSocketPath = undefined;
+    annexReadVersion += 1;
+    annexUrl = undefined;
+    browserPane?.setAnnexUrl(undefined);
+    browserGateway?.stop();
     pipe.close();
-    for (const pane of panes) pane.close();
-    boot = new BootSession(selectedVeraHome(), receiveEvent);
+    sessionPanes.close();
+    boot = new BootSession(selectedVeraHome(), receiveEvent, installPreflight());
     boot.start();
+}
+
+// Only the packaged app carries a release; a development run uses its checkout's Vera.
+function installPreflight(): BootPreflight | undefined {
+    if (!app.isPackaged || (process.env.VERA_DESKTOP_DEV_CLI ?? "").trim().length > 0) return undefined;
+    return bundledInstallPreflight(join(process.resourcesPath, BUNDLED_RELEASE_DIRECTORY));
 }
 
 // Rebuilt when the page reports a theme or the imported themes change, so the View menu lists and checks them.
 function installMenu(): void {
     Menu.setApplicationMenu(Menu.buildFromTemplate(
-        buildMenuTemplate(process.platform, (id) => sendEvent({ type: "command", id }), activeTheme, themeService.themes()),
+        buildMenuTemplate(process.platform, (id) => sendEvent({ type: "command", id }), activeTheme, themeService.themes(), hiddenCommands, extensionStore.menu("theme")),
     ));
+}
+
+// Clears what an interrupted install left, then moves themes saved before desktop extensions into extensions.
+function startExtensions(): void {
+    try {
+        extensionStore.clearStaging();
+        migrateSavedThemes(extensionStore, themesDirectory(selectedVeraHome()));
+    } catch {
+        // A theme that did not move stays in the old folder and stays usable.
+    }
 }
 
 function shutdown(): void {
     if (stopping) return;
     stopping = true;
+    browserGateway?.stop();
+    pageCommands.stop();
+    localPreviews.clear();
+    annexReadVersion += 1;
+    annexUrl = undefined;
+    browserPane?.setAnnexUrl(undefined);
+    browserPane?.dispose();
+    browserPane = undefined;
     boot?.cancel();
     boot = undefined;
     hostSocketPath = undefined;
     pipe.close();
-    for (const pane of panes) pane.close();
+    sessionPanes.close();
 }
 
-function paneArgument(value: unknown): SessionPipe | undefined {
-    return value === "main" || value === "companion" || value === "probe" ? sessionPanes[value] : undefined;
+async function chooseFolder(parent: BrowserWindow): Promise<string | undefined> {
+    const result = await dialog.showOpenDialog(parent, { properties: ["openDirectory", "createDirectory"] });
+    return result.canceled ? undefined : result.filePaths[0];
 }
 
 function fromWindow(event: { readonly sender: WebContents }): boolean {
@@ -183,11 +288,15 @@ function createWindow(): BrowserWindow {
     created.on("restore", sendShown);
     // The window only ever shows the bundled page.
     created.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    created.webContents.on("did-start-navigation", (_event, _url, _inPlace, mainFrame) => {
+        if (mainFrame) { pageCommands.stop(); localPreviews.clear(); }
+    });
+    created.webContents.on("render-process-gone", () => { pageCommands.stop(); localPreviews.clear(); });
     created.webContents.on("will-navigate", (event) => event.preventDefault());
-    // The right pane's browser frame stays on the annex; links elsewhere go nowhere.
+    // App and preview frames cannot navigate to other origins.
     created.webContents.on("will-frame-navigate", (event) => {
         if (event.isMainFrame) return;
-        if (!onAnnex(event.url)) event.preventDefault();
+        if (!onAnnex(event.url) && !localPreviews.owns(event.url)) event.preventDefault();
     });
     // A shortcut handled here never reaches the page or the menu, so it runs once.
     created.webContents.on("before-input-event", (event, input) => {
@@ -228,18 +337,18 @@ ipcMain.on(CHANNELS.send, (event, text: unknown) => {
     pipe.send(text);
 });
 ipcMain.on(CHANNELS.sessionWatch, (event, pane: unknown, agentId: unknown) => {
-    const target = paneArgument(pane);
+    const target = sessionPanes.get(pane);
     if (!fromWindow(event) || target === undefined) return;
     if (typeof agentId !== "string" || agentId.length === 0 || agentId.length > MAX_AGENT_ID_CHARS) return;
     target.watch(agentId);
 });
 ipcMain.on(CHANNELS.sessionSend, (event, pane: unknown, text: unknown) => {
-    const target = paneArgument(pane);
+    const target = sessionPanes.get(pane);
     if (!fromWindow(event) || target === undefined || typeof text !== "string" || text.length > MAX_SEND_BYTES) return;
     target.send(text);
 });
 ipcMain.on(CHANNELS.sessionUnwatch, (event, pane: unknown) => {
-    if (fromWindow(event)) paneArgument(pane)?.unwatch();
+    if (fromWindow(event)) sessionPanes.get(pane)?.unwatch();
 });
 ipcMain.handle(CHANNELS.sessionBranch, async (event, agentId: unknown, boundaryId: unknown): Promise<BranchSessionResult> => {
     const source = idArgument(agentId);
@@ -252,10 +361,44 @@ ipcMain.handle(CHANNELS.sessionClone, async (event, agentId: unknown): Promise<B
     if (!fromWindow(event) || source === undefined) return { ok: false, reason: "Open a session to clone." };
     return cloneSession(hostSocketPath, source);
 });
+ipcMain.handle(CHANNELS.sidekickOpen, async (event, agentId: unknown): Promise<OpenSidekickResult> => {
+    const primary = idArgument(agentId);
+    if (!fromWindow(event) || primary === undefined) return { ok: false, reason: "Open a session first." };
+    return openSidekick(hostSocketPath, primary);
+});
+ipcMain.handle(CHANNELS.sidekickSync, async (event, agentId: unknown): Promise<SyncSidekickResult> => {
+    const target = idArgument(agentId);
+    if (!fromWindow(event) || target === undefined) return { ok: false, reason: "Choose a side chat." };
+    return syncSidekick(hostSocketPath, target);
+});
 ipcMain.handle(CHANNELS.sessionClose, async (event, agentId: unknown): Promise<CloseSessionResult> => {
     const target = idArgument(agentId);
     if (!fromWindow(event) || target === undefined) return { ok: false, reason: "Choose a session to stop." };
     return closeSession(hostSocketPath, target);
+});
+ipcMain.handle(CHANNELS.sessionArchive, async (event, agentId: unknown, archived: unknown) => {
+    const target = idArgument(agentId);
+    if (!fromWindow(event) || target === undefined || typeof archived !== "boolean" || hostSocketPath === undefined) {
+        return { ok: false, reason: "The host is not running." };
+    }
+    try {
+        return await setSessionArchivedThroughHost(hostSocketPath, target, archived)
+            ? { ok: true } : { ok: false, reason: "The session could not be updated." };
+    } catch {
+        return { ok: false, reason: "The session could not be updated." };
+    }
+});
+ipcMain.handle(CHANNELS.sessionMove, async (event, agentId: unknown): Promise<MoveSessionOutcome> => {
+    const target = idArgument(agentId);
+    const parent = window;
+    if (!fromWindow(event) || parent === undefined) return { status: "rejected", reason: "failed" };
+    if (target === undefined) return { status: "rejected", reason: "not_found" };
+    return moveSessionToFolder({
+        socketPath: hostSocketPath,
+        sessionId: target,
+        chooseFolder: () => chooseFolder(parent),
+        move: moveSessionThroughHost,
+    });
 });
 ipcMain.handle(CHANNELS.layoutLoad, (event) => (fromWindow(event) ? layoutStore.load() ?? null : null));
 ipcMain.on(CHANNELS.layoutSave, (event, layout: unknown) => {
@@ -265,7 +408,47 @@ ipcMain.handle(CHANNELS.pinsLoad, (event) => (fromWindow(event) ? pinStore.load(
 ipcMain.on(CHANNELS.pinsSave, (event, pins: unknown) => {
     if (fromWindow(event)) pinStore.save(pins);
 });
-ipcMain.handle(CHANNELS.flagsLoad, (event) => (fromWindow(event) ? readFlags(flagsPath(selectedVeraHome())) : DEFAULT_DESKTOP_FLAGS));
+ipcMain.handle(CHANNELS.feedbackCapture, async (event): Promise<string | undefined> => {
+    if (!fromWindow(event) || window === undefined) return undefined;
+    try {
+        const image = await window.webContents.capturePage();
+        const png = image.toPNG();
+        return png.length <= 10 * 1024 * 1024 ? image.toDataURL() : undefined;
+    } catch { return undefined; }
+});
+ipcMain.handle(CHANNELS.feedbackSave, async (event, request: unknown) => {
+    if (!fromWindow(event) || hostSocketPath === undefined) return { ok: false, reason: "The host is not running. Restart Vera and try again." };
+    if (request === null || typeof request !== "object" || Array.isArray(request)) return { ok: false, reason: "Invalid report." };
+    const value = request as Record<string, unknown>;
+    if ((value.kind !== "bug" && value.kind !== "feature") || typeof value.title !== "string" || typeof value.description !== "string" || !Array.isArray(value.image_paths) || value.image_paths.some((path) => typeof path !== "string") || (value.session_id !== undefined && typeof value.session_id !== "string")) return { ok: false, reason: "Invalid report." };
+    try {
+        const result = await requestExtensionThroughHost(hostSocketPath, "vera.feedback", "save", {
+            kind: value.kind, title: value.title, description: value.description, source: "window", image_paths: value.image_paths as string[],
+            ...(typeof value.session_id === "string" ? { session_id: value.session_id } : {}),
+        }, AbortSignal.timeout(30000));
+        const record = result as { readonly path?: unknown } | null;
+        if (record === null || typeof record !== "object" || typeof record.path !== "string") throw new Error("Restart Vera and try again.");
+        return { ok: true, path: record.path };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not save the report.";
+        return { ok: false, reason: /extension|host did not answer|host connection closed|unsupported|protocol|timeout/i.test(message) ? "Restart Vera and try again." : message };
+    }
+});
+ipcMain.handle(CHANNELS.flagsLoad, (event) => (fromWindow(event) ? flagsStore.read() : DEFAULT_DESKTOP_FLAGS));
+ipcMain.handle(CHANNELS.flagsSave, (event, patch: unknown) => {
+    if (!fromWindow(event)) return null;
+    const hidden = hidesReasoning();
+    const saved = flagsStore.update(patch);
+    if (saved === undefined) return null;
+    if (hidesReasoning() !== hidden) sessionPanes.reattach();
+    return saved;
+});
+ipcMain.on(CHANNELS.flagsHidden, (event, ids: unknown) => {
+    const next = fromWindow(event) ? parseHiddenIds(ids) : undefined;
+    if (next === undefined || (next.size === hiddenCommands.size && [...next].every((id) => hiddenCommands.has(id)))) return;
+    hiddenCommands = next;
+    installMenu();
+});
 ipcMain.on(CHANNELS.titleBar, (event, height: unknown) => {
     if (!fromWindow(event) || process.platform !== "darwin") return;
     if (typeof height !== "number" || !Number.isFinite(height)) return;
@@ -280,26 +463,33 @@ ipcMain.on(CHANNELS.theme, (event, choice: unknown) => {
     installMenu();
 });
 ipcMain.handle(CHANNELS.themesLoad, (event) => (fromWindow(event) ? themeService.load() : []));
-ipcMain.handle(CHANNELS.themeImport, async (event): Promise<ThemeImportResult> => {
-    if (!fromWindow(event) || window === undefined) return { ok: false, reason: "That window cannot import themes." };
-    const result = await dialog.showOpenDialog(window, {
-        properties: ["openFile"],
-        filters: [{ name: "VS Code themes", extensions: ["json", "jsonc", "vsix"] }],
-    });
-    const path = result.filePaths[0];
-    if (result.canceled || path === undefined) return { ok: true, imported: [], themes: themeService.themes(), skipped: [] };
-    return themeService.importFile(path);
+ipcMain.handle(CHANNELS.extensionCommand, async (event, command: unknown, pick: unknown, token: unknown, frameName: unknown): Promise<ExtensionCommandResult> => {
+    if (!fromWindow(event) || window === undefined) return { ok: false, reason: "That window cannot run extension commands." };
+    if (typeof command !== "string" || (pick !== undefined && typeof pick !== "string") || (token !== undefined && (typeof token !== "string" || token.length > 64))) return { ok: false, reason: "Vera could not run that command." };
+    if (frameName !== undefined && (typeof frameName !== "string" || frameName.length === 0 || frameName.length > 256)) return { ok: true, kind: "closed" };
+    const script = extensionStore.pageScript(command);
+    if (script !== undefined && pick === undefined) {
+        const native = frameName === undefined ? browserPane?.current() : undefined;
+        const contents = native ?? window.webContents;
+        const frame = native === undefined ? await browserFrame(contents, (url) => onAnnex(url) || localPreviews.owns(url), frameName as string | undefined) : undefined;
+        if (native === undefined && frame === undefined) return { ok: true, kind: "closed" };
+        if (frame !== undefined && localPreviews.owns(frame.url) && frame.name !== `preview-${new URL(frame.url).hostname}`) return { ok: true, kind: "closed" };
+        return pageCommands.run(script, contents, pastedImageDirectory(selectedVeraHome()), frame, token === undefined ? undefined : (result) => {
+            if (!event.sender.isDestroyed()) event.sender.send(CHANNELS.extensionCommandProgress, token, result);
+        }, frame !== undefined && localPreviews.owns(frame.url) ? (url) => {
+            try { return new URL(url).hostname === new URL(frame.url).hostname ? localPreviews.source(url) : Promise.resolve(undefined); }
+            catch { return Promise.resolve(undefined); }
+        } : undefined);
+    }
+    return extensionCommands.run(command, pick);
 });
-ipcMain.handle(CHANNELS.themesInstalled, async (event) =>
-    fromWindow(event) ? themeService.listInstalled() : { ok: false, reason: "That window cannot list themes." });
-ipcMain.handle(CHANNELS.themeInstalledImport, async (event, key: unknown): Promise<ThemeImportResult> =>
-    fromWindow(event) && typeof key === "string" ? themeService.importInstalled(key) : { ok: false, reason: "That is not a theme in the list." });
+registerExtensionHandlers({ service: extensionService, catalog: extensionCatalog, window: () => window, fromWindow });
 // A mode name the host can look up; anything else starts the session with the host default.
 const APPROVAL_MODE_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
 
 ipcMain.handle(
     CHANNELS.sessionCreate,
-    async (event, workspace: unknown, approvalMode: unknown): Promise<CreateSessionResult> => {
+    async (event, workspace: unknown, approvalMode: unknown, notesOffer: unknown): Promise<CreateSessionResult> => {
         if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
         if (hostSocketPath === undefined) return { ok: false, reason: "The host is not running." };
         // No folder asks for a chat; a folder that is given must be an absolute path.
@@ -310,7 +500,7 @@ ipcMain.handle(
         }
         const mode = typeof approvalMode === "string" && APPROVAL_MODE_PATTERN.test(approvalMode) ? approvalMode : undefined;
         try {
-            const ready = await createAgentThroughHost(hostSocketPath, folder, mode);
+            const ready = await createAgentThroughHost(hostSocketPath, folder, mode, undefined, "default", notesOffer === true);
             return { ok: true, agentId: ready.id, workspace: ready.workspace };
         } catch (error) {
             if (error instanceof AgentStartError && error.reason !== undefined) {
@@ -324,16 +514,35 @@ ipcMain.handle(CHANNELS.foldersExisting, async (event, folders: unknown): Promis
     fromWindow(event) ? existingFolders(folderListArgument(folders)) : []);
 ipcMain.handle(CHANNELS.folderChoose, async (event): Promise<string | undefined> => {
     if (!fromWindow(event) || window === undefined) return undefined;
-    const result = await dialog.showOpenDialog(window, { properties: ["openDirectory", "createDirectory"] });
-    return result.canceled ? undefined : result.filePaths[0];
+    return chooseFolder(window);
 });
 ipcMain.handle(CHANNELS.imagesChoose, async (event): Promise<readonly string[]> => {
     if (!fromWindow(event) || window === undefined) return [];
     const result = await dialog.showOpenDialog(window, {
         properties: ["openFile", "multiSelections"],
-        filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] }],
     });
     return result.canceled ? [] : result.filePaths;
+});
+ipcMain.handle(CHANNELS.filesCheck, async (event, path: unknown, workspace: unknown, chat: unknown): Promise<{ kind?: "file" | "folder"; error?: string }> => {
+    if (!fromWindow(event) || typeof path !== "string" || !isAbsolute(path) || typeof chat !== "boolean") return { error: "Could not attach this file." };
+    try {
+        return { kind: await checkFile(path, { workspace: typeof workspace === "string" && isAbsolute(workspace) ? workspace : "/", chat }) };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        return { error: message.startsWith("Folders cannot") || message.startsWith("Files must") || message.startsWith("That is not")
+            ? message : "Could not attach this file." };
+    }
+});
+ipcMain.handle(CHANNELS.filesPrepare, async (event, paths: unknown, workspace: unknown, chat: unknown) => {
+    if (!fromWindow(event) || !Array.isArray(paths) || paths.length > FILE_COUNT_LIMIT
+        || !paths.every((path) => typeof path === "string" && isAbsolute(path))
+        || typeof workspace !== "string" || !isAbsolute(workspace) || typeof chat !== "boolean") return { error: "Could not attach these files." };
+    try {
+        return { paths: await prepareFiles(paths, { workspace, chat }) };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        return { error: message.startsWith("Folders cannot") || message.startsWith("Files must") ? message : "Could not attach these files." };
+    }
 });
 ipcMain.handle(CHANNELS.imagePaste, async (event, data: unknown, mediaType: unknown): Promise<string | undefined> => {
     if (!fromWindow(event) || !(data instanceof Uint8Array) || typeof mediaType !== "string") return undefined;
@@ -348,6 +557,21 @@ ipcMain.handle(CHANNELS.folderList, async (event, folder: unknown): Promise<Fold
     if (!fromWindow(event) || path === undefined) return { ok: false, reason: "That is not a folder path." };
     return listFolder(path);
 });
+ipcMain.handle(CHANNELS.previewOpen, async (event, folder: unknown, file: unknown) => {
+    const root = typeof folder === "string" ? pathArgument(folder) : undefined;
+    const path = typeof file === "string" ? pathArgument(file) : undefined;
+    if (!fromWindow(event) || root === undefined || path === undefined) return { ok: false, reason: "That file cannot be previewed." };
+    const extension = extname(path).slice(1).toLowerCase();
+    if (!extensionStore.entries().some((entry) => entry.enabled && entry.filePreviews?.includes(extension))) return { ok: false, reason: "That file cannot be previewed." };
+    try { return { ok: true, ...await localPreviews.create(root, path) }; }
+    catch (error) { return { ok: false, reason: error instanceof Error && (error.message === "Too many previews are open." || error.message === "This file is too large to preview.") ? error.message : "That file cannot be previewed." }; }
+});
+ipcMain.on(CHANNELS.previewClose, (event, token: unknown) => {
+    if (fromWindow(event) && typeof token === "string" && /^[0-9a-f]{48}$/.test(token)) {
+        pageCommands.stopFrame(`preview-${token}`);
+        localPreviews.release(token);
+    }
+});
 ipcMain.handle(CHANNELS.fileRead, async (event, file: unknown): Promise<FilePreview> => {
     const path = pathArgument(file);
     if (!fromWindow(event) || path === undefined) return { ok: false, reason: "That is not a file path." };
@@ -360,6 +584,53 @@ ipcMain.handle(CHANNELS.catalogRefresh, (event, provider: unknown, workspace: un
     if (!fromWindow(event) || id === undefined) return { ok: false, reason: "That is not a provider Vera knows." };
     return refreshProvider(hostSocketPath, id, workspaceArgument(workspace));
 });
+let providerLogin: AbortController | undefined;
+ipcMain.handle(CHANNELS.providerList, async (event) => {
+    if (!fromWindow(event) || hostSocketPath === undefined) return { ok: false, reason: "The host is not running." };
+    try { return { ok: true, ...await listProvidersThroughHost(hostSocketPath) }; }
+    catch { return { ok: false, reason: "The host did not list providers." }; }
+});
+ipcMain.handle(CHANNELS.providerSave, async (event, value: unknown) => {
+    if (!fromWindow(event) || hostSocketPath === undefined || typeof value !== "object" || value === null) return { ok: false, reason: "Could not save provider." };
+    const input = value as Record<string, unknown>;
+    const provider = providerArgument(input.provider);
+    if (provider === undefined || typeof input.key !== "string" || typeof input.endpoint !== "string"
+        || (input.protocol !== "openai-chat" && input.protocol !== "anthropic-messages") || typeof input.custom !== "boolean") return { ok: false, reason: "Could not save provider." };
+    try {
+        const result = await saveProviderThroughHost(hostSocketPath, { id: provider, apiKey: input.key, custom: input.custom,
+            declaration: { protocol: input.protocol, credential: "api_key", base_url: input.endpoint },
+            ...(typeof input.editing === "string" && providerArgument(input.editing) === input.editing ? { editing: input.editing } : {}) });
+        return { ok: true, provider: result };
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : "Could not save provider.";
+        return { ok: false, reason: input.key ? reason.split(input.key).join("[redacted]") : reason };
+    }
+});
+ipcMain.handle(CHANNELS.providerSelectModel, async (event, provider: unknown, model: unknown) => {
+    const id = providerArgument(provider);
+    const name = modelArgument(model);
+    if (!fromWindow(event) || hostSocketPath === undefined || id === undefined || name === undefined) return { ok: false, reason: "That model is unavailable." };
+    try { await selectProviderModelThroughHost(hostSocketPath, id, name); return { ok: true }; }
+    catch (error) { return { ok: false, reason: error instanceof Error ? error.message : "The model did not answer." }; }
+});
+ipcMain.handle(CHANNELS.providerSignIn, async (event, value: unknown) => {
+    const provider = providerArgument(value);
+    if (!fromWindow(event) || hostSocketPath === undefined || provider === undefined) return { ok: false, reason: "Could not start sign-in." };
+    providerLogin?.abort();
+    const controller = new AbortController();
+    providerLogin = controller;
+    try {
+        const result = await loginProviderThroughHost(hostSocketPath, provider, (url) => {
+            try {
+                const parsed = new URL(url);
+                if (parsed.protocol === "http:" || parsed.protocol === "https:") void shell.openExternal(url).catch(() => controller.abort());
+            } catch { controller.abort(); }
+        }, controller.signal);
+        return { ok: true, provider: result };
+    } catch (error) { return { ok: false, reason: error instanceof Error ? error.message : "Sign-in failed." }; }
+    finally { if (providerLogin === controller) providerLogin = undefined; }
+});
+ipcMain.on(CHANNELS.providerSignInCancel, (event) => { if (fromWindow(event)) providerLogin?.abort(); });
 ipcMain.handle(CHANNELS.providerForget, (event, provider: unknown, workspace: unknown) => {
     const id = providerArgument(provider);
     if (!fromWindow(event) || id === undefined) return { ok: false, reason: "That is not a provider Vera knows." };
@@ -376,6 +647,8 @@ ipcMain.handle(CHANNELS.modelOperate, (event, operation: unknown, provider: unkn
 });
 ipcMain.handle(CHANNELS.assignmentsRead, (event) =>
     fromWindow(event) ? assignments.read() : { ok: false, reason: "That window cannot read assignments." });
+ipcMain.handle(CHANNELS.includedExtensionsRead, (event) =>
+    fromWindow(event) ? assignments.readIncludedExtensions() : { ok: false, reason: "That window cannot read extensions." });
 ipcMain.handle(CHANNELS.assignmentsEdit, (event, change: unknown) => {
     const edit = changeArgument(change);
     if (!fromWindow(event) || edit === undefined) return { ok: false, reason: "That is not an assignment change." };
@@ -398,10 +671,23 @@ ipcMain.handle(CHANNELS.folderReveal, async (event, folder: unknown): Promise<bo
 });
 ipcMain.handle(CHANNELS.extensionFailures, (event) =>
     fromWindow(event) ? readExtensionFailures(hostSocketPath) : { ok: false, reason: "The host is not running." });
+ipcMain.handle(CHANNELS.newSessionAgents, (event, workspace: unknown) => {
+    if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
+    if (workspace !== undefined && workspaceArgument(workspace) === undefined) return { ok: false, reason: "That is not a folder." };
+    return readNewSessionAgents(hostSocketPath, workspace);
+});
+ipcMain.handle(CHANNELS.folderCustomizations, (event, workspace: unknown) => {
+    if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
+    if (workspace !== undefined && workspaceArgument(workspace) === undefined) return { ok: false, reason: "That is not a folder." };
+    return readFolderCustomizations(hostSocketPath, workspace);
+});
 ipcMain.handle(CHANNELS.annexPages, async (event) => {
     if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
+    const version = ++annexReadVersion;
     const result = await readAnnexPages(hostSocketPath);
-    if (result.ok) annexUrl = result.url;
+    if (version !== annexReadVersion) return { ok: false, reason: "The host is not running." };
+    annexUrl = result.ok ? result.url : undefined;
+    browserPane?.setAnnexUrl(annexUrl);
     return result;
 });
 ipcMain.handle(CHANNELS.annexOpen, async (event, path: unknown): Promise<boolean> => {
@@ -409,6 +695,47 @@ ipcMain.handle(CHANNELS.annexOpen, async (event, path: unknown): Promise<boolean
     if (!fromWindow(event) || address === undefined) return false;
     await shell.openExternal(address);
     return true;
+});
+ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown) => {
+    if (!fromWindow(event) || browserPane === undefined) return { tabs: [], active: null, toolsEnabled: false, toolsAvailable: false };
+    const pane = browserPane;
+    const previousActive = pane.state().active;
+    let opened: number | undefined;
+    if (command === "open" && (value === undefined || typeof value === "string")) opened = pane.open(value);
+    if (command === "navigate" && typeof value === "string") {
+        if (pane.current() === undefined) pane.open(value);
+        else await pane.navigate(value).catch(() => {});
+    }
+    if (command === "select" && (value === null || typeof value === "number")) pane.select(value);
+    if (command === "close" && typeof value === "number") pane.close(value);
+    if (pane.state().active !== previousActive) pageCommands.stop();
+    if (command === "back" && pane.current()?.navigationHistory.canGoBack()) pane.current()?.navigationHistory.goBack();
+    if (command === "forward" && pane.current()?.navigationHistory.canGoForward()) pane.current()?.navigationHistory.goForward();
+    if (command === "reload") pane.current()?.reload();
+    if (command === "external") {
+        const url = pane.current()?.getURL();
+        if (url !== undefined && /^https?:\/\//.test(url)) await shell.openExternal(url);
+    }
+    if (command === "tools" && typeof value === "boolean") await browserGateway?.settings(value);
+    if (command === "bounds") {
+        const rect = value as Record<string, unknown> | null;
+        if (rect === null || typeof rect !== "object") pane.layout(undefined);
+        else if ([rect.x, rect.y, rect.width, rect.height].every((part) => typeof part === "number" && Number.isFinite(part) && part >= 0 && part <= 10000)) {
+            const zoom = event.sender.getZoomFactor();
+            pane.layout({
+                x: Math.round((rect.x as number) * zoom),
+                y: Math.round((rect.y as number) * zoom),
+                width: Math.round((rect.width as number) * zoom),
+                height: Math.round((rect.height as number) * zoom),
+            });
+        }
+    }
+    return {
+        ...pane.state(),
+        toolsEnabled: browserGateway?.enabled ?? false,
+        toolsAvailable: browserGateway?.available ?? false,
+        ...(opened === undefined ? {} : { opened }),
+    };
 });
 ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
     if (!fromWindow(event)) return;
@@ -419,7 +746,18 @@ ipcMain.on(CHANNELS.windowBackground, (event, value: unknown) => {
 app.on("will-quit", shutdown);
 app.on("window-all-closed", () => app.quit());
 app.whenReady().then(() => {
+    protocol.handle(LOCAL_PREVIEW_SCHEME, (request) => localPreviews.serve(request));
+    startExtensions();
     themeService.load();
     installMenu();
     window = createWindow();
+    browserPane = new BrowserPane(window,
+        (url, title) => sendEvent({ type: "browser_loaded", url, title }),
+        (id) => sendEvent({ type: "command", id }),
+    );
+    browserGateway = new BrowserGateway(
+        new BrowserCdp(browserPane),
+        () => sendEvent({ type: "command", id: "browser.reveal" }),
+        () => sendEvent({ type: "command", id: BROWSER_STATE_CHANGED }),
+    );
 });

@@ -1,29 +1,42 @@
 import type { MenuItemConstructorOptions } from "electron";
 
-import { importedThemeCommand, THEME_COMMANDS, THEME_IMPORT_COMMAND } from "../../ui/src/commands/theme-commands.ts";
-import { DEFAULT_THEME, importedThemeId, THEME_NAMES, type ThemeChoice, type ThemeName } from "../../ui/src/theme/tokens.ts";
-import type { NativeShortcut } from "../../ui/src/commands/keys.ts";
+import { importedThemeCommand, THEME_COMMANDS } from "../../ui/src/commands/theme-commands.ts";
+import type { DesktopMenuItem } from "../../ui/src/protocol/extensions.ts";
+import { DEFAULT_THEME, importedThemeId, THEME_NAMES, type ThemeChoice } from "../../ui/src/theme/tokens.ts";
+import { CHAT_COMMANDS } from "../../ui/src/commands/chat-commands.ts";
+import { RELOAD_SHORTCUT, type NativeShortcut } from "../../ui/src/commands/keys.ts";
 import { NAVIGATION_COMMANDS } from "../../ui/src/commands/navigation-commands.ts";
 import { OVERLAY_COMMANDS } from "../../ui/src/commands/overlay-ids.ts";
-import { GO_SHORTCUTS, HELP_SHORTCUTS, LAYOUT_SHORTCUTS, SESSION_SHORTCUTS } from "./shortcuts.ts";
-
-const THEME_LABELS: Readonly<Record<ThemeName, string>> = {
-    dark: "Dark",
-    light: "Light",
-    "high-contrast": "High contrast",
-};
+import { GO_SHORTCUTS, HELP_SHORTCUTS, LAYOUT_SHORTCUTS } from "./shortcuts.ts";
+import { THEME_LABELS } from "../../ui/src/theme/registry.ts";
 
 export interface ImportedMenuTheme {
     readonly slug: string;
     readonly name: string;
 }
 
+// Drops the items the window has hidden, then any separator left first, last or doubled.
+function withoutHidden(items: readonly MenuItemConstructorOptions[], hidden: ReadonlySet<string>): MenuItemConstructorOptions[] {
+    const kept: MenuItemConstructorOptions[] = [];
+    for (const entry of items) {
+        if (entry.id !== undefined && hidden.has(entry.id)) continue;
+        if (entry.type === "separator" && (kept.length === 0 || kept[kept.length - 1]?.type === "separator")) continue;
+        kept.push(entry);
+    }
+    while (kept[kept.length - 1]?.type === "separator") kept.pop();
+    return kept;
+}
+
 // Menu items only ask the page to run a command; the page owns the layout and the theme.
+// `hidden` names the commands the window has taken out of its menus.
 export function buildMenuTemplate(
     platform: string,
     run: (commandId: string) => void,
     theme: ThemeChoice = DEFAULT_THEME,
     imported: readonly ImportedMenuTheme[] = [],
+    hidden: ReadonlySet<string> = new Set(),
+    // Commands that enabled extensions list in the Theme submenu, after the themes.
+    themeCommands: readonly DesktopMenuItem[] = [],
 ): MenuItemConstructorOptions[] {
     const item = (shortcut: NativeShortcut): MenuItemConstructorOptions => ({
         id: shortcut.command,
@@ -38,7 +51,7 @@ export function buildMenuTemplate(
     const [newChat, back, forward, settings] = GO_SHORTCUTS.map(item);
     const go: MenuItemConstructorOptions = {
         label: "Go",
-        submenu: [
+        submenu: withoutHidden([
             newChat,
             { type: "separator" },
             back,
@@ -54,7 +67,7 @@ export function buildMenuTemplate(
             plain(NAVIGATION_COMMANDS.coverage, "Coverage"),
         ].filter(
             (entry): entry is MenuItemConstructorOptions => entry !== undefined,
-        ),
+        ), hidden),
     };
     const themeItems: MenuItemConstructorOptions[] = THEME_NAMES.map((name) => ({
         id: THEME_COMMANDS[name],
@@ -73,11 +86,10 @@ export function buildMenuTemplate(
     const [palette, sessions, keys] = HELP_SHORTCUTS.map(item);
     const view: MenuItemConstructorOptions = {
         label: "View",
-        submenu: [
+        submenu: withoutHidden([
             ...[palette, sessions].filter((entry): entry is MenuItemConstructorOptions => entry !== undefined),
             { type: "separator" },
             ...layoutItems,
-            ...SESSION_SHORTCUTS.map(item),
             sheet("agent"),
             { type: "separator" },
             { id: "layout.reset", label: "Reset Layout", click: () => run("layout.reset") },
@@ -87,14 +99,12 @@ export function buildMenuTemplate(
                 submenu: [
                     ...themeItems,
                     ...(importedItems.length === 0 ? [] : [{ type: "separator" } as const, ...importedItems]),
-                    { type: "separator" },
-                    plain(THEME_IMPORT_COMMAND, "Import VS Code Theme…"),
+                    ...(themeCommands.length === 0 ? [] : [{ type: "separator" } as const, ...themeCommands.map((entry) => plain(entry.command, entry.title))]),
                 ],
             },
             sheet("themes"),
             { type: "separator" },
-            { role: "reload" },
-            { role: "forceReload" },
+            item(RELOAD_SHORTCUT),
             { role: "toggleDevTools" },
             { type: "separator" },
             { role: "resetZoom" },
@@ -102,7 +112,7 @@ export function buildMenuTemplate(
             { role: "zoomOut" },
             { type: "separator" },
             { role: "togglefullscreen" },
-        ],
+        ], hidden),
     };
     return [
         platform === "darwin"
@@ -114,7 +124,8 @@ export function buildMenuTemplate(
         { role: "windowMenu" },
         {
             role: "help",
-            submenu: [
+            submenu: withoutHidden([
+                plain(CHAT_COMMANDS.help, "New Help Chat"),
                 ...(keys === undefined ? [] : [keys]),
                 { type: "separator" },
                 sheet("diagnostics"),
@@ -124,7 +135,7 @@ export function buildMenuTemplate(
                 sheet("configure"),
                 sheet("failures"),
                 sheet("nudges"),
-            ],
+            ], hidden),
         },
     ];
 }

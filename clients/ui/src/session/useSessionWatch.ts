@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { getModelSettingsCommand } from "../models/commands.ts";
 import type { DesktopBridge, SessionPane } from "../protocol/bridge.ts";
 import { unwatchDesktopSession, watchDesktopSession } from "../protocol/watchedSessions.ts";
 import { STREAM_BACKGROUND_FLUSH_MS, STREAM_FLUSH_MS } from "../state/frameBudget.ts";
-import type { SessionWatch } from "./model.ts";
+import type { NoticeLink, SessionWatch } from "./model.ts";
 import { getPermissionsCommand } from "./permissions.ts";
 import { createStreamBatcher } from "./streamBatch.ts";
 import { beginOlder, canLoadOlder, initialWatch, reduceWatch, watchClosed } from "./transcript.ts";
@@ -34,6 +34,10 @@ export interface SessionWatchHandle {
     readonly loadOlder: () => void;
     // Writes one command line on the watch connection; dropped until it is connected.
     readonly send: (line: string) => void;
+    // Closes the watch and opens it again on the same session, as after the host moved it.
+    readonly reattach: () => void;
+    // Attaches again, which resumes a stopped session on the host without sending anything.
+    readonly start: () => void;
 }
 
 let requestCount = 0;
@@ -49,8 +53,17 @@ export function useSessionWatch(
     agentId: string,
     connected: boolean,
     pane: SessionPane = "main",
+    // Called when the host asks this pane's window to open a screen. Never batched with the transcript.
+    onShow?: (target: string) => void,
+    // Called for each tool notice with a link that arrives live; the history a watch opens with never calls it.
+    onNoticeLink?: (link: NoticeLink) => void,
 ): SessionWatchHandle {
     const [watch, dispatch] = useReducer(reduce, agentId, initialWatch);
+    const showRef = useRef(onShow);
+    showRef.current = onShow;
+    const noticeRef = useRef(onNoticeLink);
+    noticeRef.current = onNoticeLink;
+    const [attempt, setAttempt] = useState(0);
     useEffect(() => {
         dispatch({ type: "reset", agentId });
         if (!connected) return undefined;
@@ -63,7 +76,13 @@ export function useSessionWatch(
         const off = bridge.onEvent((event) => {
             if (event.type === "session_frame" && event.pane === pane && event.agentId === agentId) {
                 const message = parseSessionLine(event.text);
-                if (message !== undefined) batcher.push(message);
+                if (message?.type === "session_show") showRef.current?.(message.target);
+                else if (message !== undefined) {
+                    if (message.type === "tool_presentation" && message.presentation.kind === "tool_notice" && message.presentation.link !== undefined) {
+                        noticeRef.current?.(message.presentation.link);
+                    }
+                    batcher.push(message);
+                }
             } else if (event.type === "session_closed" && event.pane === pane && event.agentId === agentId) {
                 batcher.flush();
                 dispatch({ type: "closed", reason: event.reason });
@@ -85,7 +104,7 @@ export function useSessionWatch(
             batcher.dispose();
             unwatchDesktopSession(bridge, pane);
         };
-    }, [bridge, agentId, connected, pane]);
+    }, [bridge, agentId, connected, pane, attempt]);
     // The approval mode and the model are not part of history, so both are asked for on every attach.
     const attached = watch.phase === "attached";
     useEffect(() => {
@@ -104,5 +123,6 @@ export function useSessionWatch(
         bridge.sendSession(pane, historyPageRequest(`page-${requestCount}`, olderBefore));
     }, [bridge, ready, olderBefore, pane]);
     const send = useCallback((line: string) => bridge.sendSession(pane, line), [bridge, pane]);
-    return { watch, loadOlder, send };
+    const reattach = useCallback(() => setAttempt((count) => count + 1), []);
+    return { watch, loadOlder, send, reattach, start: reattach };
 }

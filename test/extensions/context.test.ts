@@ -553,7 +553,67 @@ test("under the budget the per-file warning is unchanged", () => {
     expect(markdown).not.toContain("budget");
 });
 
+test("client context reads default and explicitly targeted snapshots", async () => {
+    const path = createExtension();
+    writeFileSync(join(path, "extension.ts"), `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "context",
+                description: "Context",
+                usage: "/context",
+                run() {
+                    const focused = vera.context.current();
+                    const main = vera.context.current({ agentId: "main" });
+                    const missing = vera.context.current({ agentId: "missing" });
+                    const values = [focused.headline.tokens, main.headline.tokens, missing.availability];
+                    focused.headline.tokens = 1;
+                    main.headline.tokens = 2;
+                    vera.experimentalTui.openDocument({ title: "Context", markdown: JSON.stringify(values) });
+                    return { kind: "handled" };
+                },
+            });
+        }
+    `);
+    const focused = availableSnapshot();
+    const main = budgetSnapshot([instruction("core.user-rules", "User rules", 9_000)]);
+    const calls: unknown[][] = [];
+    const documents: string[] = [];
+    const options = registryOptions(path, focused, {
+        mount: () => async () => {},
+        mountRenderable: () => async () => {},
+        openDocument: (_id, document) => {
+            documents.push(typeof document.markdown === "string" ? document.markdown : document.markdown(80));
+        },
+        events: { on: () => async () => {} },
+        agentSurface: {
+            current: () => undefined,
+            cycleLayout: () => false,
+            toggleFocus: () => false,
+        },
+    });
+    const registry = await startClientExtensionRegistry({
+        ...options,
+        context: {
+            current(...args) {
+                calls.push(args);
+                if (args.length === 0) return focused;
+                return args[0]?.agentId === "main" ? main : { availability: "unavailable" };
+            },
+        },
+    });
+    try {
+        await registry.invokeCommand("context", "", "/workspace");
+        expect(calls).toEqual([[], [{ agentId: "main" }], [{ agentId: "missing" }]]);
+        expect(documents).toEqual(['[700,9000,"unavailable"]']);
+        expect(focused.headline?.tokens).toBe(700);
+        expect(main.headline?.tokens).toBe(9_000);
+    } finally {
+        await registry.close();
+    }
+});
+
 test("the context extension posts one soft budget notice per conversation", async () => {
+    let agentId = `conversation-${crypto.randomUUID()}`;
     let snapshot: VeraClientContextSnapshot = { availability: "unavailable" };
     const listeners = new Map<string, ((...args: unknown[]) => unknown)[]>();
     const notices: { text: string; tone?: string }[] = [];
@@ -586,6 +646,12 @@ test("the context extension posts one soft budget notice per conversation", asyn
     const registry = await startClientExtensionRegistry({
         ...options,
         context: { current: () => snapshot },
+        agents: {
+            visible: () => [{ agentId, pane: "main" }],
+            create: async () => { throw new Error("unused"); },
+            open: async () => { throw new Error("unused"); },
+            message: async () => { throw new Error("unused"); },
+        },
         notice: {
             post: (_id, text, noticeOptions) => {
                 notices.push({ text, ...(noticeOptions?.tone === undefined ? {} : { tone: noticeOptions.tone }) });
@@ -612,6 +678,11 @@ test("the context extension posts one soft budget notice per conversation", asyn
         fire("transcript_changed", []);
         expect(notices.length).toBe(1);
 
+        fire("conversation_changed");
+        fire("transcript_changed", []);
+        expect(notices.length).toBe(1);
+
+        agentId = `conversation-${crypto.randomUUID()}`;
         fire("conversation_changed");
         fire("transcript_changed", []);
         expect(notices.length).toBe(2);

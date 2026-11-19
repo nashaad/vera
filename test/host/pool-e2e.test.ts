@@ -9,6 +9,7 @@ import { loadVeraConfig } from "../../src/config.ts";
 import { branchAgentThroughHost, createAgentThroughHost, resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent, PromptRejectedError, type AttachedAgentClient } from "../../src/host/attached-client.ts";
 import { closeAgentThroughHost } from "../../src/host/agent-close-client.ts";
+import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE } from "../../src/host/capabilities.ts";
 import { requestExtensionThroughHost } from "../../src/host/extension-request-client.ts";
@@ -87,6 +88,44 @@ socketAndLoopbackTest("a real worker serves sessions and preserves an existing o
         try {
             if (workerPid !== undefined) expect(() => process.kill(workerPid!, 0)).toThrow();
             if (annexPid !== undefined) expect(() => process.kill(annexPid, 0)).toThrow();
+        } finally {
+            await rm(home, { recursive: true, force: true });
+        }
+    }
+}, 30_000);
+
+socketAndLoopbackTest("a rename through the session channel reaches a worker host listing without another turn", async () => {
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const home = await mkdtemp(join(tmpdir(), "vera-dev", "hs4-name-"));
+    let host: Awaited<ReturnType<typeof startResidentHost>> | undefined;
+    let client: AttachedAgentClient | undefined;
+    let workerPid: number | undefined;
+    try {
+        host = await startResidentHost({
+            home, processWorker: true, processWorkerCount: 1, skipStartupDiscovery: true,
+            config: { schema_version: 1, provider: "stub", model: "stub-model", approval_mode: "auto", curated_models_url: "" },
+        });
+        const socket = host.server.socketPath;
+        const created = await createAgentThroughHost(socket, home);
+        const location = await locate(socket, created.id);
+        workerPid = (await requestHostIdentity(location.socket_path))!.pid;
+        expect(workerPid).not.toBe(process.pid);
+        client = await attachAgent({ socketPath: socket, agentId: created.id });
+        expect((await client.receive()).type).toBe("history");
+        await client.send({ type: "update_session_name", requestId: "rename-1", name: "crow map" });
+        while ((await client.receive(AbortSignal.timeout(5_000))).type !== "session_name") {}
+        const deadline = Date.now() + 3_000;
+        let title: string | undefined;
+        while (title !== "crow map" && Date.now() < deadline) {
+            title = (await listAgentsThroughHost(socket)).find((row) => row.id === created.id)?.title;
+            if (title !== "crow map") await Bun.sleep(100);
+        }
+        expect(title).toBe("crow map");
+    } finally {
+        client?.close();
+        await host?.close();
+        try {
+            if (workerPid !== undefined) expect(() => process.kill(workerPid!, 0)).toThrow();
         } finally {
             await rm(home, { recursive: true, force: true });
         }

@@ -46,7 +46,7 @@ export interface SessionHostServices {
 }
 
 export type ExtensionSessionServices = Pick<ExtensionHostServices,
-    "setSessionTitle" | "sendToSession" | "askSession" | "investigate"
+    "setSessionTitle" | "showInSession" | "sendToSession" | "askSession" | "investigate"
 >;
 
 export interface StartSessionHostOptions {

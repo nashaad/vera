@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
 
+import { runBtw, type BtwTabs } from "../../chat/btw.ts";
+import { readSidekickOffered, useSidekickOffered } from "../../chat/included.ts";
+import { closeChatTab, hasRoomForChatTab, openChatTab, showChatTab, type ChatTabHost } from "../../chat/open.ts";
 import { useWorkbench } from "../../workbench/context.tsx";
 import type { DesktopBridge } from "../../protocol/bridge.ts";
 import { useSlashCatalog, type SlashSession } from "./host.ts";
-import { buildSlashEntries, defaultSlashIndex, extensionListAction, pendingExtensionListFailureNotice, resolveSlashLine, suggestSlash, type SlashEntry } from "./model.ts";
+import { BTW_SLASH_ENTRY, buildSlashEntries, defaultSlashIndex, extensionListAction, pendingExtensionListFailureNotice, resolveSlashLine, suggestSlash, type SlashEntry } from "./model.ts";
 import { runSlashEntry, type SlashRunContext } from "./run.ts";
 import type { SlashMenuView } from "./SlashMenu.tsx";
 
@@ -38,9 +41,19 @@ interface Moved {
 // The slash menu and slash lines of one composer. The menu is open while the box holds a
 // slash and a name with no space; once a space is typed the rest is the command's arguments.
 export function useSlashMenu({ text, setText, session, hostBridge, onNewChatExtension, notify }: SlashMenuInput): SlashMenu {
-    const { run } = useWorkbench();
-    const catalog = useSlashCatalog(session, text.trimStart().startsWith("/"), hostBridge);
-    const entries = useMemo(() => buildSlashEntries(catalog.extensions, catalog.skills), [catalog]);
+    const workbench = useWorkbench();
+    const { run, hidden } = workbench;
+    const latest = useRef(workbench);
+    latest.current = workbench;
+    const slashStarted = text.trimStart().startsWith("/");
+    const catalog = useSlashCatalog(session, slashStarted, hostBridge);
+    // The sidekick opens from the main pane's composer; a Chat tab's composer has none of its own.
+    const sidekick = session !== undefined && session.pane === "main" ? session : undefined;
+    const offered = useSidekickOffered(sidekick?.bridge, slashStarted && sidekick !== undefined);
+    const entries = useMemo(
+        () => buildSlashEntries(catalog.extensions, catalog.skills, hidden, sidekick !== undefined && offered === true),
+        [catalog, hidden, sidekick, offered],
+    );
     const suggestions = useMemo(() => suggestSlash(entries, text), [entries, text]);
     const pendingLine = useRef<string | undefined>(undefined);
     // Escape and leaving the box close the menu for this text; typing more opens it again.
@@ -52,6 +65,7 @@ export function useSlashMenu({ text, setText, session, hostBridge, onNewChatExte
         : defaultSlashIndex(suggestions, text);
 
     const execute = (entry: SlashEntry, args: string, line: string): void => {
+        const restore = (): void => setText((current) => (current.length === 0 ? line : current));
         if (session === undefined && entry.action.kind === "extension" && onNewChatExtension !== undefined) {
             notify(undefined);
             onNewChatExtension(line);
@@ -61,7 +75,19 @@ export function useSlashMenu({ text, setText, session, hostBridge, onNewChatExte
             session,
             run,
             notify,
-            restore: () => setText((current) => (current.length === 0 ? line : current)),
+            restore,
+            ...(sidekick === undefined ? {} : {
+                btw: (args: string) => runBtw(args, {
+                    bridge: sidekick.bridge,
+                    primary: sidekick.agentId,
+                    folder: sidekick.folder,
+                    chat: sidekick.chat === true,
+                    tabs: sidekickTabs(latest),
+                    offered: () => readSidekickOffered(sidekick.bridge),
+                    notify,
+                    restore,
+                }),
+            }),
         };
         notify(undefined);
         setText("");
@@ -95,6 +121,12 @@ export function useSlashMenu({ text, setText, session, hostBridge, onNewChatExte
     };
 
     const runLine = (line: string): boolean => {
+        // A line typed before the first read of the extension's state answers still reaches /btw, which checks it itself.
+        const early = sidekick !== undefined && offered === undefined ? /^\s*\/btw(?:\s+([\s\S]*))?$/.exec(line) : null;
+        if (early !== null) {
+            execute(BTW_SLASH_ENTRY, early[1]?.trim() ?? "", line);
+            return true;
+        }
         const resolved = resolveSlashLine(entries, line);
         if (resolved.kind === "prompt") {
             const listAction = extensionListAction(line, catalog.extensionCommandsLoaded, catalog.extensionCommandsLoading);
@@ -142,4 +174,13 @@ export function useSlashMenu({ text, setText, session, hostBridge, onNewChatExte
         : undefined;
 
     return { view, onKeyDown, onBlur: () => setDismissed(text), runLine };
+}
+
+function sidekickTabs(latest: { readonly current: ChatTabHost }): BtwTabs {
+    return {
+        room: () => hasRoomForChatTab(latest.current),
+        open: (seed) => openChatTab(latest.current, seed),
+        show: (tab) => showChatTab(latest.current, tab),
+        close: (tab) => closeChatTab(latest.current, tab),
+    };
 }

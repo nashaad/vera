@@ -1,30 +1,30 @@
-import type { ImportedThemeSummary } from "../../ui/src/theme/imported.ts";
-import type { InstalledThemesResult, ThemeImportResult } from "../../ui/src/protocol/themes.ts";
-import type { ImportOutcome, InstalledTheme, ThemeTask, ThemeTaskReply } from "./theme-import/task-protocol.ts";
-import { extensionRoots } from "./theme-import/roots.ts";
+import type { CommandRefusal, CommandThemesDone } from "../../ui/src/protocol/extension-commands.ts";
+import { summaryOf, type ImportedTheme, type ImportedThemeSummary } from "../../ui/src/theme/imported.ts";
+import { savedThemeExtensionId, stageSavedTheme } from "./extensions/saved-theme.ts";
+import type { ExtensionStore } from "./extensions/store.ts";
 import { ThemeStore } from "./theme-store.ts";
 
-export type RunThemeTask = (task: ThemeTask) => Promise<ThemeTaskReply>;
-
-// The desktop's imported themes: what is saved under the home, and the installed VS Code themes last listed.
-// Reading and converting theme files is a task for `run`, which the app sends to its own process.
+// The themes the picker lists: those of the enabled desktop extensions, plus any theme still saved in the old
+// themes folder because it could not be moved into an extension. A command that converts themes in a task process
+// sends them back, and each is installed as a desktop extension named `imported.<slug>`.
 export class ThemeService {
-    private readonly store: ThemeStore;
+    private readonly saved: ThemeStore;
     private known: readonly ImportedThemeSummary[] = [];
-    private listed = new Map<string, InstalledTheme>();
 
     constructor(
-        private readonly directory: string,
-        private readonly run: RunThemeTask,
-        private readonly roots: readonly string[] = extensionRoots(),
+        private readonly extensions: ExtensionStore,
+        savedDirectory: string,
         private readonly onChange: () => void = () => {},
     ) {
-        this.store = new ThemeStore(directory);
+        this.saved = new ThemeStore(savedDirectory);
     }
 
-    // Reads the saved themes again, so a file added by hand shows up.
+    // Reads the themes again, so an extension or a file added by hand shows up.
     load(): readonly ImportedThemeSummary[] {
-        const next = this.store.list();
+        const fromExtensions = this.extensions.themes();
+        const keys = new Set(fromExtensions.map((theme) => theme.slug));
+        const next = [...fromExtensions, ...this.saved.list().filter((theme) => !keys.has(theme.slug))]
+            .sort((a, b) => a.name.localeCompare(b.name));
         const changed = next.length !== this.known.length || next.some((theme, index) => theme.slug !== this.known[index]?.slug || theme.name !== this.known[index]?.name);
         this.known = next;
         if (changed) this.onChange();
@@ -39,36 +39,35 @@ export class ThemeService {
         return this.known.some((theme) => theme.slug === slug);
     }
 
-    async importFile(path: string): Promise<ThemeImportResult> {
-        return this.finish(await this.importing({ kind: "import-file", directory: this.directory, path }));
+    // Whatever a task converted is installed here, one extension per theme.
+    install(themes: readonly ImportedTheme[], skipped: readonly string[]): CommandThemesDone | CommandRefusal {
+        const imported: ImportedThemeSummary[] = [];
+        const notImported = [...skipped];
+        let firstFailure: string | undefined;
+        for (const theme of themes) {
+            const failure = this.installOne(theme);
+            if (failure === undefined) {
+                imported.push(summaryOf(theme));
+                continue;
+            }
+            firstFailure ??= failure;
+            notImported.push(`${theme.name}: ${failure}`);
+        }
+        if (imported.length === 0) return { ok: false, reason: firstFailure ?? "Vera could not install that theme." };
+        return { ok: true, kind: "themes", imported, themes: this.load(), skipped: notImported };
     }
 
-    async listInstalled(): Promise<InstalledThemesResult> {
-        const reply = await this.run({ kind: "list-installed", roots: this.roots });
-        if (reply.kind !== "listed") throw new Error("The theme import process answered a listing with an import.");
-        this.listed = new Map();
-        const themes = reply.scan.themes.map((theme, index) => {
-            const key = `installed-${index}`;
-            this.listed.set(key, theme);
-            return { key, label: theme.label, extension: theme.extension };
-        });
-        return { ok: true, themes, cut: reply.scan.cut };
-    }
-
-    async importInstalled(key: string): Promise<ThemeImportResult> {
-        const theme = this.listed.get(key);
-        if (theme === undefined) return { ok: false, reason: "That theme is not in the list. Open the list again." };
-        return this.finish(await this.importing({ kind: "import-installed", directory: this.directory, theme }));
-    }
-
-    private async importing(task: ThemeTask): Promise<ImportOutcome> {
-        const reply = await this.run(task);
-        if (reply.kind !== "imported") throw new Error("The theme import process answered an import with a listing.");
-        return reply.outcome;
-    }
-
-    private finish(outcome: ImportOutcome): ThemeImportResult {
-        if (!outcome.ok) return outcome;
-        return { ok: true, imported: outcome.imported, themes: this.load(), skipped: outcome.skipped };
+    // The reason it could not be installed, or undefined once it is.
+    private installOne(theme: ImportedTheme): string | undefined {
+        let folder: string | undefined;
+        try {
+            folder = stageSavedTheme(this.extensions, theme, { theme });
+            const result = this.extensions.commit(folder);
+            if (!result.ok) this.extensions.discard(folder);
+            return result.ok ? undefined : result.reason;
+        } catch {
+            if (folder !== undefined) this.extensions.discard(folder);
+            return `Vera could not install "${savedThemeExtensionId(theme.slug)}".`;
+        }
     }
 }

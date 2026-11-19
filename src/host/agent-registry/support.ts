@@ -274,6 +274,7 @@ export interface RegisteredAgentSummary {
     readonly kind: RegisteredAgentKind;
     readonly status: RegisteredAgentStatus;
     readonly live: boolean;
+    readonly archived?: boolean;
     readonly worker_pid?: number;
     readonly supervisor_pid?: number;
     readonly title?: string;
@@ -489,6 +490,8 @@ export interface CreateRegisteredAgentOptions {
     readonly eventLogPath?: string;
     readonly ephemeral?: boolean;
     readonly startupProfile?: StartupProfile;
+    /** Window sessions only. Written to the session header, so it cannot change after creation. */
+    readonly notesOffer?: true;
     /** The mode this agent starts in, when it must not be the host default. It is written to the session like any other approval-mode change, so a client that resumes the session later… */
     readonly approvalMode?: ApprovalMode;
 }

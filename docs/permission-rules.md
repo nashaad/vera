@@ -178,7 +178,7 @@ or asks `Run this command?`. The command itself shows under the question.
 |---|---|
 | 1 Yes, for this chat | Runs this call and allows calls like it for the rest of the session. |
 | 2 Yes, and always allow <words> | Runs this call and saves an allow rule that applies in every session. |
-| 3 Yes, and switch to Approve for me | Runs this call and switches the session to Approve for me. It appears in ask only, when Approve for me is available, and never on a subagent's call or an ask from `permission_rules`. |
+| 3 Yes, and switch to Approve for me | Runs this call and switches the session to Approve for me. It appears in ask only, when Approve for me is available, and never on a subagent's call, an ask from `permission_rules` or a desktop Chat tab. |
 | 4 No | Refuses this call. Escape does the same. |
 
 Answers are numbered from 1 in the order they are shown. An answer that is

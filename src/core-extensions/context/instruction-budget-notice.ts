@@ -1,5 +1,6 @@
 import type { VeraClientExtensionApi } from "../../sdk/extensions.ts";
 import { instructionBudgetNotice } from "./context-report.ts";
+import { claimInstructionBudgetNotice } from "./instruction-budget-store.ts";
 
 // Posts one soft notice per conversation, after a turn settles, when the
 // last measured request carried instructions over the budget.
@@ -11,8 +12,23 @@ export function watchInstructionBudget(
     let working = false;
     const check = (): void => {
         if (warned || working) return;
-        const notice = instructionBudgetNotice(vera.context.current(), budgetTokens);
+        let agent;
+        try {
+            agent = vera.agents.visible().find((visible) => visible.pane === "main");
+        } catch {
+            return;
+        }
+        if (agent === undefined) return;
+        const notice = instructionBudgetNotice(vera.context.current({ agentId: agent.agentId }), budgetTokens);
         if (notice === undefined) return;
+        try {
+            if (!claimInstructionBudgetNotice(vera.storage.profile, agent.agentId)) {
+                warned = true;
+                return;
+            }
+        } catch {
+            return;
+        }
         warned = true;
         vera.ui.notice(notice, { tone: "soft" });
     };

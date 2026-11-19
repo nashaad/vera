@@ -1,13 +1,65 @@
-/* The right pane browser: address bar, page tabs, start page and the annex frame. */
+/* Address bars and page frames. */
+
+.browser-missing {
+    padding: calc(var(--vera-space) * 2);
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+}
+
+.browser-missing h3 {
+    margin: 0 0 var(--vera-space);
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-body);
+}
 
 .browser {
+    container-type: inline-size;
     display: flex;
     flex-direction: column;
     height: 100%;
     min-height: 0;
 }
 
+.browser-tools-switch {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--vera-space);
+    font-size: var(--vera-font-size-label);
+    white-space: nowrap;
+}
+
+.browser-tools-switch .appearance-switch {
+    --browser-switch-unit: min(var(--vera-space), calc(1lh / 3.5), calc(var(--vera-font-size) / 3.25));
+    container-type: inline-size;
+    width: calc(var(--browser-switch-unit) * 6);
+    height: calc(var(--browser-switch-unit) * 3.5);
+}
+
+.browser-tools-switch .appearance-switch-knob {
+    top: 0;
+    bottom: 0;
+    left: calc(var(--browser-switch-unit) * 0.375);
+    width: calc(var(--browser-switch-unit) * 2.25);
+    height: calc(var(--browser-switch-unit) * 2.25);
+    margin-block: auto;
+}
+
+.browser-tools-switch .appearance-switch[aria-checked="true"] .appearance-switch-knob {
+    transform: translateX(calc(100cqi - var(--browser-switch-unit) * 0.75 - 100%));
+}
+
+.browser-tools-switch .appearance-switch:hover:not(:disabled) {
+    border-color: var(--vera-text-muted);
+}
+
+.browser-tools-switch .appearance-switch:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
 .browser-bar {
+    container-type: inline-size;
     display: flex;
     flex: 0 0 auto;
     align-items: center;
@@ -19,6 +71,25 @@
 /* A merged view's actions button floats over the bar's right end. */
 .view[data-merged="true"] .browser-bar {
     padding-right: calc(var(--vera-space) * 6.5);
+}
+
+@container (max-width: 20lh) {
+    .browser-bar {
+        gap: 0;
+        padding-left: var(--vera-space);
+    }
+
+    .view[data-merged="true"] .browser-bar {
+        padding-right: calc(var(--vera-space) * 5.5);
+    }
+
+    .browser-bar .icon-button {
+        width: min(calc(var(--vera-space) * 5), calc(var(--vera-font-size) * 1.35));
+    }
+
+    .browser-tools-label {
+        display: none;
+    }
 }
 
 .browser-bar .icon-button:disabled {
@@ -46,47 +117,20 @@
 }
 
 .browser-address:focus-visible,
-.browser-tab:focus-visible,
-.browser-link:focus-visible,
 .browser-bar .icon-button:focus-visible {
     outline: thin solid var(--vera-focus);
     outline-offset: calc(var(--vera-space) / -4);
 }
 
-.browser-tabs {
+.browser-page {
     display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: calc(var(--vera-space) / 2);
-    padding: var(--vera-space) calc(var(--vera-space) * 1.5);
-    overflow-x: auto;
-    border-bottom: thin solid var(--vera-border);
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
 }
 
-.browser-tab {
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: center;
-    height: calc(var(--vera-row-height) * 0.8);
-    padding: 0 calc(var(--vera-space) * 1.5);
-    color: var(--vera-text-muted);
-    font: inherit;
-    font-size: var(--vera-font-size-label);
-    white-space: nowrap;
-    background: transparent;
-    border: 0;
-    border-radius: var(--vera-radius-sm);
-    cursor: pointer;
-}
-
-.browser-tab:hover {
-    color: var(--vera-text);
-    background: var(--vera-surface-hover);
-}
-
-.browser-tab[aria-current="page"] {
-    color: var(--vera-text);
-    background: var(--vera-surface-selected);
+.browser-page[hidden] {
+    display: none;
 }
 
 .browser-frame {
@@ -97,84 +141,137 @@
     border: 0;
 }
 
-.browser-start {
+.browser-history {
     display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
-    gap: calc(var(--vera-space) / 2);
+    min-height: 0;
+}
+
+.browser-history-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--vera-space);
     padding: calc(var(--vera-space) * 2);
+    border-bottom: thin solid var(--vera-border);
+}
+
+.browser-history-header h2 {
+    margin: 0;
+    font-size: var(--vera-font-size-body);
+}
+
+.browser-history-header input {
+    flex: 1 1 calc(var(--vera-space) * 24);
+    min-width: 0;
+    height: calc(var(--vera-row-height) * 0.8);
+    padding: 0 calc(var(--vera-space) * 1.5);
+    color: var(--vera-text);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius);
+}
+
+.browser-history-header button,
+.browser-history-more {
+    padding: var(--vera-space) calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+    background: transparent;
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+}
+
+.browser-history-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: var(--vera-space) calc(var(--vera-space) * 2);
     overflow-y: auto;
 }
 
-.browser-start h3 {
-    margin: calc(var(--vera-space) * 2) 0 calc(var(--vera-space) / 2);
+.browser-history-day h3 {
+    margin: calc(var(--vera-space) * 2) 0 var(--vera-space);
     color: var(--vera-text-dim);
     font-size: var(--vera-font-size-label);
     font-weight: normal;
 }
 
-.browser-start h3:first-child {
-    margin-top: 0;
-}
-
-.browser-link {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: calc(var(--vera-space) / 2) calc(var(--vera-space) * 2);
-    padding: calc(var(--vera-space) * 1.5);
+.browser-history-entry {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: calc(var(--vera-space) * 2);
+    padding: var(--vera-space);
     color: var(--vera-text);
     font: inherit;
     text-align: left;
     background: transparent;
     border: 0;
     border-radius: var(--vera-radius);
+    content-visibility: auto;
     cursor: pointer;
 }
 
-.browser-link:hover {
+.browser-history-entry:hover,
+.browser-history-header button:hover,
+.browser-history-more:hover {
     background: var(--vera-surface-hover);
 }
 
-.browser-link-label {
-    font-size: var(--vera-font-size-body);
+.browser-history-entry:focus-visible,
+.browser-history-header input:focus-visible,
+.browser-history-header button:focus-visible,
+.browser-history-more:focus-visible {
+    outline: thin solid var(--vera-focus);
 }
 
-.browser-link-from {
-    margin-left: var(--vera-space);
+.browser-history-entry-text {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: calc(var(--vera-space) / 2);
+}
+
+.browser-history-title,
+.browser-history-url {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.browser-history-url,
+.browser-history-entry time {
     color: var(--vera-text-dim);
     font-size: var(--vera-font-size-label);
 }
 
-.browser-link-path {
-    color: var(--vera-text-dim);
-    font-family: var(--vera-font-code);
-    font-size: var(--vera-font-size-label);
+.browser-history-entry time {
+    flex: 0 0 auto;
 }
 
-.browser-link-about {
-    grid-column: 1 / -1;
-    color: var(--vera-text-muted);
-    font-size: var(--vera-font-size-label);
+.browser-history-more {
+    margin: var(--vera-space) 0;
 }
 
-.browser-start-note {
-    margin: 0;
-    padding: 0 calc(var(--vera-space) * 1.5);
-    color: var(--vera-text-dim);
-    font-size: var(--vera-font-size-label);
-}
-
-.browser-start-note:last-child {
-    margin-top: calc(var(--vera-space) * 2);
-}
-
-.browser-missing {
-    padding: calc(var(--vera-space) * 2);
-    color: var(--vera-text-muted);
-    font-size: var(--vera-font-size-label);
-}
-
-.browser-missing h3 {
-    margin: 0 0 var(--vera-space);
+.browser-tools-notice {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: calc(var(--vera-space) * 2);
+    padding: var(--vera-space) calc(var(--vera-space) * 2);
     color: var(--vera-text);
-    font-size: var(--vera-font-size-body);
+    background: var(--vera-surface-panel);
+    border-top: thin solid var(--vera-border);
+    font-size: var(--vera-font-size-label);
+}
+
+.browser-tools-notice .chip {
+    flex: 0 0 auto;
 }

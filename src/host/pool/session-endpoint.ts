@@ -1,4 +1,5 @@
 import type { CreateRegisteredAgentOptions, RegisteredAgentSummary, RenameSessionOutcome } from "../agent-registry.ts";
+import type { MoveSessionInput, MoveSessionOutcome } from "../agent-registry/move.ts";
 import type { PeerSessionServices } from "../agent-registry/peer-services.ts";
 import type { SubagentSessionServices } from "../agent-registry/subagent-services.ts";
 import type { BranchSyncDelta, BranchSyncInfo, BranchSyncOutcome, BranchSyncPrepared } from "../agent-registry/context-sync.ts";
@@ -71,13 +72,15 @@ export interface SessionEndpoint extends ExtensionSessionServices, PeerSessionSe
     tree(id: string): Promise<readonly string[]>;
     find(id: string, reserved?: boolean): Promise<RoutedSession | undefined>;
     create(options: Pick<CreateRegisteredAgentOptions,
-        "id" | "workspace" | "approvalMode" | "ephemeral" | "startupProfile">): Promise<RoutedSession>;
+        "id" | "workspace" | "approvalMode" | "ephemeral" | "startupProfile" | "notesOffer">): Promise<RoutedSession>;
     resume(path: string, options?: SessionResumeOptions): Promise<RoutedSession>;
     release(id: string): Promise<readonly string[] | undefined>;
     list(): Promise<readonly RegisteredAgentSummary[]>;
     rememberStored(summary: RegisteredAgentSummary): Promise<void>;
     forgetStored(id: string): Promise<void>;
     rename(id: string, name: string | null, reserved?: boolean): Promise<RenameSessionOutcome>;
+    setArchived(id: string, archived: boolean, reserved?: boolean): Promise<"updated" | "not_found" | "failed">;
+    move(id: string, request: MoveSessionInput, reserved?: boolean): Promise<MoveSessionOutcome>;
     trash(id: string, reserved?: boolean): Promise<"trashed" | "busy" | "not_found" | "failed">;
     reserveTrash(ids: readonly string[], rootId: string, registeredIds: readonly string[], reservedIds: readonly string[]): Promise<TrashReservation>;
     quiesceClose(ids: readonly string[]): Promise<readonly CloseTicket[]>;

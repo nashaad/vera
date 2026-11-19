@@ -6,8 +6,8 @@ description: "Use side conversations, workspace diffs, artifacts, context inspec
 # Included extensions
 
 Vera includes extensions for side conversations, workspace diffs,
-context inspection, commentable artifacts, and command hooks. They appear in `/extensions` and
-`/customize`; no separate installation is needed.
+context inspection, commentable artifacts, and command hooks. They appear in `/extensions`,
+not in `/customize`; no separate installation is needed.
 
 Extension code lives in four places in the repository. Vera loads the first
 two on its own:
@@ -19,6 +19,11 @@ examples/extensions/   example extensions: never loaded unless added by path
 src/extensions/        the extension host: discovery, manifests, registry, manager
 ```
 
+The `extensions/` folder also holds `vscode-theme-import/`, which has a
+`vera.desktop.json` and no `vera.extension.json`. It is a desktop extension that
+only the desktop app runs, always on; the terminal UI does not load it. See
+[Desktop extensions](desktop.md#desktop-extensions).
+
 To use an example, install its folder with `/extension install <path>`, as in
 [Install a local extension](extensions.md#install-a-local-extension), or add
 it by path when it needs configuration.
@@ -27,7 +32,7 @@ The core and optional extensions are:
 
 ```text
 core       vera.chat, vera.command-hooks, vera.context, vera.customize,
-           vera.explorer, vera.monitor, vera.reasoning-cycle,
+           vera.explorer, vera.help, vera.monitor, vera.reasoning-cycle,
            vera.session-identity, vera.web-search
 included   vera.artifacts, vera.btw, vera.budget, vera.cache, vera.diff,
            vera.mcp, vera.titles
@@ -40,10 +45,17 @@ conversation. `/btw <message>` opens it and sends the message. `/btw close`
 closes its pane, and so does plain `/close` or Ctrl+W while that pane is
 focused. Its pane is temporary.
 
+The [desktop app](desktop.md#chat-tabs) offers `/btw` in a session's composer
+while `vera.btw` is on. It opens the same readonly sidekick, branched from the
+session the same way, in a Chat tab of the right pane. There, closing the tab
+or hiding the right pane ends the sidekick, and the sidekick is brought up to
+date only when `/btw` sends a question.
+
 Use `/pair` for a fresh peer conversation with ask permissions.
 `/pair <message>` sends a message as it opens. `/pair close` closes its pane,
 and so does plain `/close` or Ctrl+W while that pane is focused. Pair
 attachments survive restart, and the conversation is available in `/resume`.
+`/pair` is available in the terminal only.
 
 ### Work with two panes
 
@@ -75,9 +87,17 @@ code. Vera does not rerun the command. If formatting or saving a notice fails,
 Vera shows an error in the live owning conversation; any saved outcome is
 retried when the host restarts.
 
-The `process` tool can still read or stop a running command. Disable this
-extension with `/extension disable vera.monitor` to remove `monitor` and
-prevent new monitor notices; ordinary `bash` and `process` remain available.
+The `process` tool can still read or stop a running command. After a command
+exits or is stopped, its conversation can read its final status and captured
+output again for up to ten minutes. Reading does not extend that time. A
+conversation holds at most 32 command records, including running commands;
+older finished records may be discarded sooner to make room for a new command.
+Closing the conversation removes its records. An expired, invalid or
+out-of-conversation ID is reported as unavailable.
+
+Disable this extension with `/extension disable vera.monitor` to remove
+`monitor` and prevent new monitor notices; ordinary `bash` and `process` remain
+available.
 
 ## Run command hooks
 
@@ -90,7 +110,7 @@ host, not by this extension, and disabling it does not stop them. See
 
 To configure this extension's list, add an `extensions` entry
 whose path is the absolute directory shown for `vera.command-hooks` in
-`/customize`. That entry replaces the included copy. Its `argv` is an absolute
+`/extensions`. That entry replaces the included copy. Its `argv` is an absolute
 path. Malformed supplied configuration prevents activation.
 
 ## Title new conversations
@@ -119,14 +139,30 @@ JavaScript, such as a wavesurfer.js player, in a sandboxed frame that cannot
 read the page or act for you.
 
 Read an artifact in the annex: run `/usage` and pick Artifacts from the `≡`
-menu, or open the link the transcript shows after `artifact_write`. Hover a
-block and click the comment button to comment on it. A comment does not start
+menu, or open the link the transcript shows after `artifact_write`. In the
+desktop app the transcript shows a card for the artifact under the tool run, and
+clicking it opens the artifact in the right pane's Artifacts tab. The tab is
+added when an artifact is written, behind the tab you are on, with a green dot
+until you look at it. The Artifacts row in the sidebar opens the list of every
+artifact, newest first, grouped by session. Hover a block and click the comment
+button to comment on it. A comment does not start
 a turn; the agent reads it the next time it checks. When the text a comment
 was left on changes, the comment is marked Outdated.
 
 Tick Send to Vera on a comment to also send it to the conversation. It starts
 a turn right away, or after the running one, without asking. Disable it with
 `/extension disable vera.artifacts`.
+
+## Save feedback
+
+`vera.feedback` provides `/feedback` in the terminal and the `file_feedback`
+tool for requests made in conversation. The window's Feedback form uses the
+same host handler. Reports stay under `machine/feedback/` in the Vera home.
+Each report has a title, description and optional images. The tool follows the
+normal approval rules. A report holds up to four images of 10 MB each, and Vera
+refuses new reports after 500 until reports are moved out of that folder. If Vera
+reports a lock left after an interruption, remove the named lock folder after any
+save has finished.
 
 ## Configure or disable included copies
 

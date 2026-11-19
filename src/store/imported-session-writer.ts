@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 
 import type { AssistantMessage, UserMessage } from "../model/types.ts";
 import type { SessionImportProvenance } from "./session-import-provenance.ts";
+import { sessionMetadataPath } from "./session-metadata.ts";
 import {
     SESSION_FORMAT_VERSION,
     SessionStore,
@@ -88,6 +89,12 @@ export async function writeImportedSession(
         }
         await SessionStore.open(staged);
         await link(staged, path);
+        try {
+            await rm(sessionMetadataPath(path), { force: true });
+        } catch (error) {
+            await rm(path, { force: true });
+            throw error;
+        }
     } finally {
         await rm(staged, { force: true });
     }

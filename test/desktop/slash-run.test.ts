@@ -28,6 +28,7 @@ function fakeSession(answer: (line: Fields) => Fields | undefined, running = fal
     return {
         bridge,
         agentId: "crow-1",
+        pane: "main",
         attached: true,
         running,
         lines,
@@ -212,7 +213,7 @@ describe("askSession", () => {
             for (const listener of listeners) listener({ type: "session_frame", pane, agentId, text: JSON.stringify(value) } as DesktopEvent);
         };
         const answer = askSession(
-            { bridge, agentId: "crow-1", send: () => {
+            { bridge, agentId: "crow-1", pane: "main", send: () => {
                 emit("crow-2", "main", { type: "session_name", requestId: "r1", name: "other agent" });
                 emit("crow-1", "main", { type: "session_name", requestId: "other", name: "other request" });
                 emit("crow-1", "main", { type: "session_name", requestId: "r1", name: "right" });
@@ -225,6 +226,31 @@ describe("askSession", () => {
         expect(listeners.size).toBe(0);
     });
 
+    test("@core a reply is read on the pane the question went out on", async () => {
+        const listeners = new Set<(event: DesktopEvent) => void>();
+        const bridge = {
+            onEvent: (listener: (event: DesktopEvent) => void) => {
+                listeners.add(listener);
+                return () => listeners.delete(listener);
+            },
+        } as unknown as DesktopBridge;
+        const emit = (pane: string, name: string): void => {
+            const text = JSON.stringify({ type: "session_name", requestId: "r1", name });
+            for (const listener of listeners) listener({ type: "session_frame", pane, agentId: "crow-1", text } as DesktopEvent);
+        };
+        const answer = askSession(
+            { bridge, agentId: "crow-1", pane: "chat:2", send: () => {
+                emit("main", "main pane");
+                emit("chat:3", "other chat");
+                emit("chat:2", "this chat");
+            } },
+            "r1",
+            "{}\n",
+            parseSlashReply,
+        );
+        expect(await answer).toEqual({ type: "renamed", requestId: "r1", name: "this chat" });
+    });
+
     test("@core no reply in time resolves undefined and stops listening", async () => {
         const listeners = new Set<(event: DesktopEvent) => void>();
         const bridge = {
@@ -233,7 +259,7 @@ describe("askSession", () => {
                 return () => listeners.delete(listener);
             },
         } as unknown as DesktopBridge;
-        const result = await askSession({ bridge, agentId: "crow-1", send: () => undefined }, "r1", "{}\n", parseSlashReply, 5);
+        const result = await askSession({ bridge, agentId: "crow-1", pane: "main", send: () => undefined }, "r1", "{}\n", parseSlashReply, 5);
         expect(result).toBeUndefined();
         expect(listeners.size).toBe(0);
     });

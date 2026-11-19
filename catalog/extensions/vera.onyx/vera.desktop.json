@@ -1,0 +1,13 @@
+{
+    "id": "vera.onyx",
+    "version": "1.0.0",
+    "engine": "vera-gui@^1",
+    "contributes": {
+        "themes": [
+            {
+                "label": "Onyx",
+                "path": "themes/onyx.json"
+            }
+        ]
+    }
+}

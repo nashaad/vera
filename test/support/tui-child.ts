@@ -19,6 +19,7 @@ export interface TuiChildOptions {
     readonly staleDoctor?: boolean;
     readonly sessionPath?: string;
     readonly resumeSessionPath?: string;
+    readonly agentId?: string;
     readonly clientExtensions?: TuiDependencies["clientExtensions"];
     readonly modelSettings?: ModelTurnSettings;
 }
@@ -60,6 +61,7 @@ export function createTuiChildDependencies(
         },
     );
     const client: TuiAgentClient = {
+        ...(options.agentId === undefined ? {} : { agentId: options.agentId }),
         async send(command): Promise<void> {
             channel.client.send(command);
         },

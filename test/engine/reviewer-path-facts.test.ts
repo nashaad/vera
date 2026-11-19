@@ -12,6 +12,7 @@ import { join } from "node:path";
 
 import { collectReviewerPathFacts } from "../../src/engine/reviewer-path-facts.ts";
 import type { PermissionActionDecision } from "../../src/engine/permissions.ts";
+import { git, removeGitRepositories, repository } from "../support/git-repositories.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -19,6 +20,7 @@ afterEach(() => {
     for (const path of temporaryDirectories.splice(0)) {
         rmSync(path, { recursive: true, force: true });
     }
+    removeGitRepositories();
 });
 
 test("reviewer path facts describe files and bounded directory trees without content", async () => {
@@ -146,6 +148,112 @@ test("reviewer path inspection stops before work when the turn is cancelled", as
         controller.signal,
     )).rejects.toMatchObject({ name: "AbortError" });
 });
+
+test("@core reviewer Git facts isolate a clean target in a dirty repository", async () => {
+    const repo = repository();
+    const target = join(repo, "src", "a.ts");
+    const other = join(repo, "other.ts");
+    writeFileSync(other, "original\n");
+    git(repo, ["add", "other.ts"]);
+    git(repo, ["commit", "-q", "-m", "add other"]);
+    writeFileSync(other, "changed\n");
+
+    expect(await gitState(repo, target)).toBe("clean");
+    git(repo, ["add", "other.ts"]);
+    expect(await gitState(repo, target)).toBe("clean");
+});
+
+test("@core reviewer Git facts report unstaged and staged changes to the target", async () => {
+    const repo = repository();
+    const target = join(repo, "src", "a.ts");
+    writeFileSync(target, "modified\n");
+
+    expect(await gitState(repo, target)).toBe("dirty");
+    git(repo, ["add", "src/a.ts"]);
+    expect(await gitState(repo, target)).toBe("dirty");
+    git(repo, ["commit", "-q", "-m", "change target"]);
+    expect(await gitState(repo, target)).toBe("clean");
+});
+
+test("@core reviewer Git facts identify untracked and ignored files", async () => {
+    const repo = repository();
+    writeFileSync(join(repo, ".gitignore"), "ignored.txt\n");
+    git(repo, ["add", ".gitignore"]);
+    git(repo, ["commit", "-q", "-m", "ignore a file"]);
+    const untracked = join(repo, "new.txt");
+    const ignored = join(repo, "ignored.txt");
+    writeFileSync(untracked, "new\n");
+    writeFileSync(ignored, "ignored\n");
+
+    expect(await gitState(repo, untracked)).toBe("untracked");
+    expect(await gitState(repo, ignored)).toBe("untracked");
+});
+
+test("@core reviewer Git facts scope directories to their contents", async () => {
+    const repo = repository();
+    const target = join(repo, "src");
+    const outside = join(repo, "other.txt");
+    writeFileSync(outside, "original\n");
+    git(repo, ["add", "other.txt"]);
+    git(repo, ["commit", "-q", "-m", "add other"]);
+    writeFileSync(outside, "modified\n");
+
+    expect(await gitState(repo, target)).toBe("clean");
+    writeFileSync(join(target, "new.txt"), "new\n");
+    expect(await gitState(repo, target)).toBe("untracked");
+    writeFileSync(join(target, "a.ts"), "modified\n");
+    expect(await gitState(repo, target)).toBe("dirty");
+    git(repo, ["add", "src/a.ts"]);
+    expect(await gitState(repo, target)).toBe("dirty");
+});
+
+test("@core reviewer Git facts use literal pathspecs", async () => {
+    const repo = repository();
+    const target = join(repo, "file[1].txt");
+    const other = join(repo, "file1.txt");
+    writeFileSync(target, "original\n");
+    writeFileSync(other, "original\n");
+    git(repo, ["add", "file[1].txt", "file1.txt"]);
+    git(repo, ["commit", "-q", "-m", "add files"]);
+    writeFileSync(other, "modified\n");
+
+    expect(await gitState(repo, target)).toBe("clean");
+    writeFileSync(target, "modified\n");
+    expect(await gitState(repo, target)).toBe("dirty");
+});
+
+test("reviewer Git facts report missing tracked targets with changes", async () => {
+    const repo = repository();
+    const target = join(repo, "src", "a.ts");
+    rmSync(target);
+
+    expect(await gitState(repo, target)).toBe("dirty");
+    git(repo, ["add", "src/a.ts"]);
+    expect(await gitState(repo, target)).toBe("dirty");
+});
+
+test("@core reviewer Git facts report Git errors as unavailable", async () => {
+    const repo = repository();
+    const target = join(repo, "src", "a.ts");
+    writeFileSync(join(repo, ".git", "index"), "invalid index");
+
+    expect(await gitState(repo, target)).toBe("unavailable");
+
+    const broken = temporaryDirectory();
+    const brokenTarget = join(broken, "file.txt");
+    writeFileSync(join(broken, ".git"), "gitdir: missing-git-directory\n");
+    writeFileSync(brokenTarget, "content\n");
+    expect(await gitState(broken, brokenTarget)).toBe("unavailable");
+});
+
+async function gitState(workspace: string, path: string) {
+    const [fact] = await collectReviewerPathFacts(
+        workspace,
+        { id: "git-state", name: "write", input: { path } },
+        [],
+    );
+    return fact?.trackedGitState;
+}
 
 function temporaryDirectory(): string {
     const path = mkdtempSync(join(tmpdir(), "vera-review-path-facts-"));

@@ -1,11 +1,26 @@
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { CATALOG_TASK_FILE } from "./src/extension-catalog/task-protocol.ts";
+import { DESKTOP_MANIFEST_FILENAME, parseDesktopManifest } from "../ui/src/extensions/manifest.ts";
+import { EXTENSION_TASK_FILE } from "./src/extension-install/task-protocol.ts";
 import { ASSIGNMENT_TASK_FILE } from "./src/model-assignments/task-protocol.ts";
-import { THEME_TASK_FILE } from "./src/theme-import/task-protocol.ts";
 
 const root = import.meta.dir;
-const out = join(root, "dist");
+
+function argument(name: string): string | undefined {
+    const at = process.argv.indexOf(name);
+    return at === -1 ? undefined : process.argv[at + 1];
+}
+
+// `--out <folder>` builds an app folder of its own; `--catalog-url <url>` fixes the extension catalog this build reads.
+const appFolder = argument("--out") ?? root;
+const catalogUrl = argument("--catalog-url");
+const out = join(appFolder, "dist");
+if (appFolder !== root) {
+    mkdirSync(appFolder, { recursive: true });
+    writeFileSync(join(appFolder, "package.json"), JSON.stringify({ name: "vera-desktop-build", version: "0.0.0", type: "module", main: "dist/main.js" }));
+}
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -17,6 +32,7 @@ const main = await Bun.build({
     format: "esm",
     external: ["electron"],
     naming: "[name].[ext]",
+    define: catalogUrl === undefined ? {} : { __VERA_CATALOG_URL__: JSON.stringify(catalogUrl) },
 });
 if (!main.success) fail(main.logs);
 
@@ -32,19 +48,40 @@ if (!preload.success) fail(preload.logs);
 
 // Each task runs in a process of its own, from a bundle that main.js never loads.
 const TASKS = [
-    { entry: join(root, "src", "theme-import", "worker.ts"), file: THEME_TASK_FILE },
     { entry: join(root, "src", "model-assignments", "worker.ts"), file: ASSIGNMENT_TASK_FILE },
+    { entry: join(root, "src", "extension-install", "worker.ts"), file: EXTENSION_TASK_FILE },
+    { entry: join(root, "src", "extension-catalog", "worker.ts"), file: CATALOG_TASK_FILE },
 ];
-for (const task of TASKS) {
-    const bundle = await Bun.build({
-        entrypoints: [task.entry],
-        outdir: out,
-        target: "node",
-        format: "cjs",
-        external: ["electron"],
-        naming: task.file,
-    });
+async function bundleTask(entry: string, outdir: string, file: string): Promise<void> {
+    const bundle = await Bun.build({ entrypoints: [entry], outdir, target: "node", format: "cjs", external: ["electron"], naming: file });
     if (!bundle.success) fail(bundle.logs);
+}
+for (const task of TASKS) await bundleTask(task.entry, out, task.file);
+
+// Desktop extensions that ship with the app, each a folder of the repository holding a vera.desktop.json. The
+// manifest is copied to dist/extensions/<id>/, and each task's `main` (`<name>.cjs`) is bundled from `<name>.ts`
+// in the same folder.
+const INCLUDED_EXTENSIONS = ["vscode-theme-import", "browser-annotate", "local-html-preview"].map((name) => join(root, "..", "..", "extensions", name));
+const TASK_MAIN = /^([A-Za-z0-9][A-Za-z0-9_-]*)\.cjs$/;
+for (const folder of INCLUDED_EXTENSIONS) {
+    const manifestFile = join(folder, DESKTOP_MANIFEST_FILENAME);
+    const parsed = parseDesktopManifest(JSON.parse(readFileSync(manifestFile, "utf8")));
+    if (!parsed.ok) fail([`${manifestFile}: ${parsed.reason}`]);
+    const outdir = join(out, "extensions", parsed.manifest.id);
+    mkdirSync(outdir, { recursive: true });
+    copyFileSync(manifestFile, join(outdir, DESKTOP_MANIFEST_FILENAME));
+    for (const task of parsed.manifest.tasks) {
+        const name = TASK_MAIN.exec(task.main)?.[1];
+        if (name === undefined) fail([`${manifestFile}: task "${task.id}" main "${task.main}" must be a <name>.cjs file in the extension folder.`]);
+        await bundleTask(join(folder, `${name}.ts`), outdir, task.main);
+    }
+    for (const command of parsed.manifest.commands) {
+        if (command.page === undefined) continue;
+        const name = /^([A-Za-z0-9][A-Za-z0-9_-]*)\.js$/.exec(command.page)?.[1];
+        if (name === undefined) fail([`${manifestFile}: page must be a <name>.js file in the extension folder.`]);
+        const bundle = await Bun.build({ entrypoints: [join(folder, `${name}.ts`)], outdir, target: "browser", format: "iife", naming: command.page });
+        if (!bundle.success) fail(bundle.logs);
+    }
 }
 
 const rendererOut = join(out, "renderer");
@@ -56,7 +93,9 @@ const renderer = await Bun.build({
     define: {
         "process.env.NODE_ENV": JSON.stringify("production"),
     },
-    naming: "[name].[ext]",
+    // Code grammars load on demand, each from its own chunk next to main.js.
+    splitting: true,
+    naming: { entry: "[name].[ext]", chunk: "chunks/[name]-[hash].[ext]", asset: "[name].[ext]" },
 });
 if (!renderer.success) fail(renderer.logs);
 
@@ -75,6 +114,10 @@ cpSync(index, join(rendererOut, "index.html"));
 
 // Bundled config code reads provider definitions from this folder.
 cpSync(join(root, "..", "..", "src", "providers", "definitions"), join(out, "definitions"), { recursive: true });
+
+// Desktop extensions that ship with the app: one folder each, with its vera.desktop.json at the root.
+const included = join(root, "extensions");
+if (existsSync(included)) cpSync(included, join(out, "extensions"), { recursive: true });
 
 function fail(logs: readonly unknown[]): never {
     for (const log of logs) console.error(log);

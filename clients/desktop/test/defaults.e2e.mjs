@@ -13,7 +13,13 @@ const RAVEN = {
     label: "Raven",
     context_window: 32000,
     tool_support: true,
-    levels: [{ id: "low", label: "Low" }, { id: "high", label: "High" }],
+    levels: [
+        { id: "max", label: "Max" },
+        { id: "xhigh", label: "Extra High" },
+        { id: "high", label: "High" },
+        { id: "medium", label: "Medium" },
+        { id: "low", label: "Low" },
+    ],
     default_level: "high",
     pricing: { input: 2, output: 8 },
 };
@@ -96,6 +102,8 @@ try {
     await button("Compaction").click();
     await picker.waitFor();
     if (!(await picker.locator(".model-item-desc").innerText()).includes("Uses Eco, now Raven")) throw new Error("The clearing row does not say Compaction falls back to Eco.");
+    // The field takes focus a frame after the picker opens; Enter before that lands on the slot button.
+    await until("the picker's field focused", () => picker.locator("input").evaluate((field) => field === document.activeElement));
     await page.keyboard.press("Enter");
     await toast("Compaction is not set");
     await until("compaction cleared in config.json", async () => names("compaction").length === 0);
@@ -105,6 +113,33 @@ try {
     // A subagent model joins the list, and the switch writes allow_self.
     await row("Subagents").locator(".slot-btn").click();
     await picker.waitFor();
+
+    // A favorite with its efforts showing: the picker stays inside the sheet, clear of its button, and the name is not cut.
+    await picker.locator(".slot-pick", { hasText: "Raven" }).hover();
+    await picker.locator(".slot-pick[data-focused=\"true\"] .slot-pick-effort").first().waitFor();
+    const fit = await page.evaluate(() => {
+        const rect = (selector, within = document) => within.querySelector(selector).getBoundingClientRect();
+        const sheet = rect(".models-sheet");
+        const open = rect(".slot-picker");
+        const button = document.querySelector(".slot-btn[aria-expanded=\"true\"]").getBoundingClientRect();
+        const lit = document.querySelector(".slot-picker .slot-pick[data-focused=\"true\"]");
+        const name = lit.querySelector(".model-item-name");
+        const sub = lit.querySelector(".model-item-sub");
+        return {
+            sheet: JSON.stringify(sheet),
+            open: JSON.stringify(open),
+            inside: open.top >= sheet.top && open.bottom <= sheet.bottom && open.left >= sheet.left && open.right <= sheet.right,
+            clear: open.bottom <= button.top || open.top >= button.bottom,
+            nameCut: name.scrollWidth > name.clientWidth,
+            subCut: sub.scrollWidth > sub.clientWidth,
+            efforts: rect(".slot-pick-efforts", lit).top >= name.getBoundingClientRect().bottom,
+        };
+    });
+    if (!fit.inside) throw new Error(`The subagent picker leaves the sheet: picker ${fit.open}, sheet ${fit.sheet}.`);
+    if (!fit.clear) throw new Error("The subagent picker covers its own button.");
+    if (fit.nameCut || fit.subCut) throw new Error("The highlighted row cuts its name or provider.");
+    if (!fit.efforts) throw new Error("The efforts of the highlighted row share a line with its name.");
+
     await picker.locator("input").fill("crow");
     await picker.locator(".slot-pick", { hasText: "Crow" }).click();
     await toast("Subagents can now run Crow, first in order");
