@@ -334,13 +334,13 @@ test("cutWait refuses when no stop is waiting", async () => {
 });
 
 test("cutWait cuts each waited session once and records the cut", async () => {
-    const cuts: Array<[string, string]> = [];
+    const cuts: Array<[string, string, string]> = [];
     const records: RestartRecord[] = [];
     const coordinator = new StopWhenIdle({
         waitingOn: () => [working, queued],
         onStopped: () => undefined,
-        cutSession: async (id, reason) => {
-            cuts.push([id, reason]);
+        cutSession: async (id, reason, stopCause) => {
+            cuts.push([id, reason, stopCause]);
             return true;
         },
         recordCut: (record) => {
@@ -352,8 +352,8 @@ test("cutWait cuts each waited session once and records the cut", async () => {
     const result = await coordinator.cutWait();
     expect(result).toEqual({ status: "done", cut: ["s1", "s2"], failed: [] });
     expect(cuts).toEqual([
-        ["s1", "Vera is stopping"],
-        ["s2", "Vera is stopping"],
+        ["s1", "Vera is stopping", "host_stopped"],
+        ["s2", "Vera is stopping", "host_stopped"],
     ]);
     expect(records).toEqual([
         { session_id: "s1", cause: "stop", at: "2026-11-07T10:00:00.000Z" },

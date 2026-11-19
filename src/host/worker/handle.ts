@@ -19,7 +19,7 @@ import type { RunHeadlessLoopServices } from "../../engine/loop-services.ts";
 import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { EngineEvent } from "../../engine/events.ts";
-import type { ModelReasoningEffort } from "../../model/types.ts";
+import type { ModelReasoningEffort, StopCause } from "../../model/types.ts";
 import type { SessionStore } from "../../store/session-store.ts";
 import { sessionRecordForWire } from "../../store/session-record-projection.ts";
 import type { RegisteredTool } from "../../tools/types.ts";
@@ -86,7 +86,7 @@ export interface WorkerHandle {
     confirmBlock(timeoutMs: number): Promise<boolean>;
     releaseBlock(timeoutMs: number): Promise<boolean>;
     // Resolves true only when the worker halted and cleared the halt before the timeout.
-    cutWait(reason: string, timeoutMs: number): Promise<boolean>;
+    cutWait(reason: string, timeoutMs: number, stopCause?: StopCause): Promise<boolean>;
     kill(): void;
 }
 
@@ -202,10 +202,19 @@ export async function startWorker(
         timeoutMs,
         (requestId) => pipe.notify({ method, requestId }),
     );
-    const askCut = (reason: string, timeoutMs: number): Promise<boolean> => ackWaiters.ask(
+    const askCut = (
+        reason: string,
+        timeoutMs: number,
+        stopCause?: StopCause,
+    ): Promise<boolean> => ackWaiters.ask(
         "session.cutAck",
         timeoutMs,
-        (requestId) => pipe.notify({ method: "session.cut", requestId, reason }),
+        (requestId) => pipe.notify({
+            method: "session.cut",
+            requestId,
+            reason,
+            ...(stopCause === undefined ? {} : { stopCause }),
+        }),
     );
     const settleBlockAck = (ack: SessionBlockAck): void => ackWaiters.settle(ack);
     const services = options.services ?? {};
@@ -337,7 +346,8 @@ export async function startWorker(
         outcome,
         confirmBlock: (timeoutMs: number) => askBlock("session.confirmBlock", timeoutMs),
         releaseBlock: (timeoutMs: number) => askBlock("session.release", timeoutMs),
-        cutWait: (reason: string, timeoutMs: number) => askCut(reason, timeoutMs),
+        cutWait: (reason: string, timeoutMs: number, stopCause?: StopCause) =>
+            askCut(reason, timeoutMs, stopCause),
         kill(): void {
             supervisor?.killNow();
             const result = signalVerifiedProcessGroup({ pid, started_at: startedAt }, "SIGKILL");

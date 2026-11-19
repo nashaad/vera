@@ -7,10 +7,12 @@ import { EngineEventBus } from "../../src/engine/events.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
+import { projectTranscript } from "../../src/engine/protocol.ts";
 import { restoreContextAfterCompaction, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { emptyUsage, type AssistantMessage, type UserMessage } from "../../src/model/types.ts";
 import { createSessionBranch } from "../../src/store/session-branch.ts";
 import { CRASH_CUT_MESSAGE, openSessionForRecovery, readSessionIndexMetadata, readSessionSnapshot, readSessionTurnState, SessionStore } from "../../src/store/session-store.ts";
+import { sessionRecordForWire } from "../../src/store/session-record-projection.ts";
 import { searchSessionFile } from "../../src/store/session-search.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 
@@ -28,6 +30,75 @@ async function expectNoCrash(path: string): Promise<void> {
     expect(await readFile(path, "utf8")).toBe(before);
     expect((await readSessionSnapshot(path)).harnessMessages.some((entry) => entry.text === CRASH_CUT_MESSAGE)).toBe(false);
 }
+
+test("@core crash-cut cause survives reopen without changing recovery text", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-crash-cut-cause-"));
+    const path = join(root, "session.jsonl");
+    try {
+        const store = await SessionStore.create(path, { sessionId: "crow", cwd: root });
+        await store.appendMessage(user("chart the cove"), { turnStart: true });
+        await store.appendQueuedPrompt("queued", { content: "continue" });
+        expect(await store.repairCrashedTurn()).toBe(true);
+        const record = (await readFile(path, "utf8")).trimEnd().split("\n")
+            .map((line) => JSON.parse(line))
+            .find((entry) => entry.type === "harness_message");
+        expect(record).toMatchObject({
+            text: CRASH_CUT_MESSAGE,
+            tone: "soft",
+            crashCut: true,
+            stopCause: "host_stopped_unexpectedly",
+            unsentPrompts: [{ content: "chart the cove" }, { content: "continue" }],
+        });
+        const reopened = await SessionStore.open(path);
+        const snapshot = await readSessionSnapshot(path);
+        expect(snapshot.harnessMessages).toHaveLength(1);
+        expect(snapshot.harnessMessages[0]).toMatchObject({
+            text: CRASH_CUT_MESSAGE,
+            stopCause: "host_stopped_unexpectedly",
+        });
+        expect(reopened.unsentPrompts()).toEqual([
+            { content: "chart the cove" }, { content: "continue" },
+        ]);
+        const history = projectTranscript(snapshot.messages, undefined, undefined, snapshot.harnessMessages);
+        expect(history.filter((entry) => entry.kind === "harness")).toEqual([
+            expect.objectContaining({
+                kind: "harness",
+                text: CRASH_CUT_MESSAGE,
+                stopCause: "host_stopped_unexpectedly",
+            }),
+        ]);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("@core unknown stop causes preserve the stored harness message", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-unknown-stop-cause-"));
+    const path = join(root, "session.jsonl");
+    try {
+        const store = await SessionStore.create(path, { sessionId: "crow", cwd: root });
+        await store.appendForeignRecord({
+            type: "harness_message",
+            timestamp: new Date().toISOString(),
+            afterMessageId: null,
+            text: "Original crash notice",
+            tone: "soft",
+            crashCut: true,
+            stopCause: "future_cause",
+            unsentPrompts: [{ content: "queued" }],
+        });
+        const snapshot = await readSessionSnapshot(path);
+        expect(snapshot.harnessMessages).toHaveLength(1);
+        expect(snapshot.harnessMessages[0]).toMatchObject({ text: "Original crash notice", tone: "soft" });
+        expect(snapshot.harnessMessages[0]).not.toHaveProperty("stopCause");
+        expect(sessionRecordForWire({
+            type: "harness_message", text: "Original crash notice", tone: "soft",
+            crashCut: true, stopCause: "future_cause",
+        })).toEqual({ type: "harness_message", text: "Original crash notice", tone: "soft" });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
 
 test("turn start and its first message are one durable record", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-turn-start-"));

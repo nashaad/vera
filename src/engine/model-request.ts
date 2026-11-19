@@ -71,6 +71,10 @@ export function projectModelRequest(
                 if (message.role === "user" && message.arrivedDuringTurn === true) {
                     return wrapArrivedDuringTurn(message);
                 }
+                if (message.role === "assistant" && "stopCause" in message) {
+                    const { stopCause: _stopCause, ...modelMessage } = message;
+                    return modelMessage;
+                }
                 if (message.role !== "tool_result") return message;
                 return {
                     role: "tool_result",

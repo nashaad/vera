@@ -1,4 +1,5 @@
 import type { RestartRecord } from "../store/restart-records.ts";
+import type { StopCause as TurnStopCause } from "../model/types.ts";
 import type { HostRequester } from "./protocol.ts";
 
 export type StopWaitStatus = "working" | "waiting" | "queued";
@@ -91,7 +92,11 @@ export interface StopWhenIdleOptions {
     // Runs once nothing waits, before "stopped" is sent. A message abandons the stop and turns resume.
     readonly prepare?: (buildId: string | null) => string | undefined;
     // Halts one session and clears the halt again. False when the session did not confirm.
-    readonly cutSession?: (sessionId: string, reason: string) => Promise<boolean>;
+    readonly cutSession?: (
+        sessionId: string,
+        reason: string,
+        stopCause: TurnStopCause,
+    ) => Promise<boolean>;
     // Receives one record per session per wait, after the session confirms the cut.
     readonly recordCut?: (record: RestartRecord) => void | Promise<void>;
     readonly now?: () => Date;
@@ -210,7 +215,11 @@ export class StopWhenIdle implements StopWhenIdleControl {
         for (const target of waiting) {
             try {
                 const applied = this.options.cutSession !== undefined
-                    && await this.options.cutSession(target.session_id, reason);
+                    && await this.options.cutSession(
+                        target.session_id,
+                        reason,
+                        "host_stopped",
+                    );
                 if (!applied) {
                     failed.push({
                         session_id: target.session_id,

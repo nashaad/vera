@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
-import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
+import { emptyUsage, type AssistantMessage, type StopCause } from "../../src/model/types.ts";
 import { createAckWaiters, startWorker, type WorkerHandle } from "../../src/host/worker/handle.ts";
 import {
     removeSessionBlock,
@@ -140,10 +140,23 @@ test(
         expect(alive(toolPid)).toBe(true);
         expect(requestCount(requestLogPath)).toBe(1);
 
-        expect(await handle.cutWait("Vera is stopping", 5_000)).toBe(true);
+        expect(await handle.cutWait("Vera is stopping", 5_000, "future_cause" as StopCause)).toBe(false);
+        expect(alive(toolPid)).toBe(true);
+        expect(updates.some((update) => update.type === "turn_finished")).toBe(false);
+
+        expect(await handle.cutWait("Vera is stopping", 5_000, "host_stopped")).toBe(true);
         await waitFor(() =>
             updates.some((update) => update.type === "turn_finished")
         );
+        expect(updates.find((update) => update.type === "turn_finished")).toMatchObject({
+            outcome: "aborted",
+            stopCause: "host_stopped",
+        });
+        const reopened = await SessionStore.open(path);
+        expect(reopened.messages().find((message) => message.role === "assistant"
+            && message.stopReason === "aborted")).toMatchObject({ stopCause: "host_stopped" });
+        expect(reopened.projectedHarnessMessages().some((message) =>
+            message.text === "Stopped: Vera is stopping")).toBe(false);
         await waitFor(() => !alive(toolPid));
         await Bun.sleep(300);
         expect(requestCount(requestLogPath)).toBe(1);

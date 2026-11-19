@@ -4,7 +4,9 @@ import {
     COMPLETION_MAX_OUTPUT_TOKENS,
     createRoutedCompletionService,
     CompletionUnavailableError,
+    type CompletionRequest,
 } from "../../src/engine/completion-service.ts";
+import { projectTranscript } from "../../src/engine/protocol.ts";
 import {
     ProviderFailureError,
     type ProviderFailure,
@@ -16,6 +18,45 @@ import type {
     ModelStreamEvent,
 } from "../../src/model/types.ts";
 import { emptyUsage } from "../../src/model/types.ts";
+
+test("@core custom completion callbacks never receive stop causes", async () => {
+    let received = "";
+    const service = createRoutedCompletionService(
+        adapter((request) => {
+            received = JSON.stringify(request.messages);
+            return assistant("summary");
+        }),
+        { models: [{ model: "only" }] },
+    );
+    const aborted = {
+        role: "assistant",
+        content: [{ type: "text", text: "partial answer" }],
+        source: { provider: "test", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "aborted",
+        errorMessage: "host stopped",
+        stopCause: "host_stopped_unexpectedly",
+    } as const;
+    await service({ systemPrompt: "s", messages: [aborted] } as unknown as CompletionRequest,
+        new AbortController().signal);
+    expect(received).not.toContain("stopCause");
+    expect(received).toContain("partial answer");
+});
+
+test("unknown stop causes preserve the original history error detail", () => {
+    const message = {
+        ...assistant("", "error"),
+        content: [],
+        errorMessage: "original provider error",
+        stopCause: "future_cause",
+    } as unknown as AssistantMessage;
+    const history = projectTranscript([message]);
+    expect(history).toContainEqual(expect.objectContaining({
+        kind: "error",
+        detail: "original provider error",
+    }));
+    expect(history).not.toContainEqual(expect.objectContaining({ stopCause: "future_cause" }));
+});
 
 test("the route is a preference list, so the second model answers when the first fails", async () => {
     const seen: string[] = [];

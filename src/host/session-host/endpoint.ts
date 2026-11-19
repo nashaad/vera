@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 
+import { isStopCause } from "../../model/types.ts";
 import { chatFolderPath } from "../../store/chat-folder.ts";
 import { readSessionHeader } from "../../store/session-store.ts";
 import type { SessionEndpoint, RoutedSession } from "../pool/router.ts";
@@ -224,7 +225,11 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
             if (suppress) host.registry.suppressedCompletionDeliveries.add(entry);
             else host.registry.suppressedCompletionDeliveries.delete(entry);
         },
-        cut: (id, reason) => host.registry.cutSessionForStop(id, reason),
+        cut: (id, reason, stopCause) => host.registry.cutSessionForStop(
+            id,
+            reason,
+            isStopCause(stopCause) ? stopCause : undefined,
+        ),
         stopWaitTargets: async () => host.registry.stopWaitTargets(),
         runningSubagents: async (parentId) => [...host.registry.agents.values()].filter((entry) =>
             entry.kind === "background" && entry.parentId === parentId && entry.failure === undefined

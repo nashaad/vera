@@ -42,7 +42,13 @@ export async function* walkSessionTranscript(
         for (const item of harnessByRecord.get(position) ?? []) {
             const entry = await store.readHarnessMessage(item.number);
             if (entry === undefined) throw new Error(`Session harness record ${item.number + 1} is unavailable`);
-            yield { kind: "harness", id: `harness:${item.ordinal}`, text: entry.text, tone: entry.tone };
+            yield {
+                kind: "harness",
+                id: `harness:${item.ordinal}`,
+                text: entry.text,
+                tone: entry.tone,
+                ...(entry.stopCause === undefined ? {} : { stopCause: entry.stopCause }),
+            };
         }
     };
     yield* readHarness(-1);

@@ -5,7 +5,7 @@ import type { InboundCommandRouter } from "../../engine/inbound-command-router.t
 import { clearCutHaltWhenIdle } from "../cut-release.ts";
 import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
-import type { ModelAdapter } from "../../model/types.ts";
+import { isStopCause, type ModelAdapter } from "../../model/types.ts";
 import { createJsonPipe, type JsonPipe } from "./pipe.ts";
 import { startWorkerExtensions } from "./extensions.ts";
 import {
@@ -170,6 +170,7 @@ export async function runWorker(
                 readonly method: string;
                 readonly requestId: string;
                 readonly reason?: unknown;
+                readonly stopCause?: unknown;
             };
             if (message.method === "session.confirmBlock") {
                 pipe.notify({
@@ -183,12 +184,15 @@ export async function runWorker(
                 // A held block keeps its own halt; clearing it here would release the session.
                 const held = latch !== undefined && latch.check() !== undefined;
                 const router = inbound;
+                const reason = message.reason;
+                const stopCause = message.stopCause;
                 const ok = router !== undefined
                     && !held
-                    && typeof message.reason === "string";
+                    && typeof reason === "string"
+                    && (stopCause === undefined || isStopCause(stopCause));
                 if (ok) {
-                    cutHold = message.reason;
-                    router.halt(message.reason);
+                    cutHold = reason;
+                    router.halt(reason, stopCause);
                     void clearCutHaltWhenIdle(router, () => latch?.check() !== undefined)
                         .then(() => {
                             cutHold = undefined;

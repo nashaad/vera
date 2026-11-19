@@ -14,6 +14,7 @@ import { serveSessionEndpoint } from "./remote-endpoint.ts";
 import { sessionTarget } from "./routing.ts";
 import { createPublicForwarder } from "./public-forward.ts";
 import { defaultPermissionPreferencesPath } from "../../engine/permission-preferences.ts";
+import { TurnHaltedError } from "../../engine/inbound-command-router.ts";
 import { createLiveVeraConfigReader, defaultVeraConfigPath } from "../../config.ts";
 import { WorkerGlobals } from "./worker-globals.ts";
 import type { GlobalChange } from "./global-services.ts";
@@ -407,8 +408,11 @@ export async function startControlledWorker(
                             const entry = host.registry.agents.get(target.session_id);
                             if (entry !== undefined) {
                                 cutStores.push(entry.store);
-                                prepareWorkerExit(entry.store);
-                                entry.agent.abort();
+                                prepareWorkerExit(entry.store, "host_stopped_unexpectedly");
+                                if (entry.inbound === undefined) entry.agent.abort();
+                                else entry.inbound.abortActiveTurn(new TurnHaltedError(
+                                    "Turn aborted", "host_stopped_unexpectedly",
+                                ));
                             }
                         }
                         const deadline = performance.now() + 1_500;
@@ -421,7 +425,10 @@ export async function startControlledWorker(
                             if (hostLost) {
                                 for (const store of cutStores) {
                                     await store.exclusively(async () => {});
-                                    await store.repairCrashedTurn({ workerExited: true });
+                                    await store.repairCrashedTurn({
+                                        workerExited: true,
+                                        stopCause: "host_stopped_unexpectedly",
+                                    });
                                 }
                                 await removeOwnWorkerRecord(home, hello);
                             }

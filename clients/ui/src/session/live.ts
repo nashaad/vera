@@ -1,5 +1,6 @@
 import type { Block, NoticeBlock, Presentation, RetryState, ToolCall, ToolsBlock } from "./model.ts";
 import { EMPTY_TURN_TEXT, failureText, failureTitle, substitutionText } from "./notices.ts";
+import { stopCauseText } from "../../../shared/stop-cause-text.ts";
 import { toolTitle } from "./toolTitle.ts";
 import type { DeliveryMessage, LiveMessage, SubstitutionMessage, ToolFinishedMessage, TurnFinishedMessage } from "./wire.ts";
 
@@ -164,6 +165,10 @@ function endTurn(live: readonly Block[], message: TurnFinishedMessage): readonly
     const state = message.outcome === undefined ? "done" : "failed";
     const settled = settleTools(settleThought(live), state);
     const failure = message.modelFailure;
+    const stopText = stopCauseText(message.stopCause);
+    if (message.outcome === "error" && stopText !== undefined) {
+        return [...settled, notice(settled, "error", stopText)];
+    }
     if (failure !== undefined) {
         return [...settled, {
             ...notice(settled, "error", failureText(failure, message.error)),
@@ -175,7 +180,7 @@ function endTurn(live: readonly Block[], message: TurnFinishedMessage): readonly
         return [...settled, notice(settled, "error", message.error ?? "The turn failed.")];
     }
     if (message.outcome === "aborted") {
-        return [...settled, notice(settled, "info", "Stopped.")];
+        return [...settled, notice(settled, "info", stopCauseText(message.stopCause) ?? "Stopped.")];
     }
     if (message.empty) return [...settled, notice(settled, "info", EMPTY_TURN_TEXT)];
     return settled;

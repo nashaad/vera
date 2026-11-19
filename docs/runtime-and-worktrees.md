@@ -294,8 +294,10 @@ An attached TUI names a waiting session in a dialog and above its composer,
 updates it as the wait changes, and removes the notice when the wait ends.
 Choose **Keep waiting** to let the turns finish, or **Stop it now** to cut the
 waited turns and drop their queued prompts. The same choices appear during an
-update that waits for turns.
-It prints Stopped only after the process exits. If the host does not answer,
+update that waits for turns. A cut turn says `Host stopped` in its transcript.
+A turn repaired after an unexpected host stop says `Host stopped unexpectedly`.
+Both messages remain in the conversation when it is reopened.
+The command prints Stopped only after the process exits. If the host does not answer,
 the command leaves it running and exits with status 1. `vera host stop --force`
 asks the host to cut the running turns and drop their queued prompts, then stop.
 The dropped prompts are recorded as not started. If the host does not answer the cut,

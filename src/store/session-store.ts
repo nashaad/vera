@@ -2,6 +2,7 @@ import {
     emptyUsage,
     isClassifierOutcome,
     isHookDisplay,
+    isStopCause,
     isToolPresentation,
     isTurnTiming,
 } from "../model/types.ts";
@@ -26,7 +27,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 
 import type { AgentSnapshot } from "../agents/snapshot.ts";
-import type { AssistantMessage, ModelMessage, ModelUsage } from "../model/types.ts";
+import type { AssistantMessage, ModelMessage, ModelUsage, StopCause } from "../model/types.ts";
 import { assertToolCallsPaired } from "../model/tool-pairing.ts";
 import {
     assembleAgedToolResults,
@@ -202,11 +203,13 @@ export interface SessionHarnessMessageEntry {
     readonly text: string;
     readonly tone: "primary" | "soft" | "error";
     readonly crashCut?: true;
+    readonly stopCause?: StopCause;
     readonly unsentPrompts?: readonly UnsentPrompt[];
 }
 
 interface CommitHarnessMessageOptions {
     readonly crashCut?: true;
+    readonly stopCause?: StopCause;
     readonly unsentPrompts?: readonly UnsentPrompt[];
     readonly afterMessageId?: string | null;
 }
@@ -426,6 +429,7 @@ export interface ReadonlySessionSnapshot {
         readonly id: string;
         readonly text: string;
         readonly tone: "primary" | "soft" | "error";
+        readonly stopCause?: StopCause;
     }[];
     readonly agentFailure?: SessionAgentFailureEntry;
 }
@@ -1363,7 +1367,10 @@ export class SessionStore {
         return result;
     }
 
-    repairCrashedTurn(options?: { readonly workerExited?: boolean }): Promise<boolean> {
+    repairCrashedTurn(options?: {
+        readonly workerExited?: boolean;
+        readonly stopCause?: StopCause;
+    }): Promise<boolean> {
         const result = this.pendingAppend.then(async () => {
             if (this.projection.agentFailure !== undefined) return false;
             const headId = this.projection.leafId;
@@ -1471,9 +1478,14 @@ export class SessionStore {
                         model: settings?.model ?? "unknown",
                     },
                     usage: emptyUsage(), stopReason: "error", errorMessage: WORKER_EXIT_TURN_MESSAGE,
+                    ...(options.stopCause === undefined ? {} : { stopCause: options.stopCause }),
                 }, undefined, undefined, undefined, unsentPrompts);
             } else {
-                await this.commitHarnessMessage(CRASH_CUT_MESSAGE, "soft", { crashCut: true, unsentPrompts });
+                await this.commitHarnessMessage(CRASH_CUT_MESSAGE, "soft", {
+                    crashCut: true,
+                    stopCause: "host_stopped_unexpectedly",
+                    unsentPrompts,
+                });
             }
             return true;
         });
@@ -1617,6 +1629,7 @@ export class SessionStore {
         readonly id: string;
         readonly text: string;
         readonly tone: "primary" | "soft" | "error";
+        readonly stopCause?: StopCause;
     }[] {
         const active = this.activeBranch();
         const projected = projectHarnessMessages(this.projection.harnessMessageEntries, active);
@@ -2078,7 +2091,7 @@ export class SessionStore {
         tone: "primary" | "soft" | "error",
         options: CommitHarnessMessageOptions = {},
     ): Promise<SessionHarnessMessageEntry> {
-        const { crashCut, unsentPrompts, afterMessageId } = options;
+        const { crashCut, stopCause, unsentPrompts, afterMessageId } = options;
         const text = requestedText.trim();
         if (text.length === 0) {
             throw new Error("Cannot append an empty harness message");
@@ -2090,6 +2103,7 @@ export class SessionStore {
             text,
             tone,
             ...(crashCut === true ? { crashCut } : {}),
+            ...(stopCause === undefined ? {} : { stopCause }),
             ...(unsentPrompts === undefined ? {} : { unsentPrompts: structuredClone(unsentPrompts) }),
         };
         await this.appendRecord(entry);
@@ -2933,6 +2947,7 @@ function projectHarnessMessages(
     readonly id: string;
     readonly text: string;
     readonly tone: "primary" | "soft" | "error";
+    readonly stopCause?: StopCause;
 }[] {
     return entries.flatMap((entry, index) => {
         let afterMessage = entry.afterMessageId === null
@@ -2960,6 +2975,7 @@ function projectHarnessMessages(
                 id: `harness:${index}`,
                 text: entry.text,
                 tone: entry.tone,
+                ...(isStopCause(entry.stopCause) ? { stopCause: entry.stopCause } : {}),
             }];
     });
 }
@@ -4125,7 +4141,11 @@ function parseHarnessMessageEntry(
             `line ${lineNumber} is not a valid harness message entry`,
         );
     }
-    return value as unknown as SessionHarnessMessageEntry;
+    if (value.stopCause === undefined || isStopCause(value.stopCause)) {
+        return value as unknown as SessionHarnessMessageEntry;
+    }
+    const { stopCause: _stopCause, ...entry } = value;
+    return entry as unknown as SessionHarnessMessageEntry;
 }
 
 function parseAgentFailureEntry(

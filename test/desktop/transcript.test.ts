@@ -288,6 +288,90 @@ describe("live updates", () => {
     });
 });
 
+describe("host stop causes", () => {
+    test("error-shaped host loss uses its cause live and in history", () => {
+        for (const [stopCause, text] of [
+            ["host_stopped", "Host stopped"],
+            ["host_stopped_unexpectedly", "Host stopped unexpectedly"],
+        ]) {
+            const live = reduceWatch(watchWithHistory([]), line({
+                type: "turn_finished",
+                outcome: "error",
+                error: "The session process exited.",
+                stopCause,
+            }));
+            expect(live.live.at(-1)).toMatchObject({ kind: "notice", text });
+            const saved = watchWithHistory([{
+                kind: "error",
+                outcome: "error",
+                detail: "The session process exited.",
+                stopCause,
+            }]);
+            expect(saved.history.at(-1)).toMatchObject({ kind: "notice", text });
+        }
+    });
+
+    test("live, saved and paged history preserve causes and ignore unknown values", () => {
+        const live = reduceWatch(watchWithHistory([]), line({
+            type: "turn_finished",
+            outcome: "aborted",
+            stopCause: "host_stopped",
+        }));
+        expect(live.live.at(-1)).toMatchObject({ kind: "notice", text: "Host stopped" });
+
+        const unexpected = parseSessionLine(JSON.stringify({
+            type: "turn_finished",
+            outcome: "aborted",
+            stopCause: "host_stopped_unexpectedly",
+        }));
+        expect(unexpected?.type).toBe("turn_finished");
+        if (unexpected?.type !== "turn_finished") throw new Error("expected turn finish");
+        expect(unexpected.stopCause).toBe("host_stopped_unexpectedly");
+
+        const saved = watchWithHistory([
+            { kind: "error", id: "e1", outcome: "aborted", stopCause: "host_stopped" },
+            {
+                kind: "harness",
+                id: "h2",
+                text: "Vera crashed before this turn finished",
+                tone: "error",
+                stopCause: "host_stopped_unexpectedly",
+            },
+            { kind: "error", id: "e3", outcome: "aborted", stopCause: "unknown" },
+            { kind: "error", id: "e4", outcome: "aborted" },
+        ]);
+        expect(saved.history.map((block) => block.kind === "notice" ? block.text : "")).toEqual([
+            "Host stopped",
+            "Host stopped unexpectedly",
+            "Stopped.",
+            "Stopped.",
+        ]);
+        expect(saved.live).toEqual([]);
+
+        const paged = reduceWatch(beginOlder(watchWithHistory([], {
+            hasMore: true,
+            olderBefore: "before",
+        })), line({
+            type: "history_page",
+            request_id: "page-1",
+            entries: [{
+                kind: "harness",
+                id: "h1",
+                text: "old crash wording",
+                tone: "error",
+                stopCause: "host_stopped_unexpectedly",
+            }],
+            page: { hasMore: false },
+        }));
+        expect(paged.history).toEqual([{
+            kind: "notice",
+            key: "h1",
+            tone: "error",
+            text: "Host stopped unexpectedly",
+        }]);
+    });
+});
+
 describe("watch phases", () => {
     test("a failed attach names the reason and a later close keeps the failure", () => {
         const failed = reduceWatch(initialWatch("a1"), line({ type: "attach_failed", agent_id: "a1", reason: "not_found" }));

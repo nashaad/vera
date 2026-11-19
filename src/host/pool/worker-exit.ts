@@ -1,6 +1,7 @@
 import { SessionStore, WORKER_EXIT_TURN_MESSAGE, type SessionMessageEntry } from "../../store/session-store.ts";
+import type { StopCause } from "../../model/types.ts";
 
-export function prepareWorkerExit(store: SessionStore): void {
+export function prepareWorkerExit(store: SessionStore, stopCause?: StopCause): void {
     const append = store.appendMessage.bind(store);
     let recorded: SessionMessageEntry | undefined;
     // Closing an agent normally removes queued prompts before crash recovery can capture them.
@@ -8,7 +9,10 @@ export function prepareWorkerExit(store: SessionStore): void {
     store.appendMessage = async (message, options) => {
         if (message.role === "assistant" && message.stopReason !== "tool_use") {
             if (recorded !== undefined) return recorded;
-            if (await store.repairCrashedTurn({ workerExited: true })) {
+            if (await store.repairCrashedTurn({
+                workerExited: true,
+                ...(stopCause === undefined ? {} : { stopCause }),
+            })) {
                 const headId = store.activeHeadId();
                 const entry = headId === null ? undefined : await store.readMessageEntry(headId);
                 if (entry?.message.role === "assistant" && entry.message.errorMessage === WORKER_EXIT_TURN_MESSAGE) {

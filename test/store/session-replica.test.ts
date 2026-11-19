@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { SessionReplica } from "../../src/store/session-replica.ts";
+import { sessionRecordForWire } from "../../src/store/session-record-projection.ts";
+import { historyPageFromStore } from "../../src/host/history-page.ts";
 import {
     SessionStore,
     type SessionImageAttachmentMetadata,
@@ -50,6 +52,33 @@ test("a replica answers every read as a store opened at the same record", async 
     const records: unknown[] = [];
     for await (const { record } of replica.walkRecords()) records.push(record);
     expect(records).toEqual(lines);
+});
+
+test("crash stop cause survives wire replay and indexed history", async () => {
+    const path = join(temporaryDirectory(), "crashed.jsonl");
+    const store = await SessionStore.create(path, { sessionId: "crashed", cwd: "/work" });
+    await store.appendMessage(userMessage("interrupted"), { turnStart: true });
+    await store.repairCrashedTurn();
+    const reopened = await SessionStore.open(path);
+    const records = readLines(path);
+    const replica = SessionReplica.seed(path, records[0] as Record<string, unknown>);
+    for (let index = 1; index < records.length; index += 1) {
+        replica.apply(index + 1, sessionRecordForWire(records[index] as Record<string, unknown>));
+    }
+    const expected = expect.objectContaining({
+        kind: "harness", stopCause: "host_stopped_unexpectedly",
+    });
+    for (const source of [reopened, replica]) {
+        const walked = [];
+        for await (const entry of walkSessionTranscript(source, source.activeHeadId(), Number.MAX_SAFE_INTEGER)) {
+            walked.push(entry);
+        }
+        expect(walked).toContainEqual(expected);
+        const page = await historyPageFromStore(source);
+        expect(page.kind).toBe("page");
+        if (page.kind !== "page") throw new Error("Expected a history page");
+        expect(page.entries).toContainEqual(expected);
+    }
 });
 
 test("a replica refuses every write", async () => {

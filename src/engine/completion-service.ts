@@ -81,10 +81,14 @@ export function createRoutedCompletionService(
             1,
             Math.min(request.maxTokens ?? ceiling, ceiling),
         );
+        const safeRequest = request.messages.some((message) =>
+            message.role === "assistant" && "stopCause" in message)
+            ? { ...request, messages: request.messages.map(projectCompletionMessage) }
+            : request;
 
         const reasons: string[] = [];
         let skippedForWindow = 0;
-        const requestTokens = measureRequest(request);
+        const requestTokens = measureRequest(safeRequest);
         for (const candidate of settings.models) {
             if (
                 candidate.contextWindow !== undefined
@@ -100,7 +104,7 @@ export function createRoutedCompletionService(
                 continue;
             }
             let outcome = await attemptWithRetries(
-                adapter, candidate, request, maxTokens, signal, idleMs,
+                adapter, candidate, safeRequest, maxTokens, signal, idleMs,
                 settings.retryFailures === true,
             );
             if (
@@ -109,7 +113,7 @@ export function createRoutedCompletionService(
                 && outcome.allowance < maxTokens
             ) {
                 outcome = await attemptWithRetries(
-                    adapter, candidate, request, outcome.allowance, signal, idleMs,
+                    adapter, candidate, safeRequest, outcome.allowance, signal, idleMs,
                     settings.retryFailures === true,
                 );
             }
@@ -125,6 +129,12 @@ export function createRoutedCompletionService(
             skippedForWindow > 0 && skippedForWindow === settings.models.length,
         );
     };
+}
+
+function projectCompletionMessage(message: ModelMessage): ModelMessage {
+    if (message.role !== "assistant" || !("stopCause" in message)) return message;
+    const { stopCause: _stopCause, ...projected } = message;
+    return projected;
 }
 
 function measureRequest(request: CompletionRequest): number {

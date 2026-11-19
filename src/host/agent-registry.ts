@@ -29,7 +29,7 @@ import { DEFAULT_MAX_CONCURRENT_CHILD_AGENTS, validChildAgentLimit } from "../en
 import type { ToolReviewerSettings } from "../engine/reviewer.ts";
 import type { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import { availableModels, type ReviewerModelDefault, type ReviewerSettingsPatch } from "../engine/model-settings.ts";
-import type { ModelReasoningEffort } from "../model/types.ts";
+import type { ModelReasoningEffort, StopCause } from "../model/types.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import { admittedEffortIds, availableModelsWithLevels, type PooledModel } from "../model/catalog-view.ts";
 import { projectTranscript } from "../engine/protocol.ts";
@@ -230,10 +230,10 @@ export class AgentRegistry {
     }
 
     // Halts the in-process router and the host counts in one step, so dropped prompts are not left outstanding.
-    private haltInProcess(entry: RegisteredAgentEntry, reason: string): boolean {
+    private haltInProcess(entry: RegisteredAgentEntry, reason: string, stopCause?: StopCause): boolean {
         const router = entry.inbound;
         if (router === undefined) return false;
-        router.halt(reason);
+        router.halt(reason, stopCause);
         entry.agent.noteRouterHalted(false);
         return true;
     }
@@ -245,21 +245,21 @@ export class AgentRegistry {
 
     // Halts one session and clears the halt, so its queued prompts are dropped and its turn ends.
     // A session held by a block keeps its own halt and does not confirm the cut.
-    async cutSessionForStop(sessionId: string, reason: string): Promise<boolean> {
+    async cutSessionForStop(sessionId: string, reason: string, stopCause?: StopCause): Promise<boolean> {
         const entry = this.agents.get(sessionId);
         if (entry === undefined) return false;
         if (entry.worker !== undefined) {
             // The worker clears its own halt once the cut turn ends; a session idle at the cut has no turn to end.
             const turnRunning = entry.agent.status !== "idle";
             entry.agent.noteRouterHalted(turnRunning);
-            const ok = await entry.worker.cutWait(reason, STOP_CUT_ACK_TIMEOUT_MS);
+            const ok = await entry.worker.cutWait(reason, STOP_CUT_ACK_TIMEOUT_MS, stopCause);
             if (!ok || !turnRunning) entry.agent.noteRouterCleared();
             return ok;
         }
         const router = entry.inbound;
         if (router === undefined || entry.blockHeld?.() === true) return false;
         entry.cutReason = reason;
-        this.haltInProcess(entry, reason);
+        this.haltInProcess(entry, reason, stopCause);
         void clearCutHaltWhenIdle(
             {
                 timelineBlocked: () => router.timelineBlocked(),

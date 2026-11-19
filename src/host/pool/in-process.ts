@@ -3,6 +3,7 @@ import { readSessionHeader } from "../../store/session-store.ts";
 
 import { defaultHostSocketPath } from "../lockfile.ts";
 import type { HostIdentity } from "../protocol.ts";
+import type { StopCause } from "../../model/types.ts";
 import { startWorkerServer, type HostListener, type StartHostServerOptions } from "../server.ts";
 import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "../session-host.ts";
 import { sessionEndpoint } from "../session-host/endpoint.ts";
@@ -43,7 +44,7 @@ export interface InProcessWorker {
     waitingOn(): Promise<readonly StopWaitTarget[]>;
     hasSession(id: string): boolean | Promise<boolean>;
     recoverCrashedTurns?(options: PoolCrashScanOptions): Promise<PoolCrashScanResult>;
-    cutSession(id: string, reason: string): Promise<boolean>;
+    cutSession(id: string, reason: string, stopCause?: StopCause): Promise<boolean>;
     clearProviderSelection(provider: string): Promise<void>;
     notifyModelCatalogChanged(): void;
     notifyAnnexChanged(url: string | undefined): Promise<void>;
@@ -173,7 +174,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         waitingOn: () => router.stopWaitTargets(),
         hasSession: (id) => worker.registry.agents.has(id)
             || worker.registry.startingIds.has(id) || worker.registry.trashingIds.has(id),
-        cutSession: (id, reason) => router.cut(id, reason),
+        cutSession: (id, reason, stopCause) => router.cut(id, reason, stopCause),
         clearProviderSelection: (provider) => worker.clearProviderSelection(provider),
         notifyModelCatalogChanged: () => worker.registry.notifyModelCatalogChanged(),
         notifyAnnexChanged: async () => {},

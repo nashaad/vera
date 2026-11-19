@@ -1,3 +1,4 @@
+import { isStopCause, type StopCause } from "../../../../src/model/types.ts";
 import type {
     AgentRunStatus,
     BackgroundAgents,
@@ -74,6 +75,7 @@ export interface ErrorEntry extends EntryBase {
     readonly kind: "error";
     readonly outcome?: "error" | "aborted";
     readonly detail?: string;
+    readonly stopCause?: StopCause;
     readonly modelFailure?: ModelFailure;
 }
 
@@ -101,6 +103,7 @@ export interface HarnessEntry extends EntryBase {
     readonly kind: "harness";
     readonly text: string;
     readonly tone: string;
+    readonly stopCause?: StopCause;
 }
 
 export interface OtherEntry {
@@ -204,6 +207,7 @@ export interface TurnFinishedMessage {
     readonly type: "turn_finished";
     readonly outcome?: "error" | "aborted";
     readonly error?: string;
+    readonly stopCause?: StopCause;
     readonly modelFailure?: ModelFailure;
     readonly empty: boolean;
     readonly usage?: readonly UsageRow[];
@@ -597,6 +601,7 @@ function parseLive(type: string, value: Fields): LiveMessage | undefined {
                 type: "turn_finished",
                 outcome: outcomeOf(value.outcome),
                 error: str(value.error),
+                ...(isStopCause(value.stopCause) ? { stopCause: value.stopCause } : {}),
                 empty: value.empty === true,
                 ...(modelFailure === undefined ? {} : { modelFailure }),
                 ...(usage === undefined ? {} : { usage }),
@@ -663,6 +668,7 @@ function parseEntry(raw: unknown): WireEntry {
                 ...base,
                 outcome: outcomeOf(raw.outcome),
                 detail: str(raw.detail),
+                ...(isStopCause(raw.stopCause) ? { stopCause: raw.stopCause } : {}),
                 ...(modelFailure === undefined ? {} : { modelFailure }),
             };
         }
@@ -681,7 +687,15 @@ function parseEntry(raw: unknown): WireEntry {
             return delivery === undefined ? OTHER : { kind: "delivery", ...base, delivery };
         }
         case "harness":
-            return body === undefined ? OTHER : { kind: "harness", ...base, text: body, tone: str(raw.tone) ?? "" };
+            return body === undefined
+                ? OTHER
+                : {
+                    kind: "harness",
+                    ...base,
+                    text: body,
+                    tone: str(raw.tone) ?? "",
+                    ...(isStopCause(raw.stopCause) ? { stopCause: raw.stopCause } : {}),
+                };
         default:
             return OTHER;
     }
