@@ -610,6 +610,12 @@ function Overview({
                                     onSort={cycleSort}
                                 />
                                 <SortHeader
+                                    label="Last active"
+                                    column="updatedAt"
+                                    sort={sort}
+                                    onSort={cycleSort}
+                                />
+                                <SortHeader
                                     label="Calls"
                                     column="calls"
                                     sort={sort}
@@ -652,7 +658,7 @@ function Overview({
                             {paged.total === 0
                                 ? (
                                     <tr>
-                                        <td className="faint" colSpan={8}>
+                                        <td className="faint" colSpan={9}>
                                             {sessions.length === 0
                                                 ? "No sessions in this window"
                                                 : "No sessions match"}
@@ -946,6 +952,7 @@ function SessionPreview({
             <td className="title" title={row.title}>{row.title}</td>
             <td className="ws">{row.workspaceLabel}</td>
             <td className="dim">{kindLabel(row.kind)}</td>
+            <td className="dim">{callTime(row.updatedAt)}</td>
             <td className="dim">{row.calls}</td>
             {tokenCell(row)}
             <td className="dim">{money(row.own)}</td>

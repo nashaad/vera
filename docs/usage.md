@@ -85,10 +85,14 @@ Filter the table by workspace, kind, or model. Model searches match model IDs,
 not conversation titles. Choose a model from the list to restrict results to
 that exact provider/model route; clear the field to include all models.
 
-Click a column heading to sort. Numeric columns start highest first; names
-start A to Z. Cost is the default, with newer conversations breaking ties.
-The table shows 25 rows per page. Tokens are this conversation's own input
-plus output, shown separately from cost.
+The table starts with the most recently active conversations first. Click a
+column heading to sort: Last active starts newest first, numeric columns start
+highest first, and names start A to Z. Click the same heading again to reverse
+its order. Last active reflects the conversation's own latest call in the
+selected window, or its file modification time if it has no calls in that
+window. Child calls do not change the parent's
+Last active. The table shows 25 rows per page. Tokens are this conversation's
+own input plus output, shown separately from cost.
 
 ### Inspect delegated work
 
