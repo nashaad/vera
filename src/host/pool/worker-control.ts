@@ -281,7 +281,6 @@ export async function startControlledWorker(
         void globals.changed(kind).then(async () => {
             if (kind !== "preferences" && reloadCatalog) await globals.ensureCatalog();
             host.registry.notifyModelCatalogChanged();
-            host.registry.pushWorkerStateEverywhere();
         }).catch(() => {});
     };
     peer.setEventHandler((event, value) => {

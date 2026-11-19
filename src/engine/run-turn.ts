@@ -183,6 +183,7 @@ import {
     type ReviewToolCall,
     type ToolReviewerSettings,
 } from "./reviewer.ts";
+import { reviewerFallbackModel } from "./reviewer-fallback.ts";
 import { classifierFallbackReason } from "./classifier-fallback.ts";
 import {
     collectReviewerPathFacts,
@@ -766,6 +767,8 @@ export async function runHeadlessLoop(
             },
             get modelFallback() { return policy().modelFallback; },
             get reviewer() { return policy().reviewer; },
+            get reviewerFallbackEffort() { return policy().reviewerFallbackEffort; },
+            get reviewerFallbackLevels() { return policy().reviewerFallbackLevels; },
             get reviewers() { return policy().reviewers; },
             get permissionModes() { return policy().permissionModes; },
             get permissionRules() { return policy().permissionRules; },
@@ -816,7 +819,13 @@ export async function runHeadlessLoop(
                         ? {}
                         : { reasoningEffort }),
                 };
-            const models = configured?.models ?? [current];
+            const models = configured?.models ?? [
+                reviewerFallbackModel(
+                    current,
+                    policy().reviewerFallbackEffort,
+                    policy().reviewerFallbackLevels,
+                ),
+            ];
             const key = JSON.stringify([
                 models,
                 configured?.policy,

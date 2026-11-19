@@ -59,6 +59,7 @@ import {
     readCachedWindowIndex,
 } from "../model/cached-windows.ts";
 import { contextWindowForModel } from "../engine/model-settings.ts";
+import { verifiedReasoningEfforts } from "../model/supported-models.ts";
 import { loadPoolFile } from "../model/pool-file-loader.ts";
 import { splitModelId } from "../model/pool-file.ts";
 import { resolvePoolRef } from "../model/pool-names.ts";
@@ -540,6 +541,9 @@ async function runResolvedTurn<Output>(
             resolved.config.provider,
             resolved.model,
         );
+        const reviewerEfforts = verifiedReasoningEfforts(
+            resolved.config.provider, resolved.model,
+        );
         const selected = withFunctionNames(
             resolveAgentSnapshot(resolved.definition),
             resolved.functions,
@@ -570,6 +574,7 @@ async function runResolvedTurn<Output>(
                 readModelSettings: () => ({
                     provider: resolved.config.provider,
                     model: resolved.model,
+                    availableReasoningEfforts: reviewerEfforts,
                     ...(resolved.reasoningEffort === undefined
                         ? {}
                         : { reasoningEffort: resolved.reasoningEffort }),
