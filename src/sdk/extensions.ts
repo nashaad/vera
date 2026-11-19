@@ -467,8 +467,8 @@ export interface VeraClientExtensionHost {
 
 export interface VeraClientExtensionContext {
     sources(signal?: AbortSignal): Promise<import("../customize/types.ts").CustomizationCatalog>;
-    /** Reads the latest local snapshot without waiting for the host. */
-    current(): VeraClientContextSnapshot;
+    /** Reads a visible agent's local snapshot, or the focused one when omitted. */
+    current(agent?: VeraClientAgentRef): VeraClientContextSnapshot;
 }
 
 export type VeraClientAgentPane = "main" | "sidebar";
