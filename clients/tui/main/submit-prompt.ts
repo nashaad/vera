@@ -25,6 +25,7 @@ import { homeNeedsProvider } from "./model-pickers.ts";
 import { openOnboardingWizard } from "./onboarding-wizard-ops.ts";
 import { focusedAgentClient, focusedAgentState, hostOwnsPromptQueue, releaseFocusedQueuedPrompts, selectAgent } from "./agents-dials.ts";
 import { captureExtensionInvocation, conversationChanged, dropsLateResult } from "./extension-invocation.ts";
+import { requestSkillCommands } from "./extension-bridge.ts";
 import { adoptFallbackSessionTitle, clearSearchLanding, coreHelpCommands, readStandingNudgeRules, workerFreeAction } from "../main/chrome.ts";
 import { currentBuildFacts } from "../diagnostics.ts";
 import { abortProviderHealthCheck, diagnosticsSnapshot, renderDiagnostics, writeFailureReportFile } from "../main/diagnostics-ops.ts";
@@ -38,6 +39,9 @@ import { startTuiTimelinePicker } from "../timeline-picker.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { PromptRejectedError } from "../../../src/host/attached-client.ts";
+
+// Skill files are editable from /customize, so closing it refreshes the catalog.
+const SKILL_CATALOG_EDITING_COMMANDS = new Set(["customize"]);
 
 export function submitPrompt(rt: TuiRuntime, 
     interceptedText?: string,
@@ -791,6 +795,13 @@ export function submitPrompt(rt: TuiRuntime,
                 rt.extensionCommandActivity = undefined;
                 renderState(rt);
                 focusActiveSurface(rt);
+                if (
+                    commandAction.origin === "client"
+                    && SKILL_CATALOG_EDITING_COMMANDS.has(commandAction.command)
+                    && !conversationChanged(rt, extensionInvocation)
+                ) {
+                    requestSkillCommands(rt);
+                }
             }
         });
         return;
