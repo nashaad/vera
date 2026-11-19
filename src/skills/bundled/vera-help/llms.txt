@@ -133,8 +133,7 @@ The included monitor runs a permitted background command and sends its exit or i
 Conversations open in the same folder can message each other: ask one to send a note to another; a recipient that starts a turn for it gets the whole note, otherwise it reads it from its inbox. Manual: `docs/agents.md`.
 Paste or drop an image path into the composer to attach the image as `[Image 1]`; the model receives the image and its original full path. Pasting or typing another existing absolute file path into a TUI session copies it into a chat when sent or refers to it in place in a folder session.
 Submitting while Vera is working queues another prompt; queued prompts join the running turn after its next tool step, and otherwise successful replies start them one at a time in order. On an empty composer, Enter stops the current turn and sends the whole queue, and Escape stops it and sends only the oldest queued prompt. Up on an empty composer takes the newest waiting prompt back into the composer to edit and queue again.
-After a stop, update or crash cuts a turn, TUI Home lists the session under Cut short so you can open it.
-When a pooled session process closes an interrupted turn after unexpected host loss, it records the session as crashed so it appears in Cut short.
+After a restart or crash, the home screen lists the sessions whose turns were cut, and you can open each.
 After a crash, the transcript marks the cut turn and unfinished tool calls have an unknown effect.
 After a crash, unanswered and queued prompts return unsent to the composer or its history.
 If a client falls behind, Vera can skip an intermediate transcript refresh and show the newer history.
@@ -249,7 +248,7 @@ Tool results should be visibly bounded, truncated, or paginated. Oversized outpu
 How much context Vera keeps is configurable on one screen: `/settings` then Overrides. It exposes the context limit, compaction, and tool-result levers. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, asks before saving a summary target that is not under the trigger, and asks before clearing every lever at once.
 Manual: `docs/context-levers.md`.
 
-## Diagnostics and recovery [lines=33]
+## Diagnostics and recovery [lines=32]
 Vera automatically retries rate-limit, server, dropped-connection and stalled-stream failures with increasing waits; retry activity stays visible and Escape cancels the pending retry or a stuck request. A spent subscription usage limit is not retried: the turn stops at once and the error says when the limit resets.
 If Vera cannot build a request locally, it stops without retrying and the Vera report in `/diagnostics` has the error.
 If a resident agent stops unexpectedly, the conversation shows the failure and the host log records its message and stack.
