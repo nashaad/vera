@@ -65,7 +65,8 @@ export function renderState(rt: TuiRuntime): void {
     rt.queuedPromptText.visible = focusedState.queuedPrompts.length > 0;
     rt.approvalView.box.visible = rt.sessionCloseConfirm === undefined
         && uiRequest?.request.type === "tool_approval";
-    rt.questionView.box.visible = rt.sessionCloseConfirm === undefined
+    rt.questionView.box.visible = (rt.sessionCloseConfirm === undefined
+        || rt.reconnectBootQuestion !== undefined)
         && uiRequest?.request.type === "user_question";
     rt.statusBand.visible = !(rt.approvalView.box.visible
         || rt.questionView.box.visible);
@@ -102,7 +103,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.providerForm === undefined
         && rt.secretPrompt !== undefined;
     rt.settingsPickerView.surface.visible = rt.sessionCloseConfirm !== undefined
-        ? rt.timelinePicker === undefined
+        ? rt.timelinePicker === undefined && rt.reconnectBootQuestion === undefined
         : (uiRequest === undefined || configurationRequired)
         && rt.timelinePicker === undefined
         && !rt.confirmingFullAccess
@@ -364,7 +365,8 @@ export function renderState(rt: TuiRuntime): void {
         && !rt.jsonlCommandMode;
     rt.homeView.surface.visible = isHomeClient(rt.client) && !rt.homeCommandMode
         && rt.onboardingWizard === undefined && !overlayVisible;
-    rt.onboardingWizardView.surface.visible = rt.onboardingWizard !== undefined;
+    rt.onboardingWizardView.surface.visible = rt.onboardingWizard !== undefined
+        && rt.reconnectBootQuestion === undefined;
     renderCommandSuggestions(rt);
     if (
         uiRequest !== undefined

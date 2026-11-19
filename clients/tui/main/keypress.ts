@@ -139,6 +139,17 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         renderStatus(rt);
         return;
     }
+    if (rt.reconnectBootQuestion !== undefined) {
+        const question = rt.reconnectBootQuestion;
+        const result = rt.questionView.handleKey(question.update, key);
+        if (result.handled) {
+            key.preventDefault();
+            key.stopPropagation();
+            if (result.response !== undefined) question.answer(result.response);
+            renderState(rt);
+            return;
+        }
+    }
     if (
         rt.onboardingWizard !== undefined
         && parseRawInputEvent(key)?.type !== "interrupt"

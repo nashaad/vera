@@ -17,12 +17,16 @@ import { sendCommand } from "../main/extension-bridge.ts";
 import { requestSessionSettings } from "./diagnostics-ops.ts";
 import { refreshHomeSessions } from "./session-ops.ts";
 import type { TuiSessionLeaveDisposition, TuiSessionLeaveResult } from "../session-lifecycle.ts";
-import { appendTuiDiagnostic, appendTuiError, failTuiConnection, type TuiState } from "../state.ts";
+import { appendTuiDiagnostic, appendTuiError, appendTuiNotice, failTuiConnection, type TuiState } from "../state.ts";
 import type { TuiTimelinePickerTransition } from "../timeline-picker.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { ReconnectBudget } from "./reconnect-budget.ts";
+import { createReconnectBoot } from "./reconnect-boot.ts";
 
 export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
+    if (rt.reconnectBootQuestion !== undefined) {
+        return () => rt.questionView.focus();
+    }
     if (rt.dialStrip !== undefined) {
         return () => rt.dialCard.focus();
     }
@@ -503,19 +507,21 @@ export function beginHostReconnect(rt: TuiRuntime,
         settleLostHost(rt, "Host connection closed");
     }
     const draft = options.clearComposer ? undefined : reconnectDraft;
+    const boot = createReconnectBoot(rt, rt.dependencies.sessionSwitchTimeoutMs ?? SESSION_SWITCH_TIMEOUT_MS);
     const reconnectOptions = {
         ...(replaceExisting ? { replaceExisting: true } : {}),
         ...(confirmWedge ? { confirmWedge: true } : {}),
         ...(rt.relaunching === true && rt.dependencies.relaunchTui !== undefined
             ? { attachOnly: true }
             : {}),
+        boot: boot.boot,
     };
-    const reconnect = home
+    const reconnect = Promise.resolve().then(() => home
         ? rt.dependencies.reconnectHome!(reconnectOptions).then(() =>
             createHomeClient(rt.client.workspace ?? process.cwd(), rt.homeClientOptions))
-        : rt.dependencies.reconnectSession!(currentAgentId!, reconnectOptions);
+        : rt.dependencies.reconnectSession!(currentAgentId!, reconnectOptions));
     renderState(rt);
-    void withSessionSwitchDeadline(rt, 
+    void boot.waitFor(
         reconnect,
         ((next: TuiAgentClient) => discardSwitchTarget(rt, next)),
     ).then((next) => {
@@ -524,6 +530,7 @@ export function beginHostReconnect(rt: TuiRuntime,
             return;
         }
         switchToClient(rt, next, draft, { preserveReconnectTranscript: !home });
+        showReconnectBootNotice(rt, boot.notice(), !home);
         if (home) {
             requestSessionSettings(rt);
             void refreshHomeSessions(rt);
@@ -541,6 +548,7 @@ export function beginHostReconnect(rt: TuiRuntime,
         }
         if (rt.shuttingDown) return;
         rt.sessionSwitchPending = false;
+        showReconnectBootNotice(rt, boot.notice(), false);
         if (error instanceof InstalledBuildChangedError) {
             handleInstalledBuildChange(rt, currentAgentId, error.clientBuildId, error.installedBuildId, reconnectDraft, options.failureText);
             return;
@@ -613,6 +621,15 @@ export function beginHostReconnect(rt: TuiRuntime,
         }
         reportConnectionError(rt, error, true);
     });
+}
+
+function showReconnectBootNotice(rt: TuiRuntime, notice: string | undefined, waitForHistory: boolean): void {
+    if (notice === undefined) return;
+    rt.state = appendTuiNotice(rt.state, notice);
+    if (waitForHistory) rt.pendingReconnectNotice = notice;
+    if (isHomeClient(rt.client)) rt.homeCommandMode = true;
+    renderState(rt);
+    focusActiveSurface(rt);
 }
 
 function handleInstalledBuildChange(

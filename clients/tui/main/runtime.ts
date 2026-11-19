@@ -46,6 +46,7 @@ import type { WizardSession } from "../onboarding-wizard.ts";
 import type { HistoryPaging } from "../history-paging-state.ts";
 import type { PendingExtensionReveal } from "./extension-reveal.ts";
 import type { ReconnectBudget } from "./reconnect-budget.ts";
+import type { ReconnectBootQuestion } from "./reconnect-boot.ts";
 import type { RuntimeCommand } from "./outrider-ops.ts";
 import type { TuiHostedAgentSurface } from "../hosted-agent-surface.ts";
 import type { TuiHostedPanePersistence } from "../hosted-pane-persistence.ts";
@@ -179,6 +180,9 @@ export interface TuiRuntime {
     transcriptSeeded: boolean;
     pendingTranscriptReseed: boolean;
     reconnectHistoryPending: boolean;
+    pendingReconnectNotice?: string;
+    reconnectBootQuestion?: ReconnectBootQuestion;
+    cancelReconnectBoot?: () => void;
     deferredKeymapNotices: string[];
     pendingBackNotice: string | undefined;
     pendingSessionSwitchNotice: string | undefined;

@@ -120,6 +120,7 @@ import { HistoryPageRequestError } from "../../src/host/attached-client.ts";
 import {
     findOrStartResidentHost,
     worktreeRuntimeNotice,
+    type FindOrStartHostOptions,
 } from "../host/launch.ts";
 import { createTuiApprovalView } from "./approval.ts";
 import {
@@ -558,6 +559,7 @@ export interface TuiReconnectOptions {
     readonly replaceExisting?: boolean;
     readonly confirmWedge?: boolean;
     readonly attachOnly?: boolean;
+    readonly boot?: FindOrStartHostOptions["boot"];
 }
 
 export interface TuiDependencies {
@@ -872,6 +874,7 @@ export async function startConfiguredTui(
                     ? confirmManualReconnectUpgrade
                     : () => false,
                 ...(replaceExisting ? { replaceExisting: true } : {}),
+                ...(options?.boot === undefined ? {} : { boot: options.boot }),
                 ...(home && replaceExisting
                     ? { replaceOnlyHost: { pid: host.pid, started_at: host.started_at } }
                     : {}),
@@ -2666,6 +2669,7 @@ export async function startTui(
         rt.stopWatchingTerminal();
         rt.flightRecorder?.record({ type: "renderer_destroyed" });
         rt.shuttingDown = true;
+        rt.cancelReconnectBoot?.();
         cancelExtensionReveal(rt);
         rt.subscriptionLimits.stop();
         stopAutoModeAnimation(rt);
