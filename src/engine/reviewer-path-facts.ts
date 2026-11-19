@@ -3,7 +3,7 @@ import {
     readdir,
     realpath,
 } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 import type { HookToolCall } from "../sdk/hooks.ts";
 import type { PermissionActionDecision } from "./permissions.ts";
@@ -11,6 +11,7 @@ import { workspaceScope } from "./workspace-scope.ts";
 
 const MAX_DIRECTORY_ENTRIES = 1_000;
 const GIT_CHECK_TIMEOUT_MS = 1_000;
+const GIT_ERROR_LIMIT = 1_024;
 
 export type ReviewerPathType =
     | "file"
@@ -33,6 +34,7 @@ export interface ReviewerPathFacts {
     readonly trackedGitState?:
         | "clean"
         | "dirty"
+        | "untracked"
         | "not_repository"
         | "unavailable";
 }
@@ -121,6 +123,7 @@ async function inspectPath(
                 type: "missing",
                 trackedGitState: await trackedGitState(
                     dirname(candidate.absolutePath),
+                    basename(candidate.absolutePath),
                     signal,
                 ),
             };
@@ -146,7 +149,8 @@ async function inspectPath(
         ...(info.isSymbolicLink() ? { symlinkTarget: resolvedPath } : {}),
     } satisfies Omit<ReviewerPathFacts, "trackedGitState">;
     const gitAnchor = info.isDirectory() ? resolvedPath : dirname(resolvedPath);
-    const trackedGitStateValue = await trackedGitState(gitAnchor, signal);
+    const gitPathspec = info.isDirectory() ? "." : basename(resolvedPath);
+    const trackedGitStateValue = await trackedGitState(gitAnchor, gitPathspec, signal);
 
     if (info.isFile()) {
         return {
@@ -208,47 +212,84 @@ async function summarizeDirectory(
 
 async function trackedGitState(
     path: string,
+    pathspec: string,
     signal?: AbortSignal,
 ): Promise<ReviewerPathFacts["trackedGitState"]> {
-    const inside = await gitExitCode(path, [
+    const inside = await gitCheck(path, [
         "rev-parse",
         "--is-inside-work-tree",
     ], signal);
     if (inside === undefined) {
         return "unavailable";
     }
-    if (inside !== 0) {
-        return "not_repository";
+    if (inside.exitCode !== 0) {
+        return inside.error.startsWith(
+            "fatal: not a git repository (or any of the parent directories): .git",
+        ) ? "not_repository" : "unavailable";
     }
-    const working = await gitExitCode(path, ["diff", "--quiet"], signal);
-    const staged = await gitExitCode(
+    const working = await gitCheck(
         path,
-        ["diff", "--cached", "--quiet"],
+        ["diff", "--quiet", "--", pathspec],
         signal,
     );
-    if (working === undefined || staged === undefined) {
+    const staged = await gitCheck(
+        path,
+        ["diff", "--cached", "--quiet", "--", pathspec],
+        signal,
+    );
+    if (
+        working === undefined || staged === undefined
+        || (working.exitCode !== 0 && working.exitCode !== 1)
+        || (staged.exitCode !== 0 && staged.exitCode !== 1)
+    ) {
         return "unavailable";
     }
-    return working === 0 && staged === 0 ? "clean" : "dirty";
+    if (working.exitCode === 1 || staged.exitCode === 1) {
+        return "dirty";
+    }
+    const untracked = await gitCheck(path, [
+        "ls-files",
+        "--others",
+        "--directory",
+        "--error-unmatch",
+        "--",
+        pathspec,
+    ], signal);
+    if (untracked?.exitCode === 0) return "untracked";
+    if (untracked?.exitCode === 1) return "clean";
+    return "unavailable";
 }
 
-async function gitExitCode(
+async function gitCheck(
     path: string,
     args: readonly string[],
     parentSignal?: AbortSignal,
-) {
+): Promise<{ exitCode: number; error: string } | undefined> {
     parentSignal?.throwIfAborted();
     const timeout = AbortSignal.timeout(GIT_CHECK_TIMEOUT_MS);
     const signal = parentSignal === undefined
         ? timeout
         : AbortSignal.any([parentSignal, timeout]);
     try {
-        const process = Bun.spawn(["git", "-C", path, ...args], {
+        const child = Bun.spawn(["git", "-C", path, "--literal-pathspecs", ...args], {
             stdout: "ignore",
-            stderr: "ignore",
+            stderr: "pipe",
+            env: { ...process.env, LC_ALL: "C" },
             signal,
         });
-        return await process.exited;
+        const reader = child.stderr.getReader();
+        const decoder = new TextDecoder();
+        let error = "";
+        while (true) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            if (error.length < GIT_ERROR_LIMIT) {
+                error += decoder.decode(chunk.value.subarray(0, GIT_ERROR_LIMIT - error.length));
+            }
+        }
+        const exitCode = await child.exited;
+        parentSignal?.throwIfAborted();
+        return timeout.aborted ? undefined : { exitCode, error };
     } catch {
         parentSignal?.throwIfAborted();
         return undefined;
