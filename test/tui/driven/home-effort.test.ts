@@ -57,7 +57,7 @@ function homeDependencies(sent: ClientCommand[]): TuiDependencies {
                             type: "model_settings",
                             requestId: command.requestId,
                             settings: homeSettings(
-                                command.patch.reasoningEffort,
+                                command.patch.reasoningEffort ?? undefined,
                             ),
                             pending: false,
                             seq: 99,
