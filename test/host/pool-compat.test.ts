@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { runCli } from "../../clients/cli/main.ts";
 import { HOST_MIN_COMPATIBLE_PROTOCOL_VERSION, HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
+import { processStartStamp } from "../../src/host/process-identity.ts";
 import { startHostServer } from "../../src/host/server.ts";
 
 async function identityLine(socketPath: string): Promise<string> {
@@ -29,8 +30,10 @@ test("a plain host preserves the lock, identity and ls bytes", async () => {
     const startedAt = "2026-07-17T12:00:00.000Z";
     const server = await startHostServer({ socketPath, lockPath, pid: process.pid, startedAt, buildId: "test-build" });
     try {
+        const stamp = processStartStamp(process.pid);
         expect(await readFile(lockPath, "utf8")).toBe(`${JSON.stringify({
             schema_version: 3, pid: process.pid, started_at: startedAt, socket_path: socketPath, build_id: "test-build",
+            ...(stamp === undefined ? {} : { start_stamp: stamp }),
         }, null, 2)}\n`);
         expect(await identityLine(socketPath)).toBe(`${JSON.stringify({
             type: "host_identity", pid: process.pid, started_at: startedAt,
