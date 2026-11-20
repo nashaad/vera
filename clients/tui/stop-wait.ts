@@ -74,13 +74,15 @@ export function closeStopWaitCard(card: TuiStopWaitCard): TuiStopWaitCard {
 
 function stopWaitCardTitle(wait: TuiStopWait): string {
     const first = wait.waitingOn[0];
-    const more = wait.waitingOn.length - 1;
-    const waitingFor = first === undefined
-        ? ""
-        : ` Waiting for ${first.name ?? first.session_id}${more > 0 ? ` and ${more} more` : ""}.`;
-    return wait.kind === "update"
-        ? `Vera updates to ${wait.targetBuildId} when running turns finish.${waitingFor}`
-        : `Vera stops when running turns finish.${waitingFor}`;
+    const count = wait.waitingOn.length;
+    const more = count - 1;
+    const action = wait.kind === "update"
+        ? `Vera is updating to ${wait.targetBuildId}`
+        : "Vera is shutting down (an update, install or vera host stop asked it to)";
+    const conversations = first === undefined
+        ? "."
+        : `, but ${count} ${count === 1 ? "conversation is" : "conversations are"} still working: ${first.name ?? first.session_id}${more > 0 ? ` and ${more} more` : ""}.`;
+    return `${action}${conversations} Nothing new can start until it stops.`;
 }
 
 export function stopWaitCardUpdate(
@@ -98,8 +100,16 @@ export function stopWaitCardUpdate(
             allowCustom: false,
             allowNotes: false,
             choices: [
-                { id: STOP_WAIT_KEEP_CHOICE, label: "Keep waiting" },
-                { id: STOP_WAIT_STOP_CHOICE, label: "Stop it now" },
+                {
+                    id: STOP_WAIT_KEEP_CHOICE,
+                    label: "Keep waiting",
+                    description: "It stops when they finish.",
+                },
+                {
+                    id: STOP_WAIT_STOP_CHOICE,
+                    label: "Stop them now",
+                    description: "Cancels their running turns and drops queued prompts.",
+                },
             ],
         },
     };
@@ -109,7 +119,7 @@ export function isStopWaitCardUpdate(update: UserQuestionUiRequestUpdate): boole
     return update.requestId.startsWith(`${STOP_WAIT_CARD_REQUEST_ID}:`);
 }
 
-// Only an explicit "Stop it now" stops anything. Keep waiting, Escape, and any other answer do not.
+// Only the stop choice cuts the wait. Dismissing the card leaves the wait active.
 export function stopWaitCardChoice(response: UiResponseCommand): "stop" | "keep" {
     const answer = response.response;
     return answer.type === "user_question"

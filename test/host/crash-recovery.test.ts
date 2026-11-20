@@ -58,6 +58,8 @@ test("the restore sequence leaves the alternate screen and shows the cursor", ()
     expect(TERMINAL_RESTORE_SEQUENCE).toContain("\x1b[?1049l");
     expect(TERMINAL_RESTORE_SEQUENCE).toContain("\x1b[?25h");
     expect(TERMINAL_RESTORE_SEQUENCE).toContain("\x1b[?2004l");
+    expect(TERMINAL_RESTORE_SEQUENCE).toContain("\x1b[?1004l");
+    expect(TERMINAL_RESTORE_SEQUENCE).toContain("\x1b[?2031l");
 });
 
 test("the crash guard keeps the host process alive and logs the cause", async () => {

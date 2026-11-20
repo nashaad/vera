@@ -16,7 +16,7 @@ export interface TuiRelaunchRequest {
 
 export interface LauncherRelaunchEffects {
     readonly writeRecord: (launcherKey: string, record: RelaunchRecord) => void;
-    readonly markTerminalRestored: () => void;
+    readonly markTerminalRestored: (mode: "relaunch") => void;
     readonly exit: (code: number) => void;
 }
 
@@ -33,7 +33,7 @@ export function launcherRelaunch(
         } catch {
         }
         // Keeps the alternate screen so the next TUI draws over this one.
-        effects.markTerminalRestored();
+        effects.markTerminalRestored("relaunch");
         effects.exit(RELAUNCH_EXIT_CODE);
     };
 }

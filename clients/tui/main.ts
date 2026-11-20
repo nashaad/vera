@@ -34,6 +34,7 @@ import {
 } from "./flight-recorder.ts";
 import {
     installTerminalRestoreOnExit,
+    markKittyKeyboardEnabled,
     markTerminalRestored,
     watchTerminalLoss,
 } from "./terminal-restore.ts";
@@ -771,8 +772,8 @@ export async function startConfiguredTui(
     requestedTarget: TuiStartTarget,
     options: TuiStartOptions = {},
 ): Promise<void> {
-    const removeLiveProcess = installLiveProcess("tui");
     installTerminalRestoreOnExit();
+    const removeLiveProcess = installLiveProcess("tui");
     const launcherKey = launcherKeyFromEnv();
     delete process.env[RELAUNCH_LAUNCHER_ENV];
     const restored = launcherKey === undefined ? undefined : takeRelaunchRecord(launcherKey);
@@ -1054,6 +1055,7 @@ export async function startTui(
         }));
     // Request the kitty keyboard protocol so ctrl+shift chords actually arrive.
     rt.renderer.enableKittyKeyboard();
+    markKittyKeyboardEnabled();
     rt.appearance = fitTuiAppearance(rt.configuredAppearance, rt.renderer.width);
     configureDialogHeaders(rt.renderer, rt.appearance.dialogHeaderStyle);
     configureDialogSearch(rt.renderer, rt.appearance.dialogSearchStyle);

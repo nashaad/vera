@@ -292,11 +292,11 @@ the work finish and retry. See [Troubleshooting](troubleshooting.md#the-client-l
 
 Ordinary `vera host stop` asks the host to stop once its running turns end.
 It lists the sessions it waits on and refuses new turns until the host stops.
-An attached TUI names a waiting session in a dialog and above its composer,
-updates it as the wait changes, and removes the notice when the wait ends.
-Choose **Keep waiting** to let the turns finish, or **Stop it now** to cut the
-waited turns and drop their queued prompts. The same choices appear during an
-update that waits for turns. A cut turn says `Host stopped` in its transcript.
+An attached TUI says Vera is shutting down or updating and names the
+conversations it is waiting for. Choose **Keep waiting** to let work finish,
+or **Stop them now** to cut running turns and drop queued prompts.
+The same choices appear during an update that waits for turns. A cut turn says
+`Host stopped` in its transcript.
 A turn repaired after an unexpected host stop says `Host stopped unexpectedly`.
 Both messages remain in the conversation when it is reopened.
 The command prints Stopped only after the process exits. If the host does not answer,

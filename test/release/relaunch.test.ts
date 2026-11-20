@@ -2,9 +2,11 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
     chmodSync,
+    closeSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
+    openSync,
     readFileSync,
     rmSync,
     statSync,
@@ -18,12 +20,16 @@ import {
     RELAUNCH_EXIT_CODE,
     RELAUNCH_LAUNCHER_ENV,
     RELAUNCH_RECORD_MAX_AGE_MS,
+    RELAUNCH_RESTORE_ARG,
     launcherKeyFromEnv,
+    removeRelaunchRecord,
     relaunchRecordPath,
     takeRelaunchRecord,
     writeRelaunchRecord,
 } from "../../src/release/relaunch.ts";
 import { writeSelfContainedWrappers } from "../../src/release/wrappers.ts";
+import { restoreUnclaimedRelaunchTerminal } from "../../src/release/relaunch-terminal.ts";
+import { TERMINAL_RESTORE_WITHOUT_KITTY_SEQUENCE } from "../../src/terminal-restore-sequence.ts";
 import { HOST_STARTUP_RACE_EXIT_CODE } from "../../src/host/lockfile.ts";
 
 let savedHome: string | undefined;
@@ -74,6 +80,33 @@ test("a written record is read once and then removed", () => {
     });
     expect(existsSync(path)).toBe(false);
     expect(takeRelaunchRecord("100", now)).toBeUndefined();
+});
+
+test("@core the relaunch terminal helper restores only an unclaimed record", () => {
+    const output = join(home, "terminal-output");
+    const fd = openSync(output, "w");
+    try {
+        writeRelaunchRecord("101", { writtenAt: new Date().toISOString() });
+        restoreUnclaimedRelaunchTerminal("101", { fd, isTTY: true });
+        expect(existsSync(relaunchRecordPath("101"))).toBe(false);
+        restoreUnclaimedRelaunchTerminal("101", { fd, isTTY: true });
+        expect(readFileSync(output, "utf8")).toBe(TERMINAL_RESTORE_WITHOUT_KITTY_SEQUENCE);
+    } finally {
+        closeSync(fd);
+    }
+});
+
+test("the internal helper accepts only its parent's pid", () => {
+    writeRelaunchRecord(String(process.pid), { writtenAt: new Date().toISOString() });
+    const entry = join(import.meta.dir, "../../clients/cli/main.ts");
+    const env = { ...process.env, VERA_HOME: process.env.VERA_HOME! };
+    const invalid = spawnSync(process.execPath, [entry, RELAUNCH_RESTORE_ARG, "../bad"], { env });
+    expect(invalid.status).toBe(1);
+    expect(existsSync(relaunchRecordPath(String(process.pid)))).toBe(true);
+    const valid = spawnSync(process.execPath, [entry, RELAUNCH_RESTORE_ARG, String(process.pid)], { env });
+    expect(valid.status).toBe(0);
+    expect(existsSync(relaunchRecordPath(String(process.pid)))).toBe(false);
+    expect(removeRelaunchRecord(String(process.pid))).toBe(false);
 });
 
 test("the record file is private to the user", () => {
@@ -136,6 +169,7 @@ ln -s releases/B "${join(share, "current")}"
 exit ${RELAUNCH_EXIT_CODE}
 `);
     writeFakeExecutable(join(releaseB, "vera-bin"), `
+if [ "$2" = "${RELAUNCH_RESTORE_ARG}" ]; then exit 0; fi
 echo "B $VERA_TUI_LAUNCHER $PPID" >> "${log}"
 exit 0
 `);

@@ -101,6 +101,7 @@ import {
     type HomeMigrationResult,
 } from "../../src/home-migration.ts";
 import { thisProcessVersion } from "../../src/release/stamp.ts";
+import { RELAUNCH_RESTORE_ARG } from "../../src/release/relaunch.ts";
 import {
     exportSession,
     type SessionExportFormat,
@@ -2196,6 +2197,16 @@ export function cliRequiresMigratedHome(args: readonly string[]): boolean {
 
 export async function runCliEntrypoint(): Promise<void> {
     const args = process.argv.slice(2);
+    if (args[0] === RELAUNCH_RESTORE_ARG) {
+        const launcherKey = args[1];
+        if (args.length !== 2 || launcherKey !== String(process.ppid) || !/^[0-9]+$/.test(launcherKey)) {
+            process.exitCode = 1;
+            return;
+        }
+        const { restoreUnclaimedRelaunchTerminal } = await import("../../src/release/relaunch-terminal.ts");
+        restoreUnclaimedRelaunchTerminal(launcherKey);
+        return;
+    }
     let layoutError: unknown;
     if (cliRequiresMigratedHome(args)) {
         try {
