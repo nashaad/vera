@@ -15,6 +15,7 @@ import { receiveAgentUpdates } from "../main/agent-updates.ts";
 import { watchSessionShow } from "./show-target.ts";
 import { dismissHomeRestart, listHomeRestarts } from "./home-restarts.ts";
 import { applyHeldSessionName } from "./home-session-name.ts";
+import { applyHeldReasoningEffort } from "./home-reasoning-effort.ts";
 import { focusedAgentClient, focusedAgentState, openExtensionAgent, setSidebarFocused } from "../main/agents-dials.ts";
 import { homeNeedsProvider, openProviderPicker } from "../main/model-pickers.ts";
 import { openOnboardingWizard } from "../main/onboarding-wizard-ops.ts";
@@ -124,6 +125,7 @@ export function switchToClient(rt: TuiRuntime,
     rt.homeCommandMode = false;
     rt.homeSessionName = undefined;
     rt.homeNameRequestId = undefined;
+    rt.homeReasoningEffort = undefined;
     rt.abortRequested = false;
     rt.workingSince = undefined;
     rt.phaseSince = undefined;
@@ -600,6 +602,9 @@ export function beginCreateSession(rt: TuiRuntime,
     const sourceClient = focusedAgentClient(rt);
     const homePermission = isHomeClient(sourceClient) ? rt.state.approvalMode : undefined;
     const homeName = isHomeClient(sourceClient) ? rt.homeSessionName : undefined;
+    const homeEffort = isHomeClient(sourceClient)
+        ? rt.homeReasoningEffort
+        : undefined;
     const sourceCompanions = clearingSidebar
         || rt.hostedSidebar.pane === undefined
         ? []
@@ -697,6 +702,7 @@ export function beginCreateSession(rt: TuiRuntime,
         switchToClient(rt, next, draft?.());
         if (homePermission !== undefined) requestPermissionsChange(rt, homePermission, next, "session");
         if (homeName !== undefined) applyHeldSessionName(rt, next, homeName);
+        if (homeEffort !== undefined) applyHeldReasoningEffort(rt, next, homeEffort);
         onReady?.();
         if (rt.homeSubmitPending) {
             rt.homeSubmitPending = false;

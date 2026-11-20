@@ -3,6 +3,7 @@ import { runModelOperation } from "./model-operations.ts";
 import { currentModelAssignmentRows } from "./model-pickers.ts";
 import { applySelectedTheme, beginSessionResume, refreshHomeSessions, overrideChangeLabel, formatContextLimit, openCatalogRefreshScopePicker, openPoolVerifyScopePicker, requestCatalogRefresh, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, scheduleThemePreview, showStatusNotice, startCatalogRefreshSweep, startPoolVerifySweep, verifyModelInPicker } from "../main.ts";
 import { isHomeClient } from "../home-client.ts";
+import { holdHomeReasoningEffort } from "./home-reasoning-effort.ts";
 import { currentBackgroundCommandCount } from "../background-command-count.ts";
 import { modelSwitchCommand } from "../model-switch-command.ts";
 import { focusedAgentClient, modelSettingsForOpenPicker } from "../main/agents-dials.ts";
@@ -579,12 +580,17 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             }
             return;
         } else if (selection.kind === "reasoning") {
-            requestModelSettingsChange(rt, 
-                { reasoningEffort: selection.reasoningEffort },
-                `reasoning → ${selection.reasoningEffort}`,
-                `reasoning to ${selection.reasoningEffort}`,
-                rt.settingsPickerAgent,
-            );
+            const target = rt.settingsPickerAgent ?? focusedAgentClient(rt);
+            if (isHomeClient(target)) {
+                holdHomeReasoningEffort(rt, selection.reasoningEffort);
+            } else {
+                requestModelSettingsChange(rt, 
+                    { reasoningEffort: selection.reasoningEffort },
+                    `reasoning → ${selection.reasoningEffort}`,
+                    `reasoning to ${selection.reasoningEffort}`,
+                    rt.settingsPickerAgent,
+                );
+            }
         } else if (selection.kind === "permissions") {
             if (selection.mode === "full_access") {
                 rt.confirmingFullAccess = true;
