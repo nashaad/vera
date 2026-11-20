@@ -20,6 +20,8 @@ export interface HostLogEntry extends Record<string, unknown> {
 
 export type HostLog = (entry: HostLogEntry) => void;
 
+export type HostLogWriter = (entry: HostLogEntry) => boolean;
+
 export function defaultHostLogPath(home?: string): string {
     return join(veraRuntimeDirectoryIn(selectedVeraHome(home)), "logs", "host.jsonl");
 }
@@ -29,11 +31,11 @@ export interface HostLoggerOptions {
     readonly now?: () => Date;
 }
 
-export function createHostLogger(options: HostLoggerOptions = {}): HostLog {
+export function createHostLogger(options: HostLoggerOptions = {}): HostLogWriter {
     return createHostLogWriter(options);
 }
 
-export function createHostLogWriter(options: HostLoggerOptions = {}): (entry: HostLogEntry) => boolean {
+export function createHostLogWriter(options: HostLoggerOptions = {}): HostLogWriter {
     const path = options.path ?? defaultHostLogPath();
     const now = options.now ?? (() => new Date());
     let prepared = false;

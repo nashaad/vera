@@ -144,6 +144,12 @@ Open Configure providers and refresh the affected provider. Check the endpoint
 if the refresh fails. Restarting the TUI alone does not refresh provider state
 held by the host.
 
+Connected catalogs also refresh in the background once a day. Each scan writes a
+`model_catalog_scan` line to `runtime/logs/host.jsonl`, and a dropped default or
+assigned model writes one `model_dropped` line. Miss history is in
+`runtime/model-availability.json`, which can be deleted. A full manual refresh
+holds the next background scan off for an hour.
+
 See [Manage connections](first-run-setup.md#manage-connections) for refresh,
 credentials, and sign-in controls.
 

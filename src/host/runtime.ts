@@ -1,5 +1,6 @@
 import { selectOnboardingModel } from "../providers/select-onboarding-model.ts";
 import { createProviderSignInService } from "../providers/provider-sign-in.ts";
+import { accessSync, constants, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { configuredModelAssignments as modelOperationAssignments } from "../config.ts";
 import { derivedModelName } from "../config/model-catalog.ts";
@@ -43,7 +44,13 @@ import { isRefreshableProvider } from "../model/refreshable-providers.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { readWebDevArenaSnapshot, refreshWebDevArena } from "../model/webdev-arena.ts";
-import { selectedVeraHome, VERA_HOME_ENV, veraBlockedDirectory, veraMachineDirectoryIn } from "../profile-paths.ts";
+import {
+    modelAvailabilityRecordPath,
+    selectedVeraHome,
+    VERA_HOME_ENV,
+    veraBlockedDirectory,
+    veraMachineDirectoryIn,
+} from "../profile-paths.ts";
 import { createRequestOptionsSnapshotAdapter } from "../providers/routing.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 import { defaultModelFailureLedgerPath } from "../store/model-failures.ts";
@@ -59,6 +66,11 @@ import {
     HOST_CAPABILITIES,
 } from "./capabilities.ts";
 import { createAsyncHostLogger, createHostLogger, defaultHostLogPath, type HostLog, type HostLogEntry } from "./host-log.ts";
+import {
+    CATALOG_SCAN_MIN_FIRST_DELAY_MS,
+    startCatalogRefreshTimer,
+    type CatalogRefreshTimer,
+} from "./catalog-refresh-timer.ts";
 import { createHostLockfile, defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
 import { startClientWatchdog, type ClientWatchdog } from "./client-watchdog.ts";
 import { removeStoppedPoolLock } from "./pool/worker-records.ts";
@@ -107,7 +119,13 @@ import {
     type OpenRouterCatalogRefreshOptions,
 } from "../model/openrouter-catalog.ts";
 import { admitToPool } from "../model/pool-admission.ts";
+import {
+    ModelAvailabilityStore,
+    applyCatalogScan,
+    trackedModels,
+} from "../model/model-availability.ts";
 import { loadPoolFile } from "../model/pool-file-loader.ts";
+import type { PoolFile } from "../model/pool-file.ts";
 import {
     movePoolModel,
     namePoolModel,
@@ -237,6 +255,12 @@ export interface StartResidentHostOptions {
     readonly webRoot?: string;
     // Catalog requests only; model turns keep their own adapters.
     readonly catalogFetch?: typeof globalThis.fetch;
+    // Shortens or re-clocks the daily catalog scan for tests.
+    readonly catalogScan?: {
+        readonly now?: () => number;
+        readonly minDelayMs?: number;
+        readonly intervalMs?: number;
+    };
     readonly credentialFetch?: typeof globalThis.fetch;
 }
 
@@ -380,7 +404,10 @@ async function startHostRuntime(
     const hostLog = createHostLogger({ path: defaultHostLogPath(home) });
     const asyncHostLog = options.processWorker === true ? createAsyncHostLogger({ path: defaultHostLogPath(home) }) : undefined;
     const logRestart = (entry: HostLogEntry): void | Promise<void> => {
-        if (asyncHostLog === undefined) return hostLog(entry);
+        if (asyncHostLog === undefined) {
+            hostLog(entry);
+            return;
+        }
         return asyncHostLog(entry);
     };
     const startupLog = options.startupLog ?? hostLog;
@@ -576,6 +603,88 @@ async function startHostRuntime(
             });
     };
     const startupFindings = options.startupFindings ?? new StartupFindings();
+    // The record and the timer belong to the host that owns the catalogs.
+    const modelAvailability = workerReservations === undefined
+        ? new ModelAvailabilityStore(modelAvailabilityRecordPath(home), hostLog)
+        : undefined;
+    let catalogRefreshTimer: CatalogRefreshTimer | undefined;
+    let catalogScanStopped = false;
+    let lastManualFullRefreshAt: number | undefined;
+    const trackedPoolPath = poolPath ?? join(home, "pool.json");
+
+    const readTrackedPool = (): PoolFile | undefined => {
+        try {
+            accessSync(trackedPoolPath, constants.R_OK);
+            if (!statSync(trackedPoolPath).isFile()) return undefined;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") return undefined;
+        }
+        try {
+            return loadPoolFile({ userPath: trackedPoolPath }).merged;
+        } catch {
+            return undefined;
+        }
+    };
+
+    const runDailyCatalogScan = async (): Promise<void> => {
+        if (modelAvailability === undefined) return;
+        const startedAt = Date.now();
+        if (lastManualFullRefreshAt !== undefined
+            && startedAt - lastManualFullRefreshAt < CATALOG_SCAN_MIN_FIRST_DELAY_MS) {
+            hostLog({ type: "model_catalog_scan_skipped", reason: "recent_manual_refresh" });
+            return;
+        }
+        const config = currentConfig();
+        const listings = await refreshProviderCatalogListings(config, {
+            authStorage,
+            cacheDir: cacheDirectory,
+            ...(codexAuthorization === undefined ? {} : { authorization: codexAuthorization }),
+        });
+        models = await discoverAvailableModels(config, authStorage, hostLog, cacheDirectory);
+        if (!catalogScanStopped) announceGlobalChange("catalog");
+
+        let tracked = 0;
+        let dropped = 0;
+        try {
+            const pool = readTrackedPool();
+            if (pool === undefined) {
+                hostLog({ type: "model_availability_pool_unreadable", path: trackedPoolPath });
+            } else {
+                const watched = trackedModels(config, pool);
+                if (watched.droppedFavorites > 0) {
+                    hostLog({ type: "model_availability_over_cap", dropped: watched.droppedFavorites });
+                }
+                const applied = applyCatalogScan(
+                    modelAvailability.read(),
+                    watched.models,
+                    listings,
+                    new Date(startedAt).toISOString(),
+                    (notice) => hostLog({ type: "model_dropped", ...notice }),
+                );
+                tracked = watched.models.length;
+                dropped = applied.dropped;
+                modelAvailability.write(applied.next);
+            }
+        } catch (error) {
+            hostLog({
+                type: "model_availability_scan_failed",
+                reason: error instanceof Error ? error.message : String(error),
+            });
+        }
+        hostLog({
+            type: "model_catalog_scan",
+            source: "daily",
+            tracked,
+            dropped,
+            outcomes: listings.map((entry) => entry.outcome),
+        });
+    };
+
+    const scanCatalogsDaily = (): Promise<void> => {
+        const scanned = catalogRefreshes.then(() => runDailyCatalogScan());
+        catalogRefreshes = scanned.then(() => undefined, () => undefined);
+        return scanned;
+    };
     const blockedDirectory = options.blockedDirectory ?? veraBlockedDirectory(home);
     let inbox!: Inbox;
     let consumers: ReturnType<typeof createConsumerRegistry>;
@@ -596,6 +705,9 @@ async function startHostRuntime(
     let sidecars: SidecarRuntime | null = null;
     let publishedSocketPath = socketPath;
     const closeSidecars = async (): Promise<void> => {
+        catalogScanStopped = true;
+        catalogRefreshTimer?.close();
+        catalogRefreshTimer = undefined;
         curatedRefresh.close();
         await sidecars?.close();
         sidecars = null;
@@ -725,6 +837,14 @@ async function startHostRuntime(
                         : { url: options.config.curated_models_url }),
                 })
                 : { close: () => {} };
+            catalogRefreshTimer = modelAvailability === undefined
+                ? undefined
+                : startCatalogRefreshTimer({
+                    readLastScanAt: () => modelAvailability.read()?.last_scan_at,
+                    scan: scanCatalogsDaily,
+                    log: hostLog,
+                    ...(options.catalogScan ?? {}),
+                });
             const readFeedRow = createFeedRowReader(
                 options.config.model_feed_url === undefined
                     ? {}
@@ -1358,6 +1478,7 @@ async function startHostRuntime(
                             cacheDirectory,
                         );
                         announceGlobalChange("catalog");
+                        lastManualFullRefreshAt = Date.now();
                         return outcomes;
                     });
                     catalogRefreshes = refreshed.then(() => undefined, () => undefined);
@@ -1602,14 +1723,30 @@ export interface CatalogRefreshOptions {
     readonly authorization?: CodexCatalogAuthorization;
 }
 
+/** A refresh outcome plus the provider's full list when the answer was authoritative. */
+export interface CatalogRefreshListing {
+    readonly provider: string;
+    readonly outcome: CatalogRefreshOutcome;
+    /** Present only for a full, parsed, non-empty answer with no failure. */
+    readonly listed?: readonly string[];
+}
+
 export async function refreshProviderCatalogs(
     config: VeraConfig,
     options: CatalogRefreshOptions = {},
 ): Promise<readonly CatalogRefreshOutcome[]> {
+    return (await refreshProviderCatalogListings(config, options)).map((entry) => entry.outcome);
+}
+
+export async function refreshProviderCatalogListings(
+    config: VeraConfig,
+    options: CatalogRefreshOptions = {},
+): Promise<readonly CatalogRefreshListing[]> {
     const cacheOptions = options.cacheDir === undefined
         ? {}
         : { cacheDir: options.cacheDir };
     const authStorage = options.authStorage ?? createAuthStorage();
+    const descriptors = standardProviderDescriptors(config);
     const [ollama, openrouter, standard, codex] = await Promise.all([
         discoverOllamaModelCatalog({
             ...cacheOptions,
@@ -1623,7 +1760,7 @@ export async function refreshProviderCatalogs(
                 maxAgeMs: 0,
             })
             : undefined,
-        Promise.all(standardProviderDescriptors(config).map((descriptor) =>
+        Promise.all(descriptors.map((descriptor) =>
             standardProviderModels(descriptor, config, authStorage, {
                 ...cacheOptions,
                 maxAgeMs: 0,
@@ -1635,27 +1772,73 @@ export async function refreshProviderCatalogs(
             ...(options.authorization === undefined ? {} : { authorization: options.authorization }),
         }),
     ]);
-    return [
-        ollama.available
-            ? { provider: "ollama", models: ollama.models.length }
-            : { provider: "ollama", failure: "unavailable" as const },
-        openrouter === undefined
-            ? { provider: "openrouter", failure: "missing_credential" }
-            : openrouter.failure !== undefined
-                ? {
-                    provider: "openrouter",
-                    failure: openrouter.failure,
-                    ...(openrouter.keptModels === 0
-                        ? {}
-                        : { keptModels: openrouter.keptModels }),
-                }
-                : { provider: "openrouter", models: openrouter.models.length },
-        ...standard.map((result, index) => standardRefreshOutcome(
-            standardProviderDescriptors(config)[index]!.id,
-            result,
-        )),
-        ...(codex === undefined ? [] : [codex]),
-    ];
+    const listings: CatalogRefreshListing[] = [];
+    if (ollama.available) {
+        const models = ollama.models.map((model) => model.model);
+        listings.push({
+            provider: "ollama",
+            outcome: { provider: "ollama", models: models.length },
+            ...(models.length === 0 ? {} : { listed: models }),
+        });
+    } else {
+        listings.push({
+            provider: "ollama",
+            outcome: { provider: "ollama", failure: "unavailable" },
+        });
+    }
+    if (openrouter === undefined) {
+        listings.push({
+            provider: "openrouter",
+            outcome: { provider: "openrouter", failure: "missing_credential" },
+        });
+    } else if (openrouter.failure !== undefined) {
+        listings.push({
+            provider: "openrouter",
+            outcome: {
+                provider: "openrouter",
+                failure: openrouter.failure,
+                ...(openrouter.keptModels === 0
+                    ? {}
+                    : { keptModels: openrouter.keptModels }),
+            },
+        });
+    } else {
+        const models = openrouter.models.map((model) => model.model);
+        listings.push({
+            provider: "openrouter",
+            outcome: { provider: "openrouter", models: models.length },
+            ...(models.length === 0 ? {} : { listed: models }),
+        });
+    }
+    for (const [index, result] of standard.entries()) {
+        const descriptor = descriptors[index]!;
+        listings.push({
+            provider: descriptor.id,
+            outcome: standardRefreshOutcome(descriptor.id, result),
+            ...(result.failure === undefined && result.models.length > 0
+                ? { listed: result.models.map((model) => model.model) }
+                : {}),
+        });
+    }
+    if (codex !== undefined) {
+        listings.push(codexListing(codex, options.cacheDir));
+    }
+    return listings;
+}
+
+function codexListing(
+    outcome: CatalogRefreshOutcome,
+    cacheDir: string | undefined,
+): CatalogRefreshListing {
+    if (outcome.failure !== undefined) {
+        return { provider: outcome.provider, outcome };
+    }
+    const saved = readCodexCatalog(cacheDir).models.map((model) => model.id);
+    return {
+        provider: outcome.provider,
+        outcome,
+        ...(saved.length === 0 || saved.length !== outcome.models ? {} : { listed: saved }),
+    };
 }
 
 // Signed out returns undefined: Codex is optional, unlike the configured providers.
