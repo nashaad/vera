@@ -6,7 +6,7 @@ import { modelDetailFacts } from "../../clients/tui/settings-picker-model.ts";
 import { createTestRenderer } from "@opentui/core/testing";
 import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
 import { shortlistFactsText, shortlistLegendText } from "../../clients/tui/settings-picker-model.ts";
-import { type BrowseDisplayRow, handleModelBrowseKey, modelBrowse, browseHeader, browseFooter, browseScopeCaption, browseScopeIndicator, browseModels, browseMatches, browseMoreText, browseWindow, emptyModelBrowse, modelBrowseScope, modelBrowseSort, browseSort, browseSections, MODEL_BROWSE_TIPS, modelBrowseTip } from "../../clients/tui/model-browse.ts";
+import { type BrowseDisplayRow, handleModelBrowseKey, modelBrowse, browseHeader, browseFooter, browseScopeCaption, browseScopeIndicator, browseScopeOptions, browseModels, browseMatches, browseMoreText, browseWindow, emptyModelBrowse, modelBrowseScope, modelBrowseSort, browseSort, browseSections, MODEL_BROWSE_TIPS, modelBrowseTip } from "../../clients/tui/model-browse.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
 const rows = [
@@ -150,14 +150,60 @@ test("search crosses favorites but retains explicit filters", () => {
         { ...rows[1]!, unavailable: true }, rows[2]!,
     ];
     const parent = modelBrowse({ ...base, allOptions }, "browse");
-    expect(parent.options.map((row) => row.model)).toEqual(["b", "c"]);
+    // Beta is a favorite its provider dropped, so Favorites leaves it out.
+    expect(parent.options.map((row) => row.model)).toEqual(["c"]);
     expect(updateTuiSettingsPickerSearch(parent, "alpha").state?.options.map((row) => row.model)).toEqual(["a"]);
     const search = updateTuiSettingsPickerSearch(parent, "alpha").state!;
-    expect(updateTuiSettingsPickerSearch(search, "").state?.options.map((row) => row.model)).toEqual(["b", "c"]);
+    expect(updateTuiSettingsPickerSearch(search, "").state?.options.map((row) => row.model)).toEqual(["c"]);
     expect(browseMatches({ ...search, browseProvider: "q" })).toHaveLength(0);
     expect(browseMatches({ ...parent, tab: "all", browseAvailableOnly: true }).map((row) => row.model)).toEqual(["a", "c"]);
     expect(browseMatches({ ...parent, tab: "all", browsePricedOnly: true }).map((row) => row.model)).toEqual(["a"]);
     expect(browseMatches({ ...parent, tab: "all", browseImagesOnly: true }).map((row) => row.model)).toEqual(["a"]);
+});
+
+test("Favorites leaves out a favorite its provider dropped", () => {
+    const options = [
+        { ...rows[0]!, pooledRank: 0 },
+        { ...rows[1]!, pooledRank: 1, unavailable: true },
+    ];
+    const state = modelBrowse({ ...base, allOptions: options }, "browse");
+    expect(state.options.map((row) => row.model)).toEqual(["a"]);
+    // All connected still lists it, so the browser is where it can be removed.
+    expect(chooseScope(state).options.map((row) => row.model)).toEqual(["a", "b"]);
+});
+
+test("the running favorite stays in Favorites when its provider dropped it", () => {
+    const options = [
+        { ...rows[0]!, pooledRank: 0, unavailable: true },
+        { ...rows[1]!, pooledRank: 1 },
+    ];
+    const state = modelBrowse({ ...base, allOptions: options, initialModel: "p/a" }, "browse");
+    expect(state.options.map((row) => row.model)).toEqual(["a", "b"]);
+    expect(emptyModelBrowse(state)).not.toContain("None of your favorites");
+});
+
+test("all favorites hidden says so instead of claiming none exist", () => {
+    const options = [
+        { ...rows[0]!, pooledRank: 0, unavailable: true },
+        { ...rows[1]!, pooledRank: 1, unavailable: true },
+    ];
+    const state = modelBrowse({ ...base, allOptions: options }, "browse");
+    expect(state.options).toHaveLength(0);
+    expect(emptyModelBrowse(state)).toBe("None of your favorites is offered now. Ctrl+G shows the recommended models, then all of them.");
+    expect(browseScopeOptions(state).find((row) => row.value === "scope:pool")?.label).toBe("Favorites (0)");
+});
+
+test("a dropped favorite returns to Favorites when the pool view offers it again", () => {
+    const dropped = modelBrowse({ ...base, allOptions: [{ ...rows[0]!, pooledRank: 0, unavailable: true }] }, "browse");
+    expect(dropped.options).toHaveLength(0);
+    const back = modelBrowse({ ...base, allOptions: [{ ...rows[0]!, pooledRank: 0 }] }, "browse");
+    expect(back.options.map((row) => row.model)).toEqual(["a"]);
+});
+
+test("Edit favorites still lists a dropped favorite so it can be removed", () => {
+    const options = [{ ...rows[0]!, pooledRank: 0, unavailable: true }];
+    const state = modelBrowse({ ...base, allOptions: options }, "favorites");
+    expect(state.options.map((row) => row.model)).toEqual(["a"]);
 });
 
 function chooseScope(
@@ -729,7 +775,7 @@ test.each([90, 100, 120, 170])("Detailed aligns WA scores and prices at %s colum
         expect(header).toContain("WA Score");
         expect(preferred.indexOf("1550") + 4).toBe(scoreEnd);
         expect(steady.indexOf("980") + 3).toBe(scoreEnd);
-        const unknown = lines.find((line) => line.includes("Unknown"))!;
+        const unknown = lines.find((line) => line.includes("* Unknown"))!;
         expect(unknown.slice(scoreEnd - 8, scoreEnd).trim()).toBe("-");
         expect(preferred.indexOf("$0.07") + 5).toBe(steady.indexOf("$2") + 2);
         expect(preferred.indexOf("$0.13") + 5).toBe(steady.indexOf("$6") + 2);
