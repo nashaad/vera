@@ -27,10 +27,10 @@ test("@core the theme view survives a fresh process using real web storage", asy
             "--experimental-webstorage", `--localstorage-file=${join(folder, "localstorage")}`,
             "--input-type=module", "-e", script, mode,
         ], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-        expect(run("read")).toBe("list");
+        expect(run("read")).toBe("tile");
         expect(run("save")).toBe("tile");
         expect(run("read")).toBe("tile");
-        expect(run("invalid")).toBe("list");
+        expect(run("invalid")).toBe("tile");
         expect(run("list")).toBe("list");
         expect(run("read")).toBe("list");
     } finally {
@@ -44,6 +44,6 @@ test("theme view falls back when web storage is unavailable", () => {
         setItem(): never { throw new Error("unavailable"); },
         removeItem(): never { throw new Error("unavailable"); },
     };
-    expect(readThemeView(storage)).toBe("list");
+    expect(readThemeView(storage)).toBe("tile");
     expect(() => storeThemeView("tile", storage)).not.toThrow();
 });

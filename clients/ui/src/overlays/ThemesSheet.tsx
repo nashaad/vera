@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { CheckIcon, EyeIcon, ListIcon } from "../components/Icons.tsx";
-import { switchTheme } from "../theme/activate.ts";
+import { createPickerPreview } from "../theme/picker-preview.ts";
 import { resolveThemeChoice, themeFile } from "../theme/apply.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
 import { THEME_DESCRIPTIONS, THEME_LABELS } from "../theme/registry.ts";
@@ -18,6 +18,8 @@ const SWATCH_TOKENS: readonly ColorToken[] = ["surface", "accent", "text"];
 
 export function ThemesSheet({ onClose }: ThemesSheetProps) {
     const [current, setCurrent] = useState<ThemeChoice>(activeThemeChoice);
+    const [preview] = useState(() => createPickerPreview(current));
+    useEffect(() => () => preview.restore(), [preview]);
     const [view, setView] = useState<ThemeView>(readThemeView);
     const imported = useImportedThemes();
     const choices = useMemo<readonly ThemeChoice[]>(
@@ -47,7 +49,7 @@ export function ThemesSheet({ onClose }: ThemesSheetProps) {
 
     const choose = (choice: ThemeChoice, index: number) => {
         focusChoice(index);
-        switchTheme(choice);
+        preview.commit(choice);
         setCurrent(choice);
     };
 
@@ -80,11 +82,14 @@ export function ThemesSheet({ onClose }: ThemesSheetProps) {
             else if (view === "tile" && event.key === "ArrowLeft") next -= 1;
             else return;
             event.preventDefault();
-            focusChoice(Math.max(0, Math.min(choices.length - 1, next)));
+            const index = Math.max(0, Math.min(choices.length - 1, next));
+            const choice = choices[index];
+            if (choice !== undefined && index !== highlight) preview.preview(choice);
+            focusChoice(index);
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [choices, highlight, view]);
+    }, [choices, highlight, view, preview]);
 
     const changeView = (next: ThemeView) => {
         setView(next);

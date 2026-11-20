@@ -49,9 +49,9 @@ export function storeTheme(
 
 export function readThemeView(storage: ThemeStorage | undefined = defaultStorage()): ThemeView {
     try {
-        return storage?.getItem(VIEW_KEY) === "tile" ? "tile" : "list";
+        return storage?.getItem(VIEW_KEY) === "list" ? "list" : "tile";
     } catch {
-        return "list";
+        return "tile";
     }
 }
 

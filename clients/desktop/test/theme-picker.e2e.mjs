@@ -88,6 +88,8 @@ try {
     assert.equal(names[0], "dark");
     assert.equal(names[1], "light");
     assert.equal(names.at(-1), "imported:crow.night");
+    assert.equal(await sheet.getByRole("button", { name: "Tile view" }).getAttribute("aria-pressed"), "true");
+    await sheet.getByRole("button", { name: "List view" }).click();
     assert.equal(await sheet.getByRole("button", { name: "List view" }).getAttribute("aria-pressed"), "true");
     assert.equal(await rows.nth(0).locator(".theme-swatches span").count(), 3);
     assert.equal(await rows.nth(1).locator(".theme-row-key").innerText(), "2");
@@ -97,7 +99,7 @@ try {
 
     await press(app, "Down");
     await highlight(1);
-    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "dark");
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "light");
     assert.deepEqual(await writes(), []);
     await app.evaluate(({ BrowserWindow }) => {
         const contents = BrowserWindow.getAllWindows()[0].webContents;
@@ -171,6 +173,8 @@ try {
     await highlight(0);
     await page.keyboard.press("End");
     await highlight(names.length - 1);
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), names.at(-1));
+    assert.equal(await page.evaluate(() => localStorage.getItem("vera.theme")), "dark");
     await page.keyboard.press("ArrowRight");
     await highlight(names.length - 1);
     assert.equal((await writes()).length, beforeGridNavigation);
@@ -186,9 +190,13 @@ try {
     await page.keyboard.press("Enter");
     await selected("light");
     assert.equal((await writes()).length, beforeGridNavigation + 3);
+    await page.keyboard.press("ArrowRight");
+    await highlight(2);
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), names[2]);
     await capture("tile-light");
     await page.keyboard.press("Escape");
     await sheet.waitFor({ state: "detached" });
+    await page.waitForFunction(() => document.documentElement.getAttribute("data-theme") === "light");
     await openSheet();
     assert.equal(await sheet.getByRole("button", { name: "Tile view" }).getAttribute("aria-pressed"), "true");
     await highlight(1);

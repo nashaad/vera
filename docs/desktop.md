@@ -248,12 +248,11 @@ Escape, its close button or a click outside it.
   see [Choose the agent of a new chat](agents.md#choose-the-agent-of-a-new-chat).
   With no session open and no New Chat page it says to open one.
 - Choose Theme lists the built-in themes and the themes of the enabled
-  desktop extensions, as a default list with swatches or two-column preview
-  tiles. It remembers that view per desktop client. In either view, arrow keys
-  and Home and End move a highlight separately from the applied theme; Enter or
-  clicking a theme applies it immediately, as do number keys 1 to 9 for the first
-  nine themes. Escape closes the sheet. Moving the highlight does not apply or
-  preview a theme.
+  desktop extensions, as two-column preview tiles by default or a list with
+  swatches. It remembers that view per desktop client. In either view, arrow keys
+  and Home and End preview the highlighted theme without saving it. Enter or
+  clicking a theme saves it, as do number keys 1 to 9 for the first nine themes.
+  Closing the sheet restores the last saved theme.
 - Rename Session, in the palette, opens a sheet with the open session's name to
   edit. Enter or `Rename` saves it. The host refuses an empty name, one over
   200 bytes, and a session that cannot be renamed, and the sheet says which.
@@ -1386,13 +1385,12 @@ View > Theme, View > Choose Theme… and Settings > Appearance list built-in
 themes before the themes of enabled desktop extensions. The command palette
 finds both as `Theme: <label>` when searched.
 Tour's Theme menu offers the same choices.
-Appearance shows each theme's colors as swatches. Choose Theme has a default
-list view with swatches and a two-column tile view; its toggle is remembered per
-desktop client. Arrow keys and Home and End move the highlighted theme without
-changing the applied theme. Enter or clicking applies the highlighted theme
-immediately, and number keys 1 to 9 apply one of the first nine themes. Escape
-closes the sheet. Highlighting never previews a theme. Switching applies at once
-and remembers the choice for the next launch.
+Appearance shows each theme's colors as swatches. Choose Theme defaults to a
+two-column tile view and can show a list with swatches; its toggle is remembered per
+desktop client. Arrow keys and Home and End preview the highlighted theme without
+saving it. Enter or clicking saves a theme, and number keys 1 to 9 save one of the
+first nine themes. The sheet stays open after a choice; closing it restores the
+last saved theme. Reloading during a preview uses the saved theme.
 A saved built-in name that no longer exists falls back to Dark.
 The saved theme is applied before the stylesheet loads, so the first paint
 already uses it.
