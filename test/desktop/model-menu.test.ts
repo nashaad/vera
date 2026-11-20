@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { ModelEntry, ModelSettings } from "../../clients/ui/src/models/settings.ts";
 import {
+    allFavoritesUnavailable,
     buildMenuRows,
     effortIndex,
     effortText,
@@ -80,6 +81,38 @@ describe("buildMenuRows", () => {
         expect(plain.browse).toEqual([]);
         const searched = buildMenuRows(settings([], [delta]), undefined, "delta");
         expect(searched.browse).toEqual([delta]);
+    });
+
+    test("leaves out a favorite its provider dropped", () => {
+        const rows = buildMenuRows(settings([alpha, gamma, beta], []), undefined, "");
+        expect(rows.shortlist.map((row) => row.entry.model)).toEqual(["alpha", "beta"]);
+        expect(pickOrder(rows).map((row) => row.model)).toEqual(["alpha", "beta"]);
+        expect(numberKeySlot("2", false)).toBe(1);
+        expect(rows.shortlist[1]?.entry.model).toBe("beta");
+    });
+
+    test("keeps the running model when its provider dropped it", () => {
+        const rows = buildMenuRows(settings([alpha, gamma], []), { provider: "acme", model: "gamma" }, "");
+        expect(rows.shortlist.map((row) => [row.entry.model, row.current])).toEqual([
+            ["alpha", false],
+            ["gamma", true],
+        ]);
+        expect(pickOrder(rows).map((row) => row.model)).toEqual(["alpha"]);
+    });
+
+    test("a dropped favorite returns when its provider offers it again", () => {
+        expect(buildMenuRows(settings([alpha, gamma], []), undefined, "").shortlist.map((row) => row.entry.model)).toEqual(["alpha"]);
+        const back = entry("gamma");
+        expect(buildMenuRows(settings([alpha, back], []), undefined, "").shortlist.map((row) => row.entry.model)).toEqual(["alpha", "gamma"]);
+    });
+});
+
+describe("allFavoritesUnavailable", () => {
+    test("is true only when favorites exist and none of them can run", () => {
+        expect(allFavoritesUnavailable(settings([gamma], []))).toBe(true);
+        expect(allFavoritesUnavailable(settings([gamma, entry("zeta", { available: false })], []))).toBe(true);
+        expect(allFavoritesUnavailable(settings([alpha, gamma], []))).toBe(false);
+        expect(allFavoritesUnavailable(settings([], []))).toBe(false);
     });
 });
 
