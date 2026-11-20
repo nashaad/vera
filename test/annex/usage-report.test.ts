@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { hasEstimatedSpend } from "../../clients/annex/estimate-basis.ts";
 import { spendShare } from "../../clients/annex/model-table.ts";
 import {
+    chooseTimelineBucket,
     foldUsageReport,
     foldUsageSessionDetail,
     estimateUsd,
@@ -829,4 +830,230 @@ test("a run last written before the window is not read", async () => {
         workflowDirectory,
     });
     expect(report.totals.calls).toBe(0);
+});
+
+function localKey(date: Date): string {
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function localDay(year: number, monthIndex: number, day: number, hour = 12): Date {
+    return new Date(year, monthIndex, day, hour, 0, 0);
+}
+
+function addLocalDays(date: Date, days: number): Date {
+    return new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate() + days,
+        date.getHours(),
+    );
+}
+
+function writeCostSession(
+    directory: string,
+    id: string,
+    at: Date,
+    cost: number,
+): Promise<string> {
+    return writeSession({
+        directory,
+        id,
+        at,
+        messages: [assistant(
+            "openrouter",
+            "anthropic/claude-sonnet-4",
+            usage({ cost }),
+        )],
+    });
+}
+
+test("@core timeline bucket keeps about 31 points and months are the coarsest", () => {
+    expect(chooseTimelineBucket(1)).toBe("day");
+    expect(chooseTimelineBucket(31)).toBe("day");
+    expect(chooseTimelineBucket(32)).toBe("week");
+    expect(chooseTimelineBucket(31 * 7)).toBe("week");
+    expect(chooseTimelineBucket(32 * 7)).toBe("month");
+    expect(chooseTimelineBucket(3650)).toBe("month");
+});
+
+test("a 31-day span uses daily buckets with empty days filled", async () => {
+    const sessionDirectory = tempDir("vera-usage-timeline-day-");
+    const now = localDay(2026, 8, 30, 15);
+    const first = addLocalDays(now, -30);
+    await writeCostSession(sessionDirectory, "first", first, 1);
+    await writeCostSession(sessionDirectory, "later", addLocalDays(now, -15), 2);
+    const report = await foldUsageReport({
+        sessionDirectory,
+        window: "all",
+        now,
+        catalogCacheDir: catalogDir(),
+    });
+    expect(report.timelineBucket).toBe("day");
+    expect(report.timeline).toHaveLength(31);
+    expect(report.timeline[0]).toMatchObject({
+        start: localKey(first),
+        end: localKey(first),
+        spend: 1,
+    });
+    expect(report.timeline.at(-1)).toMatchObject({
+        start: localKey(now),
+        end: localKey(now),
+        spend: 0,
+    });
+    expect(report.timeline.at(-1)?.byModel).toEqual([]);
+    expect(new Set(report.timeline.map((point) => point.start)).size).toBe(31);
+    expect(report.timeline.reduce((sum, point) => sum + point.spend, 0)).toBe(3);
+});
+
+test("a 32-day span starts weeks on Monday and pads empty and partial weeks", async () => {
+    const sessionDirectory = tempDir("vera-usage-timeline-week-");
+    const now = localDay(2026, 8, 30, 15);
+    const first = addLocalDays(now, -31);
+    await writeCostSession(sessionDirectory, "first", first, 1);
+    await writeCostSession(sessionDirectory, "last", now, 2);
+    const report = await foldUsageReport({
+        sessionDirectory,
+        window: "all",
+        now,
+        catalogCacheDir: catalogDir(),
+    });
+    expect(report.timelineBucket).toBe("week");
+    expect(report.timeline.map((point) => [point.start, point.end, point.spend]))
+        .toEqual([
+            ["2026-08-24", "2026-08-30", 1],
+            ["2026-08-31", "2026-09-06", 0],
+            ["2026-09-07", "2026-09-13", 0],
+            ["2026-09-14", "2026-09-20", 0],
+            ["2026-09-21", "2026-09-27", 0],
+            ["2026-09-28", "2026-09-30", 2],
+        ]);
+    expect(report.timeline[1]?.byModel).toEqual([]);
+});
+
+test("month buckets cross a year boundary and include empty months", async () => {
+    const sessionDirectory = tempDir("vera-usage-timeline-month-");
+    const now = localDay(2026, 1, 10, 15);
+    await writeCostSession(
+        sessionDirectory,
+        "april",
+        localDay(2025, 3, 20),
+        1,
+    );
+    await writeCostSession(
+        sessionDirectory,
+        "january",
+        localDay(2026, 0, 15),
+        2,
+    );
+    const report = await foldUsageReport({
+        sessionDirectory,
+        window: "all",
+        now,
+        catalogCacheDir: catalogDir(),
+    });
+    expect(report.timelineBucket).toBe("month");
+    expect(report.timeline.map((point) => point.start)).toEqual([
+        "2025-04-01",
+        "2025-05-01",
+        "2025-06-01",
+        "2025-07-01",
+        "2025-08-01",
+        "2025-09-01",
+        "2025-10-01",
+        "2025-11-01",
+        "2025-12-01",
+        "2026-01-01",
+        "2026-02-01",
+    ]);
+    expect(report.timeline[0]).toMatchObject({ end: "2025-04-30", spend: 1 });
+    expect(report.timeline[7]).toMatchObject({
+        end: "2025-11-30",
+        spend: 0,
+        byModel: [],
+    });
+    expect(report.timeline[8]).toMatchObject({
+        start: "2025-12-01",
+        end: "2025-12-31",
+        spend: 0,
+    });
+    expect(report.timeline[9]).toMatchObject({
+        start: "2026-01-01",
+        end: "2026-01-31",
+        spend: 2,
+    });
+    expect(report.timeline[10]).toMatchObject({
+        start: "2026-02-01",
+        end: "2026-02-10",
+        spend: 0,
+    });
+    expect(report.timeline.reduce((sum, point) => sum + point.spend, 0)).toBe(3);
+});
+
+test("the 31-week boundary picks weeks and 32 weeks picks months", async () => {
+    const now = localDay(2026, 8, 30, 15);
+    const weeks = tempDir("vera-usage-timeline-31-weeks-");
+    await writeCostSession(weeks, "first", addLocalDays(now, -216), 1);
+    const weekReport = await foldUsageReport({
+        sessionDirectory: weeks,
+        window: "all",
+        now,
+        catalogCacheDir: catalogDir(),
+    });
+    expect(weekReport.timelineBucket).toBe("week");
+    expect(weekReport.timeline.length).toBeLessThanOrEqual(32);
+    expect(new Date(`${weekReport.timeline[0]?.start}T00:00:00`).getDay()).toBe(1);
+
+    const months = tempDir("vera-usage-timeline-32-weeks-");
+    await writeCostSession(months, "first", addLocalDays(now, -223), 1);
+    const monthReport = await foldUsageReport({
+        sessionDirectory: months,
+        window: "all",
+        now,
+        catalogCacheDir: catalogDir(),
+    });
+    expect(monthReport.timelineBucket).toBe("month");
+    expect(monthReport.timeline[0]?.start).toBe("2026-02-01");
+});
+
+test("a single-day window is one bucket", async () => {
+    const sessionDirectory = tempDir("vera-usage-timeline-single-");
+    const now = localDay(2026, 8, 30, 15);
+    await writeCostSession(sessionDirectory, "only", localDay(2026, 8, 30, 9), 1);
+    const today = await foldUsageReport({
+        sessionDirectory,
+        window: "today",
+        now,
+        catalogCacheDir: catalogDir(),
+    });
+    expect(today.timelineBucket).toBe("day");
+    expect(today.timeline).toEqual([{
+        start: localKey(now),
+        end: localKey(now),
+        spend: 1,
+        byModel: [{
+            provider: "openrouter",
+            model: "anthropic/claude-sonnet-4",
+            spend: 1,
+        }],
+    }]);
+    const all = await foldUsageReport({
+        sessionDirectory,
+        window: "all",
+        now,
+        catalogCacheDir: catalogDir(),
+    });
+    expect(all.timeline).toHaveLength(1);
+});
+
+test("an empty window has no timeline points", async () => {
+    const report = await foldUsageReport({
+        sessionDirectory: tempDir("vera-usage-timeline-empty-"),
+        window: "all",
+        now: NOW,
+        catalogCacheDir: catalogDir(),
+    });
+    expect(report.timeline).toEqual([]);
+    expect(report.timelineBucket).toBe("day");
 });

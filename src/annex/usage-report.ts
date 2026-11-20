@@ -46,8 +46,13 @@ export interface UsageTotals {
     readonly blendedPerMillion: number | undefined;
 }
 
+export type UsageTimelineBucket = "day" | "week" | "month";
+
 export interface UsageTimelinePoint {
-    readonly date: string;
+    /** Local date key of the first day in the bucket, `YYYY-MM-DD`. */
+    readonly start: string;
+    /** Local date key of the last day in the bucket, inclusive. */
+    readonly end: string;
     readonly spend: number;
     readonly byModel: readonly {
         readonly provider: string;
@@ -130,6 +135,7 @@ export interface UsageReport {
     readonly totals: UsageTotals;
     readonly prior?: UsageTotals;
     readonly timeline: readonly UsageTimelinePoint[];
+    readonly timelineBucket: UsageTimelineBucket;
     readonly models: readonly UsageModelRow[];
     readonly sessions: readonly UsageSessionRow[];
     readonly estimatedFromOpenRouter: boolean;
@@ -260,6 +266,7 @@ export async function foldUsageReport(
     const prior = priorRange === undefined
         ? undefined
         : totalsFrom(priorCalls);
+    const timeline = timelineFrom(calls, bounds.start, bounds.end);
     return {
         window: {
             id: options.window,
@@ -268,7 +275,8 @@ export async function foldUsageReport(
         },
         totals,
         ...(prior === undefined ? {} : { prior }),
-        timeline: timelineFrom(calls, bounds.start, bounds.end),
+        timeline: timeline.points,
+        timelineBucket: timeline.bucket,
         models: modelRowsFrom(calls, totals.spend.combined),
         sessions: sessionRowsFrom(indexed, calls),
         estimatedFromOpenRouter: calls.some((call) =>
@@ -717,14 +725,6 @@ function totalsFrom(calls: readonly PricedCall[]): UsageTotals {
     };
 }
 
-function localDateKey(timestamp: string): string {
-    const date = new Date(timestamp);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-}
-
 function localDayKey(date: Date): string {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -732,62 +732,185 @@ function localDayKey(date: Date): string {
     return `${year}-${month}-${day}`;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY_BUCKET_MAX_DAYS = 31;
+const WEEK_BUCKET_MAX_DAYS = 31 * 7;
+
+/** Day counts use civil days so a DST shift never changes a bucket boundary. */
+function civilDayIndex(date: Date): number {
+    return Math.floor(Date.UTC(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+    ) / DAY_MS);
+}
+
+function addLocalDays(date: Date, days: number): Date {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+function startOfLocalWeek(date: Date): Date {
+    const day = startOfLocalDay(date);
+    const offset = (day.getDay() + 6) % 7;
+    return addLocalDays(day, -offset);
+}
+
+function startOfLocalMonth(date: Date): Date {
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function addLocalMonths(date: Date, months: number): Date {
+    return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+/** At most 31 daily points, then at most about 31 weekly points, then months. */
+export function chooseTimelineBucket(spanDays: number): UsageTimelineBucket {
+    if (spanDays <= DAY_BUCKET_MAX_DAYS) return "day";
+    if (spanDays <= WEEK_BUCKET_MAX_DAYS) return "week";
+    return "month";
+}
+
+interface TimelineBucketRange {
+    readonly start: Date;
+    readonly end: Date;
+    readonly startDay: number;
+    readonly endDay: number;
+}
+
+function bucketRange(start: Date, end: Date): TimelineBucketRange {
+    return {
+        start,
+        end,
+        startDay: civilDayIndex(start),
+        endDay: civilDayIndex(end),
+    };
+}
+
+function timelineBuckets(
+    bucket: UsageTimelineBucket,
+    firstDay: Date,
+    lastDay: Date,
+): TimelineBucketRange[] {
+    const last = civilDayIndex(lastDay);
+    const ranges: TimelineBucketRange[] = [];
+    if (bucket === "day") {
+        for (
+            let day = firstDay;
+            civilDayIndex(day) <= last;
+            day = addLocalDays(day, 1)
+        ) {
+            ranges.push(bucketRange(day, day));
+        }
+        return ranges;
+    }
+    if (bucket === "week") {
+        for (
+            let monday = startOfLocalWeek(firstDay);
+            civilDayIndex(monday) <= last;
+            monday = addLocalDays(monday, 7)
+        ) {
+            const sunday = addLocalDays(monday, 6);
+            ranges.push(bucketRange(
+                monday,
+                civilDayIndex(sunday) > last ? lastDay : sunday,
+            ));
+        }
+        return ranges;
+    }
+    for (
+        let month = startOfLocalMonth(firstDay);
+        civilDayIndex(month) <= last;
+    ) {
+        const next = addLocalMonths(month, 1);
+        const monthEnd = addLocalDays(next, -1);
+        ranges.push(bucketRange(
+            month,
+            civilDayIndex(monthEnd) > last ? lastDay : monthEnd,
+        ));
+        month = next;
+    }
+    return ranges;
+}
+
+function bucketIndexAt(
+    ranges: readonly TimelineBucketRange[],
+    day: number,
+): number {
+    let low = 0;
+    let high = ranges.length - 1;
+    while (low <= high) {
+        const mid = (low + high) >> 1;
+        const range = ranges[mid]!;
+        if (day < range.startDay) high = mid - 1;
+        else if (day > range.endDay) low = mid + 1;
+        else return mid;
+    }
+    return -1;
+}
+
+function earliestCallDay(calls: readonly PricedCall[]): Date | undefined {
+    let earliest: number | undefined;
+    for (const call of calls) {
+        const at = Date.parse(call.timestamp);
+        if (Number.isNaN(at)) continue;
+        if (earliest === undefined || at < earliest) earliest = at;
+    }
+    return earliest === undefined
+        ? undefined
+        : startOfLocalDay(new Date(earliest));
+}
+
 function timelineFrom(
     calls: readonly PricedCall[],
     start: Date,
     end: Date,
-): UsageTimelinePoint[] {
-    const keys: string[] = [];
-    if (start.getTime() === 0) {
-        const seen = new Set<string>();
-        for (const call of calls) {
-            seen.add(localDateKey(call.timestamp));
-        }
-        keys.push(...[...seen].sort());
-    } else {
-        for (
-            let day = startOfLocalDay(start);
-            day.getTime() <= startOfLocalDay(end).getTime();
-            day.setDate(day.getDate() + 1)
-        ) {
-            keys.push(localDayKey(day));
-        }
-    }
-    const buckets = new Map<string, Map<string, number>>();
-    for (const key of keys) {
-        buckets.set(key, new Map());
-    }
+): {
+    readonly bucket: UsageTimelineBucket;
+    readonly points: UsageTimelinePoint[];
+} {
+    const endDay = startOfLocalDay(end);
+    const first = start.getTime() === 0
+        ? earliestCallDay(calls)
+        : startOfLocalDay(start);
+    if (first === undefined) return { bucket: "day", points: [] };
+    const firstDay = civilDayIndex(first) <= civilDayIndex(endDay)
+        ? first
+        : endDay;
+    const spanDays = civilDayIndex(endDay) - civilDayIndex(firstDay) + 1;
+    const bucket = chooseTimelineBucket(spanDays);
+    const ranges = timelineBuckets(bucket, firstDay, endDay);
+    const models = ranges.map(() => new Map<string, number>());
     for (const call of calls) {
         if (call.kind === "unpriced") continue;
-        const key = localDateKey(call.timestamp);
-        let models = buckets.get(key);
-        if (models === undefined) {
-            models = new Map();
-            buckets.set(key, models);
-            keys.push(key);
-        }
-        const modelKey = `${call.provider}/${call.model}`;
-        models.set(modelKey, (models.get(modelKey) ?? 0) + call.cost);
+        const at = Date.parse(call.timestamp);
+        if (Number.isNaN(at)) continue;
+        const index = bucketIndexAt(ranges, civilDayIndex(new Date(at)));
+        if (index < 0) continue;
+        const key = `${call.provider}/${call.model}`;
+        const bucketModels = models[index]!;
+        bucketModels.set(key, (bucketModels.get(key) ?? 0) + call.cost);
     }
-    const ordered = start.getTime() === 0 ? [...new Set(keys)].sort() : keys;
-    return ordered.map((date) => {
-        const models = buckets.get(date) ?? new Map();
-        const byModel = [...models.entries()]
-            .map(([id, spend]) => {
-                const slash = id.indexOf("/");
-                return {
-                    provider: id.slice(0, slash),
-                    model: id.slice(slash + 1),
-                    spend,
-                };
-            })
-            .sort((left, right) => right.spend - left.spend);
-        return {
-            date,
-            spend: byModel.reduce((sum, row) => sum + row.spend, 0),
-            byModel,
-        };
-    });
+    return {
+        bucket,
+        points: ranges.map((range, index) => {
+            const byModel = [...models[index]!.entries()]
+                .map(([id, spend]) => {
+                    const slash = id.indexOf("/");
+                    return {
+                        provider: id.slice(0, slash),
+                        model: id.slice(slash + 1),
+                        spend,
+                    };
+                })
+                .sort((left, right) => right.spend - left.spend);
+            return {
+                start: localDayKey(range.start),
+                end: localDayKey(range.end),
+                spend: byModel.reduce((sum, row) => sum + row.spend, 0),
+                byModel,
+            };
+        }),
+    };
 }
 
 function modelRowsFrom(

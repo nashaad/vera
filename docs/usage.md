@@ -76,8 +76,10 @@ table do not change these totals.
 Comparisons use the preceding window of the same length. All has no previous
 window. Cache-hit change is measured in percentage points.
 
-For ranges longer than Today, the chart shows daily spending by model.
-The legend lists the top three models and groups the rest as Other.
+For ranges longer than Today, the chart shows spending by model in daily,
+weekly, or monthly buckets, with months as the coarsest bucket. The model list
+shows each route's spending; hover over the chart or use the arrow keys to
+inspect a bucket.
 
 In the model tables, Spend share is each route's share of named spending;
 unpriced routes show a dash instead of a percentage.
