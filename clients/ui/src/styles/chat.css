@@ -1,6 +1,6 @@
-/* A Chat tab in the right pane: one session's conversation and composer. */
+/* Right pane conversations and their composers. */
 
-.location[data-location="rightPane"] .view-body:has(> .chat-view) {
+.location[data-location="rightPane"] .view-body:has(> :is(.chat-view, .subagent-detail)) {
     padding-bottom: 0;
 }
 

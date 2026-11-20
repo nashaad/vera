@@ -119,6 +119,93 @@ try {
     }, 45_000);
     if ((await active.locator(".tasks-heading").innerText()) !== "Active · 1") throw new Error("The Active heading does not count the running child.");
     if ((await list.locator('section[aria-label="Finished subagents"]').count()) !== 0) throw new Error("Done is shown before a child finishes.");
+    await active.locator(".subagents-row").click();
+    const runningDetail = page.locator(`${pane} .subagent-detail`);
+    await runningDetail.getByRole("button", { name: "Stop", exact: true }).waitFor();
+    const checkViewActions = async () => {
+        const head = runningDetail.locator(".subagent-head");
+        const view = page.locator(`${pane} .view[data-view="core.subagents"][data-merged="true"]:visible`);
+        if (await view.count() !== 1) throw new Error("The Subagents view is not merged.");
+        await head.hover({ position: { x: 10, y: 10 } });
+        const actions = view.locator(".view-actions");
+        await until("the view actions visible", async () => Number(await actions.evaluate((node) => getComputedStyle(node).opacity)) > 0.99);
+        const menu = await actions.boundingBox();
+        if (menu === null) throw new Error("The view actions have no box.");
+        for (const label of ["Open chat", "Stop"]) {
+            const box = await runningDetail.getByRole("button", { name: label, exact: true }).boundingBox();
+            if (box === null) throw new Error(`${label} has no box.`);
+            if (box.x < menu.x + menu.width && box.x + box.width > menu.x && box.y < menu.y + menu.height && box.y + box.height > menu.y) {
+                throw new Error(`The view actions overlap ${label}: ${JSON.stringify({ menu, box })}.`);
+            }
+        }
+    };
+    await checkViewActions();
+    const narrowSash = page.getByRole("separator", { name: "Resize rightPane" });
+    if (Number(await narrowSash.getAttribute("aria-valuenow")) !== 440) throw new Error("The right pane did not start at 440 px.");
+    const defaultHeader = await runningDetail.locator(".subagent-head").evaluate((head) => {
+        const state = head.querySelector(".subagent-state");
+        const actions = [...head.querySelectorAll(".subagent-action")];
+        const style = getComputedStyle(state);
+        const colorProbe = document.createElement("span");
+        colorProbe.style.color = "var(--vera-accent)";
+        state.append(colorProbe);
+        const accent = getComputedStyle(colorProbe).color;
+        colorProbe.style.color = "var(--vera-text-muted)";
+        const muted = getComputedStyle(colorProbe).color;
+        colorProbe.remove();
+        return {
+            word: state.textContent,
+            color: style.color,
+            accent,
+            muted,
+            border: style.borderTopWidth,
+            padding: style.padding,
+            gap: getComputedStyle(head).gap,
+            stateWidth: state.clientWidth,
+            stateScrollWidth: state.scrollWidth,
+            right: actions.at(-1).getBoundingClientRect().right,
+            headRight: head.getBoundingClientRect().right,
+        };
+    });
+    if (defaultHeader.word !== "Working" || defaultHeader.color !== defaultHeader.muted || defaultHeader.color === defaultHeader.accent || defaultHeader.border !== "0px" || defaultHeader.padding !== "0px" || defaultHeader.gap !== "7px" || defaultHeader.stateScrollWidth > defaultHeader.stateWidth || defaultHeader.right > defaultHeader.headRight + 0.5) {
+        throw new Error(`Default running header changed: ${JSON.stringify(defaultHeader)}.`);
+    }
+    const narrowWidth = Number(await narrowSash.getAttribute("aria-valuemin"));
+    for (let attempt = 0; attempt < 100 && Number(await narrowSash.getAttribute("aria-valuenow")) > narrowWidth; attempt += 1) {
+        await narrowSash.press("ArrowRight");
+    }
+    if (Number(await narrowSash.getAttribute("aria-valuenow")) !== narrowWidth) throw new Error("Could not narrow the right pane.");
+    await checkViewActions();
+    const runningHeader = await runningDetail.getByRole("button", { name: "Open chat", exact: true }).evaluate((button) => {
+        const text = document.createRange();
+        text.selectNodeContents(button);
+        const head = button.parentElement;
+        const title = head.querySelector(".subagent-title");
+        const stop = [...head.querySelectorAll("button")].find((item) => item.textContent.trim() === "Stop");
+        const state = head.querySelector(".subagent-state");
+        const stopText = document.createRange();
+        stopText.selectNodeContents(stop);
+        return {
+            lines: text.getClientRects().length,
+            buttonWidth: button.clientWidth,
+            buttonScrollWidth: button.scrollWidth,
+            stopLines: stopText.getClientRects().length,
+            stopWidth: stop.clientWidth,
+            stopScrollWidth: stop.scrollWidth,
+            stopRight: stop.getBoundingClientRect().right,
+            headRight: head.getBoundingClientRect().right,
+            titleWidth: title.clientWidth,
+            titleScrollWidth: title.scrollWidth,
+            stateWidth: state.clientWidth,
+            stateScrollWidth: state.scrollWidth,
+            stateOverflow: getComputedStyle(state).textOverflow,
+        };
+    });
+    if (runningHeader.lines !== 1 || runningHeader.buttonScrollWidth > runningHeader.buttonWidth || runningHeader.stopLines !== 1 || runningHeader.stopScrollWidth > runningHeader.stopWidth || runningHeader.stopRight > runningHeader.headRight + 0.5 || runningHeader.titleScrollWidth <= runningHeader.titleWidth || (runningHeader.stateScrollWidth > runningHeader.stateWidth && (runningHeader.titleWidth > 0.5 || runningHeader.stateOverflow !== "ellipsis"))) {
+        throw new Error(`Running subagent header does not fit: ${JSON.stringify(runningHeader)}.`);
+    }
+    await runningDetail.getByRole("button", { name: "Back to subagents" }).click();
+    await list.waitFor();
     const family = page.locator('.session-item[data-parent="true"]');
     const summary = family.locator('.session-summary');
     await until("collapsed working family", async () => (await summary.count()) === 1 && (await summary.innerText()).includes("1 nested · 1 working"), 45_000);
@@ -198,9 +285,43 @@ try {
     const detail = page.locator(`${pane} .subagent-detail`);
     await detail.waitFor({ timeout: 15_000 });
     await detail.getByText(CHILD_REPLY).waitFor({ timeout: 45_000 });
+    const doneMark = detail.getByRole("img", { name: "Done", exact: true });
+    await doneMark.waitFor({ timeout: 45_000 });
+    const doneState = await doneMark.evaluate((mark) => {
+        const icon = mark.querySelector("svg");
+        const style = getComputedStyle(mark);
+        return {
+            title: mark.title,
+            text: mark.textContent,
+            flexShrink: style.flexShrink,
+            width: mark.getBoundingClientRect().width,
+            iconWidth: icon?.getBoundingClientRect().width,
+        };
+    });
+    if (doneState.title !== "Done" || doneState.text !== "" || doneState.flexShrink !== "0" || !doneState.iconWidth || doneState.width < doneState.iconWidth) {
+        throw new Error(`The completed status is not a fixed-size Done tick: ${JSON.stringify(doneState)}.`);
+    }
     await until("the detail titled by the child", async () => (await detail.locator(".subagent-title").innerText()).includes(DESCRIPTION));
     const box = detail.locator(".subagent-message .composer-input");
     await until("the message box ready", async () => (await box.getAttribute("placeholder")) === "Message this subagent");
+    const composerEdges = await page.evaluate(() => {
+        const rect = (selector) => {
+            const element = document.querySelector(selector);
+            if (!element) throw new Error(`Missing ${selector}.`);
+            const bounds = element.getBoundingClientRect();
+            return { top: bounds.top, bottom: bounds.bottom, width: bounds.width };
+        };
+        return {
+            main: rect("main .session-page .composer-wrap .composer"),
+            side: rect('[data-location="rightPane"] .subagent-detail .composer-wrap .composer'),
+        };
+    });
+    if (composerEdges.main.width <= 0 || composerEdges.side.width <= 0) throw new Error("A composer is not visible.");
+    for (const edge of ["top", "bottom"]) {
+        if (Math.abs(composerEdges.main[edge] - composerEdges.side[edge]) > 0.5) {
+            throw new Error(`Composer ${edge}: main ${composerEdges.main[edge]}, side ${composerEdges.side[edge]}.`);
+        }
+    }
     if ((await detail.locator(".subagent-message .round-button").count()) !== 0) throw new Error("The message box offers to attach files.");
     if ((await tabs().count()) !== 1) throw new Error("Opening the child made a second Subagents tab.");
     const childRequests = requests.filter((entry) => entry.child);
@@ -250,6 +371,8 @@ try {
     await card().click();
     await detail.getByText(CHILD_REPLY).waitFor({ timeout: 15_000 });
     if ((await tabs().count()) !== 1) throw new Error("The card opened a second Subagents tab.");
+    await detail.getByRole("button", { name: "Open chat", exact: true }).click();
+    await page.waitForSelector(`main .transcript-scroll[data-session="${childId}"]`);
 
     console.log("subagents e2e passed");
 } catch (error) {
