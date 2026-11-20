@@ -248,8 +248,11 @@ Escape, its close button or a click outside it.
   see [Choose the agent of a new chat](agents.md#choose-the-agent-of-a-new-chat).
   With no session open and no New Chat page it says to open one.
 - Choose Theme lists the built-in themes and the themes of the enabled
-  desktop extensions with a swatch; a click or a number key (for the first nine)
-  applies one.
+  desktop extensions, as two-column preview tiles by default or a list with
+  swatches. It remembers that view per desktop client. In either view, arrow keys
+  and Home and End preview the highlighted theme without saving it. Enter or
+  clicking a theme saves it, as do number keys 1 to 9 for the first nine themes.
+  Closing the sheet restores the last saved theme.
 - Rename Session, in the palette, opens a sheet with the open session's name to
   edit. Enter or `Rename` saves it. The host refuses an empty name, one over
   200 bytes, and a session that cannot be renamed, and the sheet says which.
@@ -568,9 +571,13 @@ right. Under each message:
   after its calls, the calls become one past-tense line with a chevron, such as
   `Ran 3 commands, read 2 files` or `Searched 2 times, edited a file`, naming
   each kind of call in the order it first ran. Calls that follow one another
-  with no text between them make one line, and the line marks how many failed. It
-  opens to one dimmed row per call: a verb and what it acted on, such as `Read
-  host.ts`. A row with output opens to it. A shell call opens to a box holding its
+  with no text between them make one line, and the line marks how many failed.
+  A command that exits with a non-zero code shows a neutral `exit N` on its row
+  and the run line instead of counting as failed. The run line shows the first
+  three distinct codes, counts repetitions and counts any further distinct codes.
+  A denied or skipped call says `Did not run`. The line opens to one dimmed row
+  per call: a verb and what it acted on, such as `Read host.ts`. A row with
+  output opens to it. A shell call opens to a box holding its
   command, coloured, with a copy button, and its output. A run in which every call
   wrote or edited a file draws no line when the turn's changed-files card names
   those files.
@@ -1124,8 +1131,9 @@ a tab first and nothing changes. The tab shows the list for the open session, or
 
 A row opens that subagent in the same tab. The page has a back arrow (`Back to
 subagents`) that returns to the list, then the subagent's icon, its title and its
-status word, `Go to`, which opens the subagent's own page, and `Stop` while it
-runs. Below is its conversation, which updates live, and a message box with
+status word, `Open chat`, which opens the subagent's own page, and `Stop` while it
+runs. A completed subagent shows a tick named `Done` in place of its status word.
+Below is its conversation, which updates live, and a message box with
 no attach button, slash commands or pickers. Enter sends the text to the
 subagent and Shift+Enter starts a new line. While the subagent runs, a message
 waits in the queue strip above the box; Enter on an empty box releases every
@@ -1307,6 +1315,10 @@ picks another folder. The shell is signed ad hoc and is not notarized.
 
 ## Updates
 
+From a checkout, `bun run install:local` builds the desktop package and the app
+shell on macOS and installs them with the host, as described in
+[Installation](installation.md#the-desktop-app-on-macos).
+
 One update moves the host and the desktop package to the newest release
 together. When the new package needs a newer app shell, the update replaces
 `Vera.app`; when the shell cannot be replaced, the update is held and nothing
@@ -1368,8 +1380,9 @@ the child before closing its stdin.
 
 The interface uses semantic tokens for color, type, spacing, shadow, and motion.
 The built-in themes are Dark, Light, High contrast, Vera Blue, Vera Purple,
-Muted Blue, Onyx, Palenight, Synthwave, Night Owl, GitHub, Midnight Blue,
-Midnight Blue II, NC, NC Navy, retro31 and Vera Orange.
+Muted Blue, Onyx, Palenight, Synthwave, Night Owl, GitHub, GitHub Light,
+Gruvbox Dark Hard, Gruvbox Light Hard, Midnight Blue, Midnight Blue II, NC,
+NC Navy, retro31 and Vera Orange.
 They are available without installing anything from the catalog.
 Dark remains the default.
 
@@ -1377,8 +1390,12 @@ View > Theme, View > Choose Theme… and Settings > Appearance list built-in
 themes before the themes of enabled desktop extensions. The command palette
 finds both as `Theme: <label>` when searched.
 Tour's Theme menu offers the same choices.
-Choose Theme and Appearance show each theme's colors as swatches.
-Switching applies at once and remembers the choice for the next launch.
+Appearance shows each theme's colors as swatches. Choose Theme defaults to a
+two-column tile view and can show a list with swatches; its toggle is remembered per
+desktop client. Arrow keys and Home and End preview the highlighted theme without
+saving it. Enter or clicking saves a theme, and number keys 1 to 9 save one of the
+first nine themes. The sheet stays open after a choice; closing it restores the
+last saved theme. Reloading during a preview uses the saved theme.
 A saved built-in name that no longer exists falls back to Dark.
 The saved theme is applied before the stylesheet loads, so the first paint
 already uses it.

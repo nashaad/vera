@@ -140,6 +140,38 @@ test("model requests strip durable tool presentation metadata", () => {
     expect(JSON.stringify(request)).not.toContain("SECRET VERDICT");
 });
 
+test("@core exit metadata leaves consecutive model requests unchanged", () => {
+    const base = {
+        model: "test-model",
+        maxTokens: 4096,
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+        signal: new AbortController().signal,
+    };
+    const result = {
+        role: "tool_result" as const,
+        toolCallId: "call-1",
+        toolName: "bash",
+        content: [{ type: "text" as const, text: "command output" }],
+        isError: true,
+    };
+    const withExit = { ...result, exitCode: 2 };
+    const next = { role: "user" as const, content: [{ type: "text" as const, text: "continue" }] };
+    const first = buildModelRequest({ ...base, messages: [withExit] });
+    const second = buildModelRequest({ ...base, messages: [withExit, next] });
+    const previousFirst = buildModelRequest({ ...base, messages: [result] });
+    const previousSecond = buildModelRequest({ ...base, messages: [result, next] });
+
+    expect(first.messages).toEqual(previousFirst.messages);
+    expect(second.messages).toEqual(previousSecond.messages);
+    expect(second.messages[0]).toEqual(first.messages[0]);
+    expect(first.systemPrompt).toBe(previousFirst.systemPrompt);
+    expect(second.systemPrompt).toBe(previousSecond.systemPrompt);
+    expect(JSON.stringify([first.messages, second.messages])).not.toContain("exitCode");
+});
+
 test("model requests omit empty assistant failures from durable history", () => {
     const failed: ModelMessage = {
         role: "assistant",

@@ -263,6 +263,7 @@ export interface ToolResultMessage {
     readonly toolName: string;
     readonly content: readonly TextContent[];
     readonly isError: boolean;
+    readonly exitCode?: number;
     /** Host-runtime process identity; omitted from provider request projection. */
     readonly processId?: string;
     readonly presentation?: ToolPresentation;
@@ -391,7 +392,7 @@ function isChecklistItem(value: unknown): value is ChecklistItem {
 export type ModelMessage = UserMessage | AssistantMessage | ToolResultMessage;
 
 export type ModelInputToolResultMessage =
-    Omit<ToolResultMessage, "presentation" | "processId" | "toolResultSource">;
+    Omit<ToolResultMessage, "presentation" | "processId" | "toolResultSource" | "exitCode">;
 
 export type ModelInputMessage =
     | ModelInputUserMessage

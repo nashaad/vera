@@ -37,6 +37,7 @@ export function applyThreadUpdate(
                 tool: update.tool,
                 output: update.output ?? "",
                 isError: update.isError ?? false,
+                ...(update.exitCode === undefined ? {} : { exitCode: update.exitCode }),
                 at: now,
             });
         case "tool_presentation": {
@@ -93,7 +94,13 @@ function storedFact(entry: TranscriptEntry): UntimedFact | undefined {
         case "tool":
             return { kind: "tool_call", tool: entry.tool, args: entry.args };
         case "tool_result":
-            return { kind: "tool_result", tool: entry.tool, output: entry.output, isError: entry.isError };
+            return {
+                kind: "tool_result",
+                tool: entry.tool,
+                output: entry.output,
+                isError: entry.isError,
+                ...(entry.exitCode === undefined ? {} : { exitCode: entry.exitCode }),
+            };
         case "presentation":
             return presentationEntry(entry.presentation);
         case "error":

@@ -97,6 +97,37 @@ bun run install:local
 The release is installed under `~/.local/share/vera/`. Its launcher is
 `~/.local/bin/vera`.
 
+### The desktop app on macOS
+
+On macOS `bun run install:local` also builds the desktop app from the checkout
+and installs it. It builds the desktop package for the same build as the host
+and puts it under `share/vera/desktop/` in the install prefix before the host
+build becomes current, so the app never finds a current build without its
+package. The package's version is the checkout's product version.
+
+`Vera.app` goes in the folder the installer script uses: `/Applications` when
+you can write there, otherwise `~/Applications`, and `VERA_INSTALL_APPLICATIONS`
+names another folder. When there is no `Vera.app`, the command installs one.
+When the installed shell is older than the package needs, it replaces the
+shell. Otherwise it leaves the installed `Vera.app` as it is, the same as
+`vera update`. It writes the same install record the installer script writes, so
+the desktop app and `vera update` find the app afterwards. It never opens the
+app. It prints the app path it installed, replaced or kept.
+
+A `Vera.app` that is not the Vera desktop app is left alone and the command
+prints why. When the app needs replacing while Vera is running, the command
+does not replace it. The package and the host build are still installed, and the
+command prints a line asking you to quit Vera and run it again. When the desktop step fails for any
+reason, the host install is not undone or blocked. The command prints the
+reason after the host install finishes and exits with status 1.
+
+`bun run install:local --no-desktop` skips the desktop app. On Linux the command
+installs the host only and prints nothing about the desktop. The desktop app
+finds Vera only in `~/.local`, so the desktop step runs only for that prefix.
+With `--prefix` naming any other directory the command installs the host, skips
+the app, prints `The desktop app needs Vera in ~/.local; it was not installed.`
+and exits with status 0, the same as the installer script.
+
 ### Add the launcher to PATH
 
 If your shell cannot find `vera`, add this to your shell startup file and

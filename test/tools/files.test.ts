@@ -42,7 +42,7 @@ test("@core a missing list of paths keeps the existing guidance", async () => {
             .then(() => "", (error: Error) => error.message);
 
         expect(message).toBe(
-            "Path not found: src/first.ts src/second.ts. `path` takes a single file or folder, not several paths.",
+            "Path not found: src/first.ts src/second.ts. `path` takes one file or folder; call the tool once for each path.",
         );
     } finally {
         await rm(cwd, { recursive: true, force: true });

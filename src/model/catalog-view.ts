@@ -23,7 +23,7 @@ import {
 import { resolveImageSupportFromSources } from "./image-support.ts";
 import { poolNameOf } from "./pool-names.ts";
 import { isSelectable, supportedEfforts } from "./pool-policy.ts";
-import type { SuggestedModel } from "./supported-models.ts";
+import { verifiedReasoningEfforts, type SuggestedModel } from "./supported-models.ts";
 import type { ReductionReason } from "./catalog-reduction.ts";
 
 export interface AvailableModel {
@@ -272,6 +272,22 @@ function admittedLevels(
     entry: PoolFileModel | undefined,
 ): readonly ReasoningLevel[] {
     return levels.filter((level) => isAdmitted(level.id, entry));
+}
+
+export function knownReasoningEfforts(
+    provider: string,
+    model: string,
+    pooled: readonly PooledModel[] = [],
+    options: CatalogViewOptions = {},
+): readonly string[] {
+    const poolEntry = pooled.find((entry) =>
+        entry.provider === provider && entry.model === model && entry.available);
+    if (poolEntry !== undefined) return poolEntry.levels.map((level) => level.id);
+    const catalogModel = effectiveCatalog(provider, options).models
+        .find((entry) => entry.id === model);
+    const levels = catalogModel?.levels.map((level) => level.id)
+        ?? verifiedReasoningEfforts(provider, model);
+    return admittedEffortIds(provider, model, levels, options);
 }
 
 export function admittedEffortIds<T extends string>(

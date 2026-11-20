@@ -53,6 +53,7 @@ import {
     createRoutedToolReviewer,
     type ToolReviewerSettings,
 } from "./reviewer.ts";
+import { reviewerFallbackModel } from "./reviewer-fallback.ts";
 import {
     createReviewerProfileRouter,
     injectSessionStartContext,
@@ -123,6 +124,8 @@ export interface CreateSubagentEffectApplierOptions {
     readonly readPolicy?: () => SubagentPoolPolicy;
     readonly requestMissingConfiguration?: RequestMissingSubagentConfiguration;
     readonly reviewer?: ToolReviewerSettings;
+    readonly reviewerFallbackEffort?: ModelReasoningEffort;
+    readonly reviewerFallbackLevels?: readonly ModelReasoningEffort[];
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly reviewLog?: ReviewLog;
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
@@ -422,6 +425,7 @@ export interface RunSubagentOptions {
     readonly loadOptionalContext?: boolean;
     readonly sessionMetadata?: SessionCreationMetadata;
     readonly reviewer?: ToolReviewerSettings;
+    readonly reviewerFallbackEffort?: ModelReasoningEffort;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly reviewLog?: ReviewLog;
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
@@ -431,6 +435,7 @@ export interface RunSubagentOptions {
     readonly selectedAgent?: AgentSnapshot;
     readonly clampPermissionMode?: ApprovalMode;
     readonly availableModels?: ModelTurnSettings["availableModels"];
+    readonly availableReasoningEfforts?: ModelTurnSettings["availableReasoningEfforts"];
     readonly contextLimit?: number;
     readonly compaction?: SessionCompactionOptions;
     readonly toolResults?: ToolResultLimits;
@@ -639,6 +644,19 @@ export function createSubagentSpawner(
         } = options;
         const parentSessionId = context.sessionId ?? options.parentSessionId;
         const parentWindow = options.readWindowSettings?.() ?? {};
+        const reviewerFallbackEffort = options.reviewerFallbackEffort;
+        const provider = resolved.provider ?? context.provider;
+        const parentLevels = resolved.model === context.model && provider === context.provider
+            ? options.reviewerFallbackLevels
+            : undefined;
+        const levels = reviewerFallbackEffort === undefined ? undefined : parentLevels ?? (
+            options.readPool?.().find((entry) => entry.available
+                && entry.provider === provider && entry.model === resolved.model)
+            ?? policy?.candidates?.find((entry) => entry.available
+                && entry.provider === provider && entry.model === resolved.model)
+            ?? parentWindow.availableModels?.find((entry) =>
+                entry.provider === provider && entry.model === resolved.model)
+        )?.levels.map((level) => level.id);
         const compaction = options.bindCompaction?.({
             ...(resolved.provider === undefined
                 ? {}
@@ -711,6 +729,8 @@ export function createSubagentSpawner(
                     ? {}
                     : { sessionPath: options.sessionPathForId(sessionId) }),
                 ...(reviewer === undefined ? {} : { reviewer }),
+                ...(reviewerFallbackEffort === undefined ? {} : { reviewerFallbackEffort }),
+                ...(levels === undefined ? {} : { availableReasoningEfforts: levels }),
                 ...(reviewers === undefined ? {} : { reviewers }),
                 ...(options.reviewLog === undefined
                     ? {}
@@ -805,7 +825,7 @@ export async function runSubagent(
             options.adapter,
             {
                 ...(options.readReviewer?.() ?? options.reviewer ?? {
-                    models: [{
+                    models: [reviewerFallbackModel({
                         model: options.model,
                         ...(options.provider === undefined
                             ? {}
@@ -813,7 +833,10 @@ export async function runSubagent(
                         ...(options.reasoningEffort === undefined
                             ? {}
                             : { reasoningEffort: options.reasoningEffort }),
-                    }],
+                        ...(options.availableReasoningEfforts === undefined
+                            ? {}
+                            : { availableReasoningEfforts: options.availableReasoningEfforts }),
+                    }, options.reviewerFallbackEffort)],
                 }),
                 ...(options.reviewLog === undefined
                     ? {}

@@ -43,6 +43,30 @@ export function supportedLevels(efforts: EffortMap): readonly string[] {
     });
 }
 
+export function nearestEffort(
+    requested: string,
+    offered: readonly string[],
+): string | undefined {
+    const ladder: readonly string[] = EFFORT_LADDER;
+    const origin = ladder.indexOf(requested);
+    if (origin < 0) return undefined;
+    if (offered.includes(requested)) return requested;
+    if (offered.some((level) => !isEffortLevel(level))) return undefined;
+
+    let nearest: string | undefined;
+    let distance = Number.POSITIVE_INFINITY;
+    for (const level of offered) {
+        const rank = ladder.indexOf(level);
+        const nextDistance = Math.abs(rank - origin);
+        if (nextDistance < distance
+            || (nextDistance === distance && rank > ladder.indexOf(nearest ?? ""))) {
+            nearest = level;
+            distance = nextDistance;
+        }
+    }
+    return nearest;
+}
+
 export function coarsenOneStep(
     requested: string,
     efforts: EffortMap,

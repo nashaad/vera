@@ -275,6 +275,9 @@ function parseKnownAgentUpdate(
                     || typeof update.output === "string")
                 && (update.isError === undefined
                     || typeof update.isError === "boolean")
+                && (update.exitCode === undefined
+                    || (typeof update.exitCode === "number"
+                        && Number.isSafeInteger(update.exitCode)))
                 && (update.processId === undefined
                     || (typeof update.processId === "string"
                         && update.processId.length > 0))
@@ -1130,6 +1133,9 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
         return typeof entry.tool === "string"
             && typeof entry.output === "string"
             && typeof entry.isError === "boolean"
+            && (entry.exitCode === undefined
+                || (typeof entry.exitCode === "number"
+                    && Number.isSafeInteger(entry.exitCode)))
             && (entry.processId === undefined
                 || (typeof entry.processId === "string"
                     && entry.processId.length > 0))

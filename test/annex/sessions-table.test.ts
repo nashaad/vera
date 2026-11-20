@@ -33,14 +33,38 @@ function row(overrides: Partial<UsageSessionRow>): UsageSessionRow {
     };
 }
 
-test("default sort is combined cost descending, then recency", () => {
+test("default sort is last active newest first", () => {
     const rows = [
         row({ id: "old-high", combined: 5, updatedAt: "2026-08-01T00:00:00.000Z" }),
         row({ id: "new-high", combined: 5, updatedAt: "2026-08-20T00:00:00.000Z" }),
         row({ id: "low", combined: 1, updatedAt: "2026-08-30T00:00:00.000Z" }),
     ];
+    expect(DEFAULT_SESSION_SORT).toEqual({ key: "updatedAt", dir: "desc" });
     expect(sortSessions(rows, DEFAULT_SESSION_SORT).map((item) => item.id))
+        .toEqual(["low", "new-high", "old-high"]);
+    expect(sortSessions(rows, { key: "cost", dir: "desc" }).map((item) => item.id))
         .toEqual(["new-high", "old-high", "low"]);
+});
+
+test("last active starts newest first and flips direction", () => {
+    const newest = nextSessionSort({ key: "cost", dir: "desc" }, "updatedAt");
+    expect(newest).toEqual({ key: "updatedAt", dir: "desc" });
+    const oldest = nextSessionSort(newest, "updatedAt");
+    expect(oldest).toEqual({ key: "updatedAt", dir: "asc" });
+    const rows = [
+        row({ id: "new", updatedAt: "2026-08-30T00:00:00.000Z" }),
+        row({ id: "old", updatedAt: "2026-08-01T00:00:00.000Z" }),
+    ];
+    expect(sortSessions(rows, newest).map((item) => item.id)).toEqual(["new", "old"]);
+    expect(sortSessions(rows, oldest).map((item) => item.id)).toEqual(["old", "new"]);
+});
+
+test("equal last active timestamps break ties by session id in both directions", () => {
+    const rows = [row({ id: "b" }), row({ id: "a" })];
+    expect(sortSessions(rows, { key: "updatedAt", dir: "desc" }).map((item) => item.id))
+        .toEqual(["a", "b"]);
+    expect(sortSessions(rows, { key: "updatedAt", dir: "asc" }).map((item) => item.id))
+        .toEqual(["a", "b"]);
 });
 
 test("clicking a new numeric column starts descending", () => {

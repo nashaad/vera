@@ -210,11 +210,11 @@ export function withTempEnvironment<T>(home: string, run: () => Promise<T>): Pro
     });
 }
 
-export function prefixWithOldRelease(root: string): {
+export function prefixWithOldRelease(root: string, prefixName = "prefix"): {
     readonly prefix: string;
     readonly oldRoot: string;
 } {
-    const prefix = join(root, "prefix");
+    const prefix = join(root, prefixName);
     const oldRoot = releaseDirectory("vera-old", prefix);
     writeVerifiableRelease(oldRoot, "vera-old", "0.1.0-alpha.1");
     const home = join(root, "home");

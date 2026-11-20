@@ -5207,6 +5207,9 @@ function isModelMessage(value: unknown): value is ModelMessage {
             && typeof message.toolCallId === "string"
             && typeof message.toolName === "string"
             && typeof message.isError === "boolean"
+            && (message.exitCode === undefined
+                || (typeof message.exitCode === "number"
+                    && Number.isSafeInteger(message.exitCode)))
             && (message.processId === undefined
                 || (typeof message.processId === "string"
                     && message.processId.length > 0))

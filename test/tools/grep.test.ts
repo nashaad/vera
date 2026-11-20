@@ -43,7 +43,7 @@ test("@core grep preserves the existing missing-list guidance", async () => {
 
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toBe(
-            "Path not found: src/host src/engine. `path` takes a single file or folder, not several paths.",
+            "Path not found: src/host src/engine. `path` takes one file or folder; call the tool once for each path.",
         );
         expect((error as Error).message).not.toContain("ENOENT");
     } finally {

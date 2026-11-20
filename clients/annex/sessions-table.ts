@@ -6,6 +6,7 @@ export type SessionSortKey =
     | "title"
     | "workspace"
     | "kind"
+    | "updatedAt"
     | "calls"
     | "tokens"
     | "own"
@@ -19,9 +20,10 @@ export interface SessionSort {
     readonly dir: SortDir;
 }
 
-export const DEFAULT_SESSION_SORT: SessionSort = { key: "cost", dir: "desc" };
+export const DEFAULT_SESSION_SORT: SessionSort = { key: "updatedAt", dir: "desc" };
 
-const NUMERIC = new Set<SessionSortKey>([
+const DESCENDING_FIRST = new Set<SessionSortKey>([
+    "updatedAt",
     "calls",
     "tokens",
     "own",
@@ -36,7 +38,7 @@ export function nextSessionSort(
     if (current.key === key) {
         return { key, dir: current.dir === "asc" ? "desc" : "asc" };
     }
-    return { key, dir: NUMERIC.has(key) ? "desc" : "asc" };
+    return { key, dir: DESCENDING_FIRST.has(key) ? "desc" : "asc" };
 }
 
 export interface PageSlice<T> {
@@ -140,6 +142,8 @@ function sortValue(
             return row.workspaceLabel;
         case "kind":
             return row.kind === "subagent" ? "sub" : "chat";
+        case "updatedAt":
+            return row.updatedAt;
         case "calls":
             return row.calls;
         case "tokens":

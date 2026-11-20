@@ -1,6 +1,7 @@
 import type { Block, NoticeBlock, Presentation, RetryState, ToolCall, ToolsBlock } from "./model.ts";
 import { EMPTY_TURN_TEXT, failureText, failureTitle, substitutionText } from "./notices.ts";
 import { stopCauseText } from "../../../shared/stop-cause-text.ts";
+import { toolFailed } from "../../../shared/tool-exit.ts";
 import { toolTitle } from "./toolTitle.ts";
 import type { DeliveryMessage, LiveMessage, SubstitutionMessage, ToolFinishedMessage, TurnFinishedMessage } from "./wire.ts";
 
@@ -157,8 +158,14 @@ function presentTool(blocks: readonly Block[], tool: string, presentation: Prese
 }
 
 function finished(call: ToolCall, message: ToolFinishedMessage): ToolCall {
-    const state = message.isError ? "failed" : "done";
-    return message.output === undefined ? { ...call, state } : { ...call, state, output: message.output };
+    const state = toolFailed({ exitCode: message.exitCode, isError: message.isError }) ? "failed" : "done";
+    return {
+        ...call,
+        state,
+        isError: message.isError,
+        ...(message.exitCode === undefined ? {} : { exitCode: message.exitCode }),
+        ...(message.output === undefined ? {} : { output: message.output }),
+    };
 }
 
 function endTurn(live: readonly Block[], message: TurnFinishedMessage): readonly Block[] {

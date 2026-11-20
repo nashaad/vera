@@ -156,8 +156,8 @@ function expectEqual(actual, expected, label) {
 
 const BUILTIN_THEMES = [
     "dark", "light", "high-contrast", "default", "vera-purple", "muted-blue", "onyx", "palenight",
-    "synthwave", "nightowl", "github", "midnight-blue", "midnight-blue-ii", "norton-commander",
-    "nc-navy", "windows-31", "vera-orange",
+    "synthwave", "nightowl", "github", "github-light", "gruvbox-dark-hard", "gruvbox-light-hard",
+    "midnight-blue", "midnight-blue-ii", "norton-commander", "nc-navy", "windows-31", "vera-orange",
 ];
 const CONTACT_SHEET = process.env.VERA_DESKTOP_THEME_CONTACT_SHEET ?? join(builtinTrial.trialRoot, "desktop-themes.png");
 

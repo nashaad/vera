@@ -22,7 +22,19 @@ are classified on every call. **Review granted permissions** in Ctrl+P lists
 and removes these grants.
 
 The classifier is separate from the model working on your task. Changing the
-conversation model does not change the configured classifier.
+conversation model does not change the configured classifier. If neither an
+assignment nor a default classifier profile supplies a model, Vera uses the
+conversation's current model at low reasoning effort when available. Otherwise
+it chooses the nearest offered effort, preferring the higher one on a tie. If
+the model offers no reasoning levels or its levels cannot be compared, Vera
+leaves the effort unset and the provider applies its default. A configured
+classifier keeps its own effort, if any; the conversation's effort is unchanged.
+
+For a delegated run, Vera uses the levels known for the child's model from the
+pool, subagent policy, or parent conversation's model settings. If none of
+those supplies levels for the child, Vera leaves the classifier effort unset.
+SDK runs use Vera's verified model levels and leave the effort unset when none
+are known.
 
 > [!NOTE]
 > A managed service is on the roadmap. It will be opt-in and will run Vera
@@ -143,7 +155,8 @@ working. Each prompt says what failed and where to change it.
 ## Inspect review logs
 
 Each classifier request is recorded in
-`~/.vera/runtime/logs/reviewer.jsonl`. The log includes the prompt, response, grades, and latency.
+`~/.vera/runtime/logs/reviewer.jsonl`. The log includes the prompt, response,
+grades, latency, and `reasoningEffort` when an effort was sent.
 
 > [!WARNING]
 > This is a private diagnostic file containing conversation material sent to

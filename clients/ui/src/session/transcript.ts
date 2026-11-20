@@ -1,5 +1,6 @@
 import { mergeModelSettingsReply } from "../models/settings.ts";
 import { stopCauseText } from "../../../shared/stop-cause-text.ts";
+import { toolFailed } from "../../../shared/tool-exit.ts";
 import type { AgentRunStatus, Block, NoticeTone, Presentation, SessionWatch, ToolCall, ToolState } from "./model.ts";
 import { MAX_HISTORY_BLOCKS, MAX_IMAGE_REPLIES } from "./model.ts";
 import { foldLive, keyFor, retryAfter } from "./live.ts";
@@ -136,11 +137,12 @@ function pairResult(blocks: Block[], entry: ToolResultEntry): Paired | undefined
     if (tail?.kind !== "tools") return undefined;
     const index = tail.calls.findIndex((call) => call.tool === entry.tool && call.state === "running");
     if (index === -1) return undefined;
-    const state: ToolState = entry.withheld === true || entry.classifierOutcome?.kind === "denied"
-        ? "withheld" : entry.isError ? "failed" : "done";
+    const withheld = entry.withheld === true || entry.classifierOutcome?.kind === "denied";
+    const state: ToolState = withheld ? "withheld" : toolFailed({ exitCode: entry.exitCode, isError: entry.isError, withheld }) ? "failed" : "done";
     const calls = tail.calls.map((call, position): ToolCall =>
         position === index ? {
-            ...call, state, output: entry.output,
+            ...call, state, output: entry.output, isError: entry.isError,
+            ...(entry.exitCode === undefined ? {} : { exitCode: entry.exitCode }),
             ...(entry.classifierOutcome === undefined ? {} : { classifierOutcome: entry.classifierOutcome }),
         } : call);
     blocks[blocks.length - 1] = { ...tail, calls };

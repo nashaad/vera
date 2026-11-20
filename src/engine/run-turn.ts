@@ -183,6 +183,7 @@ import {
     type ReviewToolCall,
     type ToolReviewerSettings,
 } from "./reviewer.ts";
+import { reviewerFallbackModel } from "./reviewer-fallback.ts";
 import { classifierFallbackReason } from "./classifier-fallback.ts";
 import {
     collectReviewerPathFacts,
@@ -766,6 +767,8 @@ export async function runHeadlessLoop(
             },
             get modelFallback() { return policy().modelFallback; },
             get reviewer() { return policy().reviewer; },
+            get reviewerFallbackEffort() { return policy().reviewerFallbackEffort; },
+            get reviewerFallbackLevels() { return policy().reviewerFallbackLevels; },
             get reviewers() { return policy().reviewers; },
             get permissionModes() { return policy().permissionModes; },
             get permissionRules() { return policy().permissionRules; },
@@ -816,7 +819,13 @@ export async function runHeadlessLoop(
                         ? {}
                         : { reasoningEffort }),
                 };
-            const models = configured?.models ?? [current];
+            const models = configured?.models ?? [
+                reviewerFallbackModel(
+                    current,
+                    policy().reviewerFallbackEffort,
+                    policy().reviewerFallbackLevels,
+                ),
+            ];
             const key = JSON.stringify([
                 models,
                 configured?.policy,
@@ -3271,6 +3280,7 @@ async function finishExecutedTool(
             toolResultChanged ? undefined : result.presentation,
             toolResultChanged ? undefined : result.toolResultSource,
             result.processId,
+            result.exitCode,
         );
         if (!sameToolResult(result, finalResult)) {
             state.events.emit({
@@ -3322,6 +3332,7 @@ function withoutPresentation(result: ToolResultMessage): ToolResultMessage {
         toolName: result.toolName,
         content: result.content,
         isError: result.isError,
+        ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
         ...(result.processId === undefined
             ? {}
             : { processId: result.processId }),
@@ -3345,6 +3356,7 @@ function hookResult(result: ToolResultMessage): HookToolResult {
         toolName: result.toolName,
         content: result.content,
         isError: result.isError,
+        ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
     };
 }
 
@@ -3354,6 +3366,7 @@ function hookResultMessage(
     presentation?: ToolResultMessage["presentation"],
     toolResultSource?: ToolResultMessage["toolResultSource"],
     processId?: string,
+    exitCode?: number,
 ): ToolResultMessage {
     return {
         role: "tool_result",
@@ -3361,6 +3374,7 @@ function hookResultMessage(
         toolName: toolCall.name,
         content: result.content,
         isError: result.isError,
+        ...(exitCode === undefined ? {} : { exitCode }),
         ...(processId === undefined ? {} : { processId }),
         ...(presentation === undefined ? {} : { presentation }),
         ...(toolResultSource === undefined ? {} : { toolResultSource }),

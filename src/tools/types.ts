@@ -15,6 +15,7 @@ export interface ToolOutput {
     readonly kind: "output";
     readonly output: string;
     readonly isError: boolean;
+    readonly exitCode?: number;
     /** A host-owned process the result made available for later tool calls. */
     readonly processId?: string;
     readonly presentation?: ToolPresentation;

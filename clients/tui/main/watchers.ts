@@ -268,6 +268,9 @@ export function emitExperimentalAgentEvent(rt: TuiRuntime, update: AgentUpdate):
                 ...(update.isError === undefined
                     ? {}
                     : { isError: update.isError }),
+                ...(update.exitCode === undefined
+                    ? {}
+                    : { exitCode: update.exitCode }),
             });
             return;
         case "tool_presentation":

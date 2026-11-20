@@ -76,8 +76,13 @@ table do not change these totals.
 Comparisons use the preceding window of the same length. All has no previous
 window. Cache-hit change is measured in percentage points.
 
-For ranges longer than Today, the chart shows daily spending by model.
-The legend lists the top three models and groups the rest as Other.
+For ranges longer than Today, the chart shows spending by model in daily,
+weekly, or monthly buckets, with months as the coarsest bucket. The model list
+shows each route's spending; hover over the chart or use the arrow keys to
+inspect a bucket.
+
+In the model tables, Spend share is each route's share of named spending;
+unpriced routes show a dash instead of a percentage.
 
 ## Find a conversation
 
@@ -85,10 +90,14 @@ Filter the table by workspace, kind, or model. Model searches match model IDs,
 not conversation titles. Choose a model from the list to restrict results to
 that exact provider/model route; clear the field to include all models.
 
-Click a column heading to sort. Numeric columns start highest first; names
-start A to Z. Cost is the default, with newer conversations breaking ties.
-The table shows 25 rows per page. Tokens are this conversation's own input
-plus output, shown separately from cost.
+The table starts with the most recently active conversations first. Click a
+column heading to sort: Last active starts newest first, numeric columns start
+highest first, and names start A to Z. Click the same heading again to reverse
+its order. Last active reflects the conversation's own latest call in the
+selected window, or its file modification time if it has no calls in that
+window. Child calls do not change the parent's
+Last active. The table shows 25 rows per page. Tokens are this conversation's
+own input plus output, shown separately from cost.
 
 ### Inspect delegated work
 
@@ -113,13 +122,19 @@ Use **Usage** to go back to the overview, or the back link to return one level.
 | Label | Meaning |
 | --- | --- |
 | Reported | Cost billed by the provider for that call. It does not change with list prices. |
-| Estimated | Tokens multiplied by current OpenRouter list rates, with cached and cache-write tokens at their own rates when listed. The estimate can change when those rates change. |
+| Estimated | Tokens multiplied by available route rates. OpenRouter uses current list rates; supported direct DeepSeek models use current published rates with a time-of-day discount. |
 | Unpriced | No billed cost and no usable rate. Vera leaves the dollar amount blank. |
 | Mixed | A row combines pricing states. The dollar figure contains the amounts Vera can calculate. |
 
-Local models and subscription routes may be unpriced. The footer separates
-reported cost, estimates, and unpriced calls. If any estimate is present, the
-page labels the rate basis as current OpenRouter rates.
+Direct DeepSeek Flash and Pro estimates use the
+[published DeepSeek rates](https://api-docs.deepseek.com/quick_start/pricing),
+with half-price off-peak rates based on the call time in UTC. Chinese public
+holidays are not tracked, so estimates can be high on those days. Current rates
+also apply to older calls, so estimates are not historical invoices and can
+change when rates change. Local models, unsupported DeepSeek models, and
+subscription routes may be unpriced. The footer separates reported cost,
+estimates, and unpriced calls. The Blended card says `reported / estimated`
+when the window includes any estimate.
 
 ## If the page does not open
 

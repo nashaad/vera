@@ -162,7 +162,10 @@ async function scanSessionIndexFromFile(path: string, source: FileHandle, repair
                     throw new Error(`Invalid session file ${path}: line ${lineCount} is not a valid message entry`);
                 }
                 if ((fields.message.role !== "user" && fields.message.role !== "assistant" && fields.message.role !== "tool_result")
-                    || (fields.message.internal !== undefined && typeof fields.message.internal !== "boolean")) {
+                    || (fields.message.internal !== undefined && typeof fields.message.internal !== "boolean")
+                    || (fields.message.exitCode !== undefined
+                        && (fields.message.role !== "tool_result"
+                            || !Number.isSafeInteger(fields.message.exitCode)))) {
                     throw new Error(`Invalid session file ${path}: line ${lineCount} is not a valid message entry`);
                 }
                 const existing = ascii ? index.messageRecordAscii(bytes, asciiHeader.idStart, asciiHeader.idEnd)

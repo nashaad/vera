@@ -38,6 +38,11 @@ Enter opens the selected conversation directly. Typing a slash command at Home
 does not start a conversation.
 `Ctrl+E` opens the same picker as `/resume`.
 
+A listed subagent stays under its parent, even when one is working and the
+other has finished. Each row keeps its own activity. If the parent is not in
+the list, the subagent appears in the group for its own state. Search, preview,
+and Enter work on the subagent's row too.
+
 ## See what is running
 
 Press Ctrl+X, then B, or run `/sidebar`, to show a sidebar of running
