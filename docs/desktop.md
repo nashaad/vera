@@ -1380,8 +1380,9 @@ the child before closing its stdin.
 
 The interface uses semantic tokens for color, type, spacing, shadow, and motion.
 The built-in themes are Dark, Light, High contrast, Vera Blue, Vera Purple,
-Muted Blue, Onyx, Palenight, Synthwave, Night Owl, GitHub, Midnight Blue,
-Midnight Blue II, NC, NC Navy, retro31 and Vera Orange.
+Muted Blue, Onyx, Palenight, Synthwave, Night Owl, GitHub, GitHub Light,
+Gruvbox Dark Hard, Gruvbox Light Hard, Midnight Blue, Midnight Blue II, NC,
+NC Navy, retro31 and Vera Orange.
 They are available without installing anything from the catalog.
 Dark remains the default.
 

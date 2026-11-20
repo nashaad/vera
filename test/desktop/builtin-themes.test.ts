@@ -9,17 +9,34 @@ import tuiThemes from "../../config/tui-themes.json";
 import { buildMenuTemplate } from "../../clients/desktop/src/app-menu.ts";
 import { THEME_COMMANDS, registerThemeCommands } from "../../clients/ui/src/commands/theme-commands.ts";
 import { CommandRegistry } from "../../clients/ui/src/commands/registry.ts";
-import { BUILTIN_THEME_REGISTRY, THEME_LABELS } from "../../clients/ui/src/theme/registry.ts";
+import { BUILTIN_THEME_REGISTRY, THEME_LABELS, type BuiltinTheme } from "../../clients/ui/src/theme/registry.ts";
 import { BUILTIN_THEMES } from "../../clients/ui/src/theme/builtin.ts";
 import { buildCommandItems } from "../../clients/ui/src/overlays/palette.ts";
-import { DEFAULT_THEME, THEME_NAMES, isThemeName } from "../../clients/ui/src/theme/tokens.ts";
+import { DEFAULT_THEME, THEME_NAMES, isThemeName, type ThemeFile } from "../../clients/ui/src/theme/tokens.ts";
+import { THEME_PALETTE_KEYS } from "./theme-palette-keys.ts";
 
 const root = join(import.meta.dir, "..", "..");
 
+const NEW_THEMES = [
+    ["github-light", "GitHub Light", "light"],
+    ["gruvbox-dark-hard", "Gruvbox Dark Hard", "dark"],
+    ["gruvbox-light-hard", "Gruvbox Light Hard", "light"],
+] as const;
+
+function surfaceLuminance(hex: string): number {
+    const linear = [1, 3, 5].map((start) => {
+        const value = Number.parseInt(hex.slice(start, start + 2), 16) / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    return linear[0]! * 0.2126 + linear[1]! * 0.7152 + linear[2]! * 0.0722;
+}
+
 test("@core the built-in registry includes every TUI theme with the same text", () => {
-    expect(THEME_NAMES).toHaveLength(17);
+    expect(THEME_NAMES).toHaveLength(20);
     expect(new Set(THEME_NAMES).size).toBe(THEME_NAMES.length);
     expect(THEME_NAMES.slice(0, 3)).toEqual(["dark", "light", "high-contrast"]);
+    expect(THEME_NAMES.slice(10, 14).map((name) => String(name))).toEqual(["github", "github-light", "gruvbox-dark-hard", "gruvbox-light-hard"]);
+    expect(THEME_NAMES.slice(-4)).toEqual(["norton-commander", "nc-navy", "windows-31", "vera-orange"]);
     expect(DEFAULT_THEME).toBe("dark");
     expect(isThemeName("missing-crow")).toBe(false);
     for (const [name, theme] of Object.entries(tuiThemes.themes)) {
@@ -37,12 +54,20 @@ test("@core the built-in registry includes every TUI theme with the same text", 
         }
         const file = BUILTIN_THEMES[entry.name];
         const surface = file.palette[file.colors.surface]!;
-        const linear = [1, 3, 5].map((start) => {
-            const value = Number.parseInt(surface.slice(start, start + 2), 16) / 255;
-            return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-        });
-        const luminance = linear[0]! * 0.2126 + linear[1]! * 0.7152 + linear[2]! * 0.0722;
-        expect(entry.colorScheme).toBe(luminance > 0.179 ? "light" : "dark");
+        expect(entry.colorScheme).toBe(surfaceLuminance(surface) > 0.179 ? "light" : "dark");
+    }
+});
+
+test("@core each new built-in theme loads with its label, color scheme and complete palette", () => {
+    const palette = [...THEME_PALETTE_KEYS].sort();
+    const themes: Readonly<Record<string, ThemeFile>> = BUILTIN_THEMES;
+    const registry: readonly BuiltinTheme[] = BUILTIN_THEME_REGISTRY;
+    for (const [name, label, colorScheme] of NEW_THEMES) {
+        expect(registry.find((entry) => entry.name === name)).toMatchObject({ name, label, colorScheme });
+        const file = themes[name]!;
+        expect(file.name).toBe(name);
+        expect(Object.keys(file.palette).sort()).toEqual(palette);
+        expect(colorScheme).toBe(surfaceLuminance(file.palette[file.colors.surface]!) > 0.179 ? "light" : "dark");
     }
 });
 
