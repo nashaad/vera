@@ -279,6 +279,8 @@ export interface RegisteredAgentSummary {
     readonly supervisor_pid?: number;
     readonly title?: string;
     readonly has_user_content?: boolean;
+    /** Clients attached to this conversation. Absent when none is. */
+    readonly attached_clients?: number;
     readonly updated_at?: string;
     readonly parent_id?: string;
     readonly forked_from?: string;

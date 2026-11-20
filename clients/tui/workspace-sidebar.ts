@@ -2,6 +2,7 @@ import { importedSessionLabel } from "../../src/store/session-import-provenance.
 import { tuiKeyChordLabel } from "./keymap.ts";
 import type { LinesViewFooterRow, LinesViewState } from "./lines-view.ts";
 import {
+    clientCountLabel,
     layoutWorkspacePanel,
     WORKSPACE_COMPLETED_MARKER,
     WORKSPACE_CURRENT_MARKER,
@@ -56,6 +57,8 @@ export interface WorkspaceSidebarState {
     readonly pinnedIds: readonly string[];
     readonly selectedId?: string;
     readonly currentId?: string;
+    /** Absent from a host that does not report attached clients. */
+    readonly connectedClients?: number;
 }
 
 export interface WorkspaceSidebarAction {
@@ -93,6 +96,9 @@ export function workspaceSidebarSessions(
             ...(agent.parent_id === undefined
                 ? {}
                 : { parentId: agent.parent_id }),
+            ...(agent.attached_clients === undefined
+                ? {}
+                : { attachedClients: agent.attached_clients }),
         }));
 }
 
@@ -136,11 +142,13 @@ export function startWorkspaceSidebar(
     sessions: readonly WorkspaceSidebarSession[],
     pinnedIds: readonly string[],
     currentId?: string,
+    connectedClients?: number,
 ): WorkspaceSidebarState {
     return {
         sessions,
         pinnedIds,
         ...(currentId === undefined ? {} : { currentId, selectedId: currentId }),
+        ...(connectedClients === undefined ? {} : { connectedClients }),
     };
 }
 
@@ -161,8 +169,13 @@ export function workIndexStatus(
 export function refreshWorkspaceSidebarSessions(
     state: WorkspaceSidebarState,
     sessions: readonly WorkspaceSidebarSession[],
+    connectedClients?: number,
 ): WorkspaceSidebarState {
-    return { ...state, sessions };
+    return {
+        ...state,
+        sessions,
+        ...(connectedClients === undefined ? {} : { connectedClients }),
+    };
 }
 
 export function applyWorkspaceWorkIndex(
@@ -249,9 +262,11 @@ export const WORKSPACE_SIDEBAR_WORDMARK = "VERA";
 
 export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
     const listed = workspaceWorkingSet(state.sessions).length;
-    return listed === 0
-        ? WORKSPACE_SIDEBAR_WORDMARK
-        : `${WORKSPACE_SIDEBAR_WORDMARK} · ${listed}`;
+    const clients = state.connectedClients === undefined
+            || state.connectedClients <= 0
+        ? ""
+        : ` · ${clientCountLabel(state.connectedClients)}`;
+    return `${WORKSPACE_SIDEBAR_WORDMARK}${listed === 0 ? "" : ` · ${listed}`}${clients}`;
 }
 
 // From the keymap, so a remap cannot leave the legend naming unbound keys.

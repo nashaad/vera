@@ -37,6 +37,7 @@ import {
     IDLE_GROUP,
     NEEDS_YOU_GROUP,
     RECENT_GROUP,
+    sessionClientCountDetail,
     WORKING_GROUP,
 } from "./workspace-panel.ts";
 import {
@@ -1387,8 +1388,17 @@ export function optionMeta(
     if (state.kind === "session_import") return option.workspace;
     if (state.kind === "session") {
         const size = option.sizeBytes === undefined ? "" : formatSessionSize(option.sizeBytes);
+        const clients = option.group === RECENT_GROUP
+            ? ""
+            : sessionClientCountDetail(
+                option.attachedClients,
+                option.current === true,
+            );
         return [
             { text: option.workspace ?? "" },
+            ...(clients === ""
+                ? []
+                : [{ text: "  " }, { text: clients }]),
             { text: "  " },
             { text: formatSessionDate(option.updatedAt, new Date()).padStart(SESSION_DATE_COLUMNS) },
             { text: "  " },

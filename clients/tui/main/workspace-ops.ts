@@ -20,6 +20,7 @@ import { startWorkTab, type WorkTabState } from "../work-tab.ts";
 import { applyWorkspaceWorkIndex, clampWorkspaceRailColumns, openWorkspaceSelection, refreshWorkspaceSidebarSessions, startWorkspaceSidebar, workspaceCycleTarget, workspaceRailColumns, workspaceSidebarSessions, type WorkspaceSidebarAction, type WorkspaceSidebarState } from "../workspace-sidebar.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { cancelExtensionReveal } from "./extension-reveal.ts";
+import { listAgentPageForTui } from "./session-listing-page.ts";
 
 export function openJumpMenuOverlay(rt: TuiRuntime): void {
     if (rt.jumpMenu !== undefined || anyOverlayOpen(rt)) return;
@@ -112,13 +113,14 @@ export function openWorkspaceSidebar(rt: TuiRuntime): void {
         return;
     }
     const generation = rt.clientGeneration;
-    void rt.dependencies.listAgents().then((agents) => {
+    void listAgentPageForTui(rt).then((page) => {
         if (rt.shuttingDown || generation !== rt.clientGeneration) return;
-        const sessions = workspaceSidebarSessions(agents);
+        const sessions = workspaceSidebarSessions(page.agents);
         const opened = startWorkspaceSidebar(
             sessions,
             rt.workspacePinnedIds,
             rt.client.agentId,
+            page.connectedClients,
         );
         rt.workspaceSidebar = rt.workIndex === undefined
             ? opened
@@ -163,13 +165,14 @@ export function cycleLiveSession(rt: TuiRuntime, direction: 1 | -1): void {
         return;
     }
     const generation = rt.clientGeneration;
-    void rt.dependencies.listAgents().then((agents) => {
+    void listAgentPageForTui(rt).then((page) => {
         if (rt.shuttingDown || generation !== rt.clientGeneration) return;
-        const sessions = workspaceSidebarSessions(agents);
+        const sessions = workspaceSidebarSessions(page.agents);
         const opened = startWorkspaceSidebar(
             sessions,
             rt.workspacePinnedIds,
             rt.client.agentId,
+            page.connectedClients,
         );
         openFrom(
             rt.workIndex === undefined
@@ -191,13 +194,14 @@ export function cycleLiveSession(rt: TuiRuntime, direction: 1 | -1): void {
 export function refreshWorkspaceSidebarRoster(rt: TuiRuntime): void {
     if (rt.dependencies.listAgents === undefined) return;
     const generation = rt.clientGeneration;
-    void rt.dependencies.listAgents().then((agents) => {
+    void listAgentPageForTui(rt).then((page) => {
         if (rt.shuttingDown || generation !== rt.clientGeneration) return;
         const open = rt.workspaceSidebar;
         if (open === undefined) return;
         const listed = refreshWorkspaceSidebarSessions(
             open,
-            workspaceSidebarSessions(agents),
+            workspaceSidebarSessions(page.agents),
+            page.connectedClients,
         );
         rt.workspaceSidebar = rt.workIndex === undefined
             ? listed
@@ -318,7 +322,7 @@ export function openResumePicker(rt: TuiRuntime): void {
     );
     focusActiveSurface(rt);
     renderState(rt);
-    void rt.dependencies.listAgents().then((agents) => {
+    void listAgentPageForTui(rt).then((page) => {
         if (
             rt.shuttingDown
             || version !== rt.resumeListVersion
@@ -327,14 +331,15 @@ export function openResumePicker(rt: TuiRuntime): void {
             return;
         }
         rt.settingsPicker = startTuiSessionPicker(
-            agents,
+            page.agents,
             targetAgentId,
             false,
             new Date(),
             false,
             rt.hostedPanePersistence.groups,
             "stop",
-            nothingToLeave(agents.find((agent) => agent.id === targetAgentId)?.has_user_content),
+            nothingToLeave(page.agents.find((agent) => agent.id === targetAgentId)?.has_user_content),
+            page.connectedClients,
         );
         focusActiveSurface(rt);
         renderState(rt);

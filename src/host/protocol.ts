@@ -738,6 +738,8 @@ export interface AgentListResponse {
     readonly next_cursor?: string;
     /** Rows in the whole listing, not in this page. */
     readonly total?: number;
+    /** Distinct clients attached to at least one conversation, across every page. */
+    readonly connected_clients?: number;
     readonly unavailable_workers?: readonly string[];
 }
 

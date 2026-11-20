@@ -164,6 +164,7 @@ import {
     sessionSectionedOptions,
 } from "./settings-picker-model.ts";
 import {
+    clientCountLabel,
     IDLE_GROUP,
     NEEDS_YOU_GROUP,
     RECENT_GROUP,
@@ -1372,6 +1373,7 @@ export function startTuiSessionPicker(
     sharedAgentGroups: readonly (readonly [string, string])[] = [],
     enterDisposition: TuiSessionLeaveDisposition = "stop",
     nothingToLeave = false,
+    connectedClients?: number,
 ): TuiSettingsPickerState {
     const listed = agents.filter((agent) =>
         sessionPickerLists(agent, includeUntitled)
@@ -1402,6 +1404,9 @@ export function startTuiSessionPicker(
         selectedIndex: firstSessionOptionIndex(options, currentAgentId),
         query: "",
         loading,
+        ...(connectedClients === undefined || connectedClients <= 0
+            ? {}
+            : { subtitle: `${clientCountLabel(connectedClients)} connected` }),
         ...(enterDisposition === "keep_running"
             ? { enterDisposition }
             : {}),
@@ -1480,6 +1485,9 @@ function sessionPickerOption(
             ? {}
             : { sizeBytes: agent.size_bytes }),
         ...(agent.updated_at === undefined ? {} : { updatedAt: agent.updated_at }),
+        ...(agent.attached_clients === undefined
+            ? {}
+            : { attachedClients: agent.attached_clients }),
         ...(agent.id === currentAgentId ? { current: true } : {}),
         ...(agent.forked_from === undefined
             ? {}

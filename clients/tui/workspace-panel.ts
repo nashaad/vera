@@ -41,6 +41,23 @@ export interface WorkspaceSession extends VeraClientSession {
     readonly importLabel?: string;
     readonly hasUserContent?: boolean;
     readonly parentId?: string;
+    /** Clients the host says have this conversation open. Absent when none has. */
+    readonly attachedClients?: number;
+}
+
+export function clientCountLabel(count: number): string {
+    return `${count} ${count === 1 ? "client" : "clients"}`;
+}
+
+/** `2 clients · here` in a picker, or `2 · here` where the row is narrow. */
+export function sessionClientCountDetail(
+    count: number | undefined,
+    here: boolean,
+    compact = false,
+): string {
+    if (count === undefined || count <= 0) return "";
+    const label = compact ? `${count}` : clientCountLabel(count);
+    return here ? `${label} · here` : label;
 }
 
 export const WORKSPACE_WAITING_MARKER = "!";
@@ -166,6 +183,9 @@ export function layoutWorkspacePanel(
                 selected: session.id === selectedId,
                 animationFrame: input.animationFrame ?? 0,
                 showWorkspace,
+                ...(input.currentId === undefined
+                    ? {}
+                    : { currentId: input.currentId }),
             }));
         }
     }
@@ -314,6 +334,7 @@ interface RowContext {
     readonly selected: boolean;
     readonly animationFrame: number;
     readonly showWorkspace: boolean;
+    readonly currentId?: string;
 }
 
 function sessionRow(
@@ -341,8 +362,17 @@ function sessionRow(
         ? clip(title, Math.max(1, context.contentColumns))
         : labelledTitle(title, session.importLabel, context.contentColumns);
     const text = `${marker} ${shown}`;
+    const clients = group === RECENT_GROUP
+        ? ""
+        : sessionClientCountDetail(
+            session.attachedClients,
+            session.id === context.currentId,
+            true,
+        );
     const detail = group === RECENT_GROUP
         ? age
+        : clients !== ""
+        ? clients
         : context.showWorkspace
         ? basename(workspaceGroupPath(session.workspace))
         : "";

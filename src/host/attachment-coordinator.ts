@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { InteractiveAttachmentRegistry, type InteractiveAttachmentLease } from "./interactive-attachments.ts";
+import { InteractiveAttachmentRegistry, type AttachmentClientCounts, type InteractiveAttachmentLease } from "./interactive-attachments.ts";
 import type { AttachmentReleasePolicy } from "./protocol.ts";
 import type { CloseAgentOutcome } from "./server.ts";
 
@@ -34,6 +34,8 @@ interface AttachmentCloseRefusal {
 type AttachmentClosePreparation = AttachmentCloseMembers | AttachmentCloseRefusal;
 
 export interface AttachmentCoordinator {
+    /** Absent where attachments are not held locally, as in a session process. */
+    readonly counts?: () => AttachmentClientCounts;
     open(agentId: string, clientId: string): Promise<string>;
     detach(leaseId: string, agentId: string): Promise<readonly string[]>;
     abandon(leaseId: string, agentId: string): Promise<void>;
@@ -53,6 +55,10 @@ export class InteractiveAttachmentCoordinator implements AttachmentCoordinator {
         private readonly closeAgent: (agentId: string) => Promise<CloseAgentOutcome>,
         private readonly treeTimeoutMs = 5_000,
     ) {}
+
+    counts(): AttachmentClientCounts {
+        return this.registry.counts();
+    }
 
     open(agentId: string, clientId: string): Promise<string> {
         return this.serial(() => {

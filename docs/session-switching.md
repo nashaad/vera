@@ -43,7 +43,9 @@ does not start a conversation.
 Press Ctrl+X, then B, or run `/sidebar`, to show a sidebar of running
 conversations and what each is doing: waiting for you, working, or idle. Do
 the same again to hide it. A `●` in place of its status marks the
-conversation on screen. The
+conversation on screen. The header says how many clients are connected, and
+each row says how many clients have that conversation open, with here for the
+one on screen. The
 sidebar only shows status; open a conversation
 with `/resume`, Ctrl+E, or Ctrl+Shift+Left and Right, which its footer lists.
 Drag its right edge to change its width; Vera remembers the width. To show it

@@ -13,6 +13,7 @@ export interface ListedAgentsPage {
     readonly agents: readonly RegisteredAgentSummary[];
     readonly nextCursor?: string;
     readonly total?: number;
+    readonly connectedClients?: number;
     readonly unavailableWorkers?: readonly string[];
 }
 
@@ -49,6 +50,7 @@ export async function listAgentPageThroughHost(
             || (response.unavailable_workers !== undefined
                 && (!Array.isArray(response.unavailable_workers)
                     || !response.unavailable_workers.every((value) => typeof value === "string" && value.length > 0)))
+            || !isOptionalCount(response.connected_clients)
         ) {
             throw new Error("Host returned an invalid agent list");
         }
@@ -64,6 +66,10 @@ export async function listAgentPageThroughHost(
             ...(typeof response.total === "number"
                     && Number.isSafeInteger(response.total)
                 ? { total: response.total }
+                : {}),
+            ...(typeof response.connected_clients === "number"
+                    && Number.isSafeInteger(response.connected_clients)
+                ? { connectedClients: response.connected_clients }
                 : {}),
         };
     } finally {
@@ -97,6 +103,7 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
         && (agent.title === undefined || typeof agent.title === "string")
         && (agent.has_user_content === undefined
             || typeof agent.has_user_content === "boolean")
+        && isOptionalCount(agent.attached_clients)
         && (
             agent.forked_from === undefined
             || (
@@ -150,6 +157,11 @@ function isOptionalPid(value: unknown): boolean {
 function isOptionalPositiveSafeInteger(value: unknown): boolean {
     return value === undefined
         || (typeof value === "number" && Number.isSafeInteger(value) && value > 0);
+}
+
+function isOptionalCount(value: unknown): boolean {
+    return value === undefined
+        || (typeof value === "number" && Number.isSafeInteger(value) && value >= 0);
 }
 
 function isOptionalTimestamp(value: unknown): boolean {

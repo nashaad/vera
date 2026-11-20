@@ -171,6 +171,8 @@ export interface TuiSettingsPickerOption {
     readonly sessionId?: string;
     readonly sessionName?: string;
     readonly activity?: string;
+    /** Clients the host says have this conversation open. Absent when none has. */
+    readonly attachedClients?: number;
     readonly workspace?: string;
     readonly sizeBytes?: number;
     readonly updatedAt?: string;

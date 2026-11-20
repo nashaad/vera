@@ -20,9 +20,12 @@ const ROUTER_METHODS = {
     beginWorkerCreate: true, endWorkerOpen: true,
 } satisfies Record<keyof WorkerRouter, true>;
 
+// Counts are read where the registry lives, so they are not routed.
+type RoutedAttachmentMethods = Omit<AttachmentCoordinator, "counts">;
+
 const ATTACHMENT_METHODS = {
     open: true, detach: true, abandon: true, ready: true, release: true, closeIfReady: true,
-} satisfies Record<keyof AttachmentCoordinator, true>;
+} satisfies Record<keyof RoutedAttachmentMethods, true>;
 
 export function remoteRouter(peer: ControlChannel): WorkerRouter {
     return remoteMethods(peer, "router", ROUTER_METHODS) as unknown as WorkerRouter;

@@ -795,3 +795,49 @@ describe("the drawn card", () => {
         expect(text.split("\n")).toEqual([...WORKSPACE_EMPTY_LINES]);
     });
 });
+
+describe("attached clients", () => {
+    test("the header names the clients connected to the page", () => {
+        const state = startWorkspaceSidebar(
+            [running("a"), running("b")],
+            [],
+            undefined,
+            3,
+        );
+        expect(workspaceSidebarHeader(state)).toBe("VERA · 2 · 3 clients");
+    });
+
+    test("a row says how many clients have it open, and here for this one", () => {
+        const state = startWorkspaceSidebar([
+            running("a", { attachedClients: 2 }),
+            running("b", { attachedClients: 1 }),
+            running("c"),
+        ], [], "a", 3);
+        const text = workspaceSidebarText(state, COLUMNS, NOW);
+        expect(text).toMatch(/session a\s+2 · here/);
+        expect(text).toMatch(/session b\s+1$/m);
+        expect(text).not.toMatch(/session c\s+\d/);
+    });
+
+    test("one client is singular in the header", () => {
+        const state = startWorkspaceSidebar([running("a")], [], undefined, 1);
+        expect(workspaceSidebarHeader(state)).toBe("VERA · 1 · 1 client");
+    });
+
+    test("a host without the counts leaves the header and rows alone", () => {
+        const state = startWorkspaceSidebar([running("a")], [], "a");
+        expect(workspaceSidebarHeader(state)).toBe("VERA · 1");
+        expect(workspaceSidebarText(state, COLUMNS, NOW)).not.toContain("client");
+    });
+
+    test("the work index keeps the counts it already has", () => {
+        const state = startWorkspaceSidebar([
+            running("a", { attachedClients: 2 }),
+        ], [], "a", 2);
+        const next = applyWorkspaceWorkIndex(state, index([
+            workRow({ session_id: "a", section: "working" }),
+        ]));
+        expect(next.connectedClients).toBe(2);
+        expect(next.sessions[0]?.attachedClients).toBe(2);
+    });
+});

@@ -4599,3 +4599,66 @@ test("an unchanged picker state does not rebuild its rows", async () => {
         setup.renderer.destroy();
     }
 });
+
+test("session picker counts connected clients at the top and on live rows", async () => {
+    const now = new Date("2026-07-20T21:00:00.000Z");
+    const state = startTuiSessionPicker([
+        {
+            id: "live-one",
+            workspace: "/work/alpha",
+            session_path: "/sessions/live-one.jsonl",
+            kind: "interactive",
+            status: "idle",
+            live: true,
+            title: "Fix the plank parser",
+            updated_at: "2026-07-20T20:00:00.000Z",
+            attached_clients: 2,
+        },
+        {
+            id: "live-two",
+            workspace: "/work/beta",
+            session_path: "/sessions/live-two.jsonl",
+            kind: "interactive",
+            status: "working",
+            live: true,
+            title: "Crow's nest refactor",
+            updated_at: "2026-07-20T20:30:00.000Z",
+            attached_clients: 1,
+        },
+        {
+            id: "parked",
+            workspace: "/work/alpha",
+            session_path: "/sessions/parked.jsonl",
+            kind: "interactive",
+            status: "idle",
+            live: false,
+            title: "Old voyage log",
+            updated_at: "2026-07-20T19:00:00.000Z",
+        },
+    ], "live-one", false, now, false, [], "stop", false, 3);
+
+    expect(state.subtitle).toBe("3 clients connected");
+    const frame = await pickerFrame(state);
+    expect(frame).toContain("3 clients connected");
+    expect(frame).toMatch(/Fix the plank parser.*2 clients · here/);
+    expect(frame).toMatch(/Crow's nest refactor.*1 client/);
+    expect(frame).not.toMatch(/Old voyage log.*\d+ client/);
+});
+
+test("session picker stays as it was against a host without client counts", async () => {
+    const state = startTuiSessionPicker([{
+        id: "live-one",
+        workspace: "/work/alpha",
+        session_path: "/sessions/live-one.jsonl",
+        kind: "interactive",
+        status: "idle",
+        live: true,
+        title: "Fix the plank parser",
+        updated_at: "2026-07-20T20:00:00.000Z",
+    }], "live-one", false, new Date("2026-07-20T21:00:00.000Z"));
+
+    expect(state.subtitle).toBeUndefined();
+    const frame = await pickerFrame(state);
+    expect(frame).not.toContain("clients connected");
+    expect(frame).not.toContain("clients · here");
+});

@@ -9,6 +9,7 @@ import { DEFAULT_PROFILE_NAME } from "../../../src/profile-paths.ts";
 import { configuredProviders, findConfiguredProvider } from "../../../src/providers/registry.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
 import { SESSION_SWITCH_TIMEOUT_MS, closeSettingsPickerSurface, refreshWorkspaceSidebarRoster } from "../main.ts";
+import { listAgentPageForTui } from "./session-listing-page.ts";
 import { focusedAgentClient, focusedAgentState, openAgentPicker, setSidebarFocused } from "../main/agents-dials.ts";
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
@@ -435,7 +436,8 @@ export async function refreshSessionPicker(rt: TuiRuntime): Promise<void> {
     if (rt.dependencies.listAgents === undefined) return;
     const generation = rt.clientGeneration;
     try {
-        const agents = await rt.dependencies.listAgents();
+        const page = await listAgentPageForTui(rt);
+        const agents = page.agents;
         if (
             rt.shuttingDown || generation !== rt.clientGeneration
             || rt.settingsPicker?.kind !== "session"
@@ -450,6 +452,8 @@ export async function refreshSessionPicker(rt: TuiRuntime): Promise<void> {
             false,
             rt.hostedPanePersistence.groups,
             rt.settingsPicker.enterDisposition ?? "stop",
+            false,
+            page.connectedClients,
         );
         renderState(rt);
     } catch {

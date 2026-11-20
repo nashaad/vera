@@ -1908,9 +1908,18 @@ function receiveConnection(
                     ...agent,
                     archived: archive.effectiveArchived(agent.id),
                 }));
-                const rows = listRequest.include === undefined
+                const listed = listRequest.include === undefined
                     ? pageAgents
                     : await readSessionFacts(pageAgents, listRequest.include);
+                const attachments = interactiveAttachments.counts?.();
+                const rows = attachments === undefined
+                    ? listed
+                    : listed.map((agent) => {
+                        const attached = attachments.bySession.get(agent.id) ?? 0;
+                        return agent.live && attached > 0
+                            ? { ...agent, attached_clients: attached }
+                            : agent;
+                    });
                 const unavailableWorkers = readUnavailableWorkers?.() ?? [];
                 return send({
                     type: "agent_list",
@@ -1919,6 +1928,9 @@ function receiveConnection(
                         ? {}
                         : { next_cursor: page.next_cursor }),
                     total: page.total,
+                    ...(attachments === undefined
+                        ? {}
+                        : { connected_clients: attachments.connected }),
                     ...(unavailableWorkers.length === 0 ? {} : { unavailable_workers: unavailableWorkers }),
                 });
             }).then(() => socket.end(), () => socket.destroy());

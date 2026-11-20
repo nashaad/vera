@@ -571,6 +571,8 @@ export interface TuiDependencies {
     readonly openConfigurationFile?: (path: string) => Promise<void>;
     readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    /** The same listing with its page facts, when the host reports them. */
+    readonly listAgentsPage?: () => Promise<ListedAgentsPage>;
     readonly restartRecords?: HostRestartRecords;
     readonly requestExtension?: ClientExtensionHostRequest;
     readonly listProviders?: () => Promise<readonly ProviderSignInStatus[]>;
@@ -849,6 +851,7 @@ export async function startConfiguredTui(
     const attach = (id: string) => agentClients.attachPaged(id);
     try {
         const listAgents = async () => listAgentsThroughHost(await pairedSocket());
+        const listAgentsPage = async () => listAgentPageThroughHost(await pairedSocket());
         const listSessionPage = async (options: ListAgentsOptions) =>
             listAgentPageThroughHost(await pairedSocket(), options);
         const worktreeNotice = worktreeRuntimeNotice();
@@ -917,6 +920,7 @@ export async function startConfiguredTui(
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
             listAgents,
+            listAgentsPage,
             restartRecords: hostRestartRecords(pairedSocket),
             listSessionPage,
             createSession: async (workspace) => {

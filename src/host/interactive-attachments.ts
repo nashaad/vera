@@ -7,6 +7,13 @@ export interface StopIfLastDecision {
     readonly rootsToStop: readonly string[];
 }
 
+export interface AttachmentClientCounts {
+    /** Distinct clients attached to at least one conversation. */
+    readonly connected: number;
+    /** Attached clients per conversation, counting each client once. */
+    readonly bySession: ReadonlyMap<string, number>;
+}
+
 export class InteractiveAttachmentRegistry {
     private readonly agents = new Map<string, Map<string, number>>();
     private readonly pendingStopRoots = new Set<string>();
@@ -30,6 +37,16 @@ export class InteractiveAttachmentRegistry {
                 return this.clientCount([agentId]);
             },
         };
+    }
+
+    counts(): AttachmentClientCounts {
+        const clients = new Set<string>();
+        const bySession = new Map<string, number>();
+        for (const [agentId, attached] of this.agents) {
+            bySession.set(agentId, attached.size);
+            for (const clientId of attached.keys()) clients.add(clientId);
+        }
+        return { connected: clients.size, bySession };
     }
 
     clientCount(

@@ -21,7 +21,10 @@ control it, so closing one client does not stop every conversation.
 
 Run `/resume` to choose saved work. From the terminal, `vera -c` continues the
 most recent conversation. See [Switch and search conversations](session-switching.md)
-for moving between active tasks.
+for moving between active tasks. The picker says how many clients are connected
+at the top, and each live conversation says how many clients have it open, with
+here marking the one on screen. A parked conversation, or one no client has
+open, shows no count.
 
 `/close` leaves a saved conversation's file on screen for reading. That view has
 no worker attached for this client. Use its resume overlay when you want to
