@@ -89,6 +89,7 @@ async function startHost(test: Fixture, catalogScan: {
     readonly minDelayMs?: number;
     readonly intervalMs?: number;
 }): Promise<ResidentHost> {
+    const clock = Date.now();
     const host = await startResidentHost({
         config: loadVeraConfig({ path: join(test.root, "config.json") }),
         home: test.root,
@@ -98,7 +99,7 @@ async function startHost(test: Fixture, catalogScan: {
         lockPath: join(test.root, "host.json"),
         sessionDirectory: join(test.root, "sessions"),
         eventLogDirectory: join(test.root, "logs"),
-        catalogScan,
+        catalogScan: { now: () => clock, ...catalogScan },
     });
     await host.registry.create({
         workspace: test.root,
