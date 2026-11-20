@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as InputKeyEvent } from "react";
+import {
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+    type KeyboardEvent as InputKeyEvent,
+    type PointerEvent as InputPointerEvent,
+} from "react";
 
 import type {
     UsageCallRow,
@@ -22,6 +30,20 @@ import {
     type SessionSortKey,
 } from "./sessions-table.ts";
 import { ANNEX_BUILT_IN_PAGES } from "../../src/annex/built-in-pages.ts";
+import {
+    areaPath,
+    axisMoney,
+    axisTicks,
+    bucketAxisLabel,
+    bucketRangeLabel,
+    CHART_HEIGHT,
+    chartBands,
+    chartScale,
+    chartSeries,
+    labelIndices,
+    monotonePath,
+    nearestIndex,
+} from "./chart.ts";
 import { hasEstimatedSpend } from "./estimate-basis.ts";
 import { money } from "./money.ts";
 import { spendShare, type SpendShare } from "./model-table.ts";
@@ -432,7 +454,7 @@ function Overview({
     readonly report: UsageReport;
     readonly onOpenSession: (id: string) => void;
 }) {
-    const { totals, prior, timeline, models, sessions } = report;
+    const { totals, prior, timeline, timelineBucket, models, sessions } = report;
     const [workspace, setWorkspace] = useState("all");
     const [kind, setKind] = useState("all");
     const [modelQuery, setModelQuery] = useState("");
@@ -478,7 +500,7 @@ function Overview({
     );
     const modelFilterOn = (modelPin !== undefined && modelPin.length > 0)
         || modelQuery.trim().length > 0;
-    const showChart = report.window.id !== "today" && timeline.length > 0;
+    const showChart = report.window.id !== "today" && totals.calls > 0;
     const priorLabel = PRIOR_LABEL[report.window.id];
     return (
         <>
@@ -521,8 +543,11 @@ function Overview({
                 ? (
                     <section className="panel">
                         <h2>Spend over time <span>· stacked by model</span></h2>
-                        <Chart timeline={timeline} />
-                        <ModelLegend models={models} />
+                        <SpendChart
+                            timeline={timeline}
+                            bucket={timelineBucket}
+                            models={models}
+                        />
                     </section>
                 )
                 : undefined}
@@ -980,9 +1005,9 @@ function ModelTable({
                 <thead>
                     <tr>
                         <th>Model</th>
-                        <th>Spend share</th>
                         <th>Tokens</th>
                         <th>Cost</th>
+                        <th>Spend share</th>
                         {tools ? <th>Tools</th> : undefined}
                     </tr>
                 </thead>
@@ -992,9 +1017,9 @@ function ModelTable({
                             <td className="mono">
                                 {row.provider}/{row.model}
                             </td>
-                            <td>{shareCell(spendShare([row]))}</td>
                             {tokenCell(row)}
                             <td>{costCell(row.spend, row.kind)}</td>
+                            <td>{shareCell(spendShare([row]))}</td>
                             {tools
                                 ? <td className="dim">{toolMix(row.tools)}</td>
                                 : undefined}
@@ -1004,7 +1029,6 @@ function ModelTable({
                         ? (
                             <tr>
                                 <td className="faint">Other ({rest.length})</td>
-                                <td>{shareCell(spendShare(rest))}</td>
                                 <td className="dim">
                                     {formatTokens(rest.reduce(
                                         (sum, row) => sum + row.inputTokens + row.outputTokens,
@@ -1012,6 +1036,7 @@ function ModelTable({
                                     ))}
                                 </td>
                                 <td>{money(restSpend)}</td>
+                                <td>{shareCell(spendShare(rest))}</td>
                                 {tools ? <td /> : undefined}
                             </tr>
                         )
@@ -1028,30 +1053,6 @@ function ModelTable({
                 </tbody>
             </table>
         </div>
-    );
-}
-
-function ModelLegend({ models }: { readonly models: readonly UsageModelRow[] }) {
-    const top = models.slice(0, 3);
-    if (top.length === 0) return null;
-    return (
-        <ul className="legend">
-            {top.map((row, index) => (
-                <li key={`${row.provider}/${row.model}`}>
-                    <i className={`swatch m${index}`} />
-                    {row.provider}/{row.model}
-                    <span>{money(row.spend)}</span>
-                </li>
-            ))}
-            {models.length > 3
-                ? (
-                    <li>
-                        <i className="swatch rest" />
-                        Other
-                    </li>
-                )
-                : undefined}
-        </ul>
     );
 }
 
@@ -1073,81 +1074,279 @@ function Metric(props: {
     );
 }
 
-function Chart({
-    timeline,
+function ChartModelList({
+    models,
 }: {
-    readonly timeline: UsageReport["timeline"];
+    readonly models: readonly UsageModelRow[];
 }) {
-    const peak = Math.max(...timeline.map((point) => point.spend), 0.01);
-    const topModels = topChartModels(timeline);
-    const dated = timeline.length > 10;
+    const listRef = useRef<HTMLUListElement>(null);
+    const [overflowing, setOverflowing] = useState(false);
+    const named = useMemo(() => chartSeries(models), [models]);
+    useLayoutEffect(() => {
+        const node = listRef.current;
+        if (node === null) return;
+        const update = () => {
+            setOverflowing(node.scrollHeight > node.clientHeight + 1);
+        };
+        update();
+        const observer = new ResizeObserver(update);
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, [named]);
+    if (named.length === 0) return null;
     return (
-        <div className="chart">
-            <div className="axis">
-                <span>{money(peak)}</span>
-                <span>$0</span>
-            </div>
-            <div className="chart-body">
-                <div className="bars">
-                    {timeline.map((point) => (
-                        <div
-                            className="col"
-                            key={point.date}
-                            title={`${point.date} · ${money(point.spend)}`}
-                        >
-                            <div className="stack">
-                                <div style={{ flex: Math.max(peak - point.spend, 0) }} />
-                                {[...point.byModel].reverse().map((row) => (
-                                    <div
-                                        key={`${row.provider}/${row.model}`}
-                                        className={`segbar ${barClass(row.model, topModels)}`}
-                                        style={{ flex: row.spend }}
-                                    />
-                                ))}
-                            </div>
-                            <div className="day">{chartLabel(point.date, dated)}</div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        </div>
+        <ul
+            ref={listRef}
+            className={`chart-models${overflowing ? " fade" : ""}`}
+        >
+            {named.map((model) => {
+                const share = spendShare([model.row]);
+                return (
+                    <li key={model.key}>
+                        <i className={`swatch ${model.tone}`} />
+                        <span className="name" title={model.key}>{model.key}</span>
+                        <span className="meta">
+                            {share.percentage === undefined
+                                ? <span className="faint">— unpriced</span>
+                                : (
+                                    <>
+                                        <b>{money(model.row.spend)}</b>
+                                        {" · "}
+                                        {share.label} of spend
+                                    </>
+                                )}
+                        </span>
+                    </li>
+                );
+            })}
+        </ul>
     );
 }
 
-function topChartModels(
-    timeline: UsageReport["timeline"],
-): readonly string[] {
-    const spend = new Map<string, number>();
-    for (const point of timeline) {
-        for (const row of point.byModel) {
-            const id = `${row.provider}/${row.model}`;
-            spend.set(id, (spend.get(id) ?? 0) + row.spend);
-        }
-    }
-    return [...spend.entries()]
-        .sort((left, right) => right[1] - left[1])
-        .slice(0, 3)
-        .map(([id]) => id);
-}
+function SpendChart({
+    timeline,
+    bucket,
+    models,
+}: {
+    readonly timeline: UsageReport["timeline"];
+    readonly bucket: UsageReport["timelineBucket"];
+    readonly models: readonly UsageModelRow[];
+}) {
+    const plotRef = useRef<HTMLDivElement>(null);
+    const [width, setWidth] = useState(0);
+    const [active, setActive] = useState<number | undefined>();
+    const { bands, totals } = useMemo(
+        () => chartBands(timeline, models),
+        [timeline, models],
+    );
+    const count = timeline.length;
+    const scale = chartScale(width, count, Math.max(...totals, 0.01));
 
-function barClass(model: string, top: readonly string[]): string {
-    const index = top.findIndex((id) => id.endsWith(`/${model}`) || id === model);
-    return ["m0", "m1", "m2", "rest"][index < 0 ? 3 : index] ?? "rest";
-}
+    useEffect(() => {
+        const node = plotRef.current;
+        if (node === null) return;
+        const measure = () => setWidth(node.clientWidth);
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, []);
 
-function chartLabel(date: string, dated: boolean): string {
-    const parts = date.split("-");
-    const day = Number(parts[2]);
-    if (!Number.isFinite(day)) return date.slice(5);
-    const asDate = new Date(Number(parts[0]), Number(parts[1]) - 1, day);
-    if (dated) {
-        return `${String(asDate.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    }
-    return asDate.toLocaleDateString(undefined, {
-        weekday: "short",
-        month: "numeric",
-        day: "numeric",
+    useEffect(() => {
+        setActive(undefined);
+    }, [timeline]);
+
+    let running = timeline.map(() => 0);
+    const cumulative = bands.map((band) => {
+        running = running.map((value, index) => value + band.values[index]!);
+        return running;
     });
+    const drawXs = count === 1
+        ? [scale.padLeft, scale.padLeft + scale.plotWidth]
+        : timeline.map((_, index) => scale.x(index));
+    const drawYs = (values: readonly number[]): number[] => (count === 1
+        ? [values[0] ?? 0, values[0] ?? 0]
+        : [...values]).map(scale.y);
+
+    const show = (index: number | undefined) => {
+        setActive(index);
+    };
+
+    const onPointer = (event: InputPointerEvent<HTMLDivElement>) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        const ratio = (event.clientX - rect.left - scale.padLeft)
+            / Math.max(scale.plotWidth, 1);
+        if (ratio < -0.02 || ratio > 1.02) {
+            show(undefined);
+            return;
+        }
+        show(nearestIndex(count, ratio));
+    };
+
+    const point = active === undefined ? undefined : timeline[active];
+    const tooltipLeft = active === undefined
+        ? 0
+        : (() => {
+            const x = scale.x(active);
+            return x + 12 + 240 > width
+                ? Math.max(0, x - 12 - 240)
+                : x + 12;
+        })();
+
+    return (
+        <div className="spend-chart">
+            <ChartModelList models={models} />
+            <div
+                ref={plotRef}
+                className="chart-plot"
+                tabIndex={0}
+                aria-label={`Spend over time. ${count} ${bucket} buckets. Use the left and right arrows to read one.`}
+                onPointerMove={onPointer}
+                onPointerLeave={() => show(undefined)}
+                onFocus={() => setActive((current) => current ?? count - 1)}
+                onBlur={() => show(undefined)}
+                onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                        show(undefined);
+                        return;
+                    }
+                    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+                        return;
+                    }
+                    event.preventDefault();
+                    const current = active ?? count - 1;
+                    const step = event.key === "ArrowLeft" ? -1 : 1;
+                    show(Math.min(Math.max(current + step, 0), count - 1));
+                }}
+            >
+                {width > 0
+                    ? (
+                        <svg
+                            className="chart-svg"
+                            width={width}
+                            height={CHART_HEIGHT}
+                            viewBox={`0 0 ${width} ${CHART_HEIGHT}`}
+                            role="img"
+                            aria-label="Stacked spend by model"
+                        >
+                            {axisTicks(scale.max).map((value) => (
+                                <g key={`grid-${value}`}>
+                                    <line
+                                        className="chart-grid"
+                                        x1={scale.padLeft}
+                                        x2={width - scale.padRight}
+                                        y1={scale.y(value)}
+                                        y2={scale.y(value)}
+                                    />
+                                    <text
+                                        className="chart-y"
+                                        x={scale.padLeft - 10}
+                                        y={scale.y(value) + 4}
+                                        textAnchor="end"
+                                    >
+                                        {axisMoney(value)}
+                                    </text>
+                                </g>
+                            ))}
+                            {[...bands].reverse().map((band, reversed) => {
+                                const index = bands.length - 1 - reversed;
+                                const lower = index === 0
+                                    ? undefined
+                                    : drawYs(cumulative[index - 1]!);
+                                return (
+                                    <path
+                                        key={`area-${band.key}`}
+                                        className={`chart-band ${band.tone}`}
+                                        d={areaPath(
+                                            drawXs,
+                                            drawYs(cumulative[index]!),
+                                            lower,
+                                            scale.y(0),
+                                        )}
+                                    />
+                                );
+                            })}
+                            {[...bands].reverse().map((band, reversed) => {
+                                const index = bands.length - 1 - reversed;
+                                return (
+                                    <path
+                                        key={`edge-${band.key}`}
+                                        className={`chart-edge ${band.tone}`}
+                                        d={monotonePath(
+                                            drawXs,
+                                            drawYs(cumulative[index]!),
+                                        )}
+                                    />
+                                );
+                            })}
+                            {labelIndices(count).map((index) => {
+                                const x = count === 1
+                                    ? scale.x(0)
+                                    : index === 0
+                                    ? scale.padLeft
+                                    : index === count - 1
+                                    ? width - scale.padRight
+                                    : scale.x(index);
+                                const anchor = count === 1 || index === 0
+                                    ? "start"
+                                    : index === count - 1
+                                    ? "end"
+                                    : "middle";
+                                return (
+                                    <text
+                                        key={`x-${index}`}
+                                        className="chart-x"
+                                        x={x}
+                                        y={CHART_HEIGHT - 5}
+                                        textAnchor={count === 1 ? "middle" : anchor}
+                                    >
+                                        {bucketAxisLabel(timeline[index]!, bucket)}
+                                    </text>
+                                );
+                            })}
+                            {active === undefined
+                                ? undefined
+                                : (
+                                    <line
+                                        className="chart-cross"
+                                        x1={scale.x(active)}
+                                        x2={scale.x(active)}
+                                        y1={scale.padTop}
+                                        y2={scale.padTop + scale.plotHeight}
+                                    />
+                                )}
+                        </svg>
+                    )
+                    : undefined}
+                {active === undefined || point === undefined
+                    ? undefined
+                    : (
+                        <div
+                            className="chart-tip on"
+                            style={{ left: tooltipLeft, top: scale.padTop }}
+                        >
+                            <div className="when">
+                                {bucketRangeLabel(point, bucket)}
+                            </div>
+                            {bands.map((band) => (
+                                <div key={band.key} className="row">
+                                    <i className={`key ${band.tone}`} />
+                                    <span className="name">{band.label}</span>
+                                    <span className="val">
+                                        {money(band.values[active]!)}
+                                    </span>
+                                </div>
+                            ))}
+                            <div className="row total">
+                                <span />
+                                <span className="name">Total</span>
+                                <span className="val">{money(totals[active]!)}</span>
+                            </div>
+                        </div>
+                    )}
+            </div>
+        </div>
+    );
 }
 
 function shareCell(share: SpendShare) {
