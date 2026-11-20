@@ -1312,6 +1312,10 @@ picks another folder. The shell is signed ad hoc and is not notarized.
 
 ## Updates
 
+From a checkout, `bun run install:local` builds the desktop package and the app
+shell on macOS and installs them with the host, as described in
+[Installation](installation.md#the-desktop-app-on-macos).
+
 One update moves the host and the desktop package to the newest release
 together. When the new package needs a newer app shell, the update replaces
 `Vera.app`; when the shell cannot be replaced, the update is held and nothing

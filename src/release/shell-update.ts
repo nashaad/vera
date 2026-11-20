@@ -61,6 +61,19 @@ export function readDesktopInstallRecord(prefix: string): DesktopInstallRecord |
     }
 }
 
+// The same file install.sh writes. Renamed into place so a reader never sees half of it.
+export function writeDesktopInstallRecord(prefix: string, appPath: string): void {
+    const path = desktopInstallRecordPath(prefix);
+    mkdirSync(dirname(path), { recursive: true, mode: 0o755 });
+    const temporary = `${path}.${process.pid}.tmp`;
+    try {
+        writeFileSync(temporary, `${JSON.stringify({ layout_version: 1, app_path: appPath })}\n`);
+        renameSync(temporary, path);
+    } finally {
+        rmSync(temporary, { force: true });
+    }
+}
+
 // The shell API of the app at a path, or undefined when it is not a Vera shell.
 export function installedShellApi(appPath: string): number | undefined {
     try {
