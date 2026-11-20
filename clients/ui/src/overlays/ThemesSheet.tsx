@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 
 import { CheckIcon, EyeIcon, ListIcon } from "../components/Icons.tsx";
 import { createPickerPreview } from "../theme/picker-preview.ts";
+import { filterThemes } from "../theme/picker-search.ts";
 import { resolveThemeChoice, themeFile } from "../theme/apply.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
 import { THEME_DESCRIPTIONS, THEME_LABELS } from "../theme/registry.ts";
@@ -27,28 +28,30 @@ export function ThemesSheet({ onClose }: ThemesSheetProps) {
         [imported],
     );
     const items = useMemo(
-        () => choices.map((choice) => ({ choice, file: themeFile(choice), text: themeText(choice, imported) })),
+        () => choices.map((choice) => ({ choice, file: themeFile(choice), ...themeText(choice, imported) })),
         [choices, imported],
     );
+    const [query, setQuery] = useState("");
+    const matches = useMemo(() => filterThemes(items, query), [items, query]);
     const [active, setActive] = useState(() => Math.max(0, choices.indexOf(current)));
-    const highlight = Math.min(active, choices.length - 1);
+    const highlight = matches.length === 0 ? -1 : Math.min(active, matches.length - 1);
+    const searchRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLUListElement>(null);
-
-    const focusChoice = (index: number) => {
-        setActive(index);
-        const item = listRef.current?.querySelector<HTMLButtonElement>(`[data-theme-index="${index}"]`);
-        item?.focus({ preventScroll: true });
-        item?.scrollIntoView({ block: "nearest" });
-    };
 
     useEffect(() => {
         const item = listRef.current?.querySelector<HTMLButtonElement>(`[data-theme-index="${highlight}"]`);
-        item?.focus({ preventScroll: true });
         item?.scrollIntoView({ block: "nearest" });
-    }, [highlight, view]);
+    }, [highlight, query, view]);
+
+    const updateSearch = (next: string) => {
+        const filtered = filterThemes(items, next);
+        const choice = preview.search(filtered.map((item) => item.choice), next);
+        setActive(Math.max(0, filtered.findIndex((item) => item.choice === choice)));
+        setQuery(next);
+    };
 
     const choose = (choice: ThemeChoice, index: number) => {
-        focusChoice(index);
+        setActive(index);
         preview.commit(choice);
         setCurrent(choice);
     };
@@ -56,40 +59,38 @@ export function ThemesSheet({ onClose }: ThemesSheetProps) {
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
             if (event.metaKey || event.ctrlKey || event.altKey) return;
-            if (/^[1-9]$/.test(event.key)) {
-                const index = Number(event.key) - 1;
-                const choice = choices[index];
-                if (choice === undefined) return;
-                event.preventDefault();
-                choose(choice, index);
-                return;
-            }
             if (event.key === "Enter") {
-                if (event.target instanceof Element && event.target.closest("button, input, select, textarea, a[href], [contenteditable='true']")) return;
-                const choice = choices[highlight];
-                if (choice !== undefined) {
+                if (event.target instanceof Element && event.target !== searchRef.current
+                    && event.target.closest("button, input, select, textarea, a[href], [contenteditable='true']")) return;
+                const item = matches[highlight];
+                if (item !== undefined) {
                     event.preventDefault();
-                    choose(choice, highlight);
+                    choose(item.choice, highlight);
                 }
                 return;
             }
             let next = highlight;
-            if (event.key === "Home") next = 0;
-            else if (event.key === "End") next = choices.length - 1;
+            if (event.key === "Home" && query.length === 0) next = 0;
+            else if (event.key === "End" && query.length === 0) next = matches.length - 1;
             else if (event.key === "ArrowDown") next += view === "tile" ? 2 : 1;
             else if (event.key === "ArrowUp") next -= view === "tile" ? 2 : 1;
             else if (view === "tile" && event.key === "ArrowRight") next += 1;
             else if (view === "tile" && event.key === "ArrowLeft") next -= 1;
             else return;
             event.preventDefault();
-            const index = Math.max(0, Math.min(choices.length - 1, next));
-            const choice = choices[index];
-            if (choice !== undefined && index !== highlight) preview.preview(choice);
-            focusChoice(index);
+            if (matches.length === 0) return;
+            const index = Math.max(0, Math.min(matches.length - 1, next));
+            const item = matches[index];
+            if (item === undefined) return;
+            if (index !== highlight) preview.preview(item.choice);
+            setActive(index);
+            if (event.target instanceof Element && event.target.closest("[data-theme-index]")) {
+                listRef.current?.querySelector<HTMLButtonElement>(`[data-theme-index="${index}"]`)?.focus({ preventScroll: true });
+            }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [choices, highlight, view, preview]);
+    }, [matches, highlight, query, view, preview]);
 
     const changeView = (next: ThemeView) => {
         setView(next);
@@ -110,51 +111,74 @@ export function ThemesSheet({ onClose }: ThemesSheetProps) {
         <>
             <span><kbd className="kbd">{view === "tile" ? "↑↓←→" : "↑↓"}</kbd>Select</span>
             <span><kbd className="kbd">↵</kbd>Choose</span>
-            <span><kbd className="kbd">1-9</kbd>Jump</span>
-            <span><kbd className="kbd">esc</kbd>Close</span>
+            <span><kbd className="kbd">esc</kbd>{query.length > 0 ? "Clear" : "Close"}</span>
         </>
     );
 
     return (
-        <OverlaySheet title="Choose Theme" Icon={EyeIcon} onClose={onClose} name="themes" head={head} foot={foot}>
-            <ul className={view === "list" ? "themes-list" : "themes-list themes-grid"} ref={listRef}>
-                {items.map(({ choice, file, text }, index) => {
-                    const isCurrent = choice === current;
-                    return (
-                        <li key={choice}>
-                            <button
-                                type="button"
-                                className={view === "list" ? "theme-row" : "theme-tile"}
-                                data-theme-name={choice}
-                                data-theme-index={index}
-                                data-highlighted={index === highlight}
-                                aria-pressed={isCurrent}
-                                aria-label={text.description ? `${text.label}. ${text.description}` : text.label}
-                                title={text.description}
-                                tabIndex={index === highlight ? 0 : -1}
-                                onFocus={() => setActive(index)}
-                                onClick={() => choose(choice, index)}
-                            >
-                                {view === "list" ? (
-                                    <>
-                                        <span className="theme-swatches" aria-hidden="true">
-                                            {SWATCH_TOKENS.map((token) => <span key={token} style={{ background: color(file, token) }} />)}
-                                        </span>
-                                        <span className="theme-row-name">{text.label}</span>
-                                        <span className="theme-row-description">{text.description}</span>
-                                        {isCurrent ? <CheckIcon className="theme-row-check" /> : <span className="theme-row-key">{index < 9 ? index + 1 : ""}</span>}
-                                    </>
-                                ) : (
-                                    <>
-                                        <ThemePreview file={file} current={isCurrent} />
-                                        <span className="theme-tile-label">{text.label}</span>
-                                    </>
-                                )}
-                            </button>
-                        </li>
-                    );
-                })}
-            </ul>
+        <OverlaySheet
+            title="Choose Theme"
+            Icon={EyeIcon}
+            onClose={onClose}
+            onEscape={() => query.length > 0 ? updateSearch("") : onClose()}
+            name="themes"
+            head={head}
+            foot={foot}
+        >
+            <input
+                ref={searchRef}
+                className="themes-search"
+                aria-label="Search themes"
+                aria-controls="themes-results"
+                aria-activedescendant={highlight < 0 ? undefined : `theme-choice-${highlight}`}
+                placeholder="Search themes"
+                value={query}
+                onChange={(event) => updateSearch(event.target.value)}
+                autoFocus
+            />
+            <div className="themes-results" id="themes-results">
+                {matches.length === 0 ? <div className="palette-empty">No themes match</div> : (
+                    <ul className={view === "list" ? "themes-list" : "themes-list themes-grid"} ref={listRef}>
+                        {matches.map(({ choice, file, label, description }, index) => {
+                            const isCurrent = choice === current;
+                            return (
+                                <li key={choice}>
+                                    <button
+                                        type="button"
+                                        className={view === "list" ? "theme-row" : "theme-tile"}
+                                        id={`theme-choice-${index}`}
+                                        data-theme-name={choice}
+                                        data-theme-index={index}
+                                        data-highlighted={index === highlight}
+                                        aria-pressed={isCurrent}
+                                        aria-label={description ? `${label}. ${description}` : label}
+                                        title={description}
+                                        tabIndex={index === highlight ? 0 : -1}
+                                        onFocus={() => setActive(index)}
+                                        onClick={() => choose(choice, index)}
+                                    >
+                                        {view === "list" ? (
+                                            <>
+                                                <span className="theme-swatches" aria-hidden="true">
+                                                    {SWATCH_TOKENS.map((token) => <span key={token} style={{ background: color(file, token) }} />)}
+                                                </span>
+                                                <span className="theme-row-name">{label}</span>
+                                                <span className="theme-row-description">{description}</span>
+                                                {isCurrent ? <CheckIcon className="theme-row-check" /> : null}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <ThemePreview file={file} current={isCurrent} />
+                                                <span className="theme-tile-label">{label}</span>
+                                            </>
+                                        )}
+                                    </button>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                )}
+            </div>
         </OverlaySheet>
     );
 }
