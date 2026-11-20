@@ -7,6 +7,7 @@ export interface OverlaySheetProps {
     readonly Icon: ComponentType<{ readonly className?: string }>;
     readonly onClose: () => void;
     readonly children: ReactNode;
+    readonly head?: ReactNode;
     // Buttons for the bottom row; omitted sheets have no foot.
     readonly foot?: ReactNode;
     readonly wide?: boolean;
@@ -15,7 +16,7 @@ export interface OverlaySheetProps {
 }
 
 // The frame every window-wide sheet shares: scrim, head with a close button, body and an optional foot.
-export function OverlaySheet({ title, Icon, onClose, children, foot, wide = false, name }: OverlaySheetProps) {
+export function OverlaySheet({ title, Icon, onClose, children, head, foot, wide = false, name }: OverlaySheetProps) {
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
             if (event.key === "Escape") onClose();
@@ -43,6 +44,7 @@ export function OverlaySheet({ title, Icon, onClose, children, foot, wide = fals
                 <div className="sheet-head">
                     <Icon className="session-sheet-icon" />
                     <span className="session-sheet-title" id={titleId}>{title}</span>
+                    {head}
                     <button type="button" className="sheet-x" onClick={onClose} aria-label="Close">
                         <XIcon />
                     </button>

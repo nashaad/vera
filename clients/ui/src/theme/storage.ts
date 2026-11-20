@@ -3,6 +3,9 @@ import { importedThemeById } from "./imported-registry.ts";
 import { DEFAULT_THEME, isThemeChoice, type ThemeChoice } from "./tokens.ts";
 
 const STORAGE_KEY = "vera.theme";
+const VIEW_KEY = "vera.theme.view";
+
+export type ThemeView = "list" | "tile";
 // The colors of the last imported theme that was applied. The page head reads them before the desktop shell can,
 // so an imported theme does not flash the default on launch.
 const CACHE_KEY = "vera.theme.imported";
@@ -41,6 +44,22 @@ export function storeTheme(
         else storage?.setItem(CACHE_KEY, JSON.stringify(summaryOf(theme)));
     } catch {
         // Storage can be unavailable in a sandboxed renderer; the theme still applies.
+    }
+}
+
+export function readThemeView(storage: ThemeStorage | undefined = defaultStorage()): ThemeView {
+    try {
+        return storage?.getItem(VIEW_KEY) === "tile" ? "tile" : "list";
+    } catch {
+        return "list";
+    }
+}
+
+export function storeThemeView(view: ThemeView, storage: ThemeStorage | undefined = defaultStorage()): void {
+    try {
+        storage?.setItem(VIEW_KEY, view);
+    } catch {
+        // The choice still applies until the page reloads.
     }
 }
 
