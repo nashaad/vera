@@ -6298,6 +6298,92 @@ test("a level the pool already forbids never reaches the provider", async () => 
     });
 });
 
+test("a cutoff lowers only the failed request within a turn", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-cutoff-turn-"));
+    temporaryWorkspaces.push(workspace);
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const efforts: (string | undefined)[] = [];
+    const learned: string[] = [];
+    const faux = new FauxAdapter([
+        toolResponse("call_1", "bash", { command: "printf ahoy" }),
+        assistantText("done"),
+    ]);
+    const failure: ProviderFailure = {
+        kind: "connection",
+        resolution: "retry",
+        message: "socket closed",
+    };
+    let clock = 0;
+    const clockSpy = spyOn(performance, "now").mockImplementation(() => clock);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            efforts.push(request.reasoningEffort);
+            if (efforts.length !== 1) {
+                return faux.stream(request);
+            }
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({ type: "thinking_delta", contentIndex: 0, text: "thinking" });
+            clock = 300_000;
+            const error = new ProviderFailureError(failure, new Error(failure.message));
+            stream.push({
+                type: "error",
+                error,
+                message: {
+                    ...assistantText(""),
+                    content: [],
+                    stopReason: "error",
+                    errorMessage: failure.message,
+                },
+            });
+            return stream;
+        },
+    };
+    const pool: EffortPool = {
+        resolveEffort(_ref, requested) {
+            return { requested, efforts: { medium: "medium", high: "high" } };
+        },
+        resolveImageSupport: () => undefined,
+        recordLearned(_ref, key) { learned.push(key); },
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "full_access",
+        effortPool: pool,
+        waitForModelRetry: async () => {},
+        readModelSettings: () => ({
+            provider: "faux",
+            model: "thinker",
+            reasoningEffort: "high",
+        }),
+    };
+    try {
+        channel.client.send({ type: "prompt", content: "hoist the sails" });
+        const result = await runTurn(adapter, "thinker", state);
+        expect(result.stopReason).toBe("stop");
+        expect(efforts).toEqual(["high", "medium", "high"]);
+        expect(learned).toEqual([]);
+        expect(projectTranscript(state.messages)).toContainEqual(expect.objectContaining({
+            kind: "model_substitution",
+            substitution: {
+                model: "thinker",
+                requested: "high",
+                using: "medium",
+                reason: "the request was cut off after 5 minutes of thinking",
+                scope: "effort",
+            },
+        }));
+    } finally {
+        clockSpy.mockRestore();
+    }
+});
+
 function denialTurnState(
     channel: ReturnType<typeof createInProcessChannel>,
     scratchDir: string | undefined,

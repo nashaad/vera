@@ -224,9 +224,14 @@ Vera retries rate-limit, server, and dropped-connection failures up to six
 times, waiting about 1, 2, 4, 8, 15, and 30 seconds. Other transient request
 failures get up to two retries. Each wait varies at random by up to 20% either
 way, so sessions that fail at the same moment do not all retry together. A
-connection that drops while the model is still reasoning is retried too; once
-answer text has appeared, Vera keeps it and shows the error instead. If a model sends nothing for 5 minutes, Vera treats
-that as a timeout and retries. Retry activity shows the next attempt and total
+connection that drops while the model is still reasoning is retried too. If it
+has streamed only reasoning for at least 5 minutes before the drop, Vera retries
+one effort level lower when the model offers one, and says why. If a later
+attempt is cut off the same way, Vera steps down again until no lower level is
+available. The lower level lasts only for this request; the next request uses
+the turn's effort again.
+Once answer text has appeared, Vera keeps it and shows the error instead. If a
+model sends nothing for 5 minutes, Vera treats that as a timeout and retries. Retry activity shows the next attempt and total
 attempt count. Press Escape to cancel at any point, including while a request
 is stuck. Missing credentials or provider credit need your attention and stop
 immediately. So does a spent subscription usage limit, such as an OpenAI Codex
