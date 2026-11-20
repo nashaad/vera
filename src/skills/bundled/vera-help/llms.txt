@@ -253,7 +253,7 @@ How much context Vera keeps is configurable on one screen: `/settings` then Over
 Manual: `docs/context-levers.md`.
 
 ## Diagnostics and recovery [lines=33]
-Vera automatically retries rate-limit, server, dropped-connection and stalled-stream failures with increasing waits; retry activity stays visible and Escape cancels the pending retry or a stuck request. A spent subscription usage limit is not retried: the turn stops at once and the error says when the limit resets.
+Vera automatically retries rate-limit, server, dropped-connection and stalled-stream failures with increasing waits; retry activity stays visible and Escape cancels the pending retry or a stuck request. A connection cut off after at least 5 minutes of reasoning only is retried one effort level lower, for that request only, with a notice saying why. A spent subscription usage limit is not retried: the turn stops at once and the error says when the limit resets.
 If Vera cannot build a request locally, it stops without retrying and the Vera report in `/diagnostics` has the error.
 If a resident agent stops unexpectedly, the conversation shows the failure and the host log records its message and stack.
 The host log records why a host or session process stopped, the requester when supplied, and a previous host that left no stop record. Manual: `docs/troubleshooting.md`.

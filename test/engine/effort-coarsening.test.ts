@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 
 import type { EffortMap } from "../../src/model/effort-ladder.ts";
-import { requestModelWithRecovery } from "../../src/engine/recovery.ts";
+import {
+    requestModelWithRecovery,
+    type ModelEffortSubstituted,
+} from "../../src/engine/recovery.ts";
 import {
     coarsenAfterFailure,
     preflightEffort,
@@ -9,8 +12,12 @@ import {
 } from "../../src/engine/effort-coarsening.ts";
 import type { EffortPool, ModelRef } from "../../src/model/effort-pool.ts";
 import type { LearnedFact } from "../../src/model/pool-file.ts";
-import { ProviderFailureError } from "../../src/model/provider-failure.ts";
+import {
+    ProviderFailureError,
+    type ProviderFailure,
+} from "../../src/model/provider-failure.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
+import { formatModelSubstitution } from "../../src/model/types.ts";
 import type {
     AssistantMessage,
     ModelAdapter,
@@ -432,3 +439,251 @@ test("an image refusal is recorded and rescues no effort step", () => {
     expect(learned[0]?.key).toBe("images");
     expect(learned[0]?.fact.ok).toBe(false);
 });
+
+test("@core repeated reasoning cutoffs step down until no lower effort remains", async () => {
+    const attempts: string[] = [];
+    const learned: { key: string; fact: LearnedFact }[] = [];
+    const notices: ModelEffortSubstituted[] = [];
+    const retries: { nextAttempt: number; maxAttempts: number }[] = [];
+    const times = [0, 900_000, 900_000, 1_200_000, 1_200_000, 1_500_000, 1_500_000];
+    let clockRead = 0;
+    const failure: ProviderFailure = {
+        kind: "connection",
+        resolution: "retry",
+        message: "socket closed",
+    };
+    const adapter: ModelAdapter = {
+        stream(request) {
+            const stream = new ModelEventStream();
+            attempts.push(request.reasoningEffort ?? "");
+            stream.push({ type: "start" });
+            if (attempts.length < 4) {
+                stream.push({
+                    type: "thinking_delta",
+                    contentIndex: 0,
+                    text: "reasoning",
+                });
+                const error = new ProviderFailureError(failure, undefined);
+                stream.push({
+                    type: "error",
+                    error,
+                    message: {
+                        ...message(""),
+                        stopReason: "error",
+                        errorMessage: failure.message,
+                    },
+                });
+            } else {
+                stream.push({ type: "done", message: message("ok") });
+            }
+            return stream;
+        },
+    };
+    const result = await requestModelWithRecovery(
+        adapter,
+        {
+            provider: "cerebras",
+            model: "m",
+            reasoningEffort: "max",
+            messages: [],
+        },
+        {
+            onEvent: () => {},
+            onRetry: (retry) => retries.push(retry),
+            onFallback: () => {},
+            onEffortSubstituted: (notice) => notices.push(notice),
+            coarsening: {
+                pool: fakePool({ max: "max", xhigh: "xhigh", high: "high" }, (_ref, key, fact) => {
+                    learned.push({ key, fact });
+                }),
+            },
+            now: () => times[clockRead++] ?? 1_500_000,
+            random: () => 0.5,
+            wait: async () => {},
+        },
+    );
+
+    expect(result.stopReason).toBe("stop");
+    expect(attempts).toEqual(["max", "xhigh", "high", "high"]);
+    expect(notices).toEqual([{
+        model: "m",
+        requested: "max",
+        using: "xhigh",
+        reason: "the request was cut off after 15 minutes of thinking",
+    }, {
+        model: "m",
+        requested: "xhigh",
+        using: "high",
+        reason: "the request was cut off after 5 minutes of thinking",
+    }]);
+    expect(formatModelSubstitution({
+        ...notices[0]!,
+        scope: "effort",
+    })).toBe(
+        'Requested reasoning effort "max" on m, ran at "xhigh" instead, '
+        + 'because the request was cut off after 15 minutes of thinking.',
+    );
+    expect(learned).toEqual([]);
+    expect(retries.map(({ nextAttempt, maxAttempts }) => [nextAttempt, maxAttempts]))
+        .toEqual([[2, 7], [3, 7], [4, 7]]);
+});
+
+test("a refresh to another model suppresses the stale cutoff notice", async () => {
+    const requests: ModelRequest[] = [];
+    const failure: ProviderFailure = {
+        kind: "connection",
+        resolution: "retry",
+        message: "socket closed",
+    };
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            if (requests.length === 1) {
+                stream.push({
+                    type: "thinking_delta",
+                    contentIndex: 0,
+                    text: "reasoning",
+                });
+                const error = new ProviderFailureError(failure, undefined);
+                stream.push({
+                    type: "error",
+                    error,
+                    message: { ...message(""), stopReason: "error" },
+                });
+            } else {
+                stream.push({ type: "done", message: message("ok") });
+            }
+            return stream;
+        },
+    };
+    const notices: ModelEffortSubstituted[] = [];
+    let clock = 0;
+
+    await requestModelWithRecovery(
+        adapter,
+        {
+            provider: "cerebras",
+            model: "old-model",
+            reasoningEffort: "high",
+            messages: [],
+        },
+        {
+            onEvent: () => {},
+            onRetry: () => {},
+            onFallback: () => {},
+            onEffortSubstituted: (notice) => notices.push(notice),
+            coarsening: { pool: fakePool(FULL_EFFORTS, () => {}) },
+            refresh: async () => ({
+                provider: "cerebras",
+                model: "new-model",
+                reasoningEffort: "high",
+            }),
+            now: () => {
+                const value = clock;
+                clock = clock === 0 ? 300_001 : clock + 1;
+                return value;
+            },
+            wait: async () => {},
+        },
+    );
+
+    expect(requests.map(({ model, reasoningEffort }) => [model, reasoningEffort]))
+        .toEqual([["old-model", "high"], ["new-model", "high"]]);
+    expect(notices).toEqual([]);
+});
+
+const cutoffGuardCases = [
+    { name: "short", elapsedMs: 299_999, kind: "connection" as const },
+    { name: "visible text", elapsedMs: 300_001, kind: "connection" as const, output: "text" as const },
+    { name: "tool call", elapsedMs: 300_001, kind: "connection" as const, output: "tool" as const },
+    { name: "non-network", elapsedMs: 300_001, kind: "server" as const },
+    { name: "no reasoning", elapsedMs: 300_001, kind: "connection" as const, reasoning: false },
+    { name: "no effort levels", elapsedMs: 300_001, kind: "connection" as const, efforts: {} },
+    { name: "retry budget exhausted", elapsedMs: 300_001, kind: "connection" as const, exhausted: true },
+    {
+        name: "no lower effort, only higher available",
+        elapsedMs: 300_001,
+        kind: "connection" as const,
+        requested: "low",
+        efforts: { off: null, minimal: null, low: null, medium: "medium" },
+    },
+];
+for (const scenario of cutoffGuardCases) {
+    test(`cutoff guard: ${scenario.name}`, async () => {
+        const attempts: string[] = [];
+        const failure: ProviderFailure = {
+            kind: scenario.kind,
+            resolution: "retry",
+            message: "failed",
+        };
+        const adapter: ModelAdapter = {
+            stream(request) {
+                const stream = new ModelEventStream();
+                attempts.push(request.reasoningEffort ?? "");
+                stream.push({ type: "start" });
+                if (scenario.reasoning !== false) {
+                    stream.push({
+                        type: "thinking_delta",
+                        contentIndex: 0,
+                        text: "reasoning",
+                    });
+                }
+                if (scenario.output === "text") {
+                    stream.push({ type: "text_start", contentIndex: 1 });
+                    stream.push({
+                        type: "text_delta",
+                        contentIndex: 1,
+                        text: "visible",
+                    });
+                }
+                if (scenario.output === "tool") {
+                    stream.push({ type: "tool_call_start", contentIndex: 1 });
+                }
+                const error = new ProviderFailureError(failure, undefined);
+                stream.push({
+                    type: "error",
+                    error,
+                    message: { ...message(""), stopReason: "error" },
+                });
+                return stream;
+            },
+        };
+        const notices: ModelEffortSubstituted[] = [];
+        let clock = 0;
+        await requestModelWithRecovery(
+            adapter,
+            {
+                provider: "cerebras",
+                model: "m",
+                reasoningEffort: scenario.requested ?? "high",
+                messages: [],
+            },
+            {
+                policy: { delaysMs: scenario.exhausted === true ? [] : [1] },
+                onEvent: () => {},
+                onRetry: () => {},
+                onFallback: () => {},
+                onEffortSubstituted: (notice) => notices.push(notice),
+                coarsening: {
+                    pool: fakePool(scenario.efforts ?? FULL_EFFORTS, () => {}),
+                },
+                now: () => {
+                    const value = clock;
+                    clock = scenario.elapsedMs;
+                    return value;
+                },
+                wait: async () => {},
+            },
+        );
+        const effort = scenario.requested ?? "high";
+        expect(attempts).toEqual(
+            scenario.name === "visible text" || scenario.name === "non-network"
+                || scenario.exhausted === true
+                ? [effort]
+                : [effort, effort],
+        );
+        expect(notices).toEqual([]);
+    });
+}

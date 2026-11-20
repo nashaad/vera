@@ -14,6 +14,7 @@ import {
 import { reasoningEffortForModel } from "./model-settings.ts";
 import {
     coarsenAfterFailure,
+    coarsenAfterThinkingCutoff,
     type EffortCoarseningOptions,
     type ModelEffortCoarsened,
 } from "./effort-coarsening.ts";
@@ -55,6 +56,7 @@ const DEFAULT_OVERLOAD_RETRY_POLICY: ModelRetryPolicy = {
 
 // Long because a high reasoning effort can think for minutes before sending a byte.
 export const DEFAULT_MODEL_STREAM_IDLE_TIMEOUT_MS = 300_000;
+export const MODEL_THINKING_CUTOFF_COARSENING_THRESHOLD_MS = 300_000;
 
 // How long an adapter gets to wind down after its attempt is cancelled.
 const ATTEMPT_WIND_DOWN_MS = 1_000;
@@ -117,6 +119,7 @@ export interface ModelRecoveryOptions {
     readonly wait?: WaitForModelRetry;
     readonly random?: () => number;
     readonly idleTimeoutMs?: number;
+    readonly now?: () => number;
     readonly onEvent: (event: ModelStreamEvent) => void;
     readonly onRetry: (retry: ModelRetryScheduled) => void;
     readonly onFallback: (fallback: ModelFallbackSelected) => void;
@@ -169,12 +172,14 @@ export async function requestModelWithRecovery(
 ): Promise<AssistantMessage> {
     const wait = options.wait ?? waitForModelRetry;
     const random = options.random ?? Math.random;
+    const now = options.now ?? (() => performance.now());
     let activeRequest = request;
     let fallbackPolicy = options.fallback;
     let requestAttempt = 0;
     let retryAttempt = 0;
     let consecutiveOverloadFailures = 0;
     let fallbackSelected = false;
+    let pendingCutoffSubstitution: ModelEffortCoarsened | undefined;
     const refusedEfforts = new Set<string>();
 
     while (true) {
@@ -192,12 +197,18 @@ export async function requestModelWithRecovery(
                 };
                 fallbackPolicy = refreshed.fallback;
                 fallbackSelected = false;
+                pendingCutoffSubstitution = undefined;
                 refusedEfforts.clear();
                 consecutiveOverloadFailures = 0;
                 retryAttempt = 0;
             }
         }
+        if (pendingCutoffSubstitution !== undefined) {
+            options.onEffortSubstituted?.(pendingCutoffSubstitution);
+            pendingCutoffSubstitution = undefined;
+        }
         const attempt = new AbortController();
+        const attemptStarted = now();
         const stream = adapter.stream({
             ...activeRequest,
             signal: request.signal === undefined
@@ -206,6 +217,9 @@ export async function requestModelWithRecovery(
         });
         let contentStarted = false;
         let visibleTextStarted = false;
+        let reasoningStarted = false;
+        let toolCallStarted = false;
+        let cutoffSubstitution: ModelEffortCoarsened | undefined;
         let retry: PendingModelRetry | undefined;
         let fallback: ModelFallbackSelected | undefined;
         let coarsened: ModelEffortCoarsened | undefined;
@@ -286,6 +300,20 @@ export async function requestModelWithRecovery(
                         )
                         && baseDelayMs !== undefined
                     ) {
+                        const elapsedMs = now() - attemptStarted;
+                        if (isNetworkFailure(failure)
+                            && reasoningStarted
+                            && !visibleTextStarted
+                            && !toolCallStarted
+                            && elapsedMs >= MODEL_THINKING_CUTOFF_COARSENING_THRESHOLD_MS
+                            && options.coarsening !== undefined) {
+                            cutoffSubstitution = coarsenAfterThinkingCutoff(
+                                { provider: activeRequest.provider ?? "", model: activeRequest.model },
+                                activeRequest.reasoningEffort,
+                                elapsedMs,
+                                options.coarsening,
+                            );
+                        }
                         retry = {
                             scheduled: {
                                 model: activeRequest.model,
@@ -311,6 +339,13 @@ export async function requestModelWithRecovery(
             }
             if (event.type === "text_delta" && event.text.trim() !== "") {
                 visibleTextStarted = true;
+            }
+            if (event.type === "thinking_delta" && event.text.length > 0) {
+                reasoningStarted = true;
+            }
+            if (event.type === "tool_call_start" || event.type === "tool_call_delta"
+                || event.type === "tool_call_end") {
+                toolCallStarted = true;
             }
             options.onEvent(event);
             if (event.type === "done") {
@@ -359,6 +394,10 @@ export async function requestModelWithRecovery(
         }
         if (request.signal?.aborted) {
             return abortModelRequest(retry.message, request.signal, options);
+        }
+        if (cutoffSubstitution !== undefined) {
+            pendingCutoffSubstitution = cutoffSubstitution;
+            activeRequest = { ...activeRequest, reasoningEffort: cutoffSubstitution.using };
         }
         retryAttempt += 1;
         requestAttempt += 1;

@@ -2,7 +2,7 @@ import {
     classifyCapabilityRejection,
     type CapabilityRejection,
 } from "../model/capability-rejection.ts";
-import { coarsenOneStep } from "../model/effort-ladder.ts";
+import { coarsenOneStep, EFFORT_LADDER } from "../model/effort-ladder.ts";
 import {
     learnedFact,
     learnedSupportedFact,
@@ -60,6 +60,29 @@ export function coarsenAfterFailure(
         requested,
         using: next.level,
         reason: contradiction ?? rejection.message,
+    };
+}
+
+export function coarsenAfterThinkingCutoff(
+    ref: ModelRef,
+    requested: string | undefined,
+    elapsedMs: number,
+    options: EffortCoarseningOptions,
+): ModelEffortCoarsened | undefined {
+    if (requested === undefined) {
+        return undefined;
+    }
+    const resolved = options.pool.resolveEffort(ref, requested);
+    const next = coarsenOneStep(requested, resolved.efforts);
+    const levels: readonly string[] = EFFORT_LADDER;
+    if (next === undefined || levels.indexOf(next.level) >= levels.indexOf(requested)) {
+        return undefined;
+    }
+    return {
+        model: ref.model,
+        requested,
+        using: next.level,
+        reason: `the request was cut off after ${Math.floor(elapsedMs / 60_000)} minutes of thinking`,
     };
 }
 
