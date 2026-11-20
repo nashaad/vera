@@ -153,12 +153,12 @@ test("a second stop in the same TUI names the current waiting session", async ()
             type: "host_stop_wait", kind: "stop",
             waiting_on: [{ session_id: "first-session", name: null, status: "working" }],
         });
-        await session.waitForVisiblePane("Waiting for first-session.");
+        await session.waitForVisiblePane("working: first-session.");
         initial.notice({
             type: "host_stop_wait", kind: "stop",
             waiting_on: [{ session_id: "updated-session", name: null, status: "working" }],
         });
-        await session.waitForVisiblePane("Waiting for updated-session.");
+        await session.waitForVisiblePane("working: updated-session.");
         session.sendKey("Down");
         session.sendKey("Escape");
         initial.notice({ type: "host_stop_wait_cleared", reason: "stopped" });
@@ -170,10 +170,10 @@ test("a second stop in the same TUI names the current waiting session", async ()
             type: "host_stop_wait", kind: "stop",
             waiting_on: [{ session_id: "second-session", name: null, status: "working" }],
         });
-        const pane = await session.waitForVisiblePane("Waiting for second-session.");
-        expect(pane).not.toContain("Waiting for first-session.");
+        const pane = await session.waitForVisiblePane("working: second-session.");
+        expect(pane).not.toContain("working: first-session.");
         session.sendKey("Enter");
-        await session.waitForVisiblePaneWhere((text) => !text.includes("Vera stops when running turns finish."), "stop card dismissed");
+        await session.waitForVisiblePaneWhere((text) => !text.includes("Vera is shutting down"), "stop card dismissed");
         expect(cuts).toBe(0);
     } finally {
         await session.close();

@@ -59,27 +59,27 @@ describe("stop-wait card", () => {
         const cases: { wait: TuiStopWait; title: string }[] = [
             {
                 wait: { kind: "stop", waitingOn: [waitingOn[0]!] },
-                title: "Vera stops when running turns finish. Waiting for Fix parser.",
+                title: "Vera is shutting down (an update, install or vera host stop asked it to), but 1 conversation is still working: Fix parser. Nothing new can start until it stops.",
             },
             {
                 wait: { kind: "stop", waitingOn },
-                title: "Vera stops when running turns finish. Waiting for Fix parser and 1 more.",
+                title: "Vera is shutting down (an update, install or vera host stop asked it to), but 2 conversations are still working: Fix parser and 1 more. Nothing new can start until it stops.",
             },
             {
                 wait: { kind: "update", targetBuildId: "build-42", waitingOn: [waitingOn[1]!] },
-                title: "Vera updates to build-42 when running turns finish. Waiting for b2.",
+                title: "Vera is updating to build-42, but 1 conversation is still working: b2. Nothing new can start until it stops.",
             },
             {
                 wait: { kind: "update", targetBuildId: "build-42", waitingOn },
-                title: "Vera updates to build-42 when running turns finish. Waiting for Fix parser and 1 more.",
+                title: "Vera is updating to build-42, but 2 conversations are still working: Fix parser and 1 more. Nothing new can start until it stops.",
             },
             {
                 wait: { kind: "stop", waitingOn: [...waitingOn, { session_id: "c3", name: null, status: "working" }] },
-                title: "Vera stops when running turns finish. Waiting for Fix parser and 2 more.",
+                title: "Vera is shutting down (an update, install or vera host stop asked it to), but 3 conversations are still working: Fix parser and 2 more. Nothing new can start until it stops.",
             },
             {
                 wait: { kind: "stop", waitingOn: [] },
-                title: "Vera stops when running turns finish.",
+                title: "Vera is shutting down (an update, install or vera host stop asked it to). Nothing new can start until it stops.",
             },
         ];
 
@@ -89,8 +89,16 @@ describe("stop-wait card", () => {
             expect(update?.request.allowCustom).toBe(false);
             expect(update?.request.allowNotes).toBe(false);
             expect(update?.request.choices).toEqual([
-                { id: STOP_WAIT_KEEP_CHOICE, label: "Keep waiting" },
-                { id: STOP_WAIT_STOP_CHOICE, label: "Stop it now" },
+                {
+                    id: STOP_WAIT_KEEP_CHOICE,
+                    label: "Keep waiting",
+                    description: "It stops when they finish.",
+                },
+                {
+                    id: STOP_WAIT_STOP_CHOICE,
+                    label: "Stop them now",
+                    description: "Cancels their running turns and drops queued prompts.",
+                },
             ]);
         }
     });
@@ -103,47 +111,55 @@ describe("stop-wait card", () => {
         const update = stopWaitCardUpdate(next, updatedCard);
 
         expect(updatedCard.requestId).toBe(card.requestId);
-        expect(update?.request.question).toBe("Vera stops when running turns finish. Waiting for b2.");
+        expect(update?.request.question).toBe("Vera is shutting down (an update, install or vera host stop asked it to), but 1 conversation is still working: b2. Nothing new can start until it stops.");
     });
 
-    for (const [width, height] of [[80, 24], [120, 36]] as const) {
-        test(`the update card retains spacing at ${width}x${height}`, async () => {
-            const wait: TuiStopWait = { kind: "update", targetBuildId: "build-42", waitingOn };
-            const update = stopWaitCardUpdate(wait, nextStopWaitCard(undefined, wait))!;
-            const setup = await createTestRenderer({ width, height });
-            const view = createTuiQuestionView(setup.renderer);
-            setup.renderer.root.add(view.box);
-            view.box.visible = true;
-            view.update(update);
+    for (const [width, height] of [[80, 24], [120, 40]] as const) {
+        for (const wait of [
+            { kind: "stop", waitingOn },
+            { kind: "update", targetBuildId: "vera-d4b17481a+cc9e86c75a86", waitingOn },
+        ] satisfies TuiStopWait[]) {
+            test(`the ${wait.kind} card retains spacing at ${width}x${height}`, async () => {
+                const update = stopWaitCardUpdate(wait, nextStopWaitCard(undefined, wait))!;
+                const setup = await createTestRenderer({ width, height });
+                const view = createTuiQuestionView(setup.renderer);
+                setup.renderer.root.add(view.box);
+                view.box.visible = true;
+                view.update(update);
 
-            try {
-                await setup.flush();
-                const lines = setup.captureCharFrame().split("\n");
-                const text = lines.map((line) => line.replaceAll("┃", "")).join(" ").replace(/\s+/g, " ");
-                expect(text).toContain("Vera updates to build-42 when running turns finish. Waiting for Fix parser and 1 more.");
-                const title = lines.findIndex((line) => line.includes("Vera updates to build-42"));
-                const rule = lines.findIndex((line) => line.includes("───"));
-                const keep = lines.findIndex((line) => line.includes("1. Keep waiting"));
-                const stop = lines.findIndex((line) => line.includes("2. Stop it now"));
-                const footer = lines.findIndex((line) => line.includes("esc dismiss"));
-                expect(title).toBeGreaterThan(1);
-                expect(rule).toBeGreaterThan(title);
-                expect(keep - rule).toBe(2);
-                expect(lines[rule + 1]!.replaceAll("┃", "").trim()).toBe("");
-                expect(stop).toBe(keep + 1);
-                expect(footer - stop).toBe(2);
-                expect(lines[stop + 1]!.replaceAll("┃", "").trim()).toBe("");
-                expect(footer).toBeLessThan(height - 1);
-                for (const index of [title, keep, stop, footer]) {
-                    expect(lines[index]!.trimEnd().length).toBeLessThan(width);
+                try {
+                    await setup.flush();
+                    const lines = setup.captureCharFrame().split("\n");
+                    const text = lines.map((line) => line.replaceAll("┃", "")).join(" ").replace(/\s+/g, " ");
+                    expect(text).toContain(update.request.question);
+                    expect(text).toContain("It stops when they finish.");
+                    expect(text).toContain("Cancels their running turns and drops queued prompts.");
+                    const title = lines.findIndex((line) => line.includes(wait.kind === "update" ? "Vera is updating" : "Vera is shutting down"));
+                    const rule = lines.findIndex((line) => line.includes("───"));
+                    const keep = lines.findIndex((line) => line.includes("1. Keep waiting"));
+                    const stop = lines.findIndex((line) => line.includes("2. Stop them now"));
+                    const footer = lines.findIndex((line) => line.includes("esc dismiss"));
+                    const visibleText = (line: string) => line.replaceAll("┃", "").replaceAll("█", "").replaceAll("▀", "").trim();
+                    expect(title).toBeGreaterThan(1);
+                    expect(rule).toBeGreaterThan(title);
+                    expect(keep - rule).toBe(2);
+                    expect(visibleText(lines[rule + 1]!)).toBe("");
+                    expect(stop).toBe(keep + 2);
+                    const lastDescription = lines.slice(stop + 1, footer).findLastIndex((line) => visibleText(line) !== "") + stop + 1;
+                    expect(lastDescription).toBeGreaterThan(stop);
+                    expect(footer - lastDescription).toBeGreaterThan(1);
+                    expect(footer).toBeLessThan(height - 1);
+                    for (const index of [title, keep, stop, footer]) {
+                        expect(lines[index]!.trimEnd().length).toBeLessThan(width);
+                    }
+                    expect(text).not.toContain("recommended");
+                    expect(text).not.toContain("Other");
+                    expect(text).not.toContain("notes");
+                } finally {
+                    setup.renderer.destroy();
                 }
-                expect(text).not.toContain("recommended");
-                expect(text).not.toContain("Other");
-                expect(text).not.toContain("notes");
-            } finally {
-                setup.renderer.destroy();
-            }
-        });
+            });
+        }
     }
 
     test("an opened card renders only the two choices and Enter keeps waiting", async () => {
@@ -158,9 +174,12 @@ describe("stop-wait card", () => {
         try {
             await setup.flush();
             const frame = setup.captureCharFrame();
-            expect(frame).toContain("Vera stops when running turns finish. Waiting for Fix parser and 1 more.");
+            const text = frame.replaceAll("┃", "").replace(/\s+/g, " ");
+            expect(text).toContain(update.request.question);
             expect(frame).toContain("1. Keep waiting");
-            expect(frame).toContain("2. Stop it now");
+            expect(frame).toContain("It stops when they finish.");
+            expect(frame).toContain("2. Stop them now");
+            expect(text).toContain("Cancels their running turns and drops queued prompts.");
             expect(frame).not.toContain("recommended");
             expect(frame).not.toContain("Other");
             expect(frame).not.toContain("notes");
@@ -196,7 +215,7 @@ describe("stop-wait card", () => {
 });
 
 describe("stop-wait card answers", () => {
-    test("Stop it now asks the host to cut the wait once", async () => {
+    test("Stop them now asks the host to cut the wait once", async () => {
         const cuts: string[] = [];
         const rt = fakeRuntime(cuts);
         answerStopWaitCard(rt, answer(STOP_WAIT_STOP_CHOICE));
@@ -205,7 +224,7 @@ describe("stop-wait card answers", () => {
         expect(rt.stopWaitCard?.open).toBe(false);
     });
 
-    test("Keep waiting ends nothing and closes the card", () => {
+    test("Waiting ends nothing and closes the card", () => {
         const cuts: string[] = [];
         const rt = fakeRuntime(cuts);
         answerStopWaitCard(rt, answer(STOP_WAIT_KEEP_CHOICE));
