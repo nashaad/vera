@@ -1,5 +1,6 @@
 import { writeSync } from "node:fs";
-import { TERMINAL_RESTORE_SEQUENCE } from "../../src/terminal-restore-sequence.ts";
+import { launcherKeyFromEnv, removeRelaunchRecord } from "../../src/release/relaunch.ts";
+import { TERMINAL_INPUT_RESTORE_SEQUENCE, TERMINAL_RESTORE_SEQUENCE, TERMINAL_RESTORE_WITHOUT_KITTY_SEQUENCE } from "../../src/terminal-restore-sequence.ts";
 
 interface TerminalLifetimeStream {
     readonly isTTY?: boolean;
@@ -9,6 +10,8 @@ interface TerminalLifetimeStream {
 
 let installed = false;
 let screenAlreadyRestored = false;
+let relaunchHandoff = false;
+let kittyKeyboardEnabled = false;
 
 function leaveRawMode(stdin: NodeJS.ReadStream): void {
     try {
@@ -40,10 +43,14 @@ export function restoreTerminalNow(
     }
 }
 
-// Call after the renderer has left the alternate screen. A second `?1049l` at exit
-// moves the cursor back, so the shell prompt overwrites anything printed since.
-export function markTerminalRestored(): void {
+export function markKittyKeyboardEnabled(): void {
+    kittyKeyboardEnabled = true;
+}
+
+// A second `?1049l` moves the cursor back over the shell prompt.
+export function markTerminalRestored(mode?: "relaunch"): void {
     screenAlreadyRestored = true;
+    relaunchHandoff = mode === "relaunch";
 }
 
 /** Destroys a live TUI when the terminal underneath it disappears without a usable SIGHUP. */
@@ -95,14 +102,38 @@ export function installTerminalRestoreOnExit(
 ): void {
     if (installed || (tty.isTTY !== true && stdin.isTTY !== true)) return;
     installed = true;
+    let launcherKey: string | undefined;
     const restore = (): void => {
         if (screenAlreadyRestored) {
             leaveRawMode(stdin);
+            if (relaunchHandoff) {
+                relaunchHandoff = false;
+                try {
+                    writeSync(tty.fd, TERMINAL_INPUT_RESTORE_SEQUENCE);
+                } catch {
+                }
+            }
             return;
         }
-        restoreTerminalNow(tty, stdin);
+        screenAlreadyRestored = true;
+        if (launcherKey !== undefined) {
+            try {
+                removeRelaunchRecord(launcherKey);
+            } catch {
+            }
+        }
+        if (kittyKeyboardEnabled) {
+            restoreTerminalNow(tty, stdin);
+        } else {
+            leaveRawMode(stdin);
+            try {
+                writeSync(tty.fd, TERMINAL_RESTORE_WITHOUT_KITTY_SEQUENCE);
+            } catch {
+            }
+        }
     };
     process.on("exit", restore);
+    launcherKey = launcherKeyFromEnv();
     for (const signal of ["SIGHUP", "SIGTERM", "SIGQUIT"] as const) {
         const onSignal = (): void => {
             restore();

@@ -9,6 +9,7 @@ export const RELAUNCH_EXIT_CODE = 85;
 
 // Set by the launcher on the TUI it runs. Its value is the launcher's pid.
 export const RELAUNCH_LAUNCHER_ENV = "VERA_TUI_LAUNCHER";
+export const RELAUNCH_RESTORE_ARG = "--vera-restore-relaunch-terminal";
 
 // A record older than this belongs to a launch that did not happen.
 export const RELAUNCH_RECORD_MAX_AGE_MS = 5 * 60 * 1000;
@@ -66,7 +67,7 @@ export function takeRelaunchRecord(
     } catch {
         return undefined;
     }
-    removeQuietly(path);
+    removeRelaunchRecord(launcherKey, home);
     const record = parseRelaunchRecord(text);
     if (record === undefined) return undefined;
     const writtenAt = Date.parse(record.writtenAt);
@@ -106,9 +107,11 @@ function parseDraft(value: unknown): RelaunchDraft | undefined {
     return { text: fields.text, attachmentIds: fields.attachmentIds as string[] };
 }
 
-function removeQuietly(path: string): void {
+export function removeRelaunchRecord(launcherKey: string, home?: string): boolean {
     try {
-        unlinkSync(path);
+        unlinkSync(relaunchRecordPath(launcherKey, home));
+        return true;
     } catch {
+        return false;
     }
 }

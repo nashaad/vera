@@ -1,6 +1,6 @@
 import { chmodSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { TERMINAL_RESTORE_SEQUENCE } from "../terminal-restore-sequence.ts";
+import { TERMINAL_RESTORE_SEQUENCE, TERMINAL_RESTORE_WITHOUT_KITTY_SEQUENCE } from "../terminal-restore-sequence.ts";
 
 import {
     RELEASE_ANNEX_NAME,
@@ -10,7 +10,7 @@ import {
     RELEASE_SUPERVISOR_NAME,
     RELEASE_WORKER_NAME,
 } from "./layout.ts";
-import { RELAUNCH_EXIT_CODE, RELAUNCH_LAUNCHER_ENV } from "./relaunch.ts";
+import { RELAUNCH_EXIT_CODE, RELAUNCH_LAUNCHER_ENV, RELAUNCH_RESTORE_ARG } from "./relaunch.ts";
 
 export interface ReleaseWrapperSources {
     readonly cli: string;
@@ -129,11 +129,13 @@ function writeLauncher(path: string, target: LauncherTarget): void {
             + `release=$here\n`
         : `here=$(CDPATH= cd -P -- "\${0%/*}" && pwd)\n`;
     const restoreSequence = TERMINAL_RESTORE_SEQUENCE.replaceAll("\x1b", "\\033");
+    const relaunchRestoreSequence = TERMINAL_RESTORE_WITHOUT_KITTY_SEQUENCE.replaceAll("\x1b", "\\033");
     writeFileSync(
         path,
         `#!/bin/sh\n`
             + setup
             + `stop=0\n`
+            + `relaunched=0\n`
             + `saved_tty=\n`
             + `if [ -t 0 ]; then saved_tty=$(stty -g <&0 2>/dev/null) || saved_tty=; fi\n`
             + `named=0\n`
@@ -152,10 +154,18 @@ function writeLauncher(path: string, target: LauncherTarget): void {
             + `    if [ "$code" -gt 128 ] && [ "$code" -ne 129 ] && [ "$code" -ne 131 ] && [ "$code" -ne 143 ]; then\n`
             + `        if [ -n "$saved_tty" ]; then stty "$saved_tty" <&0 2>/dev/null || :; fi\n`
             + `        if [ -t 1 ]; then printf '%b' '${restoreSequence}'; fi\n`
+            + `    elif [ "$relaunched" -eq 1 ] && [ "$code" -ne ${RELAUNCH_EXIT_CODE} ]; then\n`
+            + `        if [ -n "$saved_tty" ]; then stty "$saved_tty" <&0 2>/dev/null || :; fi\n`
+            + `        ${target.bun} ${target.entry} ${RELAUNCH_RESTORE_ARG} "$$"\n`
+            + `        helper_code=$?\n`
+            + `        if [ "$helper_code" -eq 126 ] || [ "$helper_code" -eq 127 ]; then\n`
+            + `            if [ -t 1 ]; then printf '%b' '${relaunchRestoreSequence}'; fi\n`
+            + `        fi\n`
             + `    fi\n`
             + `    if [ "$code" -ne ${RELAUNCH_EXIT_CODE} ] || [ "$stop" -ne 0 ]; then\n`
             + `        exit "$code"\n`
             + `    fi\n`
+            + `    relaunched=1\n`
             + resolve
             + `done\n`,
         { encoding: "utf8", mode: 0o755 },

@@ -19,8 +19,8 @@ function recordingEffects(order: string[], failWrite = false): LauncherRelaunchE
             if (failWrite) throw new Error("disk full");
             records.push(record);
         },
-        markTerminalRestored() {
-            order.push("restored");
+        markTerminalRestored(mode) {
+            order.push(`restored:${mode}`);
         },
         exit(code) {
             order.push(`exit:${code}`);
@@ -39,7 +39,7 @@ describe("launcherRelaunch", () => {
         const relaunch = launcherRelaunch("777", effects);
         if (relaunch === undefined) throw new Error("expected a relaunch function");
         await relaunch({ sessionId: "agent-9", draft: { text: "keep me", attachmentIds: [] } });
-        expect(order).toEqual(["write:777", "restored", "exit:85"]);
+        expect(order).toEqual(["write:777", "restored:relaunch", "exit:85"]);
         const [record] = effects.records as { sessionId?: string; draft?: unknown; writtenAt: string }[];
         expect(record?.sessionId).toBe("agent-9");
         expect(record?.draft).toEqual({ text: "keep me", attachmentIds: [] });
@@ -51,7 +51,7 @@ describe("launcherRelaunch", () => {
         const relaunch = launcherRelaunch("778", recordingEffects(order, true));
         if (relaunch === undefined) throw new Error("expected a relaunch function");
         await relaunch({});
-        expect(order).toEqual(["write:778", "restored", "exit:85"]);
+        expect(order).toEqual(["write:778", "restored:relaunch", "exit:85"]);
     });
 });
 
