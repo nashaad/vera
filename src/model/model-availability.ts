@@ -85,7 +85,7 @@ export interface TrackedModelSet {
 /** The models one provider answered with on an authoritative refresh. */
 export interface CatalogListingFacts {
     readonly provider: string;
-    /** Present only when the hold is full, parsed and non-empty. */
+    /** Present only for a full, parsed, non-empty answer. */
     readonly listed?: readonly string[];
 }
 
