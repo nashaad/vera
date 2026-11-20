@@ -49,6 +49,15 @@ export function hostLifecyclePathIn(veraHome: string): string {
     return join(veraRuntimeDirectoryIn(veraHome), "host-lifecycle.json");
 }
 
+// Derived from the daily catalog scan; deleting it only loses miss history.
+export function modelAvailabilityRecordPathIn(veraHome: string): string {
+    return join(veraRuntimeDirectoryIn(veraHome), "model-availability.json");
+}
+
+export function modelAvailabilityRecordPath(home?: string): string {
+    return modelAvailabilityRecordPathIn(selectedVeraHome(home));
+}
+
 export function veraMachineDirectory(home?: string): string {
     return veraMachineDirectoryIn(veraHomeDirectory(home));
 }
