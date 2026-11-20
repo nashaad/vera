@@ -39,6 +39,7 @@ import {
     TUI_MUTED,
     TUI_ACCENT,
     TUI_CRITICAL,
+    TUI_DANGER,
     TUI_SUCCESS,
     type TuiState,
     type TuiTextTranscriptEntry,
@@ -924,6 +925,156 @@ test("TUI tool headers are bold and change tense when work finishes", () => {
         "  │ bun test",
         "  └ (no output)",
     ]);
+});
+
+test("exit tags stay neutral on live and replayed tool rows", () => {
+    let live = applyAgentUpdate(beginTuiTurn(createTuiState(), "run it"), {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "false" },
+        seq: 1,
+    });
+    live = applyAgentUpdate(live, {
+        type: "tool_finished",
+        tool: "bash",
+        output: "failed",
+        isError: true,
+        exitCode: 7,
+        seq: 2,
+    });
+    const liveHeader = live.entries.find((entry) => entry.kind === "tool_header");
+    const liveCall = live.entries.find((entry) => entry.kind === "tool" && entry.result !== true);
+    expect(liveHeader?.text).toBe("+ Ran · exit 7");
+    expect(liveCall?.text).toBe("false · exit 7");
+    if (liveCall?.kind !== "tool") throw new Error("Expected completed tool row");
+    expect(renderTuiEntry(liveCall).chunks.every((chunk) =>
+        chunk.fg?.toString() !== parseColor(TUI_DANGER).toString()
+    )).toBe(true);
+
+    const replay = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "tool", tool: "bash", args: { command: "false" } },
+            { kind: "tool_result", tool: "bash", output: "failed", isError: true, exitCode: 7 },
+        ],
+        seq: 3,
+    });
+    expect(replay.entries.find((entry) => entry.kind === "tool_header")?.text)
+        .toBe("+ Ran · exit 7");
+    expect(replay.entries.find((entry) => entry.kind === "tool" && entry.result !== true)?.text)
+        .toBe("false · exit 7");
+});
+
+test("exit summaries fold repeated and capped codes without changing failure headings", () => {
+    let state = beginTuiTurn(createTuiState(), "run group");
+    for (const [command, exitCode, seq] of [
+        ["one", 2, 1], ["two", 2, 3], ["three", 3, 5], ["four", 4, 7], ["five", 5, 9],
+    ] as const) {
+        state = applyAgentUpdate(state, {
+            type: "tool_started", tool: "bash", args: { command }, seq,
+        });
+        state = applyAgentUpdate(state, {
+            type: "tool_finished", tool: "bash", isError: true, exitCode, seq: seq + 1,
+        });
+    }
+    const header = state.entries.find((entry) => entry.kind === "tool_header");
+    expect(header?.text).toBe("Ran · exit 2 ×2 · exit 3 · exit 4 · +1");
+    expect(state.entries.filter((entry) => entry.kind === "tool" && entry.result !== true)
+        .map((entry) => entry.text)).toEqual([
+        "one · exit 2", "two · exit 2", "three · exit 3", "four · exit 4", "five · exit 5",
+    ]);
+
+    const old = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "tool", tool: "bash", args: { command: "legacy" } },
+            { kind: "tool_result", tool: "bash", output: "old", isError: true },
+        ],
+        seq: 11,
+    });
+    expect(old.entries.find((entry) => entry.kind === "tool_header")?.text).toBe("+ Ran");
+    expect(old.entries.find((entry) => entry.kind === "tool" && entry.result !== true)?.text)
+        .toBe("legacy");
+});
+
+test("zero exits add no tag and nonzero exits do not promote failed tool rows", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "tool_started", tool: "edit", args: { path: "map.txt" }, seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished", tool: "edit", output: "Updated", isError: true, exitCode: 4, seq: 2,
+    });
+    expect(state.entries.find((entry) => entry.kind === "tool_header")?.text)
+        .toBe("+ Edited · exit 4");
+    expect(state.entries.some((entry) => entry.kind === "tool_header" && entry.text.includes("Failed")))
+        .toBe(false);
+
+    const success = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "tool", tool: "bash", args: { command: "true" } },
+            { kind: "tool_result", tool: "bash", output: "ok", isError: false, exitCode: 0 },
+        ],
+        seq: 3,
+    });
+    expect(success.entries.some((entry) => entry.kind === "tool" && entry.text.includes("exit")))
+        .toBe(false);
+});
+
+test("a confirmed process kill shows one exit tag live and after replay", () => {
+    const args = { action: "kill", process_id: "p-1" };
+    let live = applyAgentUpdate(createTuiState(), {
+        type: "tool_started", tool: "process", args, seq: 1,
+    });
+    live = applyAgentUpdate(live, {
+        type: "tool_finished", tool: "process", output: "killed",
+        isError: false, exitCode: 137, processId: "p-1", seq: 2,
+    });
+    const replay = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "tool", tool: "process", args },
+            { kind: "tool_result", tool: "process", output: "killed",
+                isError: false, exitCode: 137, processId: "p-1" },
+        ],
+        seq: 3,
+    });
+    for (const state of [live, replay]) {
+        expect(state.entries.find((entry) => entry.kind === "tool_header")?.text)
+            .toBe("+ Worked · exit 137");
+        expect(state.entries.find((entry) => entry.kind === "tool" && entry.result !== true)?.text)
+            .toBe("process kill p-1 · exit 137");
+    }
+});
+
+test("withheld results stay Did not run and hide their exit code", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "tool", tool: "bash", args: { command: "not-run" } },
+            { kind: "tool_result", tool: "bash", output: "Denied", isError: true, withheld: true, exitCode: 9 },
+        ],
+        seq: 1,
+    });
+    expect(state.entries.find((entry) => entry.kind === "tool_header")?.text).toBe("+ Did not run");
+    expect(state.entries.some((entry) => entry.kind === "tool" && entry.text.includes("exit"))).toBe(false);
+
+    const grouped = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "tool", tool: "bash", args: { command: "ran" } },
+            { kind: "tool_result", tool: "bash", output: "failed", isError: true, exitCode: 3 },
+            { kind: "tool", tool: "bash", args: { command: "withheld" } },
+            { kind: "tool_result", tool: "bash", output: "Denied", isError: true, withheld: true, exitCode: 9 },
+        ],
+        seq: 2,
+    });
+    const groupedHeaders = grouped.entries.filter((entry) => entry.kind === "tool_header");
+    expect(groupedHeaders.map((entry) => entry.text)).toEqual([
+        "+ Ran · exit 3", "+ Did not run",
+    ]);
+    expect(grouped.entries.some((entry) => entry.kind === "tool" && entry.text.includes("exit 9")))
+        .toBe(false);
 });
 
 test("TUI describes a live subagent as delegating", () => {
@@ -2175,6 +2326,20 @@ test("other tool failures keep their existing headings and withheld calls do not
         { kind: "tool", tool: "read", args: { path: "hold.txt" } },
         { kind: "tool_result", tool: "read", output: "Not run: session blocked", isError: true, withheld: true },
     ]))).toEqual(["Did not run"]);
+
+    let processLive = applyAgentUpdate(createTuiState(), {
+        type: "tool_started", tool: "process", args: { action: "kill", process_id: "p-1" }, seq: 1,
+    });
+    processLive = applyAgentUpdate(processLive, {
+        type: "tool_finished", tool: "process", output: "Could not kill process", isError: true, seq: 2,
+    });
+    expect(failedEditHeaders(processLive)).toEqual(["Failed"]);
+
+    const processFailure = failedEditHistory([
+        { kind: "tool", tool: "process", args: { action: "kill", process_id: "p-1" } },
+        { kind: "tool_result", tool: "process", output: "Could not kill process", isError: true },
+    ]);
+    expect(failedEditHeaders(processFailure)).toEqual(["Failed"]);
 });
 
 test("mixed completed and active edit calls retain distinct headings", () => {
@@ -4392,6 +4557,7 @@ function pollProcess(
     state: TuiState,
     output: string,
     processId = "p-1",
+    exitCode?: number,
 ): TuiState {
     state = applyAgentUpdate(state, {
         type: "tool_started",
@@ -4404,6 +4570,7 @@ function pollProcess(
         tool: "process",
         output,
         ...(processId === "p-missing" ? {} : { processId }),
+        ...(exitCode === undefined ? {} : { exitCode }),
         seq: 4,
     });
 }
@@ -4413,14 +4580,14 @@ function waitLines(state: TuiState): string[] {
         .filter((entry) => entry.kind !== "diff"
             && (entry.waitProcessId !== undefined
                 || (entry.kind === "tool_header"
-                    && (entry.header === "Waited" || entry.header === "Waiting"))))
+                    && (entry.header?.startsWith("Waited") || entry.header?.startsWith("Waiting")))))
         .map(entryLine);
 }
 
 function waitHeaders(state: TuiState): string[] {
     return state.entries
         .filter((entry) => entry.kind === "tool_header"
-            && (entry.header === "Waited" || entry.header === "Waiting"))
+            && (entry.header?.startsWith("Waited") || entry.header?.startsWith("Waiting")))
         .map((entry) => entry.kind === "tool_header" ? entry.header ?? "" : "");
 }
 
@@ -4436,6 +4603,30 @@ test("polls on one background process fold into one waited row", () => {
         `  │ ${WAIT_COMMAND}`,
         "  └ Process p-1 exited with code 0.",
     ]);
+});
+
+test("a failed last background poll carries its neutral exit tag", () => {
+    let live = startBackgroundProcess(createTuiState());
+    live = pollProcess(live, "Process p-1 exited with code 8.", "p-1", 8);
+    expect(waitHeaders(live)).toEqual(["Waited · exit 8"]);
+    expect(waitLines(live)).toEqual([
+        "+ Waited · exit 8",
+        `  │ ${WAIT_COMMAND}`,
+        "  └ Process p-1 exited with code 8. · exit 8",
+    ]);
+
+    const replay = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        seq: 9,
+        entries: [
+            { kind: "tool", tool: "bash", args: { command: WAIT_COMMAND } },
+            { kind: "tool_result", tool: "bash", output: "running", isError: false, processId: "p-1" },
+            { kind: "tool", tool: "process", args: { action: "read", process_id: "p-1" } },
+            { kind: "tool_result", tool: "process", output: "Process p-1 exited with code 8.", isError: true, exitCode: 8, processId: "p-1" },
+        ],
+    });
+    expect(waitHeaders(replay)).toEqual(["Waited · exit 8"]);
+    expect(waitLines(replay)).toEqual(waitLines(live));
 });
 
 test("each poll replaces the newest result under the waited row", () => {

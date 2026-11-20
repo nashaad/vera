@@ -370,6 +370,16 @@
     content: "•";
 }
 
+.exit-tag {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: baseline;
+    margin-left: calc(var(--vera-space) * 1.5);
+    color: var(--vera-text-dim);
+    font-size: calc(var(--vera-font-size) * 11 / 13);
+    white-space: nowrap;
+}
+
 .call-list {
     display: flex;
     flex-direction: column;

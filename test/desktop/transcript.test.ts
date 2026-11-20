@@ -115,8 +115,8 @@ describe("history entries to blocks", () => {
                 key: "t1",
                 active: false,
                 calls: [
-                    { tool: "bash", title: "bash ls -la", args: { command: "ls\n -la" }, state: "done", output: "a b" },
-                    { tool: "read", title: "read a.md", args: { path: "/w/notes/a.md" }, state: "failed", output: "missing" },
+                    { tool: "bash", title: "bash ls -la", args: { command: "ls\n -la" }, state: "done", output: "a b", isError: false },
+                    { tool: "read", title: "read a.md", args: { path: "/w/notes/a.md" }, state: "failed", output: "missing", isError: true },
                     { tool: "bash", title: "bash pwd", args: { command: "pwd" }, state: "done" },
                 ],
             },
@@ -249,8 +249,8 @@ describe("live updates", () => {
                 key: "l2",
                 active: false,
                 calls: [
-                    { tool: "read", title: "read config.ts", args: { path: "/w/config.ts" }, state: "done", output: "ok" },
-                    { tool: "bash", title: "bash ls", args: { command: "ls" }, state: "done", output: "a.ts" },
+                    { tool: "read", title: "read config.ts", args: { path: "/w/config.ts" }, state: "done", output: "ok", isError: false },
+                    { tool: "bash", title: "bash ls", args: { command: "ls" }, state: "done", output: "a.ts", isError: false },
                 ],
             },
             { kind: "text", key: "l3", text: "Found it" },

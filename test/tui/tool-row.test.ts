@@ -144,6 +144,38 @@ test("an extension failure renders with the built-in failure colors and spacing"
     expect(colors[1]!.preview.equals(colors[0]!.preview)).toBe(true);
 });
 
+test("exit tags render as neutral text on the compact heading and call row", async () => {
+    const setup = await createTestRenderer({ width: 56, height: 6 });
+    setup.renderer.root.add(createTuiToolHeader(
+        setup.renderer,
+        "exit-tag-heading",
+        { kind: "tool_header", header: "Ran", text: "+ Ran · exit 7" },
+        0,
+    ));
+    setup.renderer.root.add(createTuiToolRow(
+        setup.renderer,
+        "exit-tag-row",
+        { kind: "tool", header: "Ran", prefix: "  └ ", text: "false · exit 7" },
+        0,
+    ));
+
+    try {
+        await setup.flush();
+        const rows = setup.captureCharFrame().split("\n");
+        expect(rows[0]).toContain("  Ran · exit 7");
+        expect(rows[1]).toContain("  └ false · exit 7");
+        expect(rows[2]?.trim()).toBe("");
+        const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
+        const heading = spans.find((span) => span.text.includes("Ran · exit 7"));
+        const exitTag = spans.find((span) => span.text.includes("false"));
+        if (heading === undefined || exitTag === undefined) throw new Error("Missing exit tag spans");
+        expect(heading.fg.equals(parseColor(TUI_TEXT))).toBe(true);
+        expect(exitTag.fg.equals(parseColor(TUI_MUTED))).toBe(true);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("a wrapped tool row hangs under its own text", async () => {
     const setup = await createTestRenderer({ width: 20, height: 8 });
     setup.renderer.root.add(createTuiToolRow(

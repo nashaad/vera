@@ -3,6 +3,7 @@ import type {
     TuiTranscriptEntry,
 } from "./state.ts";
 import { withTranscriptEntryAlias } from "./transcript-entry-id.ts";
+import { toolExitCode } from "../shared/tool-exit.ts";
 
 // Folds consecutive `process` reads of one background process into a single
 // Waiting/Waited row group.
@@ -147,6 +148,7 @@ export function withWaitResult(
     processId: string | undefined,
     resultText: string | undefined,
     entryId?: string,
+    exitCode?: number,
 ): TuiTranscriptEntry[] | undefined {
     const callIndex = waitCallIndex(entries, processId);
     if (callIndex === -1) return undefined;
@@ -154,6 +156,8 @@ export function withWaitResult(
     if (call?.kind !== "tool") return undefined;
     const waitProcessId = call.waitProcessId ?? processId;
     if (waitProcessId === undefined) return undefined;
+    const exit = toolExitCode({ exitCode });
+    const exitTag = exit === undefined ? undefined : `exit ${exit}`;
     const headerIndex = waitHeaderIndex(entries, callIndex);
     if (headerIndex === -1) return undefined;
     const end = waitGroupEnd(entries, headerIndex);
@@ -177,8 +181,8 @@ export function withWaitResult(
             const { active: _active, ...settled } = entry;
             return {
                 ...settled,
-                header: WAIT_SETTLED_HEADER,
-                text: WAIT_SETTLED_HEADER,
+                header: exitTag === undefined ? WAIT_SETTLED_HEADER : `${WAIT_SETTLED_HEADER} · ${exitTag}`,
+                text: exitTag === undefined ? WAIT_SETTLED_HEADER : `${WAIT_SETTLED_HEADER} · ${exitTag}`,
             };
         }
         if (index === callIndex && entry.kind === "tool") {
@@ -198,7 +202,10 @@ export function withWaitResult(
             return withTranscriptEntryAlias({
                 ...entry,
                 header: WAIT_SETTLED_HEADER,
-                text: resultText ?? entry.text,
+                text: exitTag === undefined
+                    ? resultText ?? entry.text
+                    : `${resultText ?? entry.text} · ${exitTag}`,
+                ...(exit === undefined ? {} : { exitCode: exit }),
             }, entryId);
         }
         return entry;
@@ -209,7 +216,8 @@ export function withWaitResult(
             header: WAIT_SETTLED_HEADER,
             result: true,
             prefix: CALL_PREFIX,
-            text: resultText,
+            text: exitTag === undefined ? resultText : `${resultText} · ${exitTag}`,
+            ...(exit === undefined ? {} : { exitCode: exit }),
             waitProcessId,
             ...(entryId === undefined ? {} : { entryId }),
         });
@@ -221,11 +229,12 @@ export function withWaitResult(
 export function settleActiveWait(
     entries: readonly TuiTranscriptEntry[],
     resultText?: string,
+    exitCode?: number,
 ): TuiTranscriptEntry[] | undefined {
     const processId = activeWaitProcessId(entries);
     return processId === undefined
         ? undefined
-        : withWaitResult(entries, processId, resultText);
+        : withWaitResult(entries, processId, resultText, undefined, exitCode);
 }
 
 function waitCallIndex(

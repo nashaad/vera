@@ -3280,6 +3280,7 @@ async function finishExecutedTool(
             toolResultChanged ? undefined : result.presentation,
             toolResultChanged ? undefined : result.toolResultSource,
             result.processId,
+            result.exitCode,
         );
         if (!sameToolResult(result, finalResult)) {
             state.events.emit({
@@ -3331,6 +3332,7 @@ function withoutPresentation(result: ToolResultMessage): ToolResultMessage {
         toolName: result.toolName,
         content: result.content,
         isError: result.isError,
+        ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
         ...(result.processId === undefined
             ? {}
             : { processId: result.processId }),
@@ -3354,6 +3356,7 @@ function hookResult(result: ToolResultMessage): HookToolResult {
         toolName: result.toolName,
         content: result.content,
         isError: result.isError,
+        ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
     };
 }
 
@@ -3363,6 +3366,7 @@ function hookResultMessage(
     presentation?: ToolResultMessage["presentation"],
     toolResultSource?: ToolResultMessage["toolResultSource"],
     processId?: string,
+    exitCode?: number,
 ): ToolResultMessage {
     return {
         role: "tool_result",
@@ -3370,6 +3374,7 @@ function hookResultMessage(
         toolName: toolCall.name,
         content: result.content,
         isError: result.isError,
+        ...(exitCode === undefined ? {} : { exitCode }),
         ...(processId === undefined ? {} : { processId }),
         ...(presentation === undefined ? {} : { presentation }),
         ...(toolResultSource === undefined ? {} : { toolResultSource }),

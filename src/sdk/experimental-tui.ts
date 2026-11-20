@@ -109,6 +109,7 @@ export interface VeraExperimentalTuiAgentEvent {
     readonly tool?: string;
     readonly output?: string;
     readonly isError?: boolean;
+    readonly exitCode?: number;
     readonly state?: "working" | "waiting" | "idle";
 }
 

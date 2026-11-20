@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { CheckIcon, ChevronRightIcon, CopyIcon } from "../components/Icons.tsx";
+import { toolExitCode, toolExitSummary } from "../../../shared/tool-exit.ts";
 import { copyText } from "./copyText.ts";
 import type { ToolCall, ToolNoticePresentation } from "./model.ts";
 import { NoticeRow } from "./NoticeRows.tsx";
@@ -12,6 +13,11 @@ import { askTarget, callPaths, callTarget, isShell, rowVerb, shellCommand, toolS
 export function RunLine({ calls }: { readonly calls: readonly ToolCall[] }) {
     const [open, setOpen] = useState(false);
     const failed = calls.filter((call) => call.state === "failed").length;
+    const exitTags = toolExitSummary(calls.map((call) => ({
+        exitCode: call.exitCode,
+        isError: call.isError,
+        withheld: call.state === "withheld",
+    })));
     const notices = calls.flatMap((call): ToolNoticePresentation[] => (call.presentation?.kind === "tool_notice" ? [call.presentation] : []));
     const withheld = calls.length === 1 && calls[0]?.state === "withheld" ? calls[0] : undefined;
     if (withheld !== undefined) return <WithheldCall call={withheld} />;
@@ -20,6 +26,7 @@ export function RunLine({ calls }: { readonly calls: readonly ToolCall[] }) {
             <button type="button" className="run-head" aria-expanded={open} onClick={() => setOpen(!open)}>
                 <span className="t">{toolSummary(calls)}</span>
                 {failed > 0 ? <span className="failed-tag">{failed} failed</span> : null}
+                {exitTags.map((tag) => <span className="exit-tag" key={tag}>{tag}</span>)}
                 <ChevronRightIcon className="chev" />
             </button>
             {open ? <CallList calls={calls} /> : null}
@@ -74,6 +81,8 @@ function CallRow({ call, paths }: { readonly call: ToolCall; readonly paths: rea
                 <span className="verb">{rowVerb(call)}</span>
                 <span className="arg">{callTarget(call, paths)}</span>
                 {call.state === "failed" ? <span className="failed-tag">failed</span> : null}
+                {toolExitCode({ exitCode: call.exitCode, isError: call.isError, withheld: call.state === "withheld" }) === undefined
+                    ? null : <span className="exit-tag">exit {call.exitCode}</span>}
             </button>
             {open && expandable ? <pre className="call-out">{call.output}</pre> : null}
         </div>
@@ -90,6 +99,8 @@ function ShellRow({ call }: { readonly call: ToolCall }) {
                 <span className="verb">{rowVerb(call)}</span>
                 {shown ? null : <span className="arg cmd">{callTarget(call)}</span>}
                 {call.state === "failed" ? <span className="failed-tag">failed</span> : null}
+                {toolExitCode({ exitCode: call.exitCode, isError: call.isError, withheld: call.state === "withheld" }) === undefined
+                    ? null : <span className="exit-tag">exit {call.exitCode}</span>}
             </button>
             {shown ? <ShellBox call={call} /> : null}
         </div>

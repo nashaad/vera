@@ -1177,6 +1177,7 @@ export interface VeraClientThreadToolResult extends VeraClientThreadEntryFacts {
     readonly tool: string;
     readonly output: string;
     readonly isError: boolean;
+    readonly exitCode?: number;
 }
 
 export interface VeraClientThreadEdit extends VeraClientThreadEntryFacts {

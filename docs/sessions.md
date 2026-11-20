@@ -39,7 +39,11 @@ changes. At the bottom, the transcript continues to follow new text.
 A `write`, `edit` or generic extension tool that ran and returned an error is
 headed Failed, also when you reopen the conversation. A call denied by the
 classifier or skipped by a halt is headed Did not run. Tools with their own
-headings, such as Ran or Explored, keep them when they return errors.
+headings, such as Ran or Explored, keep them when they return errors. A command
+that exits with a non-zero code shows a neutral `exit N` on its row and group
+heading. The heading shows the first three distinct codes, counts repetitions
+and counts any further distinct codes. A timeout or a failure to start or observe
+an exit is not an exit code.
 
 Older parts of a long conversation load as you scroll up, in the main transcript
 and in a side pane.
