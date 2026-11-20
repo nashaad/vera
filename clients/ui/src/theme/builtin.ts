@@ -11,6 +11,9 @@ import palenight from "./themes/palenight.json";
 import synthwave from "./themes/synthwave.json";
 import nightOwl from "./themes/nightowl.json";
 import github from "./themes/github.json";
+import githubLight from "./themes/github-light.json";
+import gruvboxDarkHard from "./themes/gruvbox-dark-hard.json";
+import gruvboxLightHard from "./themes/gruvbox-light-hard.json";
 import midnightBlue from "./themes/midnight-blue.json";
 import midnightBlueII from "./themes/midnight-blue-ii.json";
 import nc from "./themes/norton-commander.json";
@@ -20,8 +23,8 @@ import veraOrange from "./themes/vera-orange.json";
 
 const files: readonly ThemeFile[] = [
     dark, light, highContrast, veraBlue, veraPurple, mutedBlue, onyx, palenight,
-    synthwave, nightOwl, github, midnightBlue, midnightBlueII, nc, ncNavy,
-    retro31, veraOrange,
+    synthwave, nightOwl, github, githubLight, gruvboxDarkHard, gruvboxLightHard,
+    midnightBlue, midnightBlueII, nc, ncNavy, retro31, veraOrange,
 ];
 const filesByName = new Map(files.map((file) => [file.name, file]));
 

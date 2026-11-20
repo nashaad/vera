@@ -249,6 +249,17 @@ test("every configured theme declares the complete Vera role set", () => {
     }
 });
 
+test("each new built-in theme resolves to its own configured palette", async () => {
+    const renderer = { async getPalette() { return terminalColors(); } };
+    const configured: Record<string, { background: string; accent: string }> = themeCatalog.themes;
+    for (const name of ["github-light", "gruvbox-dark-hard", "gruvbox-light-hard"]) {
+        expect(Object.keys(configured)).toContain(name);
+        const theme = await resolveTuiTheme(renderer, name as TuiThemeName);
+        expect([name, theme.background, theme.accent])
+            .toEqual([name, configured[name]!.background, configured[name]!.accent]);
+    }
+});
+
 test("every built-in theme stripes rows apart from both the panel and the cursor", () => {
     for (const entry of BUILT_IN_TUI_THEMES) {
         const stripe = tuiStripeColor(entry.theme).toLowerCase();

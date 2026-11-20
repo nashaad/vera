@@ -8,12 +8,20 @@ import {
     THEME_NAMES,
     VALUE_TOKENS,
 } from "../../clients/ui/src/theme/tokens.ts";
+import { THEME_PALETTE_KEYS } from "./theme-palette-keys.ts";
 
 const root = join(import.meta.dir, "..", "..");
 
 test("@core desktop components use theme tokens only", () => {
     const violations = themeViolations(root);
     expect(violations).toEqual([]);
+});
+
+test("@core every theme fills the complete palette", () => {
+    const palette = [...THEME_PALETTE_KEYS].sort();
+    for (const name of THEME_NAMES) {
+        expect([name, Object.keys(themeFile(name).palette).sort()]).toEqual([name, palette]);
+    }
 });
 
 test("@core every theme defines every token and resolves every color", () => {
