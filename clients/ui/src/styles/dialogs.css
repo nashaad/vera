@@ -265,6 +265,32 @@
 
 .overlay-sheet[data-overlay="themes"] .overlay-sheet-body {
     padding: calc(var(--vera-space) * 3);
+    overflow: hidden;
+}
+
+.themes-search {
+    flex: 0 0 auto;
+    width: 100%;
+    padding: calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    font: inherit;
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius);
+}
+
+.themes-search::placeholder {
+    color: var(--vera-text-disabled);
+}
+
+.themes-search:focus-visible {
+    outline: thin solid var(--vera-focus);
+}
+
+.themes-results {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .overlay-sheet[data-overlay="themes"] .session-sheet-foot {
@@ -393,20 +419,9 @@
     white-space: nowrap;
 }
 
-.theme-row-key,
 .theme-row-check {
     flex: 0 0 auto;
     width: calc(var(--vera-space) * 4);
-}
-
-.theme-row-key {
-    color: var(--vera-text-disabled);
-    font-family: var(--vera-font-code);
-    font-size: calc(var(--vera-font-size-label) * 11 / 12);
-    text-align: right;
-}
-
-.theme-row-check {
     height: calc(var(--vera-space) * 4);
     color: var(--vera-accent);
 }

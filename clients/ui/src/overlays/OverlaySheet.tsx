@@ -6,6 +6,7 @@ export interface OverlaySheetProps {
     readonly title: string;
     readonly Icon: ComponentType<{ readonly className?: string }>;
     readonly onClose: () => void;
+    readonly onEscape?: () => void;
     readonly children: ReactNode;
     readonly head?: ReactNode;
     // Buttons for the bottom row; omitted sheets have no foot.
@@ -16,14 +17,14 @@ export interface OverlaySheetProps {
 }
 
 // The frame every window-wide sheet shares: scrim, head with a close button, body and an optional foot.
-export function OverlaySheet({ title, Icon, onClose, children, head, foot, wide = false, name }: OverlaySheetProps) {
+export function OverlaySheet({ title, Icon, onClose, onEscape, children, head, foot, wide = false, name }: OverlaySheetProps) {
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
-            if (event.key === "Escape") onClose();
+            if (event.key === "Escape") (onEscape ?? onClose)();
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [onClose]);
+    }, [onClose, onEscape]);
 
     const titleId = `overlay-${name}-title`;
     return (

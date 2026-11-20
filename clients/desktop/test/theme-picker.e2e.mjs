@@ -36,7 +36,7 @@ async function openSheet() {
 async function highlight(index) {
     await page.waitForFunction((expected) => {
         const button = document.querySelector('[data-overlay="themes"] [data-highlighted="true"]');
-        return button?.getAttribute("data-theme-index") === String(expected) && document.activeElement === button;
+        return button?.getAttribute("data-theme-index") === String(expected);
     }, index);
 }
 
@@ -83,24 +83,82 @@ try {
     await openSheet();
     const sheet = page.locator('[data-overlay="themes"]');
     const rows = sheet.locator("[data-theme-index]");
+    const search = sheet.getByRole("textbox", { name: "Search themes" });
     await rows.last().waitFor();
     const names = await rows.evaluateAll((buttons) => buttons.map((button) => button.getAttribute("data-theme-name")));
     assert.equal(names[0], "dark");
     assert.equal(names[1], "light");
     assert.equal(names.at(-1), "imported:crow.night");
+    assert.equal(await search.evaluate((element) => document.activeElement === element), true);
     assert.equal(await sheet.getByRole("button", { name: "Tile view" }).getAttribute("aria-pressed"), "true");
     await sheet.getByRole("button", { name: "List view" }).click();
     assert.equal(await sheet.getByRole("button", { name: "List view" }).getAttribute("aria-pressed"), "true");
     assert.equal(await rows.nth(0).locator(".theme-swatches span").count(), 3);
-    assert.equal(await rows.nth(1).locator(".theme-row-key").innerText(), "2");
+    assert.equal(await rows.nth(0).locator(".theme-row-check").count(), 1);
     await highlight(0);
     const listHeight = await sheet.evaluate((element) => element.getBoundingClientRect().height);
     await capture("list");
 
+    await search.focus();
+    await page.keyboard.type("l");
+    await highlight(0);
+    assert.equal(await rows.nth(0).getAttribute("data-theme-name"), "light");
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "light");
+    await page.keyboard.type("ight");
+    assert.deepEqual(await rows.evaluateAll((buttons) => buttons.map((button) => button.getAttribute("data-theme-name"))), [
+        "light", "github-light", "gruvbox-light-hard", "dark",
+    ]);
+    assert.equal(await search.evaluate((element) => document.activeElement === element), true);
+    assert.deepEqual(await writes(), []);
+    await search.fill("");
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "dark");
+    await page.keyboard.type("gruv");
+    assert.deepEqual(await rows.evaluateAll((buttons) => buttons.map((button) => button.getAttribute("data-theme-name"))), [
+        "gruvbox-dark-hard", "gruvbox-light-hard",
+    ]);
+    await highlight(0);
+    assert.equal(await search.getAttribute("aria-activedescendant"), await rows.nth(0).getAttribute("id"));
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "gruvbox-dark-hard");
+    assert.equal(await search.evaluate((element) => document.activeElement === element), true);
     await press(app, "Down");
     await highlight(1);
-    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "light");
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "gruvbox-light-hard");
+    await page.keyboard.type(" light");
+    await highlight(0);
+    assert.equal(await rows.count(), 1);
+    assert.equal(await search.evaluate((element) => document.activeElement === element), true);
+    await page.keyboard.press("Home");
+    assert.equal(await search.evaluate((element) => element.selectionStart), 0);
+    await page.keyboard.press("End");
+    assert.equal(await search.evaluate((element) => element.selectionStart), "gruv light".length);
+    await highlight(0);
     assert.deepEqual(await writes(), []);
+
+    await search.fill("zzz");
+    assert.equal(await sheet.getByText("No themes match").count(), 1);
+    assert.equal(await rows.count(), 0);
+    assert.equal(await search.getAttribute("aria-activedescendant"), null);
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "dark");
+    await page.keyboard.press("Enter");
+    assert.deepEqual(await writes(), []);
+    await page.keyboard.press("Escape");
+    assert.equal(await search.inputValue(), "");
+    await highlight(0);
+    assert.equal(await search.evaluate((element) => document.activeElement === element), true);
+    await page.keyboard.type("1");
+    assert.equal(await search.inputValue(), "1");
+    assert.deepEqual(await writes(), []);
+    await page.keyboard.press("Escape");
+    assert.equal(await search.inputValue(), "");
+    await page.keyboard.press("Escape");
+    await sheet.waitFor({ state: "detached" });
+
+    await openSheet();
+    assert.equal(await search.inputValue(), "");
+    assert.equal(await search.evaluate((element) => document.activeElement === element), true);
+    await page.keyboard.press("ArrowDown");
+    await highlight(1);
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "light");
     await app.evaluate(({ BrowserWindow }) => {
         const contents = BrowserWindow.getAllWindows()[0].webContents;
         contents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
@@ -109,58 +167,68 @@ try {
     });
     await selected("light");
     assert.deepEqual(await writes(), ["light"]);
-    await rows.nth(4).click();
-    await highlight(4);
-    await selected(names[4]);
-    assert.deepEqual(await writes(), ["light", names[4]]);
-    await page.keyboard.press("Enter");
-    assert.deepEqual(await writes(), ["light", names[4], names[4]]);
-    await page.keyboard.press("ArrowUp");
-    await highlight(3);
-    await page.keyboard.press("Enter");
-    await selected(names[3]);
-    assert.deepEqual(await writes(), ["light", names[4], names[4], names[3]]);
-    await page.keyboard.press("9");
-    await highlight(8);
-    await selected(names[8]);
-    assert.equal((await writes()).at(-1), names[8]);
-    const beforeNavigation = (await writes()).length;
-    await page.keyboard.press("Home");
-    await highlight(0);
     await page.keyboard.press("ArrowUp");
     await highlight(0);
-    await page.keyboard.press("End");
-    await highlight(names.length - 1);
-    await page.keyboard.press("ArrowDown");
-    await highlight(names.length - 1);
-    assert.equal((await writes()).length, beforeNavigation);
-    const inView = await rows.last().evaluate((button) => {
-        const body = button.closest(".overlay-sheet-body").getBoundingClientRect();
-        const row = button.getBoundingClientRect();
-        return row.top >= body.top && row.bottom <= body.bottom;
-    });
-    assert.equal(inView, true);
-    const swatch = await rows.last().locator(".theme-swatches span").first().evaluate((element) => getComputedStyle(element).backgroundColor);
-    assert.equal(swatch, "rgb(16, 24, 32)");
-    await page.keyboard.press("1");
-    await highlight(0);
-    await selected("dark");
+    await page.keyboard.press("Escape");
+    await sheet.waitFor({ state: "detached" });
+    await page.waitForFunction(() => document.documentElement.getAttribute("data-theme") === "light");
 
-    await sheet.getByRole("button", { name: "Tile view" }).click();
-    await highlight(0);
-    assert.equal(await sheet.evaluate((element) => element.getBoundingClientRect().height), listHeight);
+    await openSheet();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(await sheet.getByRole("button", { name: "Tile view" }).evaluate((element) => document.activeElement === element), true);
+    await page.keyboard.press("Space");
     assert.equal(await sheet.getByRole("button", { name: "Tile view" }).getAttribute("aria-pressed"), "true");
-    assert.equal(await rows.nth(0).locator(".theme-preview-check").count(), 1);
-    assert.equal(await rows.nth(0).locator(".theme-row-description").count(), 0);
-    assert.ok((await rows.last().getAttribute("aria-label")).includes("Crow"));
-    assert.ok((await rows.last().getAttribute("title")).includes("Crow"));
-    const preview = await rows.last().locator(".theme-preview").evaluate((element) => {
+    assert.equal(await sheet.evaluate((element) => element.getBoundingClientRect().height), listHeight);
+    await search.focus();
+    await search.fill("light");
+    assert.deepEqual(await rows.evaluateAll((buttons) => buttons.map((button) => button.getAttribute("data-theme-name"))), [
+        "light", "github-light", "gruvbox-light-hard", "dark",
+    ]);
+    await highlight(0);
+    await search.fill("gruv");
+    await highlight(0);
+    await page.keyboard.press("ArrowRight");
+    await highlight(1);
+    assert.equal(await search.evaluate((element) => document.activeElement === element), true);
+    await page.keyboard.press("Enter");
+    await selected("gruvbox-light-hard");
+    assert.deepEqual(await writes(), ["light", "gruvbox-light-hard"]);
+    await search.fill("zzz");
+    assert.equal(await sheet.getByText("No themes match").count(), 1);
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "gruvbox-light-hard");
+    await search.fill("");
+    await highlight(names.indexOf("gruvbox-light-hard"));
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "gruvbox-light-hard");
+    await page.keyboard.press("Tab");
+    assert.equal(await rows.nth(names.indexOf("gruvbox-light-hard")).evaluate((element) => document.activeElement === element), true);
+    await page.keyboard.press("Space");
+    await selected("gruvbox-light-hard");
+    await page.keyboard.press("Enter");
+    await selected("gruvbox-light-hard");
+    assert.deepEqual(await writes(), ["light", "gruvbox-light-hard", "gruvbox-light-hard", "gruvbox-light-hard"]);
+
+    await search.focus();
+    await search.fill("imported crow");
+    await highlight(0);
+    assert.equal(await rows.count(), 1);
+    assert.equal(await rows.nth(0).getAttribute("data-theme-name"), "imported:crow.night");
+    assert.ok((await rows.nth(0).getAttribute("aria-label")).includes("Crow"));
+    assert.ok((await rows.nth(0).getAttribute("title")).includes("Crow"));
+    const preview = await rows.nth(0).locator(".theme-preview").evaluate((element) => {
         const style = getComputedStyle(element);
         return [style.backgroundColor, style.getPropertyValue("--theme-sidebar").trim(), style.getPropertyValue("--theme-accent").trim()];
     });
     assert.deepEqual(preview, ["rgb(16, 24, 32)", "#152637", "#cc9922"]);
-    await capture("tile");
-    const beforeGridNavigation = (await writes()).length;
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), "imported:crow.night");
+    await sheet.getByRole("button", { name: "Close" }).click();
+    await sheet.waitFor({ state: "detached" });
+    await page.waitForFunction(() => document.documentElement.getAttribute("data-theme") === "gruvbox-light-hard");
+
+    await openSheet();
+    await highlight(names.indexOf("gruvbox-light-hard"));
+    await page.keyboard.press("Home");
+    await highlight(0);
     await page.keyboard.press("ArrowRight");
     await highlight(1);
     await page.keyboard.press("ArrowDown");
@@ -169,37 +237,21 @@ try {
     await highlight(2);
     await page.keyboard.press("ArrowUp");
     await highlight(0);
-    await page.keyboard.press("ArrowLeft");
-    await highlight(0);
     await page.keyboard.press("End");
     await highlight(names.length - 1);
     assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), names.at(-1));
-    assert.equal(await page.evaluate(() => localStorage.getItem("vera.theme")), "dark");
-    await page.keyboard.press("ArrowRight");
-    await highlight(names.length - 1);
-    assert.equal((await writes()).length, beforeGridNavigation);
-    await page.keyboard.press("Enter");
-    await selected(names.at(-1));
-    assert.equal((await writes()).length, beforeGridNavigation + 1);
-    await page.keyboard.press("2");
-    await highlight(1);
+    assert.equal(await page.evaluate(() => localStorage.getItem("vera.theme")), "gruvbox-light-hard");
+    const inView = await rows.last().evaluate((button) => {
+        const body = button.closest(".themes-results").getBoundingClientRect();
+        const row = button.getBoundingClientRect();
+        return row.top >= body.top && row.bottom <= body.bottom;
+    });
+    assert.equal(inView, true);
+    await rows.nth(1).click();
     await selected("light");
-    assert.equal((await writes()).length, beforeGridNavigation + 2);
-    await sheet.locator(".session-sheet-foot").click({ position: { x: 2, y: 2 } });
-    assert.equal(await page.evaluate(() => document.activeElement?.tagName), "BODY");
-    await page.keyboard.press("Enter");
-    await selected("light");
-    assert.equal((await writes()).length, beforeGridNavigation + 3);
-    await page.keyboard.press("ArrowRight");
-    await highlight(2);
-    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-theme")), names[2]);
     await capture("tile-light");
     await page.keyboard.press("Escape");
     await sheet.waitFor({ state: "detached" });
-    await page.waitForFunction(() => document.documentElement.getAttribute("data-theme") === "light");
-    await openSheet();
-    assert.equal(await sheet.getByRole("button", { name: "Tile view" }).getAttribute("aria-pressed"), "true");
-    await highlight(1);
     await page.reload();
     await page.waitForSelector(".app[data-sessions]", { timeout: 45_000 });
     await openSheet();
@@ -214,7 +266,7 @@ try {
     await page.locator('[data-overlay="themes"] button[aria-label="List view"]').click();
     assert.equal(await page.locator('[data-overlay="themes"] button[aria-label="List view"]').getAttribute("aria-pressed"), "true");
     await capture("list-light");
-    console.log("theme picker e2e passed: navigation, single application, imported colors and persisted views");
+    console.log("theme picker e2e passed: search, navigation, preview, commit and persisted views");
 } finally {
     await trial.cleanup();
     for (const pid of [...electronPids, hostPid]) {

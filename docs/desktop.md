@@ -249,10 +249,10 @@ Escape, its close button or a click outside it.
   With no session open and no New Chat page it says to open one.
 - Choose Theme lists the built-in themes and the themes of the enabled
   desktop extensions, as two-column preview tiles by default or a list with
-  swatches. It remembers that view per desktop client. In either view, arrow keys
-  and Home and End preview the highlighted theme without saving it. Enter or
-  clicking a theme saves it, as do number keys 1 to 9 for the first nine themes.
-  Closing the sheet restores the last saved theme.
+  swatches. It remembers that view per desktop client. Search narrows the themes
+  and previews the first match. Arrow keys preview other matches without saving.
+  Enter or clicking a theme saves it. Escape clears a search, then closes the
+  sheet; closing restores the last saved theme.
 - Rename Session, in the palette, opens a sheet with the open session's name to
   edit. Enter or `Rename` saves it. The host refuses an empty name, one over
   200 bytes, and a session that cannot be renamed, and the sheet says which.
@@ -1392,10 +1392,14 @@ finds both as `Theme: <label>` when searched.
 Tour's Theme menu offers the same choices.
 Appearance shows each theme's colors as swatches. Choose Theme defaults to a
 two-column tile view and can show a list with swatches; its toggle is remembered per
-desktop client. Arrow keys and Home and End preview the highlighted theme without
-saving it. Enter or clicking saves a theme, and number keys 1 to 9 save one of the
-first nine themes. The sheet stays open after a choice; closing it restores the
-last saved theme. Reloading during a preview uses the saved theme.
+desktop client. Search matches theme names and descriptions and previews the first
+match. Search ranks themes matching every term in their names first, with names
+starting with the first term ahead of other names; matches that need the description
+follow. Arrow keys preview other matches without saving. Home and End move within
+the search text, or to the first and last theme when search is empty. Enter or
+clicking saves a theme and leaves the sheet open. Escape clears a search before
+closing the sheet; closing restores the last saved theme. Reloading during a
+preview uses the saved theme.
 A saved built-in name that no longer exists falls back to Dark.
 The saved theme is applied before the stylesheet loads, so the first paint
 already uses it.
