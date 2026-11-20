@@ -5,6 +5,7 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    readdirSync,
     readlinkSync,
     rmSync,
     writeFileSync,
@@ -12,11 +13,14 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
+import { SHELL_API } from "../../clients/desktop/shell/bootstrap.ts";
 import { installLocal } from "../../scripts/install-local.ts";
 import { activateRelease } from "../../src/release/activate.ts";
+import { findDesktopPackage } from "../../src/release/desktop-packages.ts";
 import {
     currentReleaseBuildId,
     currentSymlinkPath,
+    desktopInstallRecordPath,
     launcherPath,
     RELEASE_CLI_NAME,
     releaseDirectory,
@@ -29,6 +33,7 @@ import {
     serializeReleaseManifest,
 } from "../../src/release/manifest.ts";
 import { formatVeraVersion, readStampedRelease } from "../../src/release/stamp.ts";
+import { installedShellApi } from "../../src/release/shell-update.ts";
 
 const repoRoot = resolve(import.meta.dir, "..", "..");
 const installer = resolve(repoRoot, "scripts", "install-local.ts");
@@ -60,6 +65,7 @@ test("bun run install:local upgrades a test prefix end to end", async () => {
     const prefix = mkdtempSync(join(tmpdir(), "vera-install-local-"));
     const userHome = mkdtempSync(join(tmpdir(), "vera-install-local-home-"));
     const veraHome = mkdtempSync(join(tmpdir(), "vera-install-local-vera-"));
+    const apps = mkdtempSync(join(tmpdir(), "vera-install-local-apps-"));
     try {
         const previous = writeDummyRelease(prefix, "vera-old");
         activateRelease(previous, prefix);
@@ -73,6 +79,7 @@ test("bun run install:local upgrades a test prefix end to end", async () => {
                     HOME: userHome,
                     PATH: process.env.PATH,
                     VERA_HOME: veraHome,
+                    VERA_INSTALL_APPLICATIONS: apps,
                 },
                 stdout: "pipe",
                 stderr: "pipe",
@@ -81,6 +88,11 @@ test("bun run install:local upgrades a test prefix end to end", async () => {
         expect(ran.exitCode, ran.stderr.toString()).toBe(0);
         const lines = ran.stdout.toString().trim().split("\n");
         expect(lines[1]).toBe(launcherPath(prefix));
+        // A prefix other than ~/.local gets no desktop app; the command says so on macOS only.
+        expect(readdirSync(apps)).toEqual([]);
+        expect(lines[3]).toBe(
+            process.platform === "darwin" ? "The desktop app needs Vera in ~/.local; it was not installed." : undefined,
+        );
         const buildId = lines[2];
         expect(buildId).toMatch(/^vera-[0-9a-f]+(\+[0-9a-f]{12})?$/);
         expect(buildId).not.toBe("vera-old");
@@ -109,8 +121,52 @@ test("bun run install:local upgrades a test prefix end to end", async () => {
         rmSync(prefix, { recursive: true, force: true });
         rmSync(userHome, { recursive: true, force: true });
         rmSync(veraHome, { recursive: true, force: true });
+        rmSync(apps, { recursive: true, force: true });
     }
 }, 120_000);
+
+// Builds the real desktop archives, so it takes a while. The apps folder is a scratch one; nothing reaches the real Applications.
+test.skipIf(process.platform !== "darwin")("bun run install:local also installs the desktop package and Vera.app on macOS", async () => {
+    // The desktop app only uses <HOME>/.local, so the scratch home holds the prefix.
+    const userHome = mkdtempSync(join(tmpdir(), "vera-install-local-desktop-home-"));
+    const prefix = join(userHome, ".local");
+    const veraHome = mkdtempSync(join(tmpdir(), "vera-install-local-desktop-vera-"));
+    const apps = mkdtempSync(join(tmpdir(), "vera-install-local-desktop-apps-"));
+    try {
+        const ran = Bun.spawnSync(
+            ["bun", installer, "--prefix", prefix, "--force"],
+            {
+                cwd: repoRoot,
+                env: {
+                    HOME: userHome,
+                    PATH: process.env.PATH,
+                    VERA_HOME: veraHome,
+                    VERA_INSTALL_APPLICATIONS: apps,
+                },
+                stdout: "pipe",
+                stderr: "pipe",
+            },
+        );
+        expect(ran.exitCode, ran.stderr.toString()).toBe(0);
+        const lines = ran.stdout.toString().trim().split("\n");
+        const buildId = lines[2]!;
+        const app = join(apps, "Vera.app");
+        expect(lines[3]).toBe(`vera install:local: installed the desktop app at ${app}`);
+        expect(currentReleaseBuildId(prefix)).toBe(buildId);
+        expect(installedShellApi(app)).toBe(SHELL_API);
+        expect(findDesktopPackage(buildId, prefix)).toMatchObject({
+            hostBuildId: buildId,
+            desktopVersion: VERA_PRODUCT_VERSION,
+            shellApi: SHELL_API,
+        });
+        expect(JSON.parse(readFileSync(desktopInstallRecordPath(prefix), "utf8")))
+            .toEqual({ layout_version: 1, app_path: app });
+    } finally {
+        rmSync(userHome, { recursive: true, force: true });
+        rmSync(veraHome, { recursive: true, force: true });
+        rmSync(apps, { recursive: true, force: true });
+    }
+}, 300_000);
 
 test("installLocal leaves the previous release active when pack fails", async () => {
     const prefix = mkdtempSync(join(tmpdir(), "vera-install-local-fail-"));

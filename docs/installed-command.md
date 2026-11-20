@@ -50,6 +50,16 @@ terminal and keeps its unsent draft. If the new host does not start, the
 host attempts to restore the previous release and its host. A second update is refused while
 one is pending.
 
+On macOS the command also builds and installs the desktop app before the new
+release becomes current or is handed to a running host, and prints the path of
+the `Vera.app` it installed, replaced or kept. `--no-desktop` skips it. The
+desktop step runs only for the default prefix, `~/.local`; with another
+`--prefix` the command skips the app and says so. A
+`Vera.app` that needs replacing while Vera is running is left alone, and the
+command asks you to quit Vera and run it again. A desktop failure leaves the host
+install in place and the command exits with status 1. See
+[The desktop app on macOS](installation.md#the-desktop-app-on-macos).
+
 `--prefix DIR` chooses a test installation prefix. The daily prefix is
 `$HOME/.local`. A test prefix stops and starts only the host of the home that
 `VERA_HOME` selects. Set `VERA_HOME` to a private home for a test install.

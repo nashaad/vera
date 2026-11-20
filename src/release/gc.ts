@@ -15,7 +15,7 @@ export interface GcOptions {
     readonly listProcessExecutables?: () => readonly string[];
 }
 
-function processExecutables(): readonly string[] {
+export function processExecutables(): readonly string[] {
     if (process.platform === "linux") {
         readlinkSync("/proc/self/exe");
         return readdirSync("/proc", { withFileTypes: true })
