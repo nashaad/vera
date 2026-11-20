@@ -220,6 +220,16 @@ A model that has disappeared from its provider is
 marked unavailable and cannot be selected.
 To change credentials or endpoints, use [Configure providers](first-run-setup.md).
 
+Vera also refreshes connected catalogs in the background once a day, whether or
+not the Models page is open. A refresh counts only when the request succeeds and
+returns a non-empty list. A tracked model is dropped after two daily refreshes
+in a row leave it out; tracked models are your favorites, the default model, and
+the models an assignment names. A dropped default model or assigned model writes
+one `model_dropped` line to `runtime/logs/host.jsonl`. The scan does not change
+your favorites, assignments, current model, or a running conversation. A full
+manual refresh holds the next background scan off for an hour. Miss history is
+in `runtime/model-availability.json`; deleting that file only loses the history.
+
 Vera retries rate-limit, server, and dropped-connection failures up to six
 times, waiting about 1, 2, 4, 8, 15, and 30 seconds. Other transient request
 failures get up to two retries. Each wait varies at random by up to 20% either
