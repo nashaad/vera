@@ -158,7 +158,8 @@ function writeLauncher(path: string, target: LauncherTarget): void {
             + `        if [ -n "$saved_tty" ]; then stty "$saved_tty" <&0 2>/dev/null || :; fi\n`
             + `        ${target.bun} ${target.entry} ${RELAUNCH_RESTORE_ARG} "$$"\n`
             + `        helper_code=$?\n`
-            + `        if [ "$helper_code" -eq 126 ] || [ "$helper_code" -eq 127 ]; then\n`
+            + `        # 0 means the helper restored or had nothing to restore; any other status leaves it to this script.\n`
+            + `        if [ "$helper_code" -ne 0 ]; then\n`
             + `            if [ -t 1 ]; then printf '%b' '${relaunchRestoreSequence}'; fi\n`
             + `        fi\n`
             + `    fi\n`
