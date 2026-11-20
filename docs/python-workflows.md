@@ -299,8 +299,8 @@ helper that uses it works whether or not a workflow called it. A second
 `usage()` on the same call replaces the first.
 
 Runs stored under the Vera home also count toward the totals on `/usage`. A
-call without `cost` is estimated from current OpenRouter rates when its
-provider is `openrouter`, and is otherwise left unpriced.
+call without `cost` is estimated when its OpenRouter route has catalog rates or
+its direct DeepSeek model has a supported rate. Otherwise it is left unpriced.
 
 ## Find runs whose process died
 
