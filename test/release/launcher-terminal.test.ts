@@ -154,8 +154,8 @@ test("launcher leaves terminal restoration to a normally exiting child", async (
     expect(result.output).not.toContain(TERMINAL_RESTORE_SEQUENCE);
 }, 20_000);
 
-test("@core a missing relaunch helper restores without another kitty pop", async () => {
-    for (const helperStatus of [126, 127]) {
+test("@core a failed relaunch helper restores without another kitty pop", async () => {
+    for (const helperStatus of [1, 2, 126, 127]) {
         const root = join(tmpdir(), "vera-dev");
         mkdirSync(root, { recursive: true });
         const home = mkdtempSync(join(root, "launcher-fallback-"));
