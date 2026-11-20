@@ -11,6 +11,7 @@ export interface AgentRunToolCall {
     /** Absent when the run stopped before the tool finished. */
     readonly output?: string;
     readonly isError?: boolean;
+    readonly exitCode?: number;
     readonly durationMs?: number;
 }
 
@@ -35,6 +36,9 @@ export class ToolCallRecord {
             args: started?.args ?? event.toolCall.input,
             output: event.result.content.map((part) => part.text).join(""),
             isError: event.result.isError,
+            ...(event.result.exitCode === undefined
+                ? {}
+                : { exitCode: event.result.exitCode }),
             durationMs: event.durationMs,
         });
     }

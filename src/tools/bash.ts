@@ -110,6 +110,9 @@ function bashOutput(result: ManagedProcessRunResult): ToolOutput {
             kind: "output",
             output: result.snapshot.output.trim() || "(no output)",
             isError: result.snapshot.exitCode !== 0,
+            ...(result.snapshot.exitCode === undefined || result.snapshot.exitObservationFailed === true
+                ? {}
+                : { exitCode: result.snapshot.exitCode }),
         };
     }
     if (result.kind === "aborted") {

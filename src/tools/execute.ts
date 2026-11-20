@@ -319,6 +319,7 @@ export function toolResultMessage(
         toolName: toolCall.name,
         content: [{ type: "text", text: result.output }],
         isError: result.isError,
+        ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
         ...(result.processId === undefined
             ? {}
             : { processId: result.processId }),

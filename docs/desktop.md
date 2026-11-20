@@ -568,9 +568,13 @@ right. Under each message:
   after its calls, the calls become one past-tense line with a chevron, such as
   `Ran 3 commands, read 2 files` or `Searched 2 times, edited a file`, naming
   each kind of call in the order it first ran. Calls that follow one another
-  with no text between them make one line, and the line marks how many failed. It
-  opens to one dimmed row per call: a verb and what it acted on, such as `Read
-  host.ts`. A row with output opens to it. A shell call opens to a box holding its
+  with no text between them make one line, and the line marks how many failed.
+  A command that exits with a non-zero code shows a neutral `exit N` on its row
+  and the run line instead of counting as failed. The run line shows the first
+  three distinct codes, counts repetitions and counts any further distinct codes.
+  A denied or skipped call says `Did not run`. The line opens to one dimmed row
+  per call: a verb and what it acted on, such as `Read host.ts`. A row with
+  output opens to it. A shell call opens to a box holding its
   command, coloured, with a copy button, and its output. A run in which every call
   wrote or edited a file draws no line when the turn's changed-files card names
   those files.

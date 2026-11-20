@@ -63,6 +63,8 @@ export interface ToolCall {
     readonly title: string;
     readonly args: Readonly<Record<string, unknown>>;
     readonly output?: string;
+    readonly exitCode?: number;
+    readonly isError?: boolean;
     readonly state: ToolState;
     readonly classifierOutcome?: ClassifierOutcome;
     // What the call changed, attached after it finished.

@@ -4441,8 +4441,15 @@ test("a post-tool mutation becomes the durable model-visible result", async () =
         toolName: "bash",
         content: [{ type: "text", text: "redacted" }],
         isError: true,
+        exitCode: 0,
     });
-    expect(requests[1]?.messages[2]).toEqual(state.messages[2]);
+    expect(requests[1]?.messages[2]).toEqual({
+        role: "tool_result",
+        toolCallId: "call_1",
+        toolName: "bash",
+        content: [{ type: "text", text: "redacted" }],
+        isError: true,
+    });
 });
 
 test("ask mode turns a client denial into a tool result", async () => {

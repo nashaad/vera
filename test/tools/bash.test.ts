@@ -27,6 +27,7 @@ test("bash runs ordinary recursive deletion after engine permission", async () =
             kind: "output",
             output: "(no output)",
             isError: false,
+            exitCode: 0,
         });
         await expect(stat(target)).rejects.toThrow();
     } finally {
@@ -44,6 +45,7 @@ test("bash still runs ordinary commands", async () => {
             kind: "output",
             output: "safe command",
             isError: false,
+            exitCode: 0,
         });
     } finally {
         await rm(workspace, { recursive: true, force: true });
@@ -67,6 +69,7 @@ test("bash runs a described command and ignores the description", async () => {
             kind: "output",
             output: "described command",
             isError: false,
+            exitCode: 0,
         });
     } finally {
         await rm(workspace, { recursive: true, force: true });
@@ -95,6 +98,7 @@ test("bash gives commands EOF instead of inheriting terminal input", async () =>
             kind: "output",
             output: "(no output)",
             isError: false,
+            exitCode: 0,
         });
     } finally {
         await rm(workspace, { recursive: true, force: true });

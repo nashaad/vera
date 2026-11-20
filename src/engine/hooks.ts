@@ -243,6 +243,9 @@ export class ToolHooks {
             assertPostToolUseHookResult(result);
             remainingTime(deadline, options.timeoutMs, payload.type);
             if (result.power === "mutate") {
+                if (Object.hasOwn(result.patch, "exitCode")) {
+                    throw new Error("post_tool_use cannot patch exitCode");
+                }
                 currentPayload = {
                     ...currentPayload,
                     result: {
@@ -253,6 +256,9 @@ export class ToolHooks {
                         ...(result.patch.isError === undefined
                             ? {}
                             : { isError: result.patch.isError }),
+                        ...(currentPayload.result.exitCode === undefined
+                            ? {}
+                            : { exitCode: currentPayload.result.exitCode }),
                     },
                 };
             }

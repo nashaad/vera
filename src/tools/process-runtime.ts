@@ -49,6 +49,7 @@ export interface ManagedProcessSnapshot {
     readonly elapsedMs: number;
     readonly output: string;
     readonly exitCode?: number;
+    readonly exitObservationFailed?: boolean;
     readonly terminationError?: string;
 }
 
@@ -153,6 +154,7 @@ interface ManagedProcessRecord {
     groupExited: boolean;
     capturesDrained: boolean;
     exitCode?: number;
+    exitObservationFailed?: boolean;
     finishedAt?: number;
     terminationError?: string;
     retentionTimer?: ReturnType<typeof setTimeout>;
@@ -416,6 +418,7 @@ export class ManagedProcessRegistry {
                         `\n[vera] could not observe shell exit: ${errorMessage(error)}\n`,
                     ),
                 );
+                record.exitObservationFailed = true;
                 this.onLeaderExit(record, 1);
             },
         );
@@ -661,6 +664,9 @@ export class ManagedProcessRegistry {
             ...(finishedAt === undefined || record.exitCode === undefined
                 ? {}
                 : { exitCode: record.exitCode }),
+            ...(record.exitObservationFailed === true
+                ? { exitObservationFailed: true }
+                : {}),
             ...(record.terminationError === undefined
                 ? {}
                 : { terminationError: record.terminationError }),

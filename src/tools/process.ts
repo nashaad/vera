@@ -32,6 +32,7 @@ export const processTool: RegisteredTool = {
                     kind: "output",
                     output: formatSnapshot(snapshot, true),
                     isError: snapshot.status === "running",
+                    ...observedExit(snapshot),
                     processId,
                 };
         }
@@ -43,10 +44,19 @@ export const processTool: RegisteredTool = {
                 output: formatSnapshot(snapshot, false),
                 isError:
                     snapshot.status === "exited" && snapshot.exitCode !== 0,
+                ...observedExit(snapshot),
                 processId,
             };
     },
 };
+
+function observedExit(snapshot: ManagedProcessSnapshot): { readonly exitCode?: number } {
+    return snapshot.status === "exited"
+        && snapshot.exitCode !== undefined
+        && snapshot.exitObservationFailed !== true
+        ? { exitCode: snapshot.exitCode }
+        : {};
+}
 
 function unknownProcess(processId: string): ToolOutput {
     return {

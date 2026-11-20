@@ -16,6 +16,7 @@ export interface SessionJsonFields {
     readonly headId?: string | null;
     readonly role?: string;
     readonly internal?: boolean;
+    readonly exitCode?: number;
     readonly contextSource?: string;
     readonly arrivedDuringTurn?: boolean;
     readonly compactionBarrier?: boolean;
@@ -48,7 +49,7 @@ const ROOT_KEYS = [
     "type", "id", "parentId", "timestamp", "boundaryMessageId", "firstRetainedMessageId", "afterMessageId",
     "userMessageId", "previousHeadId", "headId", "queuedPromptId", "deliveryId", "crashCut", "message", "billed", "contextRecipe", "unsentPrompts",
 ] as const;
-const MESSAGE_KEYS = ["role", "internal", "contextSource", "arrivedDuringTurn", "compactionBarrier", "durationMs", "stopReason", "source", "usage", "turnTiming"] as const;
+const MESSAGE_KEYS = ["role", "internal", "exitCode", "contextSource", "arrivedDuringTurn", "compactionBarrier", "durationMs", "stopReason", "source", "usage", "turnTiming"] as const;
 const SOURCE_KEYS = ["provider", "model", "api"] as const;
 const USAGE_KEYS = ["inputTokens", "outputTokens", "cachedInputTokens", "cacheWriteInputTokens", "reasoningTokens", "totalTokens", "cost"] as const;
 const BILLED_KEYS = ["provider", "model", "usage"] as const;

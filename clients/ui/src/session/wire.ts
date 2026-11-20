@@ -69,6 +69,7 @@ export interface ToolResultEntry extends EntryBase {
     readonly tool: string;
     readonly output: string;
     readonly isError: boolean;
+    readonly exitCode?: number;
     readonly withheld?: boolean;
     readonly classifierOutcome?: ClassifierOutcome;
 }
@@ -203,6 +204,7 @@ export interface ToolFinishedMessage {
     readonly tool: string;
     readonly output?: string;
     readonly isError: boolean;
+    readonly exitCode?: number;
 }
 
 export interface TurnFinishedMessage {
@@ -594,7 +596,10 @@ function parseLive(type: string, value: Fields): LiveMessage | undefined {
             const tool = str(value.tool);
             return tool === undefined
                 ? undefined
-                : { type: "tool_finished", tool, output: str(value.output), isError: value.isError === true };
+                : {
+                    type: "tool_finished", tool, output: str(value.output), isError: value.isError === true,
+                    ...(typeof value.exitCode === "number" && Number.isFinite(value.exitCode) ? { exitCode: value.exitCode } : {}),
+                };
         }
         case "turn_finished": {
             const modelFailure = parseModelFailure(value.modelFailure);
@@ -663,6 +668,7 @@ function parseEntry(raw: unknown): WireEntry {
                 ? OTHER
                 : {
                     kind: "tool_result", ...base, tool, output: str(raw.output) ?? "", isError: raw.isError === true,
+                    ...(typeof raw.exitCode === "number" && Number.isFinite(raw.exitCode) ? { exitCode: raw.exitCode } : {}),
                     ...(typeof raw.withheld === "boolean" ? { withheld: raw.withheld } : {}),
                     ...(isClassifierOutcome(raw.classifierOutcome) ? { classifierOutcome: raw.classifierOutcome } : {}),
                 };

@@ -136,6 +136,40 @@ test("the reusable NDJSON endpoint frames engine messages and EOF", async () => 
     });
 });
 
+test("stdio forwards exit codes in live and replayed tool results", async () => {
+    const client = new FakeAttachedAgentClient();
+    const input = new Readable({ read() {} });
+    const frames: Record<string, unknown>[] = [];
+    const written = Promise.withResolvers<void>();
+    const run = runAttachedStdioBridge(input, {
+        write: (text) => {
+            const frame = JSON.parse(text) as Record<string, unknown>;
+            frames.push(frame);
+            if (frame.type === "history") written.resolve();
+        },
+    }, client);
+    client.updates.push({
+        type: "tool_finished", tool: "bash", output: "failed command",
+        isError: true, exitCode: 11, seq: 1,
+    });
+    client.updates.push({
+        type: "history", entries: [{ kind: "tool_result", tool: "bash",
+            output: "failed command", isError: true, exitCode: 11 }], seq: 2,
+    });
+
+    await written.promise;
+    input.push(null);
+    await run;
+    expect(frames).toContainEqual({
+        type: "tool_finished", tool: "bash", output: "failed command",
+        isError: true, exitCode: 11, seq: 1,
+    });
+    expect(frames).toContainEqual({
+        type: "history", entries: [{ kind: "tool_result", tool: "bash",
+            output: "failed command", isError: true, exitCode: 11 }], seq: 2,
+    });
+});
+
 test("stdio carries the local build failure in live and replayed updates", async () => {
     const client = new FakeAttachedAgentClient();
     const input = new Readable({ read() {} });

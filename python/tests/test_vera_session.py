@@ -91,6 +91,27 @@ class TestVeraSession(unittest.TestCase):
             first.close()
             self.assertEqual(next(vera.history("voyage")), pages[0])
 
+    def test_history_keeps_observed_exit_codes_and_tool_keeps_its_outcome(self) -> None:
+        agent = Agent(
+            name="runner",
+            instructions="Run the recorded tool.",
+            tools=["bash"],
+        )
+        with Vera.create(workspace=str(self.workspace), _replay=True) as vera:
+            reply = vera.run(
+                agent,
+                'call bash {"command":"cat missing-crow-file"}',
+                session="voyage",
+                timeout=10,
+            )
+            entries = [entry for page in vera.history("voyage") for entry in page]
+            result = next(entry for entry in entries if entry["kind"] == "tool_result")
+            self.assertIn("error:", reply)
+            self.assertEqual(result["exitCode"], 1)
+            self.assertTrue(result["isError"])
+            with self.assertRaises(RuntimeError):
+                vera.tool("bash", {"command": "cat missing-crow-file"})
+
     def test_history_checks_missing_invalid_and_closed(self) -> None:
         vera = Vera.create(workspace=str(self.workspace), _replay=True)
         with self.assertRaisesRegex(LookupError, "missing"):

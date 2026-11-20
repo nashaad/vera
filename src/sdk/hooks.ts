@@ -27,6 +27,7 @@ export interface HookToolResult {
     readonly toolName: string;
     readonly content: readonly HookTextContent[];
     readonly isError: boolean;
+    readonly exitCode?: number;
 }
 
 export type HookPower = "observe" | "mutate" | "block" | "replace" | "continue";

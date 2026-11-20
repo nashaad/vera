@@ -1,5 +1,6 @@
 import { workedDividerText } from "./worked-divider.ts";
 import { droppedCompactionNotice, failedDropNotice } from "../shared/compaction-notice.ts";
+import { toolExitCode, toolExitSummary, toolFailed } from "../shared/tool-exit.ts";
 import { stopCauseText } from "../shared/stop-cause-text.ts";
 import type { TurnTiming } from "../../src/model/types.ts";
 import { realpathSync } from "node:fs";
@@ -137,6 +138,7 @@ export interface TuiTextTranscriptEntry {
     readonly tool?: string;
     readonly active?: boolean;
     readonly result?: boolean;
+    readonly exitCode?: number;
     readonly hasResult?: boolean;
     readonly dimmedPrefix?: number;
     readonly prefix?: string;
@@ -704,6 +706,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
                 update.output === undefined
                     ? undefined
                     : toolResultText(update.output, update.tool),
+                update.exitCode,
             )
             : undefined;
         return {
@@ -715,6 +718,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
                     update.output,
                     update.processId,
                     update.isError,
+                    update.exitCode,
                 ),
                 state.toolDetailsExpanded,
             ),
@@ -2410,9 +2414,10 @@ function finishToolEntry(
     output?: string,
     processId?: string,
     isError = false,
+    exitCode?: number,
 ): TuiTranscriptEntry[] {
     if (usesFailureHeading(tool)) {
-        return finishOutcomeToolEntry(entries, tool, output, isError);
+        return finishOutcomeToolEntry(entries, tool, output, isError, exitCode);
     }
     const toolIndex = entries.findIndex((entry) =>
         entry.kind === "tool" && entry.active === true && entry.tool === tool
@@ -2464,6 +2469,10 @@ function finishToolEntry(
             return {
                 ...completed,
                 ...(output === undefined ? {} : { prefix: "  │ " }),
+                ...(exitCode === undefined ? {} : { exitCode }),
+                ...(toolExitCode({ exitCode }) === undefined
+                    ? {}
+                    : { text: `${entry.text} · exit ${toolExitCode({ exitCode })}` }),
                 ...(hasAnotherActiveCall ? {} : { header: completedHeader }),
                 ...(tool === "bash" && processId !== undefined
                     ? { startedProcessId: processId }
@@ -2508,6 +2517,7 @@ function finishOutcomeToolEntry(
     tool: string,
     output: string | undefined,
     isError: boolean,
+    exitCode?: number,
 ): TuiTranscriptEntry[] {
     const toolIndex = entries.findIndex((entry) =>
         entry.kind === "tool" && entry.active === true && entry.tool === tool
@@ -2528,13 +2538,19 @@ function finishOutcomeToolEntry(
     )) groupEnd += 1;
 
     const { active: _active, tool: _tool, activity: _activity, ...completed } = call;
-    const header = isError ? FAILED_TOOL_HEADER : toolHeader(tool, false);
+    const exit = toolExitCode({ exitCode });
+    const header = toolFailed({ isError, exitCode })
+        ? FAILED_TOOL_HEADER
+        : toolHeader(tool, false);
+    const exitTag = exit === undefined ? undefined : `exit ${exit}`;
     const body = entries.slice(headerIndex + 1, groupEnd);
     const position = toolIndex - headerIndex - 1;
     body[position] = {
         ...completed,
         header,
         ...(output === undefined ? {} : { prefix: "  │ ", hasResult: true }),
+        ...(exit === undefined ? {} : { exitCode: exit }),
+        ...(exitTag === undefined ? {} : { text: `${completed.text} · ${exitTag}` }),
     };
     if (output !== undefined) {
         body.splice(position + 1, 0, {
@@ -2713,9 +2729,13 @@ function applyToolDetailPreference(
             : compactToolSummary(rows, calls, failed);
         const searches = !failed && calls.length > 0
             && calls.every((call) => call.startsWith("web_search "));
+        const exitTags = toolExitSummary(rows
+            .filter((entry) => entry.result !== true)
+            .map((entry) => ({ exitCode: entry.exitCode })));
+        const baseHeader = header.header ?? header.text.replace(/^[+-] /, "");
         const base = !active && searches
             ? `Searched the web ${calls.length} ${calls.length === 1 ? "time" : "times"}`
-            : header.header ?? header.text.replace(/^[+-] /, "");
+            : `${baseHeader}${exitTags.length === 0 ? "" : ` · ${exitTags.join(" · ")}`}`;
         const activity = active
             ? rows.findLast((entry) =>
                 entry.active === true && entry.activity !== undefined
@@ -2907,7 +2927,7 @@ function toTuiTranscriptEntries(
     const pairs = toolCallPairs(entries);
     const failedCalls = new Set<TranscriptEntry>();
     for (const [result, call] of pairs) {
-        if (result.kind === "tool_result" && result.isError === true && result.withheld !== true
+        if (result.kind === "tool_result" && toolFailed(result)
             && call.kind === "tool" && usesFailureHeading(call.tool)) {
             failedCalls.add(call);
         }
@@ -2954,12 +2974,15 @@ function toTuiTranscriptEntries(
                     remainingResults,
                     entry.processId,
                     entry.id,
+                    entry.exitCode,
+                    entry.withheld,
                 )
                 : withWaitResult(
                     converted,
                     entry.processId ?? waitProcessId,
                     toolResultText(entry.output, entry.tool),
                     entry.id,
+                    entry.exitCode,
                 ) ?? converted;
         } else if (entry.kind === "reasoning") {
             converted = insertBeforeTrailingAssistantEntries(converted, withStoreEntryId({
@@ -3127,6 +3150,8 @@ function withHistoricalToolResult(
     remainingResults: WeakMap<TuiTextTranscriptEntry, number> | undefined,
     processId?: string,
     entryId?: string,
+    exitCode?: number,
+    withheld?: boolean,
 ): TuiTranscriptEntry[] {
     const callIndex = entries.findIndex((entry) =>
         entry.kind === "tool"
@@ -3157,6 +3182,10 @@ function withHistoricalToolResult(
         ...(classifierOutcome === undefined && tool === "bash" && processId !== undefined
             ? { startedProcessId: processId }
             : {}),
+        ...(toolExitCode({ exitCode, withheld }) === undefined ? {} : {
+            exitCode: toolExitCode({ exitCode, withheld }),
+            text: `${call.text} · exit ${toolExitCode({ exitCode, withheld })}`,
+        }),
     };
     const markedCall = classifierOutcome === undefined
         ? completed
