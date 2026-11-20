@@ -166,7 +166,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
             inWindow("A subagent Vera starts is listed in the session menu"),
             inWindow("Subagents lists each subagent with its status", "Session menu, Subagents"),
             inWindow("Open shows a subagent in a second pane beside the conversation"),
-            inWindow("Go to opens a subagent's own page, and Back returns"),
+            inWindow("Open chat opens a subagent's own page, and Back returns"),
             inWindow("Cmd+Alt+A cycles one pane, a pane beside, or a pane below"),
             inWindow("A subagent whose model is swapped gets a line marked subagent"),
         ],

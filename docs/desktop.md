@@ -1124,8 +1124,9 @@ a tab first and nothing changes. The tab shows the list for the open session, or
 
 A row opens that subagent in the same tab. The page has a back arrow (`Back to
 subagents`) that returns to the list, then the subagent's icon, its title and its
-status word, `Go to`, which opens the subagent's own page, and `Stop` while it
-runs. Below is its conversation, which updates live, and a message box with
+status word, `Open chat`, which opens the subagent's own page, and `Stop` while it
+runs. A completed subagent shows a tick named `Done` in place of its status word.
+Below is its conversation, which updates live, and a message box with
 no attach button, slash commands or pickers. Enter sends the text to the
 subagent and Shift+Enter starts a new line. While the subagent runs, a message
 waits in the queue strip above the box; Enter on an empty box releases every

@@ -3,6 +3,7 @@
 .subagent-detail {
     display: flex;
     flex-direction: column;
+    container-type: inline-size;
     height: 100%;
     min-height: 0;
 }
@@ -16,6 +17,10 @@
     color: var(--vera-text-dim);
     font-size: var(--vera-font-size-label);
     border-bottom: thin solid var(--vera-border);
+}
+
+.view[data-merged="true"] .subagent-head {
+    padding-right: calc(var(--vera-space) * 6.5);
 }
 
 .subagent-icon {
@@ -32,12 +37,37 @@
     white-space: nowrap;
 }
 
+.subagent-head .subagent-action {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
 .subagent-state {
     flex: 0 0 auto;
-    padding: 0 calc(var(--vera-space) * 1.5);
-    color: var(--vera-accent);
-    border: thin solid color-mix(in srgb, var(--vera-accent) 40%, transparent);
-    border-radius: var(--vera-radius-xl);
+    color: var(--vera-text-muted);
+}
+
+@container (max-width: 20lh) {
+    .view[data-merged="true"] .subagent-head {
+        gap: calc(var(--vera-space) * 1.5);
+        padding-right: calc(var(--vera-space) * 5.5);
+    }
+
+    .subagent-head .subagent-title {
+        flex: 1 1 0;
+    }
+
+    .subagent-head .spacer {
+        flex: 0 0 0;
+    }
+
+    .subagent-head .subagent-state:not([data-completed="true"]) {
+        flex: 0 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
 }
 
 .subagent-detail .subagent-error {

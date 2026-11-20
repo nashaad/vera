@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, AgentIcon } from "../components/Icons.tsx";
+import { ArrowLeftIcon, AgentIcon, CheckIcon } from "../components/Icons.tsx";
 import { useRouter } from "../pages/router.tsx";
 import { sessionPlace } from "../pages/routes.ts";
 import type { ActiveSession } from "../session/activeSession.ts";
@@ -32,6 +32,7 @@ function DetailBody({ session, childId }: { readonly session: ActiveSession; rea
     const { watch, send } = useSessionWatch(session.bridge, childId, connection.phase === "attached", "subagent");
     const row = connection.sessionRows?.find((candidate) => candidate.id === childId);
     const title = row?.name ?? watch.title ?? "Subagent";
+    const status = row?.status ?? watch.status;
     const running = row === undefined ? watch.status !== "idle" : isRunningRow(row);
     const failure = failures[childId];
 
@@ -53,9 +54,13 @@ function DetailBody({ session, childId }: { readonly session: ActiveSession; rea
                 </button>
                 <AgentIcon className="subagent-icon" />
                 <span className="subagent-title" title={title}>{title}</span>
-                <span className="subagent-state" data-running={running}>{statusWord(row?.status ?? watch.status)}</span>
+                {status === "completed" ? (
+                    <span className="subagent-state" data-completed="true" role="img" aria-label="Done" title="Done"><CheckIcon /></span>
+                ) : (
+                    <span className="subagent-state" data-running={running}>{statusWord(status)}</span>
+                )}
                 <span className="spacer" />
-                <button type="button" className="subagent-action" onClick={goTo}>Go to</button>
+                <button type="button" className="subagent-action" onClick={goTo}>Open chat</button>
                 {running ? (
                     <button type="button" className="subagent-action" disabled={stopping.has(childId)} onClick={() => void stop(childId)}>
                         Stop
