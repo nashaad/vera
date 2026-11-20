@@ -120,13 +120,19 @@ Use **Usage** to go back to the overview, or the back link to return one level.
 | Label | Meaning |
 | --- | --- |
 | Reported | Cost billed by the provider for that call. It does not change with list prices. |
-| Estimated | Tokens multiplied by current OpenRouter list rates, with cached and cache-write tokens at their own rates when listed. The estimate can change when those rates change. |
+| Estimated | Tokens multiplied by available route rates. OpenRouter uses current list rates; supported direct DeepSeek models use current published rates with a time-of-day discount. |
 | Unpriced | No billed cost and no usable rate. Vera leaves the dollar amount blank. |
 | Mixed | A row combines pricing states. The dollar figure contains the amounts Vera can calculate. |
 
-Local models and subscription routes may be unpriced. The footer separates
-reported cost, estimates, and unpriced calls. If any estimate is present, the
-page labels the rate basis as current OpenRouter rates.
+Direct DeepSeek Flash and Pro estimates use the
+[published DeepSeek rates](https://api-docs.deepseek.com/quick_start/pricing),
+with half-price off-peak rates based on the call time in UTC. Chinese public
+holidays are not tracked, so estimates can be high on those days. Current rates
+also apply to older calls, so estimates are not historical invoices and can
+change when rates change. Local models, unsupported DeepSeek models, and
+subscription routes may be unpriced. The footer separates reported cost,
+estimates, and unpriced calls. The Blended card says `reported / estimated`
+when the window includes any estimate.
 
 ## If the page does not open
 

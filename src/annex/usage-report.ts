@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import { effectiveCatalog } from "../model/catalog.ts";
 import type { ModelPricing } from "../model/catalog-shape.ts";
 import type { ModelUsage } from "../model/types.ts";
+import { estimateDeepSeekUsd } from "./deepseek-pricing.ts";
 import {
     readWorkflowSpans,
     type WorkflowSpan,
@@ -270,7 +271,9 @@ export async function foldUsageReport(
         timeline: timelineFrom(calls, bounds.start, bounds.end),
         models: modelRowsFrom(calls, totals.spend.combined),
         sessions: sessionRowsFrom(indexed, calls),
-        estimatedFromOpenRouter: calls.some((call) => call.kind === "estimated"),
+        estimatedFromOpenRouter: calls.some((call) =>
+            call.provider === "openrouter" && call.kind === "estimated"
+        ),
     };
 }
 
@@ -640,6 +643,12 @@ function priceCall(
     };
     if (typeof usage.cost === "number" && Number.isFinite(usage.cost)) {
         return { ...base, kind: "reported", cost: usage.cost };
+    }
+    if (provider === "deepseek") {
+        const cost = estimateDeepSeekUsd(model, timestamp, usage);
+        if (cost !== undefined) {
+            return { ...base, kind: "estimated", cost };
+        }
     }
     if (provider === "openrouter") {
         const pricing = rates.get(model);

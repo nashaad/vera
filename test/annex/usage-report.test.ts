@@ -4,6 +4,8 @@ import { utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { hasEstimatedSpend } from "../../clients/annex/estimate-basis.ts";
+import { spendShare } from "../../clients/annex/model-table.ts";
 import {
     foldUsageReport,
     foldUsageSessionDetail,
@@ -191,7 +193,63 @@ test("OpenRouter tokens without cost become estimates at current rates", async (
     expect(report.estimatedFromOpenRouter).toBe(true);
 });
 
-test("non-OpenRouter calls without cost stay unpriced", async () => {
+test("direct DeepSeek calls estimate missing costs without replacing reported costs", async () => {
+    const sessionDirectory = tempDir("vera-usage-deepseek-");
+    const at = new Date("2026-11-16T02:00:00Z");
+    await writeSession({
+        directory: sessionDirectory,
+        id: "estimated-deepseek",
+        at,
+        messages: [assistant("deepseek", "deepseek-flash", usage({
+            inputTokens: 1_000_000,
+            cachedInputTokens: 200_000,
+            outputTokens: 500_000,
+            totalTokens: 1_500_000,
+        }))],
+    });
+    await writeSession({
+        directory: sessionDirectory,
+        id: "reported-deepseek",
+        at,
+        messages: [assistant("deepseek", "deepseek-v4-pro", usage({ cost: 5 }))],
+    });
+    await writeSession({
+        directory: sessionDirectory,
+        id: "unknown-deepseek",
+        at,
+        messages: [assistant("deepseek", "unknown-model", usage())],
+    });
+    await writeSession({
+        directory: sessionDirectory,
+        id: "other-provider-flash",
+        at,
+        messages: [assistant("other-provider", "deepseek-flash", usage())],
+    });
+    const options = {
+        sessionDirectory,
+        window: "all" as const,
+        now: at,
+        catalogCacheDir: catalogDir(),
+    };
+    const report = await foldUsageReport(options);
+    expect(report.totals.spend.reported).toBe(5);
+    expect(report.totals.spend.estimated).toBeCloseTo(0.8412, 10);
+    expect(report.totals.spend.unpricedCalls).toBe(2);
+    expect(report.estimatedFromOpenRouter).toBe(false);
+    expect(hasEstimatedSpend(report)).toBe(true);
+    const estimated = report.models.find((row) => row.model === "deepseek-flash");
+    expect(estimated?.kind).toBe("estimated");
+    expect(estimated === undefined ? undefined : spendShare([estimated]))
+        .toEqual({ label: "14%", percentage: 14 });
+    expect(report.models.find((row) => row.model === "unknown-model")?.kind).toBe("unpriced");
+    expect(report.models.find((row) => row.provider === "other-provider")?.kind).toBe("unpriced");
+    expect(report.models.find((row) => row.model === "deepseek-v4-pro")?.kind).toBe("reported");
+    const detail = await foldUsageSessionDetail({ ...options, sessionId: "estimated-deepseek" });
+    expect(detail?.calls[0]?.costKind).toBe("estimated");
+    expect(detail?.calls[0]?.cost).toBeCloseTo(0.8412, 10);
+});
+
+test("other provider calls without cost stay unpriced", async () => {
     const sessionDirectory = tempDir("vera-usage-unpriced-");
     await writeSession({
         directory: sessionDirectory,
@@ -718,6 +776,32 @@ test("halcyon model calls count toward totals but add no conversation", async ()
     expect(report.prior?.spend.combined).toBeCloseTo(4, 8);
     expect(report.models[0]?.model).toBe("anthropic/claude-sonnet-4");
     expect(report.sessions).toEqual([]);
+});
+
+test("direct DeepSeek workflow calls use the same estimate", async () => {
+    const workflowDirectory = tempDir("vera-usage-deepseek-workflow-");
+    const at = new Date("2026-11-16T02:00:00Z");
+    writeRunSpans(workflowDirectory, "wf_0000000000000004", [{
+        at,
+        attributes: {
+            "llm.provider": "deepseek",
+            "llm.model_name": "deepseek-flash",
+            "llm.token_count.prompt": 1_000_000,
+            "llm.token_count.prompt_details.cache_read": 200_000,
+            "llm.token_count.completion": 500_000,
+            "llm.token_count.total": 1_500_000,
+        },
+    }]);
+    const report = await foldUsageReport({
+        sessionDirectory: tempDir("vera-usage-deepseek-workflow-sessions-"),
+        workflowDirectory,
+        window: "all",
+        now: at,
+        catalogCacheDir: catalogDir(),
+    });
+    expect(report.totals.spend.estimated).toBeCloseTo(0.8412, 10);
+    expect(report.estimatedFromOpenRouter).toBe(false);
+    expect(report.models[0]?.kind).toBe("estimated");
 });
 
 test("a run last written before the window is not read", async () => {

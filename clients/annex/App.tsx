@@ -22,6 +22,7 @@ import {
     type SessionSortKey,
 } from "./sessions-table.ts";
 import { ANNEX_BUILT_IN_PAGES } from "../../src/annex/built-in-pages.ts";
+import { hasEstimatedSpend } from "./estimate-basis.ts";
 import { money } from "./money.ts";
 import { spendShare, type SpendShare } from "./model-table.ts";
 import { SubscriptionLimitsPanel } from "./SubscriptionLimits.tsx";
@@ -513,9 +514,7 @@ function Overview({
                     value={totals.blendedPerMillion === undefined
                         ? "—"
                         : money(totals.blendedPerMillion)}
-                    sub={report.estimatedFromOpenRouter
-                        ? "at current OpenRouter rates"
-                        : "reported"}
+                    sub={hasEstimatedSpend(report) ? "reported / estimated" : "reported"}
                 />
             </div>
             {showChart
