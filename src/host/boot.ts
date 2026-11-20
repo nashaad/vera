@@ -1,4 +1,4 @@
-import { HostReplacementBusyError } from "./discovery.ts";
+import { HostReplacementBusyError, HostStartDeadlineError } from "./discovery.ts";
 import {
     HostBuildMismatchError,
     HostLockUnreadableError,
@@ -33,6 +33,8 @@ export interface BootInspection {
     // A host answered on this home's socket.
     readonly hostAnswers: boolean;
     readonly lock: "absent" | "live" | "stale" | "damaged";
+    // When the lock was written, so a host that is still starting is not mistaken for an intruder.
+    readonly hostStartedAt?: string;
     // Vera processes for this home with no answering host behind them.
     readonly orphans: number;
     // Processes that may belong to this home but could not be proven to.
@@ -151,6 +153,17 @@ async function bootChecked(deps: BootDependencies, locked: boolean): Promise<Hos
         }
     }
     let approvedHost: BootHostIdentity | undefined;
+    if (!healthy && !missingLock) {
+        const late = await waitForColdStartHost(deps, inspection);
+        if (late !== undefined) {
+            if (deps.full === true) {
+                checks.push(...describe({ ...inspection, hostAnswers: true }));
+                checks.push({ label: "Host", status: "ok", detail: `PID ${late.pid}${late.build_id === undefined ? "" : `, build ${late.build_id}`}` });
+                deps.render(checks);
+            }
+            return late;
+        }
+    }
     if (healthy) {
         try {
             const host = await deps.start("default");
@@ -217,6 +230,14 @@ async function bootChecked(deps: BootDependencies, locked: boolean): Promise<Hos
         } catch (error) {
             if (isDiscoveryRefusal(error)) throw error;
             lastError = error;
+            const late = approvedHost === undefined && error instanceof HostStartDeadlineError
+                ? await waitForColdStartHost(deps, await deps.inspect())
+                : undefined;
+            if (late !== undefined) {
+                checks.push({ label: attempt.label, status: "ok", detail: `PID ${late.pid}, finished starting after the wait` });
+                if (deps.full === true || checks.some((check) => check.status !== "ok")) deps.render(checks);
+                return late;
+            }
             checks.push({ label: attempt.label, status: "failed", detail: errorText(error) });
             await recoverInto(deps, checks);
         }
@@ -319,6 +340,30 @@ async function waitForPublishedHost(deps: BootDependencies): Promise<HostLockRec
     for (;;) {
         const host = await publishedHost(deps);
         if (host !== undefined) return host;
+        const remaining = deadline - now();
+        if (remaining <= 0) return undefined;
+        await wait(Math.min(100, remaining));
+    }
+}
+
+// A cold start can outlast the first wait. A lock published moments ago belongs
+// to a host that is still starting; one older than this is running but unreachable.
+const COLD_START_GRACE_MS = 30_000;
+
+async function waitForColdStartHost(deps: BootDependencies, inspection: BootInspection): Promise<HostLockRecord | undefined> {
+    if (inspection.lock !== "live" || inspection.hostStartedAt === undefined) return undefined;
+    const startedAt = Date.parse(inspection.hostStartedAt);
+    if (Number.isNaN(startedAt) || Date.now() - startedAt >= COLD_START_GRACE_MS) return undefined;
+    if (inspection.hostAnswers) return publishedHost(deps);
+    const now = deps.now ?? (() => performance.now());
+    const wait = deps.wait ?? ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
+    const deadline = now() + COLD_START_GRACE_MS;
+    for (;;) {
+        const identity = await deps.hostAnswer();
+        if (identity !== undefined && identity.started_at === inspection.hostStartedAt) {
+            const host = await publishedHost(deps);
+            if (host !== undefined) return host;
+        }
         const remaining = deadline - now();
         if (remaining <= 0) return undefined;
         await wait(Math.min(100, remaining));

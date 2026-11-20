@@ -228,6 +228,7 @@ async function inspectHome(): Promise<BootInspection> {
     const lock: BootInspection["lock"] = discovery.lock.state === "absent" ? "absent"
         : discovery.lock.state === "valid" ? (processIsAlive(discovery.lock.record.pid) ? "live" : "stale")
         : "damaged";
+    const hostStartedAt = discovery.lock.state === "valid" ? discovery.lock.record.started_at : undefined;
     const orphans = hostAnswers ? 0 : stoppableResetCandidates(discovery.candidates).length;
     const problem = activeReleaseProblem();
     const homeProblem = homeFilesystemProblem(discovery.home);
@@ -238,6 +239,7 @@ async function inspectHome(): Promise<BootInspection> {
         ...(homeProblem === undefined ? {} : { homeProblem }),
         hostAnswers,
         lock,
+        ...(hostStartedAt === undefined ? {} : { hostStartedAt }),
         orphans,
         unproven: discovery.unproven.length,
         unknownProcesses: discovery.unproven.map((item) => {
