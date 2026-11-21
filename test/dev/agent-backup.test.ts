@@ -361,6 +361,7 @@ describe("hooks", () => {
         write(root, "AGENTS.local.md", "agents");
         installHooks(root);
         runGit(root, ["init", "--quiet"]);
+        writeFileSync(join(root, ".git", "vera-stale-releases-scan.stamp"), "");
 
         const environment = {
             GIT_CONFIG_GLOBAL: join(root, "absent.gitconfig"),
@@ -384,6 +385,7 @@ describe("hooks", () => {
         write(root, "AGENTS.local.md", "agents");
         installHooks(root);
         runGit(root, ["init", "--quiet"]);
+        writeFileSync(join(root, ".git", "vera-stale-releases-scan.stamp"), "");
 
         const backup = join(root, "backup");
         mkdirSync(backup);

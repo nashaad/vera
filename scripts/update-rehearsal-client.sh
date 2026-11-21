@@ -5,23 +5,35 @@ if [ "${VERA_REHEARSAL_CLEAN:-}" != 1 ]; then
     exec env -i HOME="${HOME:?}" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" TERM=xterm-256color VERA_REHEARSAL_CLEAN=1 VERA_REHEARSAL_LEG="${VERA_REHEARSAL_LEG:-}" sh "$0" "$@"
 fi
 
-fail() { echo "FAIL: $*"; exit 1; }
+cleanup_installed=0
+paths_created=0
+fail() {
+    echo "FAIL: $*"
+    if [ "$cleanup_installed" = 0 ] && [ "$paths_created" = 1 ]; then
+        echo "Rehearsal paths kept: $original_prefix $original_home" >&2
+    fi
+    exit 1
+}
 ok() { echo "ok: $*"; }
 [ "$#" = 5 ] || fail "usage: update-rehearsal-client.sh FEED PREFIX HOME OLDER NEWER"
 feed=${1%/}
-prefix=$2
-home=$3
+original_prefix=$2
+original_home=$3
+daily_home=$HOME
+prefix=$original_prefix
+home=$original_home
 older=${4#v}
 newer=${5#v}
 case "$prefix:$home" in /*:/*) ;; *) fail "prefix and home must be absolute paths" ;; esac
 [ ! -e "$prefix" ] && [ ! -e "$home" ] || fail "prefix and home must not exist"
 case "$prefix/" in "$HOME/.local/"*) fail "daily prefix refused" ;; esac
 case "$home/" in "$HOME/.vera/"*) fail "daily home refused" ;; esac
-mkdir -p "$prefix" "$home"
+mkdir -p "$prefix" "$home" || fail "create prefix and home"
+paths_created=1
 export VERA_HOME="$home" VERA_INSTALL_PREFIX="$prefix"
 export VERA_RELEASES_API="$feed/releases" VERA_RELEASES_DOWNLOAD_BASE="$feed"
 export VERA_DESKTOP=no
-work=$(mktemp -d)
+work=$(mktemp -d) || fail "create scratch folder"
 vera="$prefix/bin/vera"
 share="$prefix/share/vera"
 lock="$home/runtime/host.json"
@@ -31,6 +43,7 @@ tmux_name="vera-rehearsal-$$"
 tui=0
 image_mounted=0
 cleanup() {
+    cleanup_status=$?
     curl -fsS --max-time 10 -X POST "$feed/control/complete-turn" >/dev/null 2>&1 || true
     tries=0
     while ! curl -fsS --max-time 10 "$feed/control/counts" 2>/dev/null | grep -q '"active":0'; do
@@ -45,16 +58,34 @@ cleanup() {
     fi
     if [ -x "$vera" ] && [ -f "$lock" ]; then
         cleanup_pid=$(pid_of_host)
-        "$vera" host stop --yes >"$work/cleanup.log" 2>&1 || cat "$work/cleanup.log"
+        "$vera" host stop --yes >"$work/cleanup.log" 2>&1 || { cat "$work/cleanup.log"; cleanup_status=1; }
         if kill -0 "$cleanup_pid" 2>/dev/null; then
             echo "FAIL: cleanup left private host PID $cleanup_pid in $home"
+            cleanup_status=1
         fi
     fi
     if [ -n "$update" ]; then kill "$update" 2>/dev/null || true; wait "$update" 2>/dev/null || true; fi
-    if [ "$image_mounted" = 1 ]; then hdiutil detach "$prefix" -force >/dev/null 2>&1 || echo "FAIL: could not detach the disk image at $prefix"; fi
-    rm -rf "$work"
+    if [ "$image_mounted" = 1 ]; then
+        if hdiutil detach "$prefix" -force >/dev/null 2>&1; then
+            image_mounted=0
+        else
+            echo "FAIL: could not detach the disk image at $prefix; image kept in $work"
+            cleanup_status=1
+        fi
+    fi
+    if [ "$image_mounted" = 0 ]; then rm -rf "$work"; fi
+    case "$original_prefix/" in "$daily_home/.local/"*) cleanup_status=1 ;; esac
+    case "$original_home/" in "$daily_home/.vera/"*) cleanup_status=1 ;; esac
+    if [ "$cleanup_status" = 0 ]; then
+        rm -rf "$original_prefix" "$original_home" || cleanup_status=1
+    fi
+    if [ "$cleanup_status" != 0 ]; then
+        echo "Rehearsal paths kept: $original_prefix $original_home" >&2
+    fi
+    exit "$cleanup_status"
 }
 trap cleanup EXIT
+cleanup_installed=1
 trap 'fail "interrupted"' INT TERM
 
 field() { sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\{0,1\}\([^",}]*\).*/\1/p' "$1" | head -1; }
