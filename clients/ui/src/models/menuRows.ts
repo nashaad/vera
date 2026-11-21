@@ -21,16 +21,24 @@ export function buildMenuRows(settings: ModelSettings, choice: ModelChoice | und
     const searching = query.trim().length > 0;
     const found = choice === undefined || onShortlist(settings, choice) ? undefined : findModel(settings, choice);
     const running = found !== undefined && (!searching || matchesQuery(found, query)) ? found : undefined;
-    const shortlist = browseRows(settings.shortlist, query, "any").map((entry) => ({
-        entry,
-        current: choice !== undefined && sameModel(entry, choice),
-    }));
+    const shortlist = browseRows(settings.shortlist, query, "any")
+        // A dropped favorite is not a choice; the one that is running keeps its row.
+        .filter((entry) => entry.available || (choice !== undefined && sameModel(entry, choice)))
+        .map((entry) => ({
+            entry,
+            current: choice !== undefined && sameModel(entry, choice),
+        }));
     const browse = searching
         ? browseRows(settings.catalog, query, "any")
               .filter((entry) => !onShortlist(settings, entry) && (choice === undefined || !sameModel(entry, choice)))
               .slice(0, BROWSE_LIMIT)
         : [];
     return { searching, running, shortlist, browse };
+}
+
+// True when favorites exist and none of them can run, so a bare "no favorites" would lie.
+export function allFavoritesUnavailable(settings: ModelSettings): boolean {
+    return settings.shortlist.length > 0 && settings.shortlist.every((entry) => !entry.available);
 }
 
 // The rows the arrow keys step through, top to bottom. Unavailable shortlist rows are skipped.

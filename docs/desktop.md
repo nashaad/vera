@@ -978,7 +978,8 @@ has the full name and the provider. It opens a menu:
 - Your favorites, each with its default effort. The current model has a check;
   the others show the number key that picks them. Keys 1 to 4 pick the first
   four while the search box is empty, and Up, Down and Enter move through the
-  rows. A model its provider no longer offers is greyed out.
+  rows. A favorite its provider no longer offers is left out; a running
+  model the provider dropped stays, marked current.
 - When the session runs a model that is not a favorite, it shows first under
   `Running, not in favorites`.
 - `All models…` opens the Models browser.

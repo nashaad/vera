@@ -40,24 +40,46 @@ export function modelSwitcherRows(rt: TuiRuntime): readonly TuiModelSwitcherRow[
     const favorites = new Set(pooled.map(modelSwitcherKey));
     const efforts = lastEfforts(focusedAgentState(rt));
     const config = readLastGoodConfig(rt).config;
-    return (settings?.availableModels ?? [])
-        .filter((model) => model.hiddenByDefault === undefined
-            || favorites.has(`${model.provider}/${model.model}`))
-        .map((model) => {
-            const key = `${model.provider}/${model.model}`;
-            const effort = efforts.get(key);
-            return {
-                provider: model.provider,
-                model: model.model,
-                label: model.label,
-                ...(model.identity === undefined ? {} : { identity: model.identity }),
-                providerLabel: findConfiguredProvider(model.provider, config)?.label
-                    ?? model.provider,
-                ...(favorites.has(key) ? { favorite: true } : {}),
-                ...(model.verificationError === undefined ? {} : { unavailable: true }),
-                ...(effort === undefined ? {} : { effort }),
-            };
+    const models = settings?.availableModels ?? [];
+    const current = settings?.provider === undefined || settings.model === undefined
+        ? undefined
+        : `${settings.provider}/${settings.model}`;
+    const kept = models.filter((model) => model.hiddenByDefault === undefined
+        || favorites.has(`${model.provider}/${model.model}`)
+        || `${model.provider}/${model.model}` === current);
+    const toRow = (model: (typeof models)[number]): TuiModelSwitcherRow => {
+        const key = `${model.provider}/${model.model}`;
+        const effort = efforts.get(key);
+        return {
+            provider: model.provider,
+            model: model.model,
+            label: model.label,
+            ...(model.identity === undefined ? {} : { identity: model.identity }),
+            providerLabel: findConfiguredProvider(model.provider, config)?.label
+                ?? model.provider,
+            ...(favorites.has(key) ? { favorite: true } : {}),
+            ...(model.verificationError === undefined ? {} : { unavailable: true }),
+            ...(effort === undefined ? {} : { effort }),
+        };
+    };
+    const rows = kept.map(toRow);
+    // A dropped favorite is not a choice; the one that is running keeps its row, marked unavailable.
+    if (current === undefined) return rows;
+    const running = pooled.find((entry) => modelSwitcherKey(entry) === current);
+    if (running !== undefined && !rows.some((entry) => modelSwitcherKey(entry) === current)) {
+        const effort = efforts.get(current);
+        rows.push({
+            provider: running.provider,
+            model: running.model,
+            label: running.displayName ?? running.poolName ?? running.label,
+            providerLabel: findConfiguredProvider(running.provider, config)?.label
+                ?? running.provider,
+            favorite: true,
+            unavailable: true,
+            ...(effort === undefined ? {} : { effort }),
         });
+    }
+    return rows;
 }
 
 /** Most recent first, one entry per model. */

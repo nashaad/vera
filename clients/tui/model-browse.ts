@@ -64,11 +64,26 @@ export function browseMatches(state: TuiSettingsPickerState, revealAll = state.r
             : 0);
 }
 
+/** The favorites the Favorites scope shows: dropped ones are left out unless the running model is one. */
+function visibleFavorites(state: TuiSettingsPickerState): readonly TuiSettingsPickerOption[] {
+    const favorites = state.allOptions.filter((row) => row.pooledRank !== undefined);
+    return state.modelBrowse === "browse"
+        ? favorites.filter((row) => row.unavailable !== true || row.value === state.initialModel)
+        : favorites;
+}
+
+function allFavoritesHidden(state: TuiSettingsPickerState): boolean {
+    const favorites = state.allOptions.filter((row) => row.pooledRank !== undefined);
+    return favorites.length > 0 && visibleFavorites(state).length === 0;
+}
+
 /** A search always reaches the whole catalog, so scope only governs the resting list. */
 function inBrowseScope(state: TuiSettingsPickerState, row: TuiSettingsPickerOption): boolean {
     if (state.tab === "all") return true;
     if (state.tab === "recommended") return row.recommended === true;
-    return row.pooledRank !== undefined;
+    if (row.pooledRank === undefined) return false;
+    // A dropped favorite is not a choice; the one that is running keeps its row.
+    return state.modelBrowse !== "browse" || row.unavailable !== true || row.value === state.initialModel;
 }
 
 function sectionKey(state: TuiSettingsPickerState, row: TuiSettingsPickerOption): string {
@@ -265,7 +280,7 @@ export function modelBrowseSort(parent: TuiSettingsPickerState): TuiSettingsPick
 export function browseScopeOptions(state: TuiSettingsPickerState): readonly TuiSettingsPickerOption[] {
     const counts = { ...state, query: "", intelligenceCutoff: "any" as const };
     return [
-        { value: "scope:pool", label: `Favorites (${state.allOptions.filter((row) => row.pooledRank !== undefined).length})`, description: "" },
+        { value: "scope:pool", label: `Favorites (${visibleFavorites(state).length})`, description: "" },
         { value: "scope:recommended", label: `Recommended (${state.allOptions.filter((row) => row.recommended === true).length})`, description: "" },
         { value: "scope:all", label: `All connected (${browseMatches({ ...counts, tab: "all" }).filter((row) => !row.unavailable).length})`, description: "" },
     ];
@@ -561,6 +576,9 @@ export function emptyModelBrowse(state: TuiSettingsPickerState): string {
     if (state.intelligenceCutoff && state.intelligenceCutoff !== "any") return emptyCutoffReason(state);
     if (state.browseProvider || state.browseAvailableOnly || state.browsePricedOnly || state.browseImagesOnly) return "No models match these filters. Open Filter and sort to clear them.";
     if (state.modelBrowse === "browse" && state.tab === "recommended") return "No recommended models for the connected providers. Ctrl+G shows all of them.";
+    if (state.modelBrowse === "browse" && state.tab === "pool" && allFavoritesHidden(state)) {
+        return "None of your favorites is offered now. Ctrl+G shows the recommended models, then all of them.";
+    }
     if (state.modelBrowse === "browse" && state.tab !== "all") return "No favorites yet. Ctrl+G shows the recommended models, then all of them.";
     return "No models pass this cutoff. Open Filter and sort to change it.";
 }
