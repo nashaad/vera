@@ -152,6 +152,50 @@ running host.
 Change to your project directory, run `vera`, and follow
 [Getting started](getting-started.md).
 
+## Uninstall
+
+Run the uninstall script from a terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nashaad/vera/main/scripts/uninstall.sh | sh
+```
+
+The script lists the installed launcher, release files, Vera desktop app and
+Vera home that it found, with their sizes, then asks before removing them. The
+home is `~/.vera` unless `VERA_HOME` names another location. The install prefix
+is `~/.local` unless `VERA_INSTALL_PREFIX` names another location. On macOS the
+script checks the desktop install record, or looks in `/Applications` and
+`~/Applications` when the record or its app is missing. It leaves an app that
+is not Vera in place. If `VERA_HOME` is a symlink, the script stops and asks
+you to use its actual directory instead. It refuses the filesystem root, your
+home directory, and any ancestor of your home directory.
+
+The script asks all questions before stopping anything. It offers to back up
+the Vera home, defaulting to yes, and requires an answer on whether to include
+provider sign-ins from `machine/auth.json`. It asks where to save the backup,
+with your home folder as the default. A backup directory can start with `~` or
+`~/`.
+
+The script then quits the desktop app and stops the host. If it cannot confirm
+that the host stopped, nothing is removed. If the host is waiting for running
+turns, run the script again after it stops. After stopping the host, the script
+creates the backup before removing anything. If backup creation fails, nothing
+is removed; the host starts again the next time you run `vera`. The user-only
+`vera-backup-<date>-<time>.tar.gz` archive has a README describing its contents
+and restoration. Other home files can contain secrets even when sign-ins are
+excluded.
+
+Without an interactive terminal, uninstall requires `VERA_UNINSTALL=yes`. It
+then backs up the home including sign-ins by default, unless
+`VERA_UNINSTALL_BACKUP=no` disables the backup. `VERA_UNINSTALL_BACKUP_DIR`
+sets the backup location in either mode and is the interactive default.
+
+Uninstall removes the listed launcher, release files, desktop app and home. It
+leaves macOS preferences and saved application state at
+`~/Library/Preferences/dev.vera.desktop.plist` and
+`~/Library/Saved Application State/dev.vera.desktop.savedState` when present,
+and reports those paths and the backup path.
+
 ## Upgrade
 
 From an installed release, run:
