@@ -48,3 +48,16 @@ Vera's own pages, such as Usage, cannot be controlled by `builtin_browser`.
 When the built-in browser and the Chrome extension's `browser` tool are both
 loaded, Vera asks which to use before its first browser call and keeps the
 answer for the conversation.
+
+## Running a script in a page
+
+`builtin_browser_eval` runs JavaScript in the page open in the Browser pane. It
+is a separate tool with its own permission, so allowing `builtin_browser` does
+not allow it. The script is the body of an async function and must return a
+value that JSON can hold; the reply is that JSON text. It runs in an isolated
+world, so it can read the page's DOM but not the page's own JavaScript
+variables. The result is cut at 30,000 characters, and the reply says how long
+the full result was. The script stops after 10 seconds by default; pass a
+timeout up to 20 seconds to change that. Open the page with `builtin_browser`
+first. The tool is available only while Browser tools are on and a desktop
+window is open.

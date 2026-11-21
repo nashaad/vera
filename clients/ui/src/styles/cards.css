@@ -129,6 +129,11 @@
     word-break: break-all;
 }
 
+.request-script {
+    max-height: calc(var(--vera-space) * 24);
+    overflow-y: auto;
+}
+
 .request-muted {
     color: var(--vera-text-muted);
     font-size: var(--vera-font-size-label);

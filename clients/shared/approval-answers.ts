@@ -55,6 +55,7 @@ const OPERATION_WORDS: Readonly<Record<string, string>> = {
     "agent.message": "messaging helper agents",
     "agent.roster": "listing helper agents",
     "agent.spawn": "starting helper agents",
+    "desktop.browser.eval": "running scripts in the Browser pane",
     "git.clone": "git clones",
     "git.commit": "git commits",
     "git.fetch": "git fetches",

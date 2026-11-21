@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import { BrowserGateway } from "../../clients/desktop/src/browser/gateway.ts";
 import type { BrowserCdp } from "../../clients/desktop/src/browser/cdp.ts";
+import type { BrowserRequest } from "../../extensions/builtin-browser/arguments.ts";
 import type { requestExtensionThroughHost } from "../../src/host/extension-request-client.ts";
 import type { JsonValue } from "../../src/sdk/hooks.ts";
 
@@ -26,6 +27,30 @@ function trial() {
     gateway.start("trial");
     return { gateway, pending, changes };
 }
+
+test("@core an eval job reaches the pane with its script and timeout", async () => {
+    const replies: JsonValue[] = [];
+    let first = true;
+    const request: typeof requestExtensionThroughHost = async (_socket, _extension, name, payload, signal) => {
+        if (name === "settings") return { enabled: true };
+        if (name === "reply") { replies.push(payload); return true; }
+        if (first) {
+            first = false;
+            await Bun.sleep(1);
+            return { id: "job", request: { action: "eval", script: "return document.title", timeout_ms: 1500 } };
+        }
+        return await new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    };
+    const seen: BrowserRequest[] = [];
+    const cdp = { run: async (job: BrowserRequest) => { seen.push(job); return { output: "\"Example\"", total: 9 }; } } as unknown as BrowserCdp;
+    const gateway = new BrowserGateway(cdp, () => {}, () => {}, request);
+    gateway.start("trial");
+    try {
+        for (let i = 0; i < 100 && replies.length === 0; i++) await Bun.sleep(1);
+        expect(seen).toEqual([{ action: "eval", script: "return document.title", timeout_ms: 1500 }]);
+        expect(replies).toEqual([{ id: "job", output: "\"Example\"", total: 9 }]);
+    } finally { gateway.stop(); }
+});
 
 test("@core a disabled queued browser request returns a classified refusal", async () => {
     const replies: JsonValue[] = [];

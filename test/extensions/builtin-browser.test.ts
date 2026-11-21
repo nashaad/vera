@@ -4,13 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { parseBrowserRequest } from "../../extensions/builtin-browser/arguments.ts";
+import { EVAL_DESCRIPTION } from "../../extensions/builtin-browser/eval.ts";
 import { activate } from "../../extensions/builtin-browser/extension.ts";
 import { startExtensionRegistry } from "../../src/extensions/registry.ts";
 import type { VeraExtensionApi, VeraExtensionToolSpec } from "../../src/sdk/extensions.ts";
 import type { JsonValue } from "../../src/sdk/hooks.ts";
 
 describe("built-in browser requests", () => {
-    test("registers only the built-in browser tool name", () => {
+    test("@core registers the browser and eval tools", () => {
         const tools: VeraExtensionToolSpec[] = [];
         const api = {
             storage: { profile: "" },
@@ -21,8 +22,21 @@ describe("built-in browser requests", () => {
         activate(api);
 
         const names = tools.map((tool) => tool.name);
-        expect(names).toEqual(["builtin_browser"]);
+        expect(names).toEqual(["builtin_browser", "builtin_browser_eval"]);
         expect(names).not.toContain("desktop_browser");
+        const browser = tools[0]!;
+        const evaluate = tools[1]!;
+        const browserProperties = browser.inputSchema.properties as { action?: { enum?: readonly string[] } };
+        expect(browserProperties.action?.enum).not.toContain("eval");
+        expect(evaluate.description).toBe(EVAL_DESCRIPTION);
+        expect(evaluate.permissionOperation).toBe("desktop.browser.eval");
+        expect(evaluate.parallel).toBe(false);
+        expect(evaluate.timeoutMs).toBe(30_000);
+        expect(evaluate.inputSchema.required).toEqual(["script"]);
+        expect(evaluate.inputSchema.additionalProperties).toBe(false);
+        const evaluateProperties = evaluate.inputSchema.properties as { script?: unknown; timeout_ms?: unknown };
+        expect(evaluateProperties.script).toMatchObject({ type: "string", maxLength: 20_000 });
+        expect(evaluateProperties.timeout_ms).toMatchObject({ type: "integer", minimum: 1, maximum: 20_000 });
     });
 
     test("@core validates actions and bounds", () => {
@@ -39,6 +53,21 @@ describe("built-in browser requests", () => {
         for (const offset of [-1, 10_000_001, 1.5, NaN, Infinity, "1", null]) {
             expect(parseBrowserRequest({ action: "read", offset })).toBeUndefined();
         }
+        expect(parseBrowserRequest({ action: "read", script: "return 1" })).toBeUndefined();
+        expect(parseBrowserRequest({ action: "read", timeout_ms: 1000 })).toBeUndefined();
+    });
+
+    test("@core validates eval scripts and timeouts", () => {
+        expect(parseBrowserRequest({ action: "eval" })).toBeUndefined();
+        expect(parseBrowserRequest({ action: "eval", script: "return 1" })).toEqual({ action: "eval", script: "return 1", timeout_ms: 10_000 });
+        expect(parseBrowserRequest({ action: "eval", script: "return 1", timeout_ms: 1 })).toEqual({ action: "eval", script: "return 1", timeout_ms: 1 });
+        expect(parseBrowserRequest({ action: "eval", script: "return 1", timeout_ms: 20_000 })).toEqual({ action: "eval", script: "return 1", timeout_ms: 20_000 });
+        expect(parseBrowserRequest({ action: "eval", script: "x".repeat(20_001) })).toBeUndefined();
+        expect(parseBrowserRequest({ action: "eval", script: 7 })).toBeUndefined();
+        expect(parseBrowserRequest({ action: "eval", script: "return 1", timeout_ms: 0 })).toBeUndefined();
+        expect(parseBrowserRequest({ action: "eval", script: "return 1", timeout_ms: 20_001 })).toBeUndefined();
+        expect(parseBrowserRequest({ action: "eval", script: "return 1", timeout_ms: 1.5 })).toBeUndefined();
+        expect(parseBrowserRequest({ action: "eval", script: "return 1", timeout_ms: "1000" })).toBeUndefined();
     });
 
     test("old extension settings stay separate from the new store", async () => {
@@ -79,7 +108,7 @@ describe("built-in browser requests", () => {
             const api = {
                 storage: { profile: root },
                 requests: { handle: (name: string, handler: typeof handlers extends Map<string, infer H> ? H : never) => { handlers.set(name, handler); return () => {}; } },
-                tools: { register: (spec: VeraExtensionToolSpec) => { tool = spec; } },
+                tools: { register: (spec: VeraExtensionToolSpec) => { if (spec.name === "builtin_browser") tool = spec; } },
             } as unknown as VeraExtensionApi;
             activate(api);
             expect(tool!.inputSchema).toMatchObject({ properties: { offset: { type: "integer", minimum: 0, maximum: 10_000_000 } } });
@@ -183,13 +212,14 @@ describe("built-in browser requests", () => {
         const root = mkdtempSync(join(tmpdir(), "vera-browser-store-"));
         try {
             const handlers = new Map<string, (payload: JsonValue, context: { signal: AbortSignal }) => JsonValue | Promise<JsonValue>>();
-            let tool: VeraExtensionToolSpec | undefined;
+            const tools = new Map<string, VeraExtensionToolSpec>();
             const api = {
                 storage: { profile: root },
                 requests: { handle: (name: string, handler: typeof handlers extends Map<string, infer H> ? H : never) => { handlers.set(name, handler); return () => {}; } },
-                tools: { register: (spec: VeraExtensionToolSpec) => { tool = spec; } },
+                tools: { register: (spec: VeraExtensionToolSpec) => { tools.set(spec.name, spec); } },
             } as unknown as VeraExtensionApi;
             activate(api);
+            let tool = tools.get("builtin_browser")!;
             expect(tool!.description.startsWith("Use the built-in browser, the Browser pane in the Vera desktop window.")).toBe(true);
             expect(tool!.description).toContain("It cannot control Vera's own pages such as Usage.");
             expect(tool!.description).toContain("If a tool named browser is also available, ask the user once which browser to use before the first call, and keep the answer for this conversation.");
@@ -202,6 +232,7 @@ describe("built-in browser requests", () => {
             expect(JSON.parse(readFileSync(join(root, "settings.json"), "utf8"))).toEqual({ enabled: true });
             expect(statSync(join(root, "settings.json")).mode & 0o777).toBe(0o600);
             activate(api);
+            tool = tools.get("builtin_browser")!;
             expect(await handlers.get("settings")!({}, { signal })).toEqual({ enabled: true });
             const absent = await tool!.run({ input: { action: "read" }, workspace: root, signal });
             expect(absent.output).toContain("desktop window");
@@ -237,6 +268,56 @@ describe("built-in browser requests", () => {
             expect(overflow.isError).toBe(true);
             pending.abort();
             expect((await Promise.all(calls)).every((result) => result.isError)).toBe(true);
+        } finally { rmSync(root, { recursive: true, force: true }); }
+    });
+
+    test("@core the eval tool shares the switch, window check and queue", async () => {
+        const root = mkdtempSync(join(tmpdir(), "vera-browser-eval-"));
+        try {
+            const handlers = new Map<string, (payload: JsonValue, context: { signal: AbortSignal }) => JsonValue | Promise<JsonValue>>();
+            const tools = new Map<string, VeraExtensionToolSpec>();
+            const api = {
+                storage: { profile: root },
+                requests: { handle: (name: string, handler: typeof handlers extends Map<string, infer H> ? H : never) => { handlers.set(name, handler); return () => {}; } },
+                tools: { register: (spec: VeraExtensionToolSpec) => { tools.set(spec.name, spec); } },
+            } as unknown as VeraExtensionApi;
+            activate(api);
+            const browser = tools.get("builtin_browser")!;
+            const evaluate = tools.get("builtin_browser_eval")!;
+            const signal = new AbortController().signal;
+            const settings = handlers.get("settings")!;
+
+            expect(await evaluate.run({ input: { script: "return 1" }, workspace: root, signal })).toMatchObject({ isError: true, presentation: { kind: "tool_notice", action: "open_browser" } });
+            await settings({ enabled: true }, { signal });
+            expect(await browser.run({ input: { action: "eval", script: "return 1" }, workspace: root, signal })).toEqual({ output: "Invalid browser request.", isError: true });
+            const absent = await evaluate.run({ input: { script: "return 1" }, workspace: root, signal });
+            expect(absent.output).toContain("desktop window");
+            expect(absent.isError).toBe(true);
+
+            const polling = handlers.get("poll")!({}, { signal });
+            const running = evaluate.run({ input: { script: "return document.title" }, workspace: root, signal });
+            const job = await polling as { id: string; request: { action: string; script?: string; timeout_ms?: number } };
+            expect(job.request).toEqual({ action: "eval", script: "return document.title", timeout_ms: 10_000 });
+            await handlers.get("reply")!({ id: job.id, output: "\"A crow\"", total: 8 }, { signal });
+            expect(await running).toEqual({ output: "\"A crow\"" });
+
+            const thrownPoll = handlers.get("poll")!({}, { signal });
+            const thrown = evaluate.run({ input: { script: "throw new Error('boom')", timeout_ms: 500 }, workspace: root, signal });
+            const thrownJob = await thrownPoll as { id: string };
+            await handlers.get("reply")!({ id: thrownJob.id, error: "The script threw: boom" }, { signal });
+            expect(await thrown).toEqual({ output: "The script threw: boom", isError: true });
+
+            const cutPoll = handlers.get("poll")!({}, { signal });
+            const cut = evaluate.run({ input: { script: "return [1, 2]" }, workspace: root, signal });
+            const cutJob = await cutPoll as { id: string };
+            await handlers.get("reply")!({ id: cutJob.id, output: "x".repeat(30_000), total: 45_000 }, { signal });
+            expect(await cut).toEqual({ output: `${"x".repeat(30_000)}\n\nShowing the first 30,000 characters of 45,000.` });
+
+            const notJsonPoll = handlers.get("poll")!({}, { signal });
+            const notJson = evaluate.run({ input: { script: "return () => 1" }, workspace: root, signal });
+            const notJsonJob = await notJsonPoll as { id: string };
+            await handlers.get("reply")!({ id: notJsonJob.id, error: "The script returned a value that is not JSON." }, { signal });
+            expect(await notJson).toEqual({ output: "The script returned a value that is not JSON.", isError: true });
         } finally { rmSync(root, { recursive: true, force: true }); }
     });
 });

@@ -182,6 +182,35 @@ test("a shell command the grants cannot describe asks to run this command", () =
         .toBe("Run this command?");
 });
 
+test("an eval approval asks about the script in the Browser pane", () => {
+    const evalRequest: ToolApprovalUiRequestUpdate = {
+        ...request,
+        requestId: "eval-1",
+        request: {
+            ...request.request,
+            toolCall: {
+                id: "call-4",
+                name: "builtin_browser_eval",
+                input: { script: "return document.title" },
+            },
+            reason: "Running a script needs approval.",
+            warning: "",
+            permissionGrants: [{
+                kind: "action",
+                when: { operation: "desktop.browser.eval" },
+                scope: "session",
+                lifetime: "session",
+            }],
+        },
+    };
+    expect(tuiApprovalQuestion(evalRequest)).toEqual({
+        question: "Run a script in the Browser pane?",
+    });
+    const rendered = renderTuiApproval(evalRequest);
+    expect(rendered.split("\n")[0]).toBe("Run a script in the Browser pane?");
+    expect(rendered).toContain("return document.title");
+});
+
 test("the command appears exactly once", async () => {
     const update = undescribedRequest();
     const text = renderTuiApproval(update);

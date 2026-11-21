@@ -115,6 +115,7 @@ describe("the words after always allow", () => {
             "agent.message": "messaging helper agents",
             "agent.roster": "listing helper agents",
             "agent.spawn": "starting helper agents",
+            "desktop.browser.eval": "running scripts in the Browser pane",
             "git.clone": "git clones",
             "git.commit": "git commits",
             "git.fetch": "git fetches",
@@ -147,6 +148,14 @@ describe("the words after always allow", () => {
     test("any other operation reads its own name", () => {
         expect(alwaysAllowWords([{ operation: "function.call" }])).toBe("function.call");
         expect(alwaysAllowWords([{ operation: "crow.shout" }])).toBe("crow.shout");
+    });
+
+    test("@core an eval approval always allows running scripts in the Browser pane", () => {
+        const answers = approvalAnswers(ask({
+            grants: [{ tool: "builtin_browser_eval", operation: "desktop.browser.eval" }],
+        }));
+        expect(answers[1]?.label)
+            .toBe("Yes, and always allow running scripts in the Browser pane");
     });
 
     test("a shell executable alone reads as its commands", () => {

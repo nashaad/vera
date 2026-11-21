@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { VeraExtensionApi, VeraExtensionToolResult } from "../../src/sdk/extensions.ts";
 import type { JsonValue } from "../../src/sdk/hooks.ts";
 import { parseBrowserRequest, type BrowserRequest } from "./arguments.ts";
+import { EVAL_DESCRIPTION, EVAL_RESULT_LIMIT, EVAL_SCRIPT_LIMIT, EVAL_TIMEOUT_LIMIT_MS, evalCut } from "./eval.ts";
 import { BROWSER_TOOLS_OFF, BROWSER_TOOLS_OFF_TEXT } from "./failure.ts";
 
 const DESCRIPTION = "Use the built-in browser, the Browser pane in the Vera desktop window. Open an http or https URL, read the page as markdown with link URLs and tables plus accessibility refs, click or type by ref, scroll, go back, or take a screenshot. Read the page before using refs. A long page is cut: read again with the offset the reply gives to continue. If the page shows a CAPTCHA or another human check, use handoff with a short reason so the user can complete it in the pane, then read the page again. Never try to solve a human check yourself. It cannot control Vera's own pages such as Usage. If a tool named browser is also available, ask the user once which browser to use before the first call, and keep the answer for this conversation.";
@@ -119,7 +120,7 @@ export function activate(vera: VeraExtensionApi): void {
         timeoutMs: 30_000,
         run: async ({ input, signal }): Promise<VeraExtensionToolResult> => {
             const request = parseBrowserRequest(input);
-            if (request === undefined) return { output: "Invalid browser request.", isError: true };
+            if (request === undefined || request.action === "eval") return { output: "Invalid browser request.", isError: true };
             if (!enabled()) return browserToolsOff();
             const result = await dispatch(request, signal);
             if (result.errorCode === BROWSER_TOOLS_OFF) return browserToolsOff();
@@ -138,6 +139,34 @@ export function activate(vera: VeraExtensionApi): void {
                 return { output: "Screenshot captured.", imagePaths: [path] };
             }
             return { output: typeof result.output === "string" ? result.output.slice(0, MAX_OUTPUT) : "Browser returned no result." };
+        },
+    });
+
+    vera.tools.register({
+        name: "builtin_browser_eval",
+        description: EVAL_DESCRIPTION,
+        inputSchema: {
+            type: "object",
+            properties: {
+                script: { type: "string", maxLength: EVAL_SCRIPT_LIMIT },
+                timeout_ms: { type: "integer", minimum: 1, maximum: EVAL_TIMEOUT_LIMIT_MS },
+            },
+            required: ["script"], additionalProperties: false,
+        },
+        permissionOperation: "desktop.browser.eval",
+        parallel: false,
+        timeoutMs: 30_000,
+        run: async ({ input, signal }): Promise<VeraExtensionToolResult> => {
+            const request = parseBrowserRequest({ ...input, action: "eval" });
+            if (request === undefined) return { output: "Invalid browser request.", isError: true };
+            if (!enabled()) return browserToolsOff();
+            const result = await dispatch(request, signal);
+            if (result.errorCode === BROWSER_TOOLS_OFF) return browserToolsOff();
+            if (typeof result.error === "string") return { output: result.error.slice(0, 1000), isError: true };
+            if (typeof result.output !== "string") return { output: "Browser returned no result.", isError: true };
+            const json = result.output.slice(0, EVAL_RESULT_LIMIT);
+            const total = typeof result.total === "number" && Number.isFinite(result.total) ? Math.max(result.total, json.length) : json.length;
+            return { output: total > json.length ? `${json}\n\n${evalCut(total)}` : json };
         },
     });
 }

@@ -2,7 +2,7 @@ import { useId, useState, type JSX } from "react";
 
 import { alwaysAllowWords } from "../../../shared/approval-answers.ts";
 import { approvalReviewText } from "../../../shared/approval-review.ts";
-import { approvalHeadline, type HeadlineGrant } from "../../../shared/approval-headline.ts";
+import { approvalDetailField, approvalHeadline, type HeadlineGrant } from "../../../shared/approval-headline.ts";
 import { shortenPath } from "../components/homePath.ts";
 import { ChevronRightIcon, WarningIcon } from "../components/Icons.tsx";
 import { ChoiceCard, type ChoiceRow } from "./ChoiceCard.tsx";
@@ -57,6 +57,8 @@ export function ApprovalCard({
         chat,
     });
     const path = stringField(request.input, "path");
+    const detailField = approvalDetailField(request.tool);
+    const detail = detailField === undefined ? undefined : stringField(request.input, detailField);
     const rows: readonly ChoiceRow[] = answered
         ? []
         : answers.map((answer, index) => ({
@@ -102,7 +104,7 @@ export function ApprovalCard({
             <Fold
                 request={request}
                 shell={shell}
-                preview={shell ? null : approvalPreview(request, path)}
+                preview={shell ? null : approvalPreview(request, path, detail)}
                 {...(headline?.folder === undefined ? {} : { folder: headline.folder })}
                 open={headline === undefined || headline.commandOpen}
                 {...(rememberWords === undefined ? {} : { rememberWords })}
@@ -132,8 +134,9 @@ function FallbackTitle({ request, path }: { readonly request: ApprovalRequest; r
     );
 }
 
-// What a tool other than a shell shows in the fold: the size of a write, or its arguments.
-function approvalPreview(request: ApprovalRequest, path: string | undefined): JSX.Element | null {
+// What a tool other than a shell shows in the fold: a script in full, the size of a write, or its arguments.
+function approvalPreview(request: ApprovalRequest, path: string | undefined, detail: string | undefined): JSX.Element | null {
+    if (detail !== undefined) return <pre className="request-code request-script"><code>{detail}</code></pre>;
     const content = stringField(request.input, "content");
     if (path !== undefined) {
         return request.tool === "write" && content !== undefined ? <p className="request-muted">{lineCount(content)} lines</p> : null;

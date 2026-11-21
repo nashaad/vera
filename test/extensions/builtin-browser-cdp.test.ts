@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { BrowserCdp, NO_WEB_PAGE_ERROR } from "../../clients/desktop/src/browser/cdp.ts";
 import type { BrowserPane } from "../../clients/desktop/src/browser/pane.ts";
 import type { BrowserRequest } from "../../extensions/builtin-browser/arguments.ts";
+import { EVAL_NOT_JSON, EVAL_TIMEOUT_DEFAULT_MS } from "../../extensions/builtin-browser/eval.ts";
 import { activate } from "../../extensions/builtin-browser/extension.ts";
 import type { VeraExtensionApi, VeraExtensionToolSpec } from "../../src/sdk/extensions.ts";
 import type { JsonValue } from "../../src/sdk/hooks.ts";
@@ -20,7 +21,7 @@ describe("built-in browser without a web page", () => {
             const api = {
                 storage: { profile: root },
                 requests: { handle: (name: string, handler: typeof handlers extends Map<string, infer H> ? H : never) => { handlers.set(name, handler); return () => {}; } },
-                tools: { register: (spec: VeraExtensionToolSpec) => { tool = spec; } },
+                tools: { register: (spec: VeraExtensionToolSpec) => { if (spec.name === "builtin_browser") tool = spec; } },
             } as unknown as VeraExtensionApi;
             activate(api);
             const context = { signal: controller.signal };
@@ -115,6 +116,75 @@ describe("built-in browser without a web page", () => {
         expect(commands.filter((command) => command.method === "Runtime.evaluate")).toHaveLength(2);
     });
 
+    test("@core eval runs the script in an isolated world and returns JSON", async () => {
+        const { cdp, calls } = browserWithDebugger((method) => {
+            if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "frame-1" } } };
+            if (method === "Page.createIsolatedWorld") return { executionContextId: 7 };
+            if (method === "Runtime.evaluate") return { result: { value: { kind: "json", json: "\"A crow\"", total: 8 } } };
+            throw new Error(`Unexpected command: ${method}`);
+        });
+        expect(await cdp.run({ action: "eval", script: "return document.title", timeout_ms: 2000 })).toEqual({ output: "\"A crow\"", total: 8 });
+        const world = calls.find((call) => call.method === "Page.createIsolatedWorld");
+        expect(world?.params).toEqual({ frameId: "frame-1", worldName: "vera-browser" });
+        const evaluation = calls.find((call) => call.method === "Runtime.evaluate");
+        expect(evaluation?.params?.contextId).toBe(7);
+        expect(evaluation?.params?.awaitPromise).toBe(true);
+        expect(evaluation?.params?.returnByValue).toBe(true);
+        expect(evaluation?.params?.timeout).toBe(3000);
+        expect(String(evaluation?.params?.expression)).toContain("return document.title");
+        expect(String(evaluation?.params?.expression)).toContain("JSON.stringify");
+    });
+
+    test("@core eval uses the default timeout when the request has none", async () => {
+        const { cdp, calls } = browserWithDebugger((method) => {
+            if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "frame-1" } } };
+            if (method === "Page.createIsolatedWorld") return { executionContextId: 7 };
+            if (method === "Runtime.evaluate") return { result: { value: { kind: "json", json: "1", total: 1 } } };
+            throw new Error(`Unexpected command: ${method}`);
+        });
+        await cdp.run({ action: "eval", script: "return 1" });
+        const evaluation = calls.find((call) => call.method === "Runtime.evaluate");
+        expect(evaluation?.params?.timeout).toBe(EVAL_TIMEOUT_DEFAULT_MS + 1000);
+    });
+
+    test("@core eval reports a thrown script and a value JSON cannot hold", async () => {
+        const thrown = browserWithDebugger((method) => {
+            if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "frame-1" } } };
+            if (method === "Page.createIsolatedWorld") return { executionContextId: 7 };
+            if (method === "Runtime.evaluate") return { result: { value: { kind: "threw", message: "boom" } } };
+            throw new Error(`Unexpected command: ${method}`);
+        });
+        expect(await thrown.cdp.run({ action: "eval", script: "throw new Error('boom')" })).toEqual({ error: "The script threw: boom" });
+
+        const notJson = browserWithDebugger((method) => {
+            if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "frame-1" } } };
+            if (method === "Page.createIsolatedWorld") return { executionContextId: 7 };
+            if (method === "Runtime.evaluate") return { result: { value: { kind: "notJson" } } };
+            throw new Error(`Unexpected command: ${method}`);
+        });
+        expect(await notJson.cdp.run({ action: "eval", script: "return () => 1" })).toEqual({ error: EVAL_NOT_JSON });
+    });
+
+    test("@core eval maps a CDP exception and stops a script past its timeout", async () => {
+        const failed = browserWithDebugger((method) => {
+            if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "frame-1" } } };
+            if (method === "Page.createIsolatedWorld") return { executionContextId: 7 };
+            if (method === "Runtime.evaluate") return { exceptionDetails: { exception: { description: "Error: kaboom\n    at <anonymous>:1:1" } } };
+            throw new Error(`Unexpected command: ${method}`);
+        });
+        expect(await failed.cdp.run({ action: "eval", script: "throw new Error('kaboom')" })).toEqual({ error: "The script threw: kaboom" });
+
+        const slow = browserWithDebugger((method) => {
+            if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "frame-1" } } };
+            if (method === "Page.createIsolatedWorld") return { executionContextId: 7 };
+            if (method === "Runtime.evaluate") return new Promise(() => {});
+            if (method === "Runtime.terminateExecution") return {};
+            throw new Error(`Unexpected command: ${method}`);
+        });
+        expect(await slow.cdp.run({ action: "eval", script: "while (true) {}", timeout_ms: 20 })).toEqual({ error: "The script did not finish within 0.02 seconds." });
+        expect(slow.calls.map((call) => call.method)).toContain("Runtime.terminateExecution");
+    });
+
     test("open creates a tab and navigates when none is active", async () => {
         let current: Electron.WebContents | undefined;
         let opened = 0;
@@ -130,3 +200,30 @@ describe("built-in browser without a web page", () => {
         expect(navigated).toBe(url);
     });
 });
+
+interface DebuggerCall {
+    readonly method: string;
+    readonly params?: Record<string, unknown>;
+}
+
+function browserWithDebugger(respond: (method: string, params?: Record<string, unknown>) => unknown): { cdp: BrowserCdp; calls: DebuggerCall[] } {
+    const calls: DebuggerCall[] = [];
+    const contents = {
+        id: 1,
+        isDestroyed: () => false,
+        getURL: () => "https://example.org/",
+        getTitle: () => "Example",
+        on: () => {},
+        debugger: {
+            attach: () => {},
+            detach: () => {},
+            isAttached: () => true,
+            sendCommand: async (method: string, params?: Record<string, unknown>) => {
+                calls.push({ method, params });
+                return await respond(method, params);
+            },
+        },
+    };
+    const pane = { current: () => contents } as unknown as BrowserPane;
+    return { cdp: new BrowserCdp(pane), calls };
+}

@@ -1,4 +1,5 @@
 import type { BrowserRequest } from "../../../../extensions/builtin-browser/arguments.ts";
+import { EVAL_NOT_JSON, EVAL_RESULT_LIMIT, EVAL_TIMEOUT_DEFAULT_MS, evalThrew, evalTimedOut } from "../../../../extensions/builtin-browser/eval.ts";
 import { BrowserPane } from "./pane.ts";
 import { BLOCKED_ANNEX_OPEN_ERROR } from "./origin-guard.ts";
 
@@ -101,6 +102,7 @@ export class BrowserCdp {
         };
         debuggerApi.attach("1.3");
         try {
+            if (request.action === "eval") return await this.evaluate(debuggerApi, request, ensureCurrent);
             if (request.action === "read") {
                 this.refs.clear();
                 const refs = new Map<string, number>();
@@ -201,4 +203,88 @@ export class BrowserCdp {
             if (debuggerApi.isAttached()) debuggerApi.detach();
         }
     }
+
+    // The script is wrapped so a thrown value and a value JSON cannot hold come back as tagged data, not a failed command.
+    private async evaluate(
+        debuggerApi: DebuggerApi,
+        request: BrowserRequest,
+        ensureCurrent: () => void,
+    ): Promise<Record<string, unknown>> {
+        const timeoutMs = request.timeout_ms ?? EVAL_TIMEOUT_DEFAULT_MS;
+        const frame = await debuggerApi.sendCommand("Page.getFrameTree") as { frameTree: { frame: { id: string } } };
+        const world = await debuggerApi.sendCommand("Page.createIsolatedWorld", { frameId: frame.frameTree.frame.id, worldName: "vera-browser" }) as { executionContextId: number };
+        const expression = `(async () => {
+    let value;
+    try {
+        value = await (async () => {
+${request.script ?? ""}
+        })();
+    } catch (error) {
+        return { kind: "threw", message: error !== null && typeof error === "object" && typeof error.message === "string" ? error.message : String(error) };
+    }
+    let json;
+    try { json = JSON.stringify(value); } catch { return { kind: "notJson" }; }
+    if (typeof json !== "string") return { kind: "notJson" };
+    return { kind: "json", json: json.slice(0, ${EVAL_RESULT_LIMIT}), total: json.length };
+})()`;
+        const evaluation = debuggerApi.sendCommand("Runtime.evaluate", {
+            contextId: world.executionContextId,
+            expression,
+            awaitPromise: true,
+            returnByValue: true,
+            timeout: timeoutMs + 1000,
+        }) as Promise<EvaluateResponse>;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            const outcome = await Promise.race([
+                evaluation.then((response) => ({ kind: "done" as const, response })),
+                new Promise<{ kind: "timeout" }>((resolve) => {
+                    timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
+                }),
+            ]);
+            if (outcome.kind === "timeout") {
+                void debuggerApi.sendCommand("Runtime.terminateExecution").catch(() => undefined);
+                return { error: evalTimedOut(timeoutMs) };
+            }
+            ensureCurrent();
+            const details = outcome.response.exceptionDetails;
+            if (details !== undefined) return { error: evalThrew(exceptionMessage(details)) };
+            const value = outcome.response.result?.value;
+            if (!isRecord(value)) return { error: EVAL_NOT_JSON };
+            if (value.kind === "threw" && typeof value.message === "string") return { error: evalThrew(value.message) };
+            if (value.kind === "json" && typeof value.json === "string") {
+                return { output: value.json, total: typeof value.total === "number" ? value.total : value.json.length };
+            }
+            return { error: EVAL_NOT_JSON };
+        } finally {
+            if (timer !== undefined) clearTimeout(timer);
+            void evaluation.catch(() => undefined);
+        }
+    }
+}
+
+interface DebuggerApi {
+    attach(protocolVersion: string): void;
+    detach(): void;
+    isAttached(): boolean;
+    sendCommand(method: string, params?: Record<string, unknown>): Promise<unknown>;
+}
+
+interface EvaluateResponse {
+    readonly result?: { readonly value?: unknown };
+    readonly exceptionDetails?: {
+        readonly text?: string;
+        readonly exception?: { readonly description?: string; readonly value?: unknown };
+    };
+}
+
+function exceptionMessage(details: NonNullable<EvaluateResponse["exceptionDetails"]>): string {
+    const description = details.exception?.description;
+    if (typeof description === "string") return (description.split("\n")[0] ?? description).replace(/^[A-Za-z]*Error: /, "");
+    if (typeof details.exception?.value === "string") return details.exception.value;
+    return details.text ?? "Unknown error";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
 }
