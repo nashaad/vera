@@ -220,6 +220,12 @@ A model that has disappeared from its provider is
 marked unavailable and cannot be selected.
 To change credentials or endpoints, use [Configure providers](first-run-setup.md).
 
+When Vera starts while signed in to ChatGPT, it fetches the OpenAI Codex
+model list once if the saved list is missing or came from an earlier Vera
+build. The rows return without waiting for the daily refresh. A failed fetch
+leaves the saved list untouched and writes `codex_catalog_start_fetch_failed`
+to `runtime/logs/host.jsonl`.
+
 Vera also refreshes connected catalogs in the background once a day, whether or
 not the Models page is open. A refresh counts only when the request succeeds and
 returns a non-empty list. A tracked model is dropped after two daily refreshes

@@ -113,6 +113,7 @@ Assign one model to all, at the bottom of Assign model defaults and of the deskt
 Removing a favorite preserves verification evidence and all default assignments. An empty Favorites list does not invalidate explicit subagent defaults. Subagents still use only their assigned list and the separately enabled spawning-session fallback.
 Provider catalogs distinguish never-refreshed, empty, failed, and unavailable entries. Discovery does not select, favorite, verify, or assign a model.
 Connected catalogs also refresh in the background once a day, and a default or assigned model that its provider drops is written to the host log.
+When the saved OpenAI Codex model list is missing or from an earlier build, Vera fetches it once as the host starts, so restarting restores the Codex rows without waiting for the daily refresh.
 Prompt caching needs no setup: Vera keeps each conversation's request start stable and sends each provider the cache key or markers it needs; `config.json` can change how long caches are kept or give a declared provider its own cache settings. Manual: `docs/models.md`.
 The included `vera.cache` extension shows one notice in a conversation when the provider keeps re-reading input it had already cached; its config can change when it warns or turn it off. Manual: `docs/models.md`.
 `/effort` opens the levels the running model has, each with a short line on how much it reasons and, for some, what that costs. A level you choose becomes the default for new conversations, except `max`, which applies to the current conversation only.
