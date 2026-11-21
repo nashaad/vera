@@ -1292,6 +1292,11 @@ While the app runs it records that it uses the package, so a cleanup does not
 remove it. A relaunch into a newer build goes through the shell, so the shell
 opens the package for the build `current` names then.
 
+While the window runs, a newer package installed for its own host build, such as
+one from `bun run install:local --desktop-only`, makes the window relaunch
+through the shell into that package. The new window reopens the conversation the
+old one showed, with its composer draft. The host keeps running.
+
 A package names the shell API it needs in `desktop-package.json` as
 `shell_api`, and a package without one needs API 1. This shell offers API 1 and
 refuses a package that needs a higher one.
@@ -1319,6 +1324,9 @@ picks another folder. The shell is signed ad hoc and is not notarized.
 From a checkout, `bun run install:local` builds the desktop package and the app
 shell on macOS and installs them with the host, as described in
 [Installation](installation.md#the-desktop-app-on-macos).
+`bun run install:local --desktop-only` installs only the desktop app for the
+installed host build, and the open window relaunches into it; see
+[Update only the desktop app](installation.md#update-only-the-desktop-app).
 
 One update moves the host and the desktop package to the newest release
 together. When the new package needs a newer app shell, the update replaces

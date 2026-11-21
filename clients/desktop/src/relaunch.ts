@@ -1,6 +1,7 @@
 import type { DesktopPackage } from "../../../src/release/desktop-packages.ts";
 import type { DesktopShellHandle } from "../../../src/release/desktop-shell.ts";
 import type { RelaunchRecord } from "../../../src/release/relaunch.ts";
+import { compareReleaseVersions } from "../../../src/release/version-order.ts";
 import type { InstalledBuildMismatch } from "../../shared/installed-build.ts";
 
 // The relaunch record the next window reads to reopen the session this one had open.
@@ -73,6 +74,23 @@ export class DesktopRelaunch {
     buildChanged(mismatch: InstalledBuildMismatch): boolean {
         const decision = decideRelaunch(mismatch, { shell: this.actions.shell(), findPackage: this.actions.findPackage });
         if (decision.kind !== "relaunch") return false;
+        this.relaunchNow();
+        return true;
+    }
+
+    // True when a newer package for the build this window runs is installed and the window is relaunching into it.
+    packageAdded(): boolean {
+        const shell = this.actions.shell();
+        if (shell === undefined) return false;
+        const sameBuild = { clientBuildId: shell.hostBuildId, installedBuildId: shell.hostBuildId };
+        const decision = decideRelaunch(sameBuild, { shell, findPackage: this.actions.findPackage });
+        if (decision.kind !== "relaunch") return false;
+        if (compareReleaseVersions(decision.package.desktopVersion, shell.desktopVersion) <= 0) return false;
+        this.relaunchNow();
+        return true;
+    }
+
+    private relaunchNow(): void {
         try {
             const draft = this.composer !== undefined && this.composer.agentId === this.openSessionId ? this.composer.text : undefined;
             this.actions.writeRecord({
@@ -86,7 +104,6 @@ export class DesktopRelaunch {
         this.actions.stop();
         this.actions.release();
         this.actions.restart();
-        return true;
     }
 
     // The session the window before this one had open, with the text its composer held, once.
