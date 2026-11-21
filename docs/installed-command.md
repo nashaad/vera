@@ -59,6 +59,9 @@ desktop step runs only for the default prefix, `~/.local`; with another
 command asks you to quit Vera and run it again. A desktop failure leaves the host
 install in place and the command exits with status 1. See
 [The desktop app on macOS](installation.md#the-desktop-app-on-macos).
+`--desktop-only` builds and installs only the desktop app for the active build
+and never stops or moves the host. See
+[Update only the desktop app](installation.md#update-only-the-desktop-app).
 
 `--prefix DIR` chooses a test installation prefix. The daily prefix is
 `$HOME/.local`. A test prefix stops and starts only the host of the home that

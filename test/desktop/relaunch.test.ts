@@ -229,6 +229,38 @@ test("@core a banner case leaves the window running and writes nothing", () => {
     }
 });
 
+test("@core a newer package for the build the window runs relaunches the window into it", () => {
+    const asked: string[] = [];
+    const { calls, records, actions } = recordedActions({
+        shell: () => shellFor({ desktopVersion: "1.0.0-alpha.2" }),
+        findPackage: (buildId) => {
+            asked.push(buildId);
+            return packageFor({ hostBuildId: "build-a", desktopVersion: "1.0.0-alpha.2.local.1" });
+        },
+    });
+    const relaunch = new DesktopRelaunch(actions, () => NOW);
+    relaunch.sessionShown("crow");
+    expect(relaunch.packageAdded()).toBe(true);
+    expect(asked).toEqual(["build-a"]);
+    expect(calls).toEqual(["write", "stop", "release", "restart"]);
+    expect(records).toEqual([{ sessionId: "crow", writtenAt: NOW.toISOString() }]);
+});
+
+test("the window stays when no newer package it can load exists for its build", () => {
+    const running = { desktopVersion: "1.0.0-alpha.2" };
+    for (const overrides of [
+        { shell: () => undefined },
+        { shell: () => shellFor(running), findPackage: () => undefined },
+        { shell: () => shellFor(running), findPackage: () => packageFor({ hostBuildId: "build-a", ...running }) },
+        { shell: () => shellFor(running), findPackage: () => packageFor({ hostBuildId: "build-a", desktopVersion: "1.0.0-alpha.1" }) },
+        { shell: () => shellFor(running), findPackage: () => packageFor({ hostBuildId: "build-a", desktopVersion: "1.0.0", shellApi: 2 }) },
+    ] satisfies Partial<RelaunchActions>[]) {
+        const { calls, actions } = recordedActions(overrides);
+        expect(new DesktopRelaunch(actions).packageAdded()).toBe(false);
+        expect(calls).toEqual([]);
+    }
+});
+
 test("the next window takes the session once", () => {
     const home = mkdtempSync(join(tmpdir(), "vera-relaunch-home-"));
     try {

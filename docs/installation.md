@@ -128,6 +128,30 @@ With `--prefix` naming any other directory the command installs the host, skips
 the app, prints `The desktop app needs Vera in ~/.local; it was not installed.`
 and exits with status 0, the same as the installer script.
 
+### Update only the desktop app
+
+`bun run install:local --desktop-only` builds the desktop app from the checkout
+for the host build that `current` names and installs it without touching the
+host: no release is packed, `current` does not move and no host stops. It runs on
+macOS for the `~/.local` prefix only.
+
+The new package goes beside the installed ones for that build, with a newer
+desktop version. The command adds `.local.1` to the newest installed version,
+such as `0.1.0-alpha.2.local.1`, and each later run counts it up. With no
+package for the build yet, the package takes the build's product version. An
+open Vera window relaunches into the new package and reopens the conversation it
+showed, with its composer draft. Older packages for the build that no running
+window uses are removed.
+
+The desktop app and the host must speak the same protocol. When the checkout's
+`src/host/protocol.ts`, `src/engine/protocol.ts` or `src/engine/host-protocol.ts`
+differs from the installed build's, the command installs nothing, names the
+files, says to run `bun run install:local` to update both, and exits with
+status 1. When the new package needs a newer `Vera.app`, the command replaces the
+app first; while Vera is running it installs nothing and asks you to quit Vera
+and run it again. `--desktop-only` cannot be combined with `--no-desktop` or
+`--force`.
+
 ### Add the launcher to PATH
 
 If your shell cannot find `vera`, add this to your shell startup file and
