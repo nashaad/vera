@@ -421,10 +421,10 @@
     border-right-color: transparent;
     border-radius: 50%;
     animation: session-spin var(--vera-motion-loop) infinite;
-    animation-timing-function: steps(8);
 }
 
-@keyframes session-spin { to { transform: rotate(360deg); } }
+/* Two turns per loop, so the spinner runs at twice the shared loop rate. */
+@keyframes session-spin { to { transform: rotate(720deg); } }
 
 [data-reduce-motion="true"] .session-spinner,
 .sessions-view[data-motion-visible="false"] .session-spinner { animation: none; }
