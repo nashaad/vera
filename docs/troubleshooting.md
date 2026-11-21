@@ -144,6 +144,11 @@ Open Configure providers and refresh the affected provider. Check the endpoint
 if the refresh fails. Restarting the TUI alone does not refresh provider state
 held by the host.
 
+For OpenAI Codex, a host start with a valid sign-in fetches the saved model
+list again when it is missing or came from an earlier build. If the Codex rows
+are still missing, check `runtime/logs/host.jsonl` for
+`codex_catalog_start_fetch_failed`, then refresh the provider.
+
 Connected catalogs also refresh in the background once a day. Each scan writes a
 `model_catalog_scan` line to `runtime/logs/host.jsonl`, and a dropped default or
 assigned model writes one `model_dropped` line. Miss history is in
