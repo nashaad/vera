@@ -10,7 +10,7 @@ import type { ThemeChoice } from "../theme/tokens.ts";
 import type { CatalogListResult, CatalogPreviewResult } from "./extension-catalog.ts";
 import type { ExtensionChangeResult, ExtensionPreviewResult } from "./extensions.ts";
 import type { ExtensionCommandResult } from "./extension-commands.ts";
-import type { BrowserBounds, BrowserState } from "../browser/native-types.ts";
+import type { BrowserBounds, BrowserHandoffAnswer, BrowserState } from "../browser/native-types.ts";
 import type { AgentInfo, SkillInfo, SourceInfo } from "../customize/wire.ts";
 import type { UpdateAction, UpdateState } from "./updates.ts";
 
@@ -363,7 +363,7 @@ export interface DesktopBridge {
     readAnnexPages(): Promise<AnnexPagesResult>;
     // Opens an annex path in the system browser; false when there is no annex to open it on.
     openAnnexPage(path: string): Promise<boolean>;
-    browser(command: string, value?: string | number | boolean | null | BrowserBounds): Promise<BrowserState>;
+    browser(command: string, value?: string | number | boolean | null | BrowserBounds | BrowserHandoffAnswer): Promise<BrowserState>;
     // Opens a folder in the system file manager; false when it could not be opened.
     revealFolder(folder: string): Promise<boolean>;
     // The given absolute paths that exist as directories, at most MAX_FOLDER_CHECKS of them.

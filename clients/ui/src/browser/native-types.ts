@@ -9,11 +9,23 @@ export interface BrowserTab {
     readonly forward: boolean;
 }
 
+export interface BrowserHandoffState {
+    readonly id: string;
+    readonly page: number;
+    readonly reason: string;
+}
+
+export interface BrowserHandoffAnswer {
+    readonly id: string;
+    readonly result: "done" | "skipped";
+}
+
 export interface BrowserState {
     readonly tabs: readonly BrowserTab[];
     readonly active: number | null;
     readonly toolsEnabled: boolean;
     readonly toolsAvailable: boolean;
+    readonly handoff?: BrowserHandoffState;
     // The page an "open" command just created, so the caller can bind it to its tab.
     readonly opened?: number;
 }

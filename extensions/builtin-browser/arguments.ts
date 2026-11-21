@@ -1,6 +1,6 @@
 import { EVAL_SCRIPT_LIMIT, EVAL_TIMEOUT_DEFAULT_MS, EVAL_TIMEOUT_LIMIT_MS } from "./eval.ts";
 
-export type BrowserAction = "open" | "read" | "click" | "type" | "scroll" | "back" | "screenshot" | "eval";
+export type BrowserAction = "open" | "read" | "click" | "type" | "scroll" | "back" | "screenshot" | "eval" | "handoff";
 
 export interface BrowserRequest {
     readonly action: BrowserAction;
@@ -11,14 +11,15 @@ export interface BrowserRequest {
     readonly offset?: number;
     readonly script?: string;
     readonly timeout_ms?: number;
+    readonly reason?: string;
 }
 
-const ACTIONS: readonly string[] = ["open", "read", "click", "type", "scroll", "back", "screenshot", "eval"];
+const ACTIONS: readonly string[] = ["open", "read", "click", "type", "scroll", "back", "screenshot", "eval", "handoff"];
 
 export function parseBrowserRequest(value: Readonly<Record<string, unknown>>): BrowserRequest | undefined {
     const action = value.action;
     if (typeof action !== "string" || !ACTIONS.includes(action)) return undefined;
-    if (Object.keys(value).some((key) => !["action", "url", "ref", "text", "amount", "offset", "script", "timeout_ms"].includes(key))) return undefined;
+    if (Object.keys(value).some((key) => !["action", "url", "ref", "text", "amount", "offset", "script", "timeout_ms", "reason"].includes(key))) return undefined;
     if (value.url !== undefined && (typeof value.url !== "string" || value.url.length > 8192)) return undefined;
     if (value.ref !== undefined && (typeof value.ref !== "string" || !/^r[0-9]{1,12}$/.test(value.ref))) return undefined;
     if (value.text !== undefined && (typeof value.text !== "string" || value.text.length > 4000)) return undefined;
@@ -27,6 +28,8 @@ export function parseBrowserRequest(value: Readonly<Record<string, unknown>>): B
     if (value.script !== undefined && (typeof value.script !== "string" || value.script.length > EVAL_SCRIPT_LIMIT)) return undefined;
     if (value.timeout_ms !== undefined && (typeof value.timeout_ms !== "number" || !Number.isInteger(value.timeout_ms) || value.timeout_ms < 1 || value.timeout_ms > EVAL_TIMEOUT_LIMIT_MS)) return undefined;
     if (action !== "eval" && (value.script !== undefined || value.timeout_ms !== undefined)) return undefined;
+    if (value.reason !== undefined && (typeof value.reason !== "string" || value.reason.length > 300)) return undefined;
+    if (action === "handoff" && (typeof value.reason !== "string" || value.reason.trim().length === 0)) return undefined;
     if (action === "open") {
         try {
             if (typeof value.url !== "string" || !["http:", "https:"].includes(new URL(value.url).protocol)) return undefined;
@@ -45,5 +48,6 @@ export function parseBrowserRequest(value: Readonly<Record<string, unknown>>): B
         ...(typeof value.offset === "number" ? { offset: value.offset } : {}),
         ...(typeof value.script === "string" ? { script: value.script } : {}),
         ...(timeout === undefined ? {} : { timeout_ms: timeout }),
+        ...(typeof value.reason === "string" ? { reason: value.reason } : {}),
     };
 }

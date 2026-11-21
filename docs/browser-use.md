@@ -49,6 +49,12 @@ When the built-in browser and the Chrome extension's `browser` tool are both
 loaded, Vera asks which to use before its first browser call and keeps the
 answer for the conversation.
 
+If a site needs a human check, Vera can ask you to complete it in the Browser
+pane. The banner shows the reason; choose Done after completing the check, or
+Skip. While the handoff waits, other Browser tool calls fail rather than wait.
+The handoff times out after ten minutes. Turning Browser tools off or stopping
+the turn cancels it.
+
 ## Running a script in a page
 
 `builtin_browser_eval` runs JavaScript in the page open in the Browser pane. It

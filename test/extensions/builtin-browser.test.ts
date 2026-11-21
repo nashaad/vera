@@ -70,6 +70,12 @@ describe("built-in browser requests", () => {
         expect(parseBrowserRequest({ action: "eval", script: "return 1", timeout_ms: "1000" })).toBeUndefined();
     });
 
+    test("@core handoff requires a bounded reason", () => {
+        expect(parseBrowserRequest({ action: "handoff", reason: "Complete the check" })).toEqual({ action: "handoff", reason: "Complete the check" });
+        expect(parseBrowserRequest({ action: "handoff" })).toBeUndefined();
+        expect(parseBrowserRequest({ action: "handoff", reason: "x".repeat(301) })).toBeUndefined();
+    });
+
     test("old extension settings stay separate from the new store", async () => {
         const home = mkdtempSync(join(tmpdir(), "vera-browser-registry-"));
         const oldId = ["vera.desktop", "browser"].join("-");

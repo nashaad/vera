@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { BrowserCdp, NO_WEB_PAGE_ERROR } from "../../clients/desktop/src/browser/cdp.ts";
+import { BrowserHandoff } from "../../clients/desktop/src/browser/handoff.ts";
 import type { BrowserPane } from "../../clients/desktop/src/browser/pane.ts";
 import type { BrowserRequest } from "../../extensions/builtin-browser/arguments.ts";
 import { EVAL_NOT_JSON, EVAL_TIMEOUT_DEFAULT_MS } from "../../extensions/builtin-browser/eval.ts";
@@ -183,6 +184,12 @@ describe("built-in browser without a web page", () => {
         });
         expect(await slow.cdp.run({ action: "eval", script: "while (true) {}", timeout_ms: 20 })).toEqual({ error: "The script did not finish within 0.02 seconds." });
         expect(slow.calls.map((call) => call.method)).toContain("Runtime.terminateExecution");
+    });
+
+    test("@core handoff and CDP reject the same missing page", async () => {
+        const pane = { current: () => undefined, state: () => ({ active: null }) } as unknown as BrowserPane;
+        expect(() => new BrowserHandoff(pane, () => {}).start("handoff", "Complete the check")).toThrow(NO_WEB_PAGE_ERROR);
+        await expect(new BrowserCdp(pane).run({ action: "read" })).rejects.toThrow(NO_WEB_PAGE_ERROR);
     });
 
     test("open creates a tab and navigates when none is active", async () => {

@@ -34,6 +34,7 @@ import { buildMenuTemplate } from "./app-menu.ts";
 import { BrowserPane } from "./browser/pane.ts";
 import { BrowserCdp } from "./browser/cdp.ts";
 import { BrowserGateway } from "./browser/gateway.ts";
+import { BrowserHandoff } from "./browser/handoff.ts";
 import { AssignmentService } from "./assignments.ts";
 import { BootSession } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
@@ -118,6 +119,7 @@ let annexUrl: string | undefined;
 let annexReadVersion = 0;
 let browserPane: BrowserPane | undefined;
 let browserGateway: BrowserGateway | undefined;
+let browserHandoff: BrowserHandoff | undefined;
 
 const relaunch = new DesktopRelaunch({
     shell: runningDesktopShell,
@@ -263,6 +265,7 @@ function shutdown(): void {
     browserPane?.setAnnexUrl(undefined);
     browserPane?.dispose();
     browserPane = undefined;
+    browserHandoff = undefined;
     boot?.cancel();
     boot = undefined;
     hostSocketPath = undefined;
@@ -763,6 +766,12 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
         if (url !== undefined && /^https?:\/\//.test(url)) await shell.openExternal(url);
     }
     if (command === "tools" && typeof value === "boolean") await browserGateway?.settings(value);
+    if (command === "handoff" && typeof value === "object" && value !== null && !Array.isArray(value)) {
+        const answer = value as Record<string, unknown>;
+        if (typeof answer.id === "string" && (answer.result === "done" || answer.result === "skipped")) {
+            browserHandoff?.complete(answer.id, answer.result);
+        }
+    }
     if (command === "bounds") {
         const rect = value as Record<string, unknown> | null;
         if (rect === null || typeof rect !== "object") pane.layout(undefined);
@@ -780,6 +789,7 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
         ...pane.state(),
         toolsEnabled: browserGateway?.enabled ?? false,
         toolsAvailable: browserGateway?.available ?? false,
+        ...(browserHandoff?.state() === undefined ? {} : { handoff: browserHandoff.state() }),
         ...(opened === undefined ? {} : { opened }),
     };
 });
@@ -801,9 +811,12 @@ app.whenReady().then(() => {
         (url, title) => sendEvent({ type: "browser_loaded", url, title }),
         (id) => sendEvent({ type: "command", id }),
     );
+    browserHandoff = new BrowserHandoff(browserPane, () => sendEvent({ type: "command", id: BROWSER_STATE_CHANGED }));
     browserGateway = new BrowserGateway(
         new BrowserCdp(browserPane),
         () => sendEvent({ type: "command", id: "browser.reveal" }),
         () => sendEvent({ type: "command", id: BROWSER_STATE_CHANGED }),
+        undefined,
+        browserHandoff,
     );
 });
