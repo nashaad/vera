@@ -47,6 +47,74 @@ describe("built-in browser without a web page", () => {
         await expect(new BrowserCdp(pane).run({ action: "read" })).rejects.toThrow(NO_WEB_PAGE_ERROR);
     });
 
+    test("@core read returns bounded HTML, existing controls, and human-check state", async () => {
+        const commands: { method: string; params?: Record<string, unknown> }[] = [];
+        let evaluationCount = 0;
+        const debuggerApi = {
+            attach: () => {},
+            detach: () => {},
+            isAttached: () => true,
+            sendCommand: async (method: string, params?: Record<string, unknown>) => {
+                commands.push({ method, params });
+                if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+                if (method === "Page.createIsolatedWorld") return { executionContextId: 7 };
+                if (method === "Runtime.evaluate") {
+                    evaluationCount++;
+                    return evaluationCount === 1 ? { result: { objectId: "controls" } } : {
+                        result: { value: { html: "<html>bounded</html>", htmlTruncated: false, humanCheck: true } },
+                    };
+                }
+                if (method === "Runtime.getProperties") return { result: [{ name: "0", value: { objectId: "link" } }] };
+                if (method === "Accessibility.getPartialAXTree") return { nodes: [{ backendDOMNodeId: 42, role: { value: "link" }, name: { value: "Treasure Map" } }] };
+                return {};
+            },
+        };
+        const contents = {
+            id: 1,
+            debugger: debuggerApi,
+            isDestroyed: () => false,
+            getURL: () => "https://example.org/",
+            getTitle: () => "Example",
+            on: () => {},
+        };
+        const pane = { current: () => contents } as unknown as BrowserPane;
+        const result = await new BrowserCdp(pane).run({ action: "read" });
+        expect(result).toEqual({ url: "https://example.org/", title: "Example", html: "<html>bounded</html>", htmlTruncated: false, controls: ["r1 link Treasure Map"], humanCheck: true });
+        const readExpression = String(commands.find((command) => command.method === "Runtime.evaluate" && command.params?.returnByValue)?.params?.expression);
+        const evaluateInFixture = (outerHTML: string, title = "", frameSources: string[] = []) => {
+            const fixtureDocument = {
+                documentElement: { outerHTML },
+                title,
+                querySelectorAll: () => frameSources.map((src) => ({ src })),
+            };
+            return Function("document", "location", `return ${readExpression}`)(fixtureDocument, { href: "https://example.org/" }) as { html: string; htmlTruncated: boolean; humanCheck: boolean };
+        };
+        const cap = 2 * 1024 * 1024;
+        const bounded = evaluateInFixture(`<html>${"é".repeat(cap)}tail</html>`);
+        expect(new TextEncoder().encode(bounded.html)).toHaveLength(cap);
+        expect(bounded.html.endsWith("é")).toBe(true);
+        expect(bounded.htmlTruncated).toBe(true);
+        expect(bounded.humanCheck).toBe(false);
+        expect(evaluateInFixture("a".repeat(cap)).htmlTruncated).toBe(false);
+        expect(evaluateInFixture(`${"a".repeat(cap)}a`).htmlTruncated).toBe(true);
+        for (const source of [
+            "https://www.google.com/recaptcha/api2/anchor",
+            "https://newassets.hcaptcha.com/captcha/v1/",
+            "https://challenges.cloudflare.com/turnstile/v0/api.js",
+        ]) expect(evaluateInFixture("<html></html>", "", [source]).humanCheck).toBe(true);
+        expect(evaluateInFixture("<html><div id='cf-challenge'></div></html>", "Just a moment").humanCheck).toBe(true);
+        expect(evaluateInFixture(`${"a".repeat(cap)}<div id='cf-challenge'></div>`).humanCheck).toBe(true);
+        expect(evaluateInFixture("<html><script>window._cf_chl_opt = {};</script></html>").humanCheck).toBe(true);
+        const ordinaryCloudflare = "<html><head><script src='/cdn-cgi/challenge-platform/scripts/jsd/main.js'></script>"
+            + "<script>window.__CF$cv$params = {};</script></head><body>ordinary</body></html>";
+        expect(evaluateInFixture(ordinaryCloudflare).humanCheck).toBe(false);
+        expect(evaluateInFixture("<html>ordinary</html>", "Just a moment").humanCheck).toBe(false);
+        expect(evaluateInFixture("<html>ordinary</html>", "", ["https://hcaptcha.com.example.org/", "http://["]).humanCheck).toBe(false);
+        const split = evaluateInFixture(`${"a".repeat(cap - 1)}😀`);
+        expect(split.html).toBe("a".repeat(cap - 1));
+        expect(commands.filter((command) => command.method === "Runtime.evaluate")).toHaveLength(2);
+    });
+
     test("open creates a tab and navigates when none is active", async () => {
         let current: Electron.WebContents | undefined;
         let opened = 0;

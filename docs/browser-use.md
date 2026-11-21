@@ -33,6 +33,8 @@ location or notifications in the pane.
 
 Browser tools are off by default. Turn on Browser tools in the pane to let
 Vera open a page, read it, click, type, scroll, go back and take a screenshot.
+`read` returns the page as markdown with link URLs and tables. A long page is
+read in parts: the reply gives the offset for the next part.
 Tool calls follow the session's approval mode. You can watch in the pane and
 use it yourself. While the tools are on, a notice stays at the bottom of the
 window in every view: "Browser tools are on. Vera can open, read and act on

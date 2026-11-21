@@ -90,3 +90,60 @@ test("htmlToMarkdown ignores javascript links", () => {
     expect(result.markdown).not.toContain("javascript:");
     expect(result.markdown).not.toContain("](");
 });
+
+test("@core bounded markdown matches normalized prefixes and exact boundaries", () => {
+    const fixtures = [
+        "<title>Crow</title><p> one <b>two</b> three </p><p>four 😀 five</p>",
+        "<p>early text</p><title>Late crow</title><p>last</p>",
+        "<blockquote><p>A  B</p><p>C</p></blockquote><ul><li>one</li><li>two</li></ul>",
+        "<pre>  first  \n\n\n second \t\n  </pre><p>last</p>",
+        '<table><tr><th>Ship</th><th><a href="/map|route">Map</a></th></tr><tr><td>A</td><td> B | C </td><td>extra</td></tr></table>',
+        '<p>\0e\0 42\0c0\0 <img alt="a\0e\0b" src="/img"></p>',
+        '<p><a href="relative">one <strong>two</strong></a> <em>end</em></p>',
+    ];
+    for (const html of fixtures) {
+        const base = "https://example.org/crow/";
+        const full = htmlToMarkdown(html, base);
+        for (let maxLength = 0; maxLength <= full.markdown.length + 1; maxLength++) {
+            let end = Math.min(maxLength, full.markdown.length);
+            if (end > 0 && end < full.markdown.length
+                && /[\uD800-\uDBFF]/.test(full.markdown[end - 1]!) && /[\uDC00-\uDFFF]/.test(full.markdown[end]!)) end--;
+            const bounded = htmlToMarkdown(html, base, { maxLength });
+            expect(bounded.title).toBe(full.title);
+            expect(bounded.markdown).toBe(full.markdown.slice(0, end));
+            expect(bounded.truncated).toBe(full.markdown.length > maxLength);
+        }
+    }
+});
+
+test("@core bounded markdown stops expanded relative links at its output limit", () => {
+    const base = `https://example.org/${"a".repeat(4096)}/`;
+    const html = '<p><a href="crow">Crow</a></p>'.repeat(2800);
+    const OriginalURL = globalThis.URL;
+    let resolutions = 0;
+    class CountingURL extends OriginalURL {
+        constructor(url: string | URL, baseUrl?: string | URL) {
+            resolutions++;
+            super(url, baseUrl);
+        }
+    }
+    try {
+        globalThis.URL = CountingURL as typeof URL;
+        const result = htmlToMarkdown(html, base, { maxLength: 10_000_000 });
+        expect(result.markdown).toHaveLength(10_000_000);
+        expect(result.markdown.startsWith(`[Crow](${base}crow)`)).toBe(true);
+        expect(result.truncated).toBe(true);
+        expect(resolutions).toBeLessThan(2800);
+    } finally {
+        globalThis.URL = OriginalURL;
+    }
+}, 20_000);
+
+test("@core bounded table output stops before quadratic padding accumulates", () => {
+    const header = "<th>H</th>".repeat(3000);
+    const rows = "<tr><td>X</td></tr>".repeat(3000);
+    const result = htmlToMarkdown(`<table><tr>${header}</tr>${rows}</table>`, undefined, { maxLength: 100_000 });
+    expect(result.markdown).toHaveLength(100_000);
+    expect(result.markdown.startsWith("| H | H | H")).toBe(true);
+    expect(result.truncated).toBe(true);
+}, 20_000);

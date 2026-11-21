@@ -46,6 +46,27 @@ test("@core a disabled queued browser request returns a classified refusal", asy
     } finally { gateway.stop(); }
 });
 
+test("@core gateway forwards structured read results without formatting", async () => {
+    const replies: JsonValue[] = [];
+    let pollCount = 0;
+    const payload = { url: "https://example.org/", title: "Example", html: "<html></html>", htmlTruncated: false, controls: ["r1 link Example"], humanCheck: false };
+    const request: typeof requestExtensionThroughHost = async (_socket, _extension, name, requestPayload, signal) => {
+        if (name === "settings") return { enabled: true };
+        if (name === "reply") { replies.push(requestPayload); return true; }
+        pollCount++;
+        if (pollCount === 1) return null;
+        if (pollCount === 2) return { id: "read-1", request: { action: "read" } };
+        return await new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    };
+    const cdp = { run: async () => payload } as unknown as BrowserCdp;
+    const gateway = new BrowserGateway(cdp, () => {}, () => {}, request);
+    gateway.start("trial");
+    try {
+        for (let i = 0; i < 100 && replies.length === 0; i++) await Bun.sleep(1);
+        expect(replies).toEqual([{ id: "read-1", ...payload }]);
+    } finally { gateway.stop(); }
+});
+
 test("@core gateway keeps the enabled setting when availability is lost", async () => {
     const { gateway, pending, changes } = trial();
     try {

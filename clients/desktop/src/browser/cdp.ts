@@ -4,6 +4,38 @@ import { BLOCKED_ANNEX_OPEN_ERROR } from "./origin-guard.ts";
 
 export const NO_WEB_PAGE_ERROR = "No web page is open in the Browser pane. Vera's own pages such as Usage cannot be controlled here. Use open with a URL.";
 
+const READ_PAGE_EXPRESSION = `(() => {
+    const html = document.documentElement?.outerHTML ?? '';
+    const limit = 2 * 1024 * 1024;
+    const bytes = new TextEncoder().encode(html.slice(0, limit));
+    const htmlTruncated = html.length > limit || bytes.length > limit;
+    let boundedHtml = html;
+    if (htmlTruncated) {
+        let end = Math.min(bytes.length, limit);
+        const decoder = new TextDecoder('utf-8', { fatal: true });
+        while (end > 0) {
+            try { boundedHtml = decoder.decode(bytes.subarray(0, end)); break; }
+            catch { end--; }
+        }
+        if (end === 0) boundedHtml = '';
+    }
+    let humanCheck = /cf-challenge|cf_chl_/i.test(html);
+    for (const frame of document.querySelectorAll('iframe[src]')) {
+        try {
+            const url = new URL(frame.src, location.href);
+            const host = url.hostname.toLowerCase();
+            if (((host === 'google.com' || host.endsWith('.google.com')) && url.pathname.startsWith('/recaptcha/'))
+                || host === 'recaptcha.net' || host.endsWith('.recaptcha.net')
+                || host === 'hcaptcha.com' || host.endsWith('.hcaptcha.com')
+                || host === 'challenges.cloudflare.com') {
+                humanCheck = true;
+                break;
+            }
+        } catch {}
+    }
+    return { html: boundedHtml, htmlTruncated, humanCheck };
+})()`;
+
 interface AxNode {
     readonly ignored?: boolean;
     readonly backendDOMNodeId?: number;
@@ -102,13 +134,20 @@ export class BrowserCdp {
                 await debuggerApi.sendCommand("Runtime.releaseObjectGroup", { objectGroup: "vera-browser" });
                 const result = await debuggerApi.sendCommand("Runtime.evaluate", {
                     contextId: world.executionContextId,
-                    expression: `(() => { const w = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT); let s = '', n = 0, x; while ((x = w.nextNode()) && n++ < 10000 && s.length < 16000) { const p = x.parentElement; if (p && !['SCRIPT','STYLE','NOSCRIPT'].includes(p.tagName)) s += x.textContent + ' '; } return s.slice(0,16000); })()`,
+                    expression: READ_PAGE_EXPRESSION,
                     returnByValue: true,
-                }) as { result?: { value?: unknown } };
+                }) as { result?: { value?: { html?: unknown; htmlTruncated?: unknown; humanCheck?: unknown } } };
                 ensureCurrent();
                 this.refs = refs;
                 this.contextId = world.executionContextId;
-                return { output: `URL: ${contents.getURL()}\nTitle: ${contents.getTitle().slice(0, 300)}\nText: ${String(result.result?.value ?? "")}\nControls:\n${rows.join("\n")}` };
+                return {
+                    url: contents.getURL(),
+                    title: contents.getTitle().slice(0, 300),
+                    html: String(result.result?.value?.html ?? ""),
+                    htmlTruncated: result.result?.value?.htmlTruncated === true,
+                    controls: rows,
+                    humanCheck: result.result?.value?.humanCheck === true,
+                };
             }
             if (request.action === "screenshot") {
                 const image = await debuggerApi.sendCommand("Page.captureScreenshot", { format: "jpeg", quality: 60 }) as { data: string };
