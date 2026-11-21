@@ -23,7 +23,7 @@ export interface GuidePage {
     readonly total: number;
 }
 
-const HEADING = /^#{1,2} (.+?)(?: \[lines=\d+\])?\s*$/;
+const HEADING = /^#{1,2} (.+?)\s*$/;
 const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---\r?\n/;
 
 export function guideDirectory(): string {
