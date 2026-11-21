@@ -224,7 +224,8 @@ test("GitHub release marks versions with a suffix as prereleases", () => {
     try {
         mkdirSync(join(root, "scripts"));
         mkdirSync(join(root, "dist"));
-        writeFileSync(join(root, "scripts", "install.sh"), "");
+        writeFileSync(join(root, "scripts", "install.sh"), "installer\n");
+        writeFileSync(join(root, "scripts", "uninstall.sh"), "uninstaller\n");
         writeFileSync(join(root, "gh"), '#!/bin/sh\nprintf "%s\\n" "$@" > "$GH_ARGS"\n');
         chmodSync(join(root, "gh"), 0o755);
         for (const version of ["0.1.0-alpha.1", "0.2.0-beta.1", "1.0.0"]) {
@@ -244,6 +245,9 @@ test("GitHub release marks versions with a suffix as prereleases", () => {
             const args = readFileSync(argsPath, "utf8").trim().split("\n");
             expect(args).toContain(`v${version}`);
             expect(args.includes("--prerelease")).toBe(version.includes("-"));
+            expect(args).toContain("dist/install.sh");
+            expect(args).toContain("dist/uninstall.sh");
+            expect(readFileSync(join(root, "dist", "uninstall.sh"), "utf8")).toBe("uninstaller\n");
         }
     } finally {
         rmSync(root, { recursive: true, force: true });
