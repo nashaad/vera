@@ -1,6 +1,7 @@
 import { structuredPatch } from "diff";
 
 import type { ToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
+import { approvalDetailField } from "../shared/approval-headline.ts";
 import { tuiKeyChordLabel } from "./keymap.ts";
 import { tuiDisplayPath } from "./state.ts";
 
@@ -80,6 +81,11 @@ function callLines(
     }
     if (call.name === "write") {
         return writeLines(input);
+    }
+    const detailField = approvalDetailField(call.name);
+    const detail = detailField === undefined ? undefined : stringField(input, detailField);
+    if (detail !== undefined) {
+        return detail.split("\n").map((line) => ({ text: line, tone: "text" }));
     }
     return [{
         text: `${call.name} ${JSON.stringify(call.input)}`,

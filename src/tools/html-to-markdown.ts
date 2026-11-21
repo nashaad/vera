@@ -1,8 +1,18 @@
 import { Parser } from "htmlparser2";
 
+import { BoundedMarkdownOutput, MARKDOWN_LIMIT_REACHED } from "./bounded-markdown-output.ts";
+
 export interface HtmlMarkdown {
     readonly title: string;
     readonly markdown: string;
+}
+
+export interface HtmlMarkdownOptions {
+    readonly maxLength: number;
+}
+
+export interface BoundedHtmlMarkdown extends HtmlMarkdown {
+    readonly truncated: boolean;
 }
 
 interface ListState {
@@ -56,7 +66,14 @@ const SKIPPED = new Set([
     "template",
 ]);
 
-export function htmlToMarkdown(html: string, baseUrl?: string): HtmlMarkdown {
+export function htmlToMarkdown(html: string, baseUrl?: string): HtmlMarkdown;
+export function htmlToMarkdown(html: string, baseUrl: string | undefined, options: HtmlMarkdownOptions): BoundedHtmlMarkdown;
+export function htmlToMarkdown(html: string, baseUrl?: string, options?: HtmlMarkdownOptions): HtmlMarkdown | BoundedHtmlMarkdown {
+    if (options !== undefined && (!Number.isSafeInteger(options.maxLength) || options.maxLength < 0)) throw new RangeError();
+    const bounded = options === undefined ? undefined : new BoundedMarkdownOutput(options.maxLength);
+    const urls: string[] = [];
+    let rawStarted = false;
+    let rawTail = "";
     let title = "";
     let out = "";
     let skipDepth = 0;
@@ -87,11 +104,12 @@ export function htmlToMarkdown(html: string, baseUrl?: string): HtmlMarkdown {
         ontext(value) {
             if (titleDepth > 0) title += value;
             if (skipDepth > 0) return;
+            const text = escapeMarkers(value);
             if (preDepth > 0) {
-                preBuf += value;
+                preBuf += text;
                 return;
             }
-            emitText(collapseSpace(value));
+            emitText(collapseSpace(text));
         },
         onclosetag(name) {
             if (name === "title" && titleDepth > 0) titleDepth -= 1;
@@ -103,12 +121,60 @@ export function htmlToMarkdown(html: string, baseUrl?: string): HtmlMarkdown {
             closeTag(name);
         },
     }, { decodeEntities: true });
-    parser.end(html);
+    try {
+        parser.end(html);
+    } catch (error) {
+        if (error !== MARKDOWN_LIMIT_REACHED) throw error;
+    }
 
-    return {
-        title: collapseSpace(title).trim(),
-        markdown: normalizeMarkdown(out),
-    };
+    if (bounded !== undefined) {
+        const result = bounded.result();
+        return { title: result.truncated ? extractTitle(html) : collapseSpace(title).trim(), ...result };
+    }
+    return { title: collapseSpace(title).trim(), markdown: normalizeMarkdown(out) };
+
+    function escapeMarkers(value: string): string {
+        return bounded === undefined ? value : value.replace(/\0/g, "\0e\0");
+    }
+
+    function linkTarget(href: string): string {
+        if (bounded === undefined) return resolveUrl(href, baseUrl);
+        return `\0${urls.push(href) - 1}\0`;
+    }
+
+    function appendRaw(value: string): void {
+        if (value.length === 0) return;
+        if (bounded === undefined) {
+            out += value;
+            return;
+        }
+        rawStarted = true;
+        rawTail = (rawTail + value).slice(-2);
+        const markers = /\0(e|c*\d+)\0/g;
+        let position = 0;
+        for (let match = markers.exec(value); match !== null; match = markers.exec(value)) {
+            bounded.write(value.slice(position, match.index));
+            const marker = match[1]!;
+            if (marker === "e") {
+                bounded.write("\0");
+            } else {
+                const cells = marker.match(/^c*/)?.[0].length ?? 0;
+                let target = resolveUrl(urls[Number(marker.slice(cells))]!, baseUrl);
+                for (let index = 0; index < cells; index++) target = target.replace(/\s+/g, " ").replace(/\|/g, "\\|").trim();
+                bounded.write(target);
+            }
+            position = markers.lastIndex;
+        }
+        bounded.write(value.slice(position));
+    }
+
+    function rawEmpty(): boolean {
+        return bounded === undefined ? out.length === 0 : !rawStarted;
+    }
+
+    function rawEndsWith(value: string): boolean {
+        return bounded === undefined ? out.endsWith(value) : rawTail.endsWith(value);
+    }
 
     function openTag(name: string, attribs: Record<string, string>): void {
         switch (name) {
@@ -291,12 +357,12 @@ export function htmlToMarkdown(html: string, baseUrl?: string): HtmlMarkdown {
             emitText(item.text);
             return;
         }
-        emitText(`[${text}](${resolveUrl(href, baseUrl)})`);
+        emitText(`[${text}](${linkTarget(href)})`);
     }
 
     function emitImage(attribs: Record<string, string>): void {
         const src = attribs.src?.trim() ?? "";
-        const alt = attribs.alt ?? "";
+        const alt = escapeMarkers(attribs.alt ?? "");
         if (src.length === 0 || src.startsWith("data:")) {
             if (alt.length > 0) emitText(alt);
             return;
@@ -305,14 +371,16 @@ export function htmlToMarkdown(html: string, baseUrl?: string): HtmlMarkdown {
             if (alt.length > 0) emitText(alt);
             return;
         }
-        emitText(`![${alt}](${resolveUrl(src, baseUrl)})`);
+        emitText(`![${alt}](${linkTarget(src)})`);
     }
 
     function closeCell(): void {
         const item = popInline("cell");
         const table = tables[tables.length - 1];
         if (item === undefined || table === undefined) return;
-        table.row.push(item.text.replace(/\s+/g, " ").replace(/\|/g, "\\|").trim());
+        const text = bounded === undefined ? item.text : item.text.replace(/\0(e|c*\d+)\0/g, (match, marker: string) =>
+            marker === "e" ? match : `\0c${marker}\0`);
+        table.row.push(text.replace(/\s+/g, " ").replace(/\|/g, "\\|").trim());
     }
 
     function closeTableRow(): void {
@@ -326,10 +394,34 @@ export function htmlToMarkdown(html: string, baseUrl?: string): HtmlMarkdown {
         const table = tables.pop();
         if (table === undefined) return;
         if (table.row.length > 0) table.rows.push(table.row);
+        if (bounded !== undefined) {
+            emitBoundedTable(table.rows);
+            return;
+        }
         const markdown = formatTable(table.rows);
         if (markdown.length === 0) return;
         ensureBlankLine();
         emitRaw(markdown);
+        ensureBlankLine();
+    }
+
+    function emitBoundedTable(rows: readonly (readonly string[])[]): void {
+        if (rows.length === 0) return;
+        let width = 0;
+        for (const row of rows) width = Math.max(width, row.length);
+        if (width === 0) return;
+        ensureBlankLine();
+        for (let rowIndex = 0; rowIndex <= rows.length; rowIndex++) {
+            if (rowIndex > 0) emitRaw("\n");
+            const separator = rowIndex === 1;
+            const row = rows[rowIndex === 0 ? 0 : rowIndex - 1]!;
+            emitRaw("| ");
+            for (let index = 0; index < width; index++) {
+                if (index > 0) emitRaw(" | ");
+                emitRaw(separator ? "---" : row[index] ?? "");
+            }
+            emitRaw(" |");
+        }
         ensureBlankLine();
     }
 
@@ -351,8 +443,8 @@ export function htmlToMarkdown(html: string, baseUrl?: string): HtmlMarkdown {
             return;
         }
         let next = text;
-        const atLineStart = out.length === 0 || out.endsWith("\n");
-        if (atLineStart || out.endsWith(" ")) {
+        const atLineStart = rawEmpty() || rawEndsWith("\n");
+        if (atLineStart || rawEndsWith(" ")) {
             next = next.replace(/^ +/, "");
         }
         emitRaw(next);
@@ -362,13 +454,13 @@ export function htmlToMarkdown(html: string, baseUrl?: string): HtmlMarkdown {
         if (text.length === 0) return;
         const parts = text.split("\n");
         for (let index = 0; index < parts.length; index += 1) {
-            if (index > 0) out += "\n";
+            if (index > 0) appendRaw("\n");
             const part = parts[index]!;
             if (part.length === 0) continue;
-            if (out.endsWith("\n") || out.length === 0) {
-                out += quotePrefix() + part;
+            if (rawEndsWith("\n") || rawEmpty()) {
+                appendRaw(quotePrefix() + part);
             } else {
-                out += part;
+                appendRaw(part);
             }
         }
     }
@@ -378,15 +470,27 @@ export function htmlToMarkdown(html: string, baseUrl?: string): HtmlMarkdown {
     }
 
     function ensureNewline(): void {
-        if (out.length === 0 || out.endsWith("\n")) return;
-        out += "\n";
+        if (rawEmpty() || rawEndsWith("\n")) return;
+        appendRaw("\n");
     }
 
     function ensureBlankLine(): void {
-        if (out.length === 0) return;
+        if (rawEmpty()) return;
         ensureNewline();
-        if (!out.endsWith("\n\n")) out += "\n";
+        if (!rawEndsWith("\n\n")) appendRaw("\n");
     }
+}
+
+function extractTitle(html: string): string {
+    let title = "";
+    let depth = 0;
+    const parser = new Parser({
+        onopentag(name) { if (name === "title") depth++; },
+        ontext(value) { if (depth > 0) title += value; },
+        onclosetag(name) { if (name === "title" && depth > 0) depth--; },
+    }, { decodeEntities: true });
+    parser.end(html);
+    return collapseSpace(title).trim();
 }
 
 function collapseSpace(value: string): string {

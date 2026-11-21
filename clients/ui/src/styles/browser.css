@@ -122,6 +122,45 @@
     outline-offset: calc(var(--vera-space) / -4);
 }
 
+.browser-handoff {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--vera-space);
+    padding: var(--vera-space) calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    background: var(--vera-surface-panel);
+    border-bottom: thin solid var(--vera-border);
+    font-size: var(--vera-font-size-label);
+    overflow-wrap: anywhere;
+}
+
+.browser-handoff span {
+    min-width: 0;
+}
+
+.browser-handoff-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: var(--vera-space);
+}
+
+.browser-handoff-actions button {
+    padding: var(--vera-space) calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    font: inherit;
+    background: transparent;
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+}
+
+.browser-handoff-actions button:focus-visible {
+    outline: thin solid var(--vera-focus);
+}
+
 .browser-page {
     display: flex;
     flex: 1 1 auto;

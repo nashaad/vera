@@ -33,6 +33,8 @@ location or notifications in the pane.
 
 Browser tools are off by default. Turn on Browser tools in the pane to let
 Vera open a page, read it, click, type, scroll, go back and take a screenshot.
+`read` returns the page as markdown with link URLs and tables. A long page is
+read in parts: the reply gives the offset for the next part.
 Tool calls follow the session's approval mode. You can watch in the pane and
 use it yourself. While the tools are on, a notice stays at the bottom of the
 window in every view: "Browser tools are on. Vera can open, read and act on
@@ -46,3 +48,22 @@ Vera's own pages, such as Usage, cannot be controlled by `builtin_browser`.
 When the built-in browser and the Chrome extension's `browser` tool are both
 loaded, Vera asks which to use before its first browser call and keeps the
 answer for the conversation.
+
+If a site needs a human check, Vera can ask you to complete it in the Browser
+pane. The banner shows the reason; choose Done after completing the check, or
+Skip. While the handoff waits, other Browser tool calls fail rather than wait.
+The handoff times out after ten minutes. Turning Browser tools off or stopping
+the turn cancels it.
+
+## Running a script in a page
+
+`builtin_browser_eval` runs JavaScript in the page open in the Browser pane. It
+is a separate tool with its own permission, so allowing `builtin_browser` does
+not allow it. The script is the body of an async function and must return a
+value that JSON can hold; the reply is that JSON text. It runs in an isolated
+world, so it can read the page's DOM but not the page's own JavaScript
+variables. The result is cut at 30,000 characters, and the reply says how long
+the full result was. The script stops after 10 seconds by default; pass a
+timeout up to 20 seconds to change that. Open the page with `builtin_browser`
+first. The tool is available only while Browser tools are on and a desktop
+window is open.

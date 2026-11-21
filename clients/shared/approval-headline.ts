@@ -40,6 +40,7 @@ const OPERATION_QUESTIONS: Readonly<Record<string, string>> = {
     "agent.message": "Message a helper agent?",
     "agent.roster": "List the helper agents?",
     "agent.spawn": "Start a helper agent?",
+    "desktop.browser.eval": "Run a script in the Browser pane?",
     "git.clone": "Clone a git repository?",
     "git.commit": "Make a git commit?",
     "git.fetch": "Fetch from a git remote?",
@@ -55,6 +56,15 @@ const OPERATION_QUESTIONS: Readonly<Record<string, string>> = {
     "web.search": "Search the web?",
 };
 
+// Tools whose approval shows one input field in place of the raw arguments, in full.
+const DETAIL_FIELDS: Readonly<Record<string, string>> = {
+    builtin_browser_eval: "script",
+};
+
+export function approvalDetailField(tool: string): string | undefined {
+    return DETAIL_FIELDS[tool];
+}
+
 const RUN_COMMAND = "Run this command?";
 
 // Undefined when the grants say too little; the client then keeps its own tool title.
@@ -64,7 +74,10 @@ export function approvalHeadline(request: ApprovalHeadlineInput): ApprovalHeadli
     if (paths.length > 0 && paths.length === grants.length) return pathHeadline(request, paths);
     const operations = grants.filter((grant) => grant.operation !== undefined);
     if (operations.length === 1 && grants.length === 1) {
-        return { question: operationQuestion(operations[0]!.operation!, request.input), commandOpen: false };
+        return {
+            question: operationQuestion(operations[0]!.operation!, request.input),
+            commandOpen: approvalDetailField(request.tool) !== undefined,
+        };
     }
     if (grants.length === 1 && grants[0]!.executable !== undefined && grants[0]!.verb !== "read"
         && grants[0]!.verb !== "write" && grants[0]!.verb !== "delete") {

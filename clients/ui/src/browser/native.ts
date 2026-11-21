@@ -1,7 +1,7 @@
-import type { BrowserBounds, BrowserState } from "./native-types.ts";
+import type { BrowserBounds, BrowserHandoffAnswer, BrowserState } from "./native-types.ts";
 import { browserSlots } from "./slots.ts";
 
-type NativeValue = string | number | boolean | null | BrowserBounds;
+type NativeValue = string | number | boolean | null | BrowserBounds | BrowserHandoffAnswer;
 
 let sent = 0;
 let applied = 0;
