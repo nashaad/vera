@@ -62,7 +62,7 @@ export function createUpdateStore(bridgeOf: () => UpdateBridge | undefined): Upd
 const store = createUpdateStore(() => (typeof window === "undefined" ? undefined : window.veraDesktop));
 
 export function useUpdateState(): UpdateState {
-    return useSyncExternalStore(store.subscribe, store.current);
+    return useSyncExternalStore(store.subscribe, store.current, store.current);
 }
 
 export function actOnUpdate(action: UpdateAction): void {

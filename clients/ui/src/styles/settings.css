@@ -7,6 +7,7 @@
 }
 
 .settings-rail {
+    position: relative;
     flex: 0 0 calc(var(--vera-space) * 48);
     padding: calc(var(--vera-space) * 5.5) calc(var(--vera-space) * 2.5);
     overflow-y: auto;
@@ -49,11 +50,15 @@
     padding-inline: calc(var(--vera-space) * 4);
 }
 
+.rail-search-slot {
+    position: relative;
+    margin: 0 calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2.5);
+}
+
 .rail-search {
     display: flex;
     align-items: center;
     gap: calc(var(--vera-space) * 2);
-    margin: 0 calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2.5);
     padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2.25);
     color: var(--vera-text-disabled);
     background: var(--vera-surface-input);
@@ -145,10 +150,144 @@
     font-size: var(--vera-font-size-label);
 }
 
+.rail-results {
+    position: absolute;
+    z-index: 3;
+    top: calc(100% + var(--vera-space));
+    right: 0;
+    left: 0;
+    max-height: calc(var(--vera-space) * 100);
+    overflow-y: auto;
+    padding: var(--vera-space) 0;
+    background: var(--vera-surface-menu);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+    box-shadow: var(--vera-shadow);
+}
+
+.rail-result {
+    display: flex;
+    align-items: flex-start;
+    gap: calc(var(--vera-space) * 2);
+    width: 100%;
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2.25);
+    color: var(--vera-text);
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius);
+    cursor: pointer;
+}
+
+.rail-result:hover,
+.rail-result[data-active="true"] {
+    background: var(--vera-surface-hover);
+}
+
+.rail-result[aria-selected="true"] {
+    background: var(--vera-surface-selected);
+}
+
+.rail-result .rail-icon {
+    margin-top: calc(var(--vera-space) / 4);
+}
+
+.rail-result-body {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.rail-result-name {
+    overflow: hidden;
+    font-size: var(--vera-font-size);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rail-result-section {
+    overflow: hidden;
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .settings-main {
+    position: relative;
     flex: 1 1 auto;
     min-width: 0;
     overflow-y: auto;
+}
+
+/* The pick after a search: the row keeps an accent outline and shade, and one sheen crosses it. */
+[data-search-hit="true"] {
+    position: relative;
+    border-radius: var(--vera-radius-lg);
+    outline: thin solid var(--vera-accent);
+    outline-offset: calc(var(--vera-space) / -4);
+}
+
+.setting[data-search-hit="true"] {
+    background: color-mix(in srgb, var(--vera-accent) 12%, var(--vera-surface-raised));
+}
+
+.provider-card-row[data-search-hit="true"] {
+    background: color-mix(in srgb, var(--vera-accent) 12%, transparent);
+}
+
+/* The sheen waits for data-sheen, which the row gets only once it is centered and still. */
+[data-search-hit="true"][data-sheen]::after {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background-image: linear-gradient(
+        115deg,
+        transparent 32%,
+        color-mix(in srgb, var(--vera-accent) 16%, transparent) 43%,
+        color-mix(in srgb, var(--vera-accent) 38%, transparent) 50%,
+        color-mix(in srgb, var(--vera-accent) 16%, transparent) 57%,
+        transparent 68%
+    );
+    background-repeat: no-repeat;
+    background-size: 300% 100%;
+    background-position: 100% 0;
+    animation: settings-sheen-a var(--vera-motion-long) 1;
+}
+
+[data-search-hit="true"][data-sheen="b"]::after {
+    animation-name: settings-sheen-b;
+}
+
+@keyframes settings-sheen-a {
+    from {
+        background-position: 100% 0;
+    }
+    to {
+        background-position: 0% 0;
+    }
+}
+
+@keyframes settings-sheen-b {
+    from {
+        background-position: 100% 0;
+    }
+    to {
+        background-position: 0% 0;
+    }
+}
+
+[data-reduce-motion="true"] [data-search-hit="true"]::after {
+    content: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    [data-search-hit="true"][data-sheen]::after {
+        content: none;
+    }
 }
 
 .settings-col {

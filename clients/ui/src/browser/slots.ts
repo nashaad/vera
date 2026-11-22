@@ -64,7 +64,7 @@ export const browserSlots = {
 };
 
 export function useSlotStore(): SlotStore {
-    return useSyncExternalStore(browserSlots.subscribe, browserSlots.get);
+    return useSyncExternalStore(browserSlots.subscribe, browserSlots.get, browserSlots.get);
 }
 
 export function useSlot(key: string): Slot {

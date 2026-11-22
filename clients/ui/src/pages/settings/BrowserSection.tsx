@@ -20,7 +20,7 @@ interface BrowserSettingsControlProps {
 export function BrowserSettingsControl({ behavior, defaultBrowser, available, onChange, onDefaultBrowserChange }: BrowserSettingsControlProps) {
     return (
         <>
-            <SettingRow name="When Browser tools are off">
+            <SettingRow id="browser.tools-off" name="When Browser tools are off">
                 <Segmented
                     label="When Browser tools are off"
                     options={BEHAVIORS}
@@ -30,7 +30,7 @@ export function BrowserSettingsControl({ behavior, defaultBrowser, available, on
                     onChange={onChange}
                 />
             </SettingRow>
-            <SettingRow name="Default browser">
+            <SettingRow id="browser.default-browser" name="Default browser">
                 <Segmented
                     label="Default browser"
                     options={DEFAULT_BROWSERS}

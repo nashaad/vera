@@ -103,6 +103,7 @@
         "row-height": "31px",
         "motion": "120ms ease",
         "motion-slow": "520ms ease-out",
+        "motion-long": "900ms ease-out",
         "motion-loop": "1600ms linear"
     }
 }

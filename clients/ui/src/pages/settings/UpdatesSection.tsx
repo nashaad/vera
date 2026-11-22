@@ -17,6 +17,7 @@ export function UpdatesPanel({ state }: { readonly state: UpdateState }) {
             <h1>Updates</h1>
             <p className="settings-lede">Choose how Vera finds and installs new versions. One update moves the host and the desktop app together.</p>
             <SettingRow
+                id="updates.new-versions"
                 name="New versions"
                 description="Ask shows a chip in the sidebar when a new version is ready. Automatic downloads it in the background; you still choose when to switch. Off never checks."
             >
@@ -29,7 +30,7 @@ export function UpdatesPanel({ state }: { readonly state: UpdateState }) {
                 />
             </SettingRow>
             {state.modeProblem === undefined ? null : <p className="dialog-note" data-tone="danger">Could not save the setting: {state.modeProblem}</p>}
-            <SettingRow name="Check now" description={updateStatusLine(state)}>
+            <SettingRow id="updates.check-now" name="Check now" description={updateStatusLine(state)}>
                 <button type="button" className="ghost-btn" data-action="check" disabled={!canCheckNow(state)} onClick={() => actOnUpdate({ kind: "check" })}>
                     <RefreshIcon />
                     Check now

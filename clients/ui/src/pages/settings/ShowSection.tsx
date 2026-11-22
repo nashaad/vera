@@ -18,7 +18,7 @@ export function ShowSection() {
                 <Fragment key={group}>
                     <h2 className="settings-sec">{SHOW_GROUP_TITLES[group]}</h2>
                     {rowsIn(group).map(({ key, name, description, spec }) => (
-                        <SettingRow key={key} name={name} description={description}>
+                        <SettingRow key={key} id={`show.${key}`} name={name} description={description}>
                             <Segmented
                                 label={name}
                                 options={choicesFor(spec)}

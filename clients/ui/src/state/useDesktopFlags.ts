@@ -52,7 +52,7 @@ export async function chooseDesktopFlag(key: FlagKey, choice: FlagChoice): Promi
 }
 
 export function useDesktopFlags(): DesktopFlags {
-    return useSyncExternalStore(subscribe, () => state.flags);
+    return useSyncExternalStore(subscribe, () => state.flags, () => state.flags);
 }
 
 // Reads the flags once when the window opens; false until they are in, so the first draw never shows then hides reasoning.
