@@ -3,9 +3,8 @@
 // The test reads the rollup, the Review, Plan and Files views, quotes a reply, rewinds one prompt and compacts,
 // then works the sidebar row's menu.
 
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
@@ -15,14 +14,12 @@ const BUILT = "The nest is built.";
 const SECOND = "The crow is resting.";
 const SUMMARY = "Built a nest and rested.";
 const PLAN = "# Crow plan\n\n- [x] Write the nest\n- [ ] Line the nest\n";
-const SCRATCH_ROOT = join(realpathSync(tmpdir()), "vera");
 const requests = [];
 let calls = 0;
 
 // The session's scratch folder is named in the system prompt; a checklist written there becomes the plan.
 function scratchIn(raw) {
-    const escaped = SCRATCH_ROOT.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
-    return new RegExp(`${escaped}/[A-Za-z0-9_-]+`).exec(raw)?.[0];
+    return /scratch directory: ([^\\\s"]+)/.exec(raw)?.[1];
 }
 
 // One tool call per step of the EDIT prompt, chosen by how many tool results follow it.
