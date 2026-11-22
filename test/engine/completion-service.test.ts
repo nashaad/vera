@@ -237,7 +237,7 @@ test("cancellation is reported as unavailable, not as an answer", async () => {
     ).rejects.toBeInstanceOf(CompletionUnavailableError);
 });
 
-test("a model whose window cannot hold the request is skipped, and says so", async () => {
+test("a model whose window cannot hold the request is not asked, and says so", async () => {
     // Sending it anyway spends a round trip to be told what the catalog
     // already knows, at the moment the session most needs the answer.
     const seen: string[] = [];
@@ -265,9 +265,9 @@ test("a model whose window cannot hold the request is skipped, and says so", asy
     expect(result.model).toBe("large");
 });
 
-test("a window skip is marked room related so a smaller request can retry", async () => {
+test("a room refusal is marked room related so a smaller request can retry", async () => {
     // The caller's boundary attempts read this: a shorter request is exactly what makes
-    // the skipped candidate viable, so this failure is not the end of the road.
+    // the refused candidate viable, so this failure is not the end of the road.
     const complete = createRoutedCompletionService(
         adapter(() => assistant("unused")),
         { models: [{ model: "small", contextWindow: 10 }] },
@@ -281,7 +281,7 @@ test("a window skip is marked room related so a smaller request can retry", asyn
     expect((error as CompletionUnavailableError).roomRelated).toBe(true);
 });
 
-test("a route where only some candidates were skipped is not room related", async () => {
+test("a route where only some candidates were refused for room is not room related", async () => {
     // The candidate that was actually tried will fail the same way on a
     // shorter span, so a further boundary attempt gains nothing.
     const complete = createRoutedCompletionService(
@@ -320,24 +320,29 @@ test("a failure that is not about room is not marked room related", async () => 
     expect((error as CompletionUnavailableError).roomRelated).toBe(false);
 });
 
-test("a route of windows that are all too small names the sizes it refused", async () => {
+test("a route of windows that are all too small names the numbers it refused on", async () => {
     const service = createRoutedCompletionService(
         adapter(() => assistant("should not happen")),
         { models: [{ model: "small", contextWindow: 10 }] },
     );
 
-    await expect(service({
+    const error = await service({
         systemPrompt: "s",
         messages: [{
             role: "user",
             content: [{ type: "text", text: "x".repeat(4_000) }],
         }],
-    }, new AbortController().signal)).rejects.toThrow(
-        /small skipped: the request is about \d+ tokens .*window is 10/,
+    }, new AbortController().signal).then(() => undefined, (thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(CompletionUnavailableError);
+    const message = (error as Error).message;
+    expect(message).toMatch(
+        /small was not asked: a request of about \d+ tokens leaves 0 of its 10-token window/,
     );
+    expect(message).toContain("under the 2 it needs");
 });
 
-test("a model with no recorded window is tried rather than skipped", async () => {
+test("a model with no recorded window is tried rather than refused", async () => {
     // Undefined is not a small window. A locally served model nobody has an
     // entry for must still be reachable.
     const service = createRoutedCompletionService(
@@ -354,6 +359,114 @@ test("a model with no recorded window is tried rather than skipped", async () =>
     }, new AbortController().signal);
 
     expect(result.model).toBe("unknown");
+});
+
+test("a window narrower than the output ceiling is asked with the room that is left", async () => {
+    // The ceiling is a cap, not the answer: a 32,000-token window cannot hold
+    // a 32,768-token answer, so the answer is fitted to the room.
+    let requested = 0;
+    const service = createRoutedCompletionService(
+        adapter((request) => {
+            requested = request.maxTokens ?? 0;
+            return assistant("summary");
+        }),
+        {
+            models: [{ model: "crow-0", contextWindow: 32_000 }],
+            maxOutputTokens: 32_768,
+        },
+    );
+
+    const result = await service(
+        { systemPrompt: "s", messages: [] },
+        new AbortController().signal,
+    );
+
+    expect(result.text).toBe("summary");
+    expect(requested).toBe(32_000 - 1);
+});
+
+test("less room than the floor leaves a candidate unasked, and the reason names its numbers", async () => {
+    const service = createRoutedCompletionService(
+        adapter(() => assistant("should not happen")),
+        { models: [{ model: "small", contextWindow: 32_000 }] },
+    );
+
+    await expect(service({
+        systemPrompt: "x".repeat(4 * 31_800),
+        messages: [],
+    }, new AbortController().signal)).rejects.toThrow(
+        "small was not asked: a request of about 31800 tokens leaves 200 "
+            + "of its 32000-token window for the answer, under the 4096 it needs",
+    );
+});
+
+test("a small window scales the floor to a quarter of the window", async () => {
+    const requested: number[] = [];
+    const ask = (promptTokens: number) => createRoutedCompletionService(
+        adapter((request) => {
+            requested.push(request.maxTokens ?? 0);
+            return assistant("ok");
+        }),
+        { models: [{ model: "small", contextWindow: 8_000 }] },
+    )(
+        { systemPrompt: "x".repeat(4 * promptTokens), messages: [] },
+        new AbortController().signal,
+    );
+
+    await expect(ask(6_500)).rejects.toThrow(
+        "leaves 1500 of its 8000-token window for the answer, under the 2000 it needs",
+    );
+    await ask(5_500);
+    expect(requested).toEqual([2500]);
+});
+
+test("a short call allowance keeps a candidate whose room would otherwise fall under the floor", async () => {
+    // 1,000 tokens of room is under the 2,000 the window would set, but the
+    // call only wants 200 tokens, so it still fits.
+    let requested: number | undefined;
+    const service = createRoutedCompletionService(
+        adapter((request) => {
+            requested = request.maxTokens;
+            return assistant("ok");
+        }),
+        { models: [{ model: "small", contextWindow: 8_000 }] },
+    );
+
+    await service({
+        systemPrompt: "x".repeat(4 * 7_000),
+        messages: [],
+        maxTokens: 200,
+    }, new AbortController().signal);
+
+    expect(requested).toBe(200);
+});
+
+test("the output allowance retry compares against the room-fitted allowance", async () => {
+    const requested: number[] = [];
+    const service = createRoutedCompletionService(
+        adapter((request) => {
+            requested.push(request.maxTokens ?? 0);
+            throw new ProviderFailureError({
+                kind: "invalid_request",
+                message: "max_tokens too large",
+                allowance: {
+                    kind: "max_tokens",
+                    requested: 2_000,
+                    available: 2_500,
+                },
+            } as ProviderFailure, undefined);
+        }),
+        {
+            models: [{ model: "small", contextWindow: 8_000 }],
+            maxOutputTokens: 32_768,
+        },
+    );
+
+    await expect(service(
+        { systemPrompt: "x".repeat(24_000), messages: [] },
+        new AbortController().signal,
+    )).rejects.toThrow("max_tokens too large");
+    expect(requested).toEqual([2_000]);
 });
 
 test("a deadline is reported as a timeout, not as the model's stop reason", async () => {

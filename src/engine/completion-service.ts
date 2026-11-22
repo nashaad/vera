@@ -50,6 +50,9 @@ export interface CompletionServiceSettings {
 // How long a call may go without a stream event. Some providers send nothing while the model reasons.
 export const COMPLETION_IDLE_TIMEOUT_MS = 120_000;
 export const COMPLETION_MAX_OUTPUT_TOKENS = 8_192;
+// The floor is this, also capped at a quarter of the window and at the call allowance,
+// so small windows and short answers still qualify.
+export const COMPLETION_OUTPUT_FLOOR_TOKENS = 4_096;
 
 export class CompletionUnavailableError extends Error {
     readonly roomRelated: boolean;
@@ -87,34 +90,43 @@ export function createRoutedCompletionService(
             : request;
 
         const reasons: string[] = [];
-        let skippedForWindow = 0;
+        let refusedForRoom = 0;
         const requestTokens = measureRequest(safeRequest);
         for (const candidate of settings.models) {
-            if (
-                candidate.contextWindow !== undefined
-                && requestTokens + maxTokens > candidate.contextWindow
-            ) {
-                skippedForWindow += 1;
-                reasons.push(
-                    `${candidate.model} skipped: the request is about `
-                        + `${requestTokens} tokens by Vera's own estimate, `
-                        + `which reads low against a real tokenizer, and its `
-                        + `window is ${candidate.contextWindow}`,
+            const window = candidate.contextWindow;
+            let candidateMaxTokens = maxTokens;
+            if (window !== undefined) {
+                const room = window - requestTokens;
+                const floor = Math.min(
+                    COMPLETION_OUTPUT_FLOOR_TOKENS,
+                    Math.floor(window / 4),
+                    maxTokens,
                 );
-                continue;
+                if (room < floor) {
+                    refusedForRoom += 1;
+                    reasons.push(
+                        `${candidate.model} was not asked: a request of about `
+                            + `${requestTokens} tokens leaves ${Math.max(0, room)} `
+                            + `of its ${window}-token window for the answer, `
+                            + `under the ${floor} it needs (Vera's estimate `
+                            + `reads low)`,
+                    );
+                    continue;
+                }
+                candidateMaxTokens = Math.min(maxTokens, room);
             }
             let outcome = await attemptWithRetries(
-                adapter, candidate, safeRequest, maxTokens, signal, idleMs,
-                settings.retryFailures === true,
+                adapter, candidate, safeRequest, candidateMaxTokens, signal,
+                idleMs, settings.retryFailures === true,
             );
             if (
                 outcome.kind === "failed"
                 && outcome.allowance !== undefined
-                && outcome.allowance < maxTokens
+                && outcome.allowance < candidateMaxTokens
             ) {
                 outcome = await attemptWithRetries(
-                    adapter, candidate, safeRequest, outcome.allowance, signal, idleMs,
-                    settings.retryFailures === true,
+                    adapter, candidate, safeRequest, outcome.allowance, signal,
+                    idleMs, settings.retryFailures === true,
                 );
             }
             if (outcome.kind === "answered") {
@@ -126,7 +138,7 @@ export function createRoutedCompletionService(
             reasons.length === 0
                 ? "The model route produced no answer."
                 : `The model route produced no answer (${reasons.join("; ")}).`,
-            skippedForWindow > 0 && skippedForWindow === settings.models.length,
+            refusedForRoom > 0 && refusedForRoom === settings.models.length,
         );
     };
 }
