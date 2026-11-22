@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { buildItems } from "../../clients/ui/src/customize/catalog.ts";
-import { folderReadOutcome } from "../../clients/ui/src/customize/folderReading.ts";
+import { buildItems, latchedFolder } from "../../clients/ui/src/customize/catalog.ts";
+import { folderReadOutcome, LOADING, readingStartState, type FolderReadState } from "../../clients/ui/src/customize/folderReading.ts";
 import type { FolderCustomizationsAnswer } from "../../clients/ui/src/protocol/bridge.ts";
 
 const ANSWER: FolderCustomizationsAnswer = {
@@ -31,4 +31,30 @@ test("@core a reading read with no session builds the project's items beside the
     expect(items.find((item) => item.name === "plan")).toMatchObject({ kind: "agents", group: "This folder", current: false });
     expect(items.find((item) => item.name === "default")).toMatchObject({ kind: "agents", current: true });
     expect(items.find((item) => item.name === "AGENTS.md")).toMatchObject({ kind: "instructions", group: "This folder" });
+});
+
+test("@core a re-read that starts over a ready list keeps the list until the answer arrives", () => {
+    const ready: FolderReadState = { phase: "ready", reading: ANSWER };
+    expect(readingStartState(ready)).toBe(ready);
+});
+
+test("@core a first read and a read after a failure start from loading", () => {
+    expect(readingStartState(LOADING)).toEqual({ phase: "loading" });
+    expect(readingStartState({ phase: "failed", reason: "The host did not answer." })).toEqual({ phase: "loading" });
+});
+
+test("@core the folder latch keeps its folder when the folder order changes", () => {
+    const first = latchedFolder(undefined, ["/a", "/b"]);
+    expect(first).toBe("/a");
+    expect(latchedFolder(first, ["/b", "/a"])).toBe("/a");
+});
+
+test("@core the folder latch takes the first folder when it had none", () => {
+    expect(latchedFolder(undefined, [])).toBeUndefined();
+    expect(latchedFolder(undefined, ["/c"])).toBe("/c");
+});
+
+test("@core a user pick replaces the latched folder", () => {
+    expect(latchedFolder("/a", ["/b", "/a"])).toBe("/a");
+    expect(latchedFolder("/b", ["/b", "/a"])).toBe("/b");
 });

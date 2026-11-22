@@ -178,6 +178,11 @@ export function folderChoices(rows: readonly SessionRow[], limit: number = FOLDE
     return ordered.slice(0, limit).map(([folder]) => folder);
 }
 
+// The caller stores the result. Falling back to folders[0] only while nothing is stored keeps the folder from following reorders.
+export function latchedFolder(chosen: string | undefined, folders: readonly string[]): string | undefined {
+    return chosen ?? folders[0];
+}
+
 // The parent directory of a path, accepting both slash styles.
 export function dirname(path: string): string {
     const index = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
