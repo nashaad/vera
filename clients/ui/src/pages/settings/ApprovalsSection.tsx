@@ -14,6 +14,7 @@ function FullAccessRow() {
     return (
         <>
             <SettingRow
+                id="approvals.offer-full-access"
                 name="Offer Full access"
                 description="Lists Full access in the approval menus and lets /permissions choose it. Kept in this window's storage."
             >
@@ -57,10 +58,12 @@ export function ApprovalsSection() {
             <h1>Approvals</h1>
             <FullAccessRow />
             <SettingRow
+                id="approvals.default-mode"
                 name="Default approval mode"
                 description="The mode new sessions start in. Set it from a session: open the approval pill under the composer and choose Make this the default for new sessions."
             />
             <SettingRow
+                id="approvals.standing-permissions"
                 name="Standing permissions"
                 description="What Yes, and always allow has allowed in every session, and what Yes, for this chat has allowed in one. Each session's approval pill lists them with a button to remove each."
             />

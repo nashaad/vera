@@ -49,6 +49,7 @@ test("larger text, compact density and reduced motion scale the theme's own valu
     expect(root.properties.get("--vera-row-height")).toBe(`calc(${values["row-height"]} * 0.85)`);
     expect(root.properties.get("--vera-motion")).toBe(`calc(${values.motion} * 0)`);
     expect(root.properties.get("--vera-motion-slow")).toBe(`calc(${values["motion-slow"]} * 0)`);
+    expect(root.properties.get("--vera-motion-long")).toBe(`calc(${values["motion-long"]} * 0)`);
     expect(root.properties.get("--vera-motion-loop")).toBe(`calc(${values["motion-loop"]} * 0)`);
 });
 

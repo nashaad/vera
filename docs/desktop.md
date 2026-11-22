@@ -159,14 +159,29 @@ window.
   it because the host does not serve it, with a note naming where to do it
   instead. A bar and a percentage sum it up, and pills filter by status.
   Tour and Coverage each have a button beside the title that opens the other.
-- Settings has a list of sections on the left with a search box that filters
-  them by name and keywords, and the chosen section on the right. It opens on
-  Appearance. The sections sit under two headings: Settings, and Desktop for
-  what the window keeps itself. When the page is narrow the list shows only
-  each section's icon, with its name on hover, and the search box becomes a
-  search icon. Clicking that icon opens the whole list over the section;
-  Escape, a click outside or picking a section closes it again. A setting's
-  control moves under its description when there is no room beside it.
+- Settings has a list of sections on the left with a search box, and the chosen
+  section on the right. It opens on Appearance. The sections sit under two
+  headings: Settings, and Desktop for what the window keeps itself. Typing in
+  the search box opens a list under it of matching settings and sections; a
+  setting shows its name with its section under it, and a section shows its
+  name alone. Every word you type must appear in the setting's name,
+  description or keywords or its section's name, in any order. Up and Down
+  move through the list, Enter or a click picks one, and Escape clears the box
+  and closes the list. Picking a setting opens its section, scrolls the row to
+  the middle, and gives it an accent outline and a light accent shade while a
+  soft band of accent-tinted light sweeps across the row once, left to right.
+  The row stays in the middle while its section finishes loading, until you
+  scroll. The outline and shade stay until another result or section is picked
+  or Settings is left; picking the same setting again repeats the sweep. With
+  Reduce motion on or the system's reduced motion setting on, the outline and
+  shade appear without the sweep. Picking a section opens it. The full list
+  always stays under the search box, so no section is hidden while you type.
+  When the page is narrow the list shows only each section's icon, with its
+  section's icon, with its name on hover, and the search box becomes a search
+  icon. Clicking that icon opens the whole list over the section, where search
+  works the same way; Escape, a click outside or picking a section closes it
+  again. A setting's control moves under its description when there is no room
+  beside it.
   - Appearance picks the theme, imports a VS Code theme, and sets text size, code size and density (each
     Small or Compact, Default, Large or Comfortable), and has two switches. Reduce
     motion stops the status line's dots and sweep and the fade on new words. Past

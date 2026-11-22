@@ -50,5 +50,5 @@ export function offerFullAccess(on: boolean): void {
 }
 
 export function useFullAccessOffered(): boolean {
-    return useSyncExternalStore(subscribe, fullAccessOffered);
+    return useSyncExternalStore(subscribe, fullAccessOffered, fullAccessOffered);
 }

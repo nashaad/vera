@@ -2,6 +2,7 @@ import { useState, type MouseEvent } from "react";
 
 import type { DesktopBridge, ProviderStatus } from "../../protocol/bridge.ts";
 import { availableProviderLabel, connectedProviderLabel, customProviderHost } from "./provider-labels.ts";
+import { useSearchHit } from "./RowHighlight.tsx";
 
 interface ProviderCardsProps {
     readonly bridge: DesktopBridge;
@@ -15,6 +16,7 @@ interface ProviderCardsProps {
 export function ProviderCards({ bridge, providers, runningProvider, onConnect, onCustom, onReload }: ProviderCardsProps) {
     const connected = providers.filter((provider) => provider.connected);
     const available = providers.filter((provider) => !provider.connected);
+    const customHit = useSearchHit("providers.custom");
 
     return (
         <div className="provider-cards">
@@ -42,7 +44,7 @@ export function ProviderCards({ bridge, providers, runningProvider, onConnect, o
                         <span className="provider-card-action"><span aria-hidden="true">+</span> Connect</span>
                     </button>
                 ))}
-                <button type="button" className="provider-card-row provider-card-custom" onClick={onCustom}>
+                <button type="button" className="provider-card-row provider-card-custom" data-setting-id="providers.custom" {...customHit} onClick={onCustom}>
                     <span className="provider-card-main">
                         <span className="provider-card-name">Custom provider</span>
                         <span className="provider-card-label">Custom</span>

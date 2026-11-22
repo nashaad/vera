@@ -31,7 +31,7 @@ const DENSITY_FACTOR: Readonly<Record<Density, number>> = { compact: 0.85, defau
 const TEXT_TOKENS: readonly ValueToken[] = ["font-size", "font-size-label", "font-size-body", "font-size-chat"];
 const SPACE_TOKENS: readonly ValueToken[] = ["space", "row-height"];
 
-const MOTION_TOKENS: readonly ValueToken[] = ["motion", "motion-slow", "motion-loop"];
+const MOTION_TOKENS: readonly ValueToken[] = ["motion", "motion-slow", "motion-long", "motion-loop"];
 
 const STORAGE_KEY = "vera.appearance";
 

@@ -103,6 +103,7 @@
         "row-height": "34px",
         "motion": "0ms linear",
         "motion-slow": "0ms linear",
+        "motion-long": "0ms linear",
         "motion-loop": "0ms linear"
     }
 }
