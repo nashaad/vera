@@ -38,7 +38,7 @@ import type { CatalogListResult, CatalogPreviewResult } from "../../ui/src/proto
 import type { ExtensionChangeResult, ExtensionPreviewResult } from "../../ui/src/protocol/extensions.ts";
 import type { ExtensionCommandResult } from "../../ui/src/protocol/extension-commands.ts";
 import type { ThemeChoice } from "../../ui/src/theme/tokens.ts";
-import type { BrowserBounds, BrowserHandoffAnswer, BrowserState } from "../../ui/src/browser/native-types.ts";
+import type { BrowserBounds, BrowserHandoffAnswer, BrowserState, BrowserToolsApproval } from "../../ui/src/browser/native-types.ts";
 import { CHANNELS } from "./channels.ts";
 
 const bridge: DesktopBridge = {
@@ -176,7 +176,7 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.folderCustomizations, workspace)) as FolderCustomizationsResult,
     readAnnexPages: async () => (await ipcRenderer.invoke(CHANNELS.annexPages)) as AnnexPagesResult,
     openAnnexPage: async (path: string) => (await ipcRenderer.invoke(CHANNELS.annexOpen, path)) === true,
-    browser: async (command: string, value?: string | number | boolean | null | BrowserBounds | BrowserHandoffAnswer) =>
+    browser: async (command: string, value?: string | number | boolean | null | BrowserBounds | BrowserHandoffAnswer | BrowserToolsApproval) =>
         (await ipcRenderer.invoke(CHANNELS.browser, command, value)) as BrowserState,
     revealFolder: async (folder: string) => (await ipcRenderer.invoke(CHANNELS.folderReveal, folder)) === true,
     onEvent: (listener: (event: DesktopEvent) => void) => {

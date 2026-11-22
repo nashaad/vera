@@ -31,7 +31,7 @@ describe("built-in browser requests", () => {
         expect(evaluate.description).toBe(EVAL_DESCRIPTION);
         expect(evaluate.permissionOperation).toBe("desktop.browser.eval");
         expect(evaluate.parallel).toBe(false);
-        expect(evaluate.timeoutMs).toBe(30_000);
+        expect(evaluate.timeoutMs).toBe(630_000);
         expect(evaluate.inputSchema.required).toEqual(["script"]);
         expect(evaluate.inputSchema.additionalProperties).toBe(false);
         const evaluateProperties = evaluate.inputSchema.properties as { script?: unknown; timeout_ms?: unknown };
@@ -92,15 +92,15 @@ describe("built-in browser requests", () => {
         try {
             const registry = await startExtensionRegistry(options);
             try {
-                expect(await registry.handleRequest("vera.builtin-browser", "settings", {}, signal)).toEqual({ enabled: false });
+                expect(await registry.handleRequest("vera.builtin-browser", "settings", {}, signal)).toEqual({ enabled: false, offBehavior: "ask" });
                 expect(existsSync(newSettings)).toBe(false);
-                expect(await registry.handleRequest("vera.builtin-browser", "settings", { enabled: true }, signal)).toEqual({ enabled: true });
-                expect(JSON.parse(readFileSync(newSettings, "utf8"))).toEqual({ enabled: true });
+                expect(await registry.handleRequest("vera.builtin-browser", "settings", { enabled: true }, signal)).toEqual({ enabled: true, offBehavior: "ask" });
+                expect(JSON.parse(readFileSync(newSettings, "utf8"))).toEqual({ enabled: true, offBehavior: "ask" });
                 expect(JSON.parse(readFileSync(oldSettings, "utf8"))).toEqual({ enabled: true });
             } finally { await registry.close(); }
             const restarted = await startExtensionRegistry(options);
             try {
-                expect(await restarted.handleRequest("vera.builtin-browser", "settings", {}, signal)).toEqual({ enabled: true });
+                expect(await restarted.handleRequest("vera.builtin-browser", "settings", {}, signal)).toEqual({ enabled: true, offBehavior: "ask" });
             } finally { await restarted.close(); }
         } finally { rmSync(home, { recursive: true, force: true }); }
     });
@@ -231,15 +231,16 @@ describe("built-in browser requests", () => {
             expect(tool!.description).toContain("If a tool named browser is also available, ask the user once which browser to use before the first call, and keep the answer for this conversation.");
             const signal = new AbortController().signal;
             const settings = handlers.get("settings")!;
-            expect(await settings({}, { signal })).toEqual({ enabled: false });
+            expect(await settings({}, { signal })).toEqual({ enabled: false, offBehavior: "ask" });
+            await settings({ offBehavior: "refuse" }, { signal });
             const disabled = await tool!.run({ input: { action: "read" }, workspace: root, signal });
             expect(disabled).toMatchObject({ isError: true, presentation: { kind: "tool_notice", action: "open_browser" } });
-            expect(await settings({ enabled: true }, { signal })).toEqual({ enabled: true });
-            expect(JSON.parse(readFileSync(join(root, "settings.json"), "utf8"))).toEqual({ enabled: true });
+            expect(await settings({ enabled: true }, { signal })).toEqual({ enabled: true, offBehavior: "refuse" });
+            expect(JSON.parse(readFileSync(join(root, "settings.json"), "utf8"))).toEqual({ enabled: true, offBehavior: "refuse" });
             expect(statSync(join(root, "settings.json")).mode & 0o777).toBe(0o600);
             activate(api);
             tool = tools.get("builtin_browser")!;
-            expect(await handlers.get("settings")!({}, { signal })).toEqual({ enabled: true });
+            expect(await handlers.get("settings")!({}, { signal })).toEqual({ enabled: true, offBehavior: "refuse" });
             const absent = await tool!.run({ input: { action: "read" }, workspace: root, signal });
             expect(absent.output).toContain("desktop window");
             expect(absent.isError).toBe(true);
@@ -293,6 +294,7 @@ describe("built-in browser requests", () => {
             const signal = new AbortController().signal;
             const settings = handlers.get("settings")!;
 
+            await settings({ offBehavior: "refuse" }, { signal });
             expect(await evaluate.run({ input: { script: "return 1" }, workspace: root, signal })).toMatchObject({ isError: true, presentation: { kind: "tool_notice", action: "open_browser" } });
             await settings({ enabled: true }, { signal });
             expect(await browser.run({ input: { action: "eval", script: "return 1" }, workspace: root, signal })).toEqual({ output: "Invalid browser request.", isError: true });

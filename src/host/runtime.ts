@@ -777,6 +777,9 @@ async function startHostRuntime(
         ...(processObservations === undefined ? {} : { processObservations }),
         ...(credentials === undefined ? {} : { hostCredentialLease: credentials.lease }),
         ...(options.processWorker === true ? { onPreferencesChanged: () => announceGlobalChange("preferences") } : {}),
+        onToolDescriptionChanged: (extensionId, name, description) => {
+            inProcessWorker?.notifyToolDescriptionChanged(extensionId, name, description);
+        },
         ...(options.processWorker === true ? { poolHost: true } : {}),
         ...(remoteExtensions === undefined ? {} : { remoteExtensions }),
         config: options.config,

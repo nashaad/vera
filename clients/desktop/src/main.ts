@@ -762,7 +762,7 @@ ipcMain.handle(CHANNELS.annexOpen, async (event, path: unknown): Promise<boolean
     return true;
 });
 ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown) => {
-    if (!fromWindow(event) || browserPane === undefined) return { tabs: [], active: null, toolsEnabled: false, toolsAvailable: false };
+    if (!fromWindow(event) || browserPane === undefined) return { tabs: [], active: null, toolsEnabled: false, toolsAvailable: false, toolsOffBehavior: "ask", defaultBrowser: "ask" };
     const pane = browserPane;
     const previousActive = pane.state().active;
     let opened: number | undefined;
@@ -781,7 +781,19 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
         const url = pane.current()?.getURL();
         if (url !== undefined && /^https?:\/\//.test(url)) await shell.openExternal(url);
     }
-    if (command === "tools" && typeof value === "boolean") await browserGateway?.settings(value);
+    if (command === "tools" && typeof value === "boolean") await browserGateway?.settings({ enabled: value });
+    if (command === "toolsOffBehavior" && (value === "ask" || value === "refuse")) {
+        await browserGateway?.settings({ offBehavior: value });
+    }
+    if (command === "defaultBrowser" && (value === "ask" || value === "pane" || value === "chrome")) {
+        await browserGateway?.settings({ defaultBrowser: value });
+    }
+    if (command === "tools-approval" && typeof value === "object" && value !== null && !Array.isArray(value)) {
+        const answer = value as Record<string, unknown>;
+        if (typeof answer.id === "string" && typeof answer.approved === "boolean") {
+            await browserGateway?.answerToolsAsk(answer.id, answer.approved);
+        }
+    }
     if (command === "handoff" && typeof value === "object" && value !== null && !Array.isArray(value)) {
         const answer = value as Record<string, unknown>;
         if (typeof answer.id === "string" && (answer.result === "done" || answer.result === "skipped")) {
@@ -805,7 +817,10 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
         ...pane.state(),
         toolsEnabled: browserGateway?.enabled ?? false,
         toolsAvailable: browserGateway?.available ?? false,
+        toolsOffBehavior: browserGateway?.offBehavior ?? "ask",
+        defaultBrowser: browserGateway?.defaultBrowser ?? "ask",
         ...(browserHandoff?.state() === undefined ? {} : { handoff: browserHandoff.state() }),
+        ...(browserGateway?.pendingToolsAsk === undefined ? {} : { toolsAsk: browserGateway.pendingToolsAsk }),
         ...(opened === undefined ? {} : { opened }),
     };
 });

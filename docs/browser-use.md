@@ -31,8 +31,13 @@ Enter to clear it.
 Sites cannot use permission-gated features such as the camera, microphone,
 location or notifications in the pane.
 
-Browser tools are off by default. Turn on Browser tools in the pane to let
-Vera open a page, read it, click, type, scroll, go back and take a screenshot.
+Browser tools are off by default. Turn on Browser tools in the pane to let Vera
+open a page, read it, click, type, scroll, go back and take a screenshot.
+Settings > Browser > When Browser tools are off decides what happens when Vera
+tries to use them while they are off. Ask me, the default, shows a request at
+the bottom of the window: Turn on switches the tools on and continues the call,
+and Not now leaves them off and fails it. With no answer in 10 minutes the call
+fails. Refuse fails the call without asking.
 `read` returns the page as markdown with link URLs and tables. A long page is
 read in parts: the reply gives the offset for the next part.
 Tool calls follow the session's approval mode. You can watch in the pane and
@@ -41,13 +46,17 @@ window in every view: "Browser tools are on. Vera can open, read and act on
 pages in the Browser." Choose Turn off there or turn the switch off in the pane
 to stop further browser tool calls. If the Browser tools connection is
 unavailable, the notice stays visible and both controls are disabled until it
-is available again. A desktop window must be open for the tools to work. If a call fails because
-Browser tools are off, choose Open Browser under the failed run, turn on the
-switch, then ask again. Opening the Browser does not turn the switch on.
+is available again. A desktop window must be open for the tools to work. If a
+call fails because Browser tools are off, choose Open Browser under the failed
+run, turn on the switch, then ask again. Opening the Browser does not turn the
+switch on.
 Vera's own pages, such as Usage, cannot be controlled by `builtin_browser`.
 When the built-in browser and the Chrome extension's `browser` tool are both
-loaded, Vera asks which to use before its first browser call and keeps the
-answer for the conversation.
+loaded, Settings > Browser > Default browser chooses which one Vera uses.
+Ask each chat, the default, asks which to use before its first browser call
+and keeps the answer for the conversation. Browser pane uses
+`builtin_browser` unless you ask for Chrome, and Chrome uses the Chrome tool
+unless you ask for the Browser pane.
 
 If a site needs a human check, Vera can ask you to complete it in the Browser
 pane. The banner shows the reason; choose Done after completing the check, or

@@ -2,6 +2,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
 import { isAbsolute, join, relative } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
 import { startTrial } from "./trial.mjs";
@@ -35,6 +37,15 @@ function hostRequest(socketPath, request, terminal, timeout = 3000) {
         socket.once("error", (error) => finish(error));
         socket.once("end", () => finish(new Error("Host closed before reply")));
     });
+}
+
+const exec = promisify(execFile);
+
+async function externalSettings(trial, patch) {
+    const { socket_path: socket } = JSON.parse(readFileSync(join(trial.home, "runtime", "host.json"), "utf8"));
+    const script = `import { requestExtensionThroughHost } from "./src/host/extension-request-client.ts";
+        await requestExtensionThroughHost(process.argv[1], "vera.builtin-browser", "settings", JSON.parse(process.argv[2]), AbortSignal.timeout(5000));`;
+    await exec("bun", ["-e", script, socket, JSON.stringify(patch)], { cwd: trial.root, timeout: 10_000 });
 }
 
 async function stopTrialHost(trial) {
@@ -100,6 +111,7 @@ try {
     const page = await app.firstWindow();
     await page.waitForSelector('.app[data-sessions="0"]', { timeout: 45_000 });
     await trial.waitForHost();
+    await externalSettings(trial, { enabled: false, offBehavior: "refuse" });
     const composer = page.locator(".composer-input");
     await composer.fill(prompts[0]);
     await composer.press("Enter");

@@ -23,7 +23,7 @@ test("@core the Browser tools notice follows the enabled setting", () => {
 test("@core shared Browser tools status remains visible across views", () => {
     try {
         for (const enabled of [false, true]) {
-            browserSlots.read({ active: null, tabs: [], toolsEnabled: enabled, toolsAvailable: true });
+            browserSlots.read({ active: null, tabs: [], toolsEnabled: enabled, toolsAvailable: true, toolsOffBehavior: "ask", defaultBrowser: "ask" });
             for (const view of ["conversation", "settings", "browser"]) {
                 const native = browserSlots.get().native;
                 const html = renderToStaticMarkup(createElement("main", null,
@@ -39,6 +39,19 @@ test("@core shared Browser tools status remains visible across views", () => {
     } finally {
         browserSlots.reset();
     }
+});
+
+test("@core the Browser tools request shows its approved wording and choices", () => {
+    const html = renderToStaticMarkup(createElement(BrowserToolsNotice, {
+        enabled: false,
+        available: true,
+        onTurnOff: () => {},
+        toolsAsk: { id: "ask" },
+    }));
+    expect(html).toContain("Vera wants to use the Browser pane. Turn on Browser tools?");
+    expect(html).toContain(">Turn on</button>");
+    expect(html).toContain(">Not now</button>");
+    expect(html).not.toContain("Browser tools are on.");
 });
 
 test("@core the notice stays on when the gateway is unavailable", () => {
