@@ -17,6 +17,31 @@ export interface DesktopMenuItem {
     readonly page?: true;
 }
 
+export interface DesktopWorkerCommand {
+    readonly command: string;
+    readonly title: string;
+    readonly category?: string;
+    readonly when?: string;
+}
+
+export interface DesktopWorkerKeybinding {
+    readonly command: string;
+    readonly key: string;
+    readonly mac?: string;
+    readonly when?: string;
+}
+
+export interface DesktopWorkerContribution {
+    readonly main: string;
+    readonly commands: readonly DesktopWorkerCommand[];
+    readonly keybindings: readonly DesktopWorkerKeybinding[];
+}
+
+export interface DesktopExtensionDiagnostic {
+    readonly directory: string;
+    readonly problem: string;
+}
+
 export interface DesktopExtensionMenus {
     // Rows in Settings > Appearance.
     readonly appearance: readonly DesktopMenuItem[];
@@ -33,6 +58,9 @@ export interface DesktopExtensionEntry {
     readonly themes: readonly string[];
     readonly hasMain: boolean;
     readonly hasCommands: boolean;
+    readonly hasUnavailableContributions: boolean;
+    // Worker contributions exist only for enabled installed extensions.
+    readonly worker?: DesktopWorkerContribution;
     // Only the commands this window can run, which are those of included extensions that name a task.
     readonly commands: readonly DesktopCommandEntry[];
     readonly menus: DesktopExtensionMenus;
@@ -51,6 +79,7 @@ export interface ExtensionPreview {
     readonly themes: readonly string[];
     readonly hasMain: boolean;
     readonly hasCommands: boolean;
+    readonly hasUnavailableContributions: boolean;
     // The installed version this package would replace.
     readonly replaces?: string;
 }
@@ -59,6 +88,10 @@ export interface ExtensionsState {
     readonly extensions: readonly DesktopExtensionEntry[];
     // Every theme of an enabled extension, ready for the theme picker.
     readonly themes: readonly ImportedThemeSummary[];
+    // Invalid folders omitted from the extension list, capped at 200 entries.
+    readonly diagnostics?: readonly DesktopExtensionDiagnostic[];
+    readonly listingProblem?: string;
+    readonly truncated?: boolean;
 }
 
 export interface ExtensionRefusal {
@@ -72,4 +105,4 @@ export type ExtensionPreviewResult =
     | { readonly ok: true; readonly preview: ExtensionPreview | undefined }
     | ExtensionRefusal;
 
-export type ExtensionChangeResult = ({ readonly ok: true } & ExtensionsState) | ExtensionRefusal;
+export type ExtensionChangeResult = ({ readonly ok: true; readonly replacedId?: string } & ExtensionsState) | ExtensionRefusal;

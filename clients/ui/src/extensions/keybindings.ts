@@ -1,3 +1,5 @@
+import type { NativeShortcut } from "../commands/keys.ts";
+import { parseChord, sameChord, type Chord } from "./chords.ts";
 import { whensOverlap } from "./when-analysis.ts";
 import type { WhenExpression } from "./when.ts";
 
@@ -18,7 +20,63 @@ export interface KeybindingConflict {
     readonly platforms: readonly KeyPlatform[];
 }
 
+// An extension binding on a key the desktop's own shortcuts use. The shell takes that key before the page
+// sees it, so the desktop command keeps it and the binding never runs.
+export interface CoreKeyConflict {
+    readonly binding: ContributedKeybinding;
+    readonly command: string;
+    readonly platforms: readonly KeyPlatform[];
+}
+
 const PLATFORMS: readonly KeyPlatform[] = ["mac", "other"];
+
+const CODE_KEYS: Readonly<Record<string, string>> = {
+    Backspace: "backspace",
+    Delete: "delete",
+    BracketLeft: "[",
+    BracketRight: "]",
+    Comma: ",",
+    Period: ".",
+    Slash: "/",
+    Backslash: "\\",
+    Semicolon: ";",
+    Quote: "'",
+    Backquote: "`",
+    Minus: "-",
+    Equal: "=",
+};
+
+// The chord a native shortcut answers on the platform: Cmd on macOS, Ctrl elsewhere. Undefined when its key has no name here.
+export function nativeChord(shortcut: NativeShortcut, platform: KeyPlatform): Chord | undefined {
+    const named = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(shortcut.code);
+    const key = named === null ? CODE_KEYS[shortcut.code] : (named[1] ?? named[2])!.toLowerCase();
+    if (key === undefined) return undefined;
+    const mac = platform === "mac";
+    return { ctrl: !mac, alt: shortcut.alt, shift: shortcut.shift, meta: mac, key };
+}
+
+export function findCoreKeyConflicts(
+    bindings: readonly ContributedKeybinding[],
+    shortcuts: readonly NativeShortcut[],
+): readonly CoreKeyConflict[] {
+    const found: { binding: ContributedKeybinding; command: string; platforms: KeyPlatform[] }[] = [];
+    for (const platform of PLATFORMS) {
+        const taken = shortcuts.flatMap((shortcut) => {
+            const chord = nativeChord(shortcut, platform);
+            return chord === undefined ? [] : [{ command: shortcut.command, chord }];
+        });
+        for (const binding of bindings) {
+            const chord = parseChord(platform === "mac" ? binding.mac ?? binding.key : binding.key);
+            if (typeof chord === "string") continue;
+            const core = taken.find((entry) => sameChord(entry.chord, chord));
+            if (core === undefined) continue;
+            const existing = found.find((conflict) => conflict.binding === binding && conflict.command === core.command);
+            if (existing === undefined) found.push({ binding, command: core.command, platforms: [platform] });
+            else existing.platforms.push(platform);
+        }
+    }
+    return found;
+}
 
 // Keys compare without case or spacing; the stored string is never changed.
 function effectiveKey(binding: ContributedKeybinding, platform: KeyPlatform): string {

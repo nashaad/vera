@@ -7,10 +7,19 @@ export const LIST_FAILED = "Vera could not read the desktop extensions.";
 export const CHANGE_FAILED = "Vera could not change that extension.";
 export const PACKAGE_UNREAD = "Vera could not read that package.";
 
+let changeVersion = 0;
+let lastChange: ExtensionChangeResult | undefined;
+
+function listingNote(result: Extract<ExtensionChangeResult, { ok: true }>): string | undefined {
+    return result.listingProblem ?? (result.truncated ? "More extension folders exist than are loaded." : undefined);
+}
+
 export async function readExtensions(bridge: DesktopBridge): Promise<ExtensionChangeResult> {
+    const version = changeVersion;
     try {
         const result = await bridge.listDesktopExtensions();
-        if (result.ok) setDesktopExtensions(result.extensions);
+        if (version !== changeVersion && lastChange !== undefined) return lastChange;
+        if (result.ok) setDesktopExtensions(result.extensions, undefined, result.diagnostics, listingNote(result));
         return result;
     } catch {
         return { ok: false, reason: LIST_FAILED };
@@ -28,7 +37,9 @@ async function change(request: () => Promise<ExtensionChangeResult>): Promise<Ex
     try {
         const result = await request();
         if (result.ok) {
-            setDesktopExtensions(result.extensions);
+            changeVersion += 1;
+            lastChange = result;
+            setDesktopExtensions(result.extensions, result.replacedId, result.diagnostics, listingNote(result));
             applyThemeList(result.themes);
         }
         return result;

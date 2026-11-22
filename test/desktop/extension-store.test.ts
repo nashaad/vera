@@ -41,7 +41,7 @@ test("@core a committed extension is listed, and its themes are keyed by the ext
     const store = storeFor(home);
     install(store, "crow.pack", "1.2.0", [CROW, { label: "Crow Day", name: "Crow Day" }]);
     expect(store.entries()).toEqual([
-        { id: "crow.pack", version: "1.2.0", themes: ["Crow Night", "Crow Day"], hasMain: false, hasCommands: false, commands: [], menus: { appearance: [], theme: [], browser: [] }, included: false, enabled: true },
+        { id: "crow.pack", version: "1.2.0", themes: ["Crow Night", "Crow Day"], hasMain: false, hasCommands: false, hasUnavailableContributions: false, commands: [], menus: { appearance: [], theme: [], browser: [] }, included: false, enabled: true },
     ]);
     expect(store.themes().map((theme) => [theme.slug, theme.name])).toEqual([
         ["crow.pack.crow-day", "Crow Day"],
@@ -61,7 +61,7 @@ test("@core an extension of the same id replaces the old version whole", () => {
     const store = storeFor(home);
     install(store, "crow.pack", "1.0.0", [CROW, { label: "Crow Day", name: "Crow Day" }]);
     const result = store.commit(staged(store, themeFiles("crow.pack", "2.0.0", [{ label: "Crow Dusk", name: "Crow Dusk" }])));
-    expect(result).toEqual({ ok: true, id: "crow.pack", replaced: "1.0.0" });
+    expect(result).toEqual({ ok: true, id: "crow.pack", replaced: "1.0.0", replacedId: "crow.pack" });
     expect(store.entries().map((entry) => [entry.version, entry.themes])).toEqual([["2.0.0", ["Crow Dusk"]]]);
     expect(readdirSync(join(extensionsDirectory(home), "crow.pack", "themes"))).toEqual(["crow-dusk.json"]);
     expect(readdirSync(extensionsDirectory(home))).toEqual(["crow.pack"]);
@@ -314,12 +314,57 @@ test("@core clearStaging deletes unfinished folders and leaves one an install is
     expect(readdirSync(root)).toEqual(["crow.pack"]);
 });
 
+test("@core unavailable task and menu contributions are marked only for installed extensions", () => {
+    const home = scratchDirectory();
+    const included = scratchDirectory();
+    taskExtension(extensionsDirectory(home), "crow.scan");
+    taskExtension(included, "vera.scan");
+    const entries = storeFor(home, included).entries();
+    expect(entries.find((entry) => entry.id === "crow.scan")?.hasUnavailableContributions).toBe(true);
+    expect(entries.find((entry) => entry.id === "vera.scan")?.hasUnavailableContributions).toBe(false);
+});
+
+test("@core truncation counts only names left after reaching the extension cap", () => {
+    const home = scratchDirectory();
+    const root = extensionsDirectory(home);
+    for (let index = 0; index < MAX_EXTENSIONS; index += 1) bareExtension(root, `crow-${String(index).padStart(3, "0")}`);
+    bareExtension(root, "z-last");
+    expect(storeFor(home).listing().truncated).toBe(true);
+
+    const otherHome = scratchDirectory();
+    const otherRoot = extensionsDirectory(otherHome);
+    bareExtension(otherRoot, "crow-only");
+    for (let index = 0; index < MAX_EXTENSIONS; index += 1) mkdirSync(join(otherRoot, `.hidden-${index}`));
+    expect(storeFor(otherHome).listing().truncated).toBe(false);
+});
+
 test("folders that are not extensions are not listed: wrong folder name, bad manifest, files, dot folders", () => {
     const home = scratchDirectory();
     const root = extensionsDirectory(home);
-    writeText(join(root, "crow.pack", "vera.desktop.json"), JSON.stringify({ id: "other.id", version: "1.0.0", engine: DESKTOP_ENGINE }));
+    writeText(join(root, "has space", "vera.desktop.json"), "{}");
+    writeText(join(root, "empty", "placeholder"), "x");
     writeText(join(root, "broken", "vera.desktop.json"), "{");
+    writeText(join(root, "crow.pack", "vera.desktop.json"), JSON.stringify({ id: "other.id", version: "1.0.0", engine: DESKTOP_ENGINE }));
     writeText(join(root, "stray.txt"), "x");
     bareExtension(root, ".hidden");
-    expect(storeFor(home).entries()).toEqual([]);
+    const listing = storeFor(home).listing();
+    expect(listing.entries).toEqual([]);
+    expect(listing.diagnostics).toEqual([
+        { directory: "broken", problem: "vera.desktop.json is not valid JSON." },
+        { directory: "crow.pack", problem: 'The folder name must match the extension id "other.id".' },
+        { directory: "empty", problem: "No vera.desktop.json in this folder." },
+        { directory: "has space", problem: "The folder name is not a valid extension id." },
+    ]);
+    expect(listing.diagnostics.some(({ directory }) => directory === "stray.txt" || directory === ".hidden")).toBe(false);
+});
+
+test("a missing extensions folder has no listing problem, but a file at its path does", () => {
+    const missingHome = scratchDirectory();
+    expect(storeFor(missingHome).listing().listingProblem).toBeUndefined();
+
+    const fileHome = scratchDirectory();
+    const root = extensionsDirectory(fileHome);
+    mkdirSync(join(fileHome, "machine", "desktop"), { recursive: true });
+    writeFileSync(root, "not a folder");
+    expect(storeFor(fileHome).listing().listingProblem).toBe("The extensions folder could not be read.");
 });

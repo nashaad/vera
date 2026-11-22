@@ -10,6 +10,7 @@ import type { ThemeChoice } from "../theme/tokens.ts";
 import type { CatalogListResult, CatalogPreviewResult } from "./extension-catalog.ts";
 import type { ExtensionChangeResult, ExtensionPreviewResult } from "./extensions.ts";
 import type { ExtensionCommandResult } from "./extension-commands.ts";
+import type { ExtensionLogLevel, ExtensionMainResult } from "./desktop-extensions.ts";
 import type { BrowserBounds, BrowserHandoffAnswer, BrowserState } from "../browser/native-types.ts";
 import type { AgentInfo, SkillInfo, SourceInfo } from "../customize/wire.ts";
 import type { UpdateAction, UpdateState } from "./updates.ts";
@@ -415,6 +416,10 @@ export interface DesktopBridge {
     previewCatalogTheme(id: string): Promise<CatalogPreviewResult>;
     // Drops the list the main process holds. Called when Discover closes.
     closeExtensionCatalog(): void;
+    // The main file of an enabled installed extension, read from its own folder.
+    readDesktopExtensionMain(id: string): Promise<ExtensionMainResult>;
+    // Appends one line to the extension's output log under the home.
+    logDesktopExtension(id: string, level: ExtensionLogLevel, text: string): void;
     // The saved layout, or undefined when none is saved or the file was unreadable.
     loadLayout(): Promise<LayoutState | undefined>;
     saveLayout(layout: LayoutState): void;

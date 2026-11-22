@@ -1,4 +1,5 @@
 import { queuePageCapture } from "../composer/page-captures.ts";
+import { readExtensions } from "../customize/desktop-extensions.ts";
 import { activeSession } from "../session/activeSession.ts";
 import { openPicker } from "../overlays/store.ts";
 import type { DesktopBridge } from "../protocol/bridge.ts";
@@ -42,6 +43,7 @@ export async function runExtensionCommand(
         return;
     }
     if (result.ok && result.kind === "closed") return;
+    if (result.ok && result.kind === "themes" && result.imported.length > 0) await readExtensions(bridge);
     const outcome = reportImport(result);
     if (outcome !== undefined) report(outcome);
 }
