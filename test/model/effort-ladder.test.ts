@@ -5,6 +5,7 @@ import {
     EFFORT_LADDER,
     effortWentStale,
     isSessionOnlyEffort,
+    startingEffort,
     supportedLevels,
 } from "../../src/model/effort-ladder.ts";
 
@@ -79,6 +80,35 @@ test("a model with only the requested level has nowhere to coarsen", () => {
 
 test("a level outside the ladder never guesses a neighbour", () => {
     expect(coarsenOneStep("ultra", FULL)).toBeUndefined();
+});
+
+describe("startingEffort", () => {
+    test("a saved level the model offers is kept", () => {
+        expect(startingEffort("low", ["max", "high", "medium", "low", "off"], "high"))
+            .toBe("low");
+    });
+
+    test("a saved level the model lacks takes the model's default", () => {
+        expect(startingEffort("low", ["max", "high", "off"], "high"))
+            .toBe("high");
+    });
+
+    test("without a default, the nearest offered level wins", () => {
+        expect(startingEffort("medium", ["max", "low", "off"]))
+            .toBe("low");
+    });
+
+    test("a model with another level never starts off", () => {
+        expect(startingEffort("max", ["high", "off"])).toBe("high");
+    });
+
+    test("a model with only off starts off", () => {
+        expect(startingEffort("high", ["off"])).toBe("off");
+    });
+
+    test("a model with no levels keeps the saved level", () => {
+        expect(startingEffort("high", [])).toBe("high");
+    });
 });
 
 describe("effortWentStale", () => {

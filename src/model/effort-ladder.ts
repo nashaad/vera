@@ -67,6 +67,23 @@ export function nearestEffort(
     return nearest;
 }
 
+export function startingEffort(
+    saved: string,
+    offered: readonly string[],
+    defaultLevel?: string,
+): string {
+    const levels = [...new Set(offered.filter((level) => level.length > 0))];
+    if (levels.length === 0 || levels.includes(saved)) return saved;
+    if (defaultLevel !== undefined && levels.includes(defaultLevel)) {
+        return defaultLevel;
+    }
+    const notOff = levels.filter((level) => level !== "off");
+    if (notOff.length === 0) return levels[0] ?? saved;
+    return nearestEffort(saved, notOff)
+        ?? notOff[Math.floor(notOff.length / 2)]
+        ?? saved;
+}
+
 export function coarsenOneStep(
     requested: string,
     efforts: EffortMap,
