@@ -8,6 +8,7 @@ import type { ImportedThemeSummary } from "../../../ui/src/theme/imported.ts";
 import type { ThemeService } from "../theme-service.ts";
 import type { InstallReply, InstallTask } from "../extension-install/task-protocol.ts";
 import { readExtension } from "./read-extension.ts";
+import { readExtensionMain } from "../extension-files.ts";
 import { pickerTheme, type ExtensionStore } from "./store.ts";
 
 export type RunInstallTask = (task: InstallTask) => Promise<InstallReply>;
@@ -76,7 +77,7 @@ export class ExtensionService {
             this.store.discard(pending.staging);
             return result;
         }
-        return this.changed();
+        return this.changed(result.replacedId);
     }
 
     cancel(token: string): void {
@@ -106,13 +107,27 @@ export class ExtensionService {
         this.pending = undefined;
     }
 
-    private changed(): ExtensionChangeResult {
+    readMain(id: string): Promise<{ readonly ok: true; readonly source: string } | { readonly ok: false; readonly reason: string }> {
+        const entry = this.store.installedMain(id);
+        if (entry === undefined) return Promise.resolve({ ok: false, reason: `"${id}" is not an enabled installed extension with a main module.` });
+        return readExtensionMain(entry.folder, entry.main);
+    }
+
+    private changed(replacedId?: string): ExtensionChangeResult {
         const result = this.state();
         this.onChange();
-        return result;
+        return { ...result, ...(replacedId === undefined ? {} : { replacedId }) };
     }
 
     private state(): ExtensionChangeResult {
-        return { ok: true, extensions: this.store.entries(), themes: this.themes.load() };
+        const listing = this.store.listing();
+        return {
+            ok: true,
+            extensions: listing.entries,
+            themes: this.themes.load(),
+            diagnostics: listing.diagnostics,
+            ...(listing.listingProblem === undefined ? {} : { listingProblem: listing.listingProblem }),
+            ...(listing.truncated === undefined ? {} : { truncated: listing.truncated }),
+        };
     }
 }

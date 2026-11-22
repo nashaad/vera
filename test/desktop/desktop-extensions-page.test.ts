@@ -70,7 +70,7 @@ afterEach(() => {
 });
 
 function entry(id: string, overrides: Partial<DesktopExtensionEntry> = {}): DesktopExtensionEntry {
-    return { id, version: "1.0.0", themes: ["Crow Night"], hasMain: false, hasCommands: false, commands: [], menus: { appearance: [], theme: [], browser: [] }, included: false, enabled: true, ...overrides };
+    return { id, version: "1.0.0", themes: ["Crow Night"], hasMain: false, hasCommands: false, commands: [], menus: { appearance: [], theme: [], browser: [] }, included: false, enabled: true, ...overrides, hasUnavailableContributions: overrides.hasUnavailableContributions ?? false };
 }
 
 function listed(extensions: DesktopExtensionEntry[], themes: ImportedThemeSummary[]): ExtensionChangeResult {
@@ -226,13 +226,13 @@ test("the section lists each installed extension with its switch and a remove bu
 });
 
 test("@core an extension included with Vera is not listed or counted, so it has no switch to turn off", () => {
-    const importer = entry("vera.vscode-theme-import", { themes: [], hasMain: true, hasCommands: true, included: true });
-    const html = render({ list: { phase: "ready", extensions: [importer, entry("crow.pack", { hasMain: true, hasCommands: true })] } });
+    const importer = entry("vera.vscode-theme-import", { themes: [], hasMain: true, hasCommands: true, hasUnavailableContributions: true, included: true });
+    const html = render({ list: { phase: "ready", extensions: [importer, entry("crow.pack", { hasMain: true, hasCommands: true, hasUnavailableContributions: true })] } });
     expect(html).not.toContain("vera.vscode-theme-import");
     expect(html).not.toContain("Included");
     expect(html).toContain('data-desktop-extension="crow.pack"');
     expect(html).toContain('<span class="section-count">1</span>');
-    expect(html.split("Its commands are not loaded by this version of Vera.")).toHaveLength(2);
+    expect(html.split("Some task, page, or menu contributions are not loaded by this version of Vera.")).toHaveLength(2);
 
     const only = render({ list: { phase: "ready", extensions: [importer] } });
     expect(only).not.toContain("data-desktop-extension=");
@@ -258,14 +258,15 @@ test("a preview shows what the package holds before anything is installed", () =
         themes: ["Crow Night"],
         hasMain: true,
         hasCommands: true,
+        hasUnavailableContributions: true,
         replaces: "1.0.0",
     };
     const html = render({ preview });
     expect(html).toContain('data-desktop-extension-preview="crow.pack"');
     expect(html).toContain("Replaces version 1.0.0.");
-    expect(html).toContain("Its commands are not loaded by this version of Vera.");
+    expect(html).toContain("Some task, page, or menu contributions are not loaded by this version of Vera.");
     expect(html).toContain("data-desktop-extension-confirm");
     expect(html).toContain("data-desktop-extension-cancel");
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*data-desktop-extension-install/);
-    expect(render({ preview: { ...preview, replaces: undefined, hasMain: false, hasCommands: false } })).not.toContain("not loaded");
+    expect(render({ preview: { ...preview, replaces: undefined, hasMain: false, hasCommands: false, hasUnavailableContributions: false } })).not.toContain("not loaded");
 });

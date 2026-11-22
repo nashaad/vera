@@ -12,6 +12,7 @@ import { themeFromAttribute, themeLabel, themeSwatch } from "../../clients/ui/sr
 import type { DesktopBridge } from "../../clients/ui/src/protocol/bridge.ts";
 import type { CommandThemesDone, ExtensionCommandResult } from "../../clients/ui/src/protocol/extension-commands.ts";
 import { runExtensionCommand } from "../../clients/ui/src/extensions/run-command.ts";
+import { desktopExtensions } from "../../clients/ui/src/extensions/state.ts";
 import { closeOverlay, openedOverlay, openedPicker } from "../../clients/ui/src/overlays/store.ts";
 import { applyTheme, resolveThemeChoice, themeFile } from "../../clients/ui/src/theme/apply.ts";
 import { reportImport, type ImportReport } from "../../clients/ui/src/theme/import-flow.ts";
@@ -213,6 +214,24 @@ test("@core a refused import keeps the current theme and gives the reason", () =
     expect(report).toEqual({ ok: false, message: "The file is not valid JSON (Unexpected end). Your theme is unchanged." });
     expect(page.attributes.get("data-theme")).toBe("light");
     expect(importedThemes()).toHaveLength(1);
+});
+
+test("a theme import refreshes the extension list only when it installed a theme", async () => {
+    let reads = 0;
+    let imported = false;
+    const bridge = {
+        ...bridgeAnswering({ run: () => done(imported ? [PIRATE] : []) }),
+        listDesktopExtensions: async () => {
+            reads += 1;
+            return { ok: true as const, extensions: [], themes: [PIRATE] };
+        },
+    } as DesktopBridge;
+    await reported("vera.crow.import", bridge);
+    expect(reads).toBe(0);
+    imported = true;
+    await reported("vera.crow.import", bridge);
+    expect(reads).toBe(1);
+    expect(desktopExtensions()).toEqual([]);
 });
 
 test("a closed file picker changes nothing and reports nothing", async () => {

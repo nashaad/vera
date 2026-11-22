@@ -8,6 +8,7 @@ import { ChatCommands } from "./chat/ChatCommands.tsx";
 import { ChatSync } from "./chat/ChatSync.tsx";
 import { PageCommands } from "./commands/PageCommands.tsx";
 import { SessionWindowCommands } from "./commands/SessionWindowCommands.tsx";
+import { ExtensionSystemContext, useDesktopExtensions } from "./extensions/useDesktopExtensions.tsx";
 import { HostBanner } from "./components/HostBanner.tsx";
 import { useLayout } from "./layout/useLayout.ts";
 import { PageLinksProvider } from "./pagepane/PageLinks.tsx";
@@ -61,6 +62,7 @@ export function App() {
         commands.setHidden(hidden);
         window.veraDesktop?.reportHiddenCommands([...hidden]);
     }, [commands, hidden]);
+    const extensions = useDesktopExtensions(commands);
     const flagsLoaded = useDesktopFlagsLoaded();
     const loaded = layoutLoaded && flagsLoaded;
     const environment = useMemo(
@@ -85,6 +87,7 @@ export function App() {
             <PageLinksProvider annex={annex}>
             <RouterProvider commands={commands}>
             <ViewEnvContext.Provider value={environment}>
+            <ExtensionSystemContext.Provider value={extensions}>
                 <div className="app" data-platform={platform} data-sessions={state.sessions}>
                     {loaded ? (
                         <Workbench
@@ -111,6 +114,7 @@ export function App() {
                     <ReopenSession />
                     <QuitWarning listAgents={listAgents} />
                 </div>
+            </ExtensionSystemContext.Provider>
             </ViewEnvContext.Provider>
             </RouterProvider>
             </PageLinksProvider>

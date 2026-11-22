@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { MODIFIER, press, startTrial } from "./trial.mjs";
+import { closeApp, MODIFIER, press, startTrial } from "./trial.mjs";
 
 const trial = startTrial();
 const files = join(trial.trialRoot, "files");
@@ -279,7 +279,7 @@ try {
     await openAppearance(app, page);
     await page.locator("[data-theme-card=\"imported:crow.pack.crow-night\"]").click();
     await until("the extension theme again", async () => (await themeState(page)).theme === "imported:crow.pack.crow-night");
-    await app.close();
+    await closeApp(app);
     const second = await boot();
     await until("the remembered extension theme", async () => (await themeState(second.page)).theme === "imported:crow.pack.crow-night");
     expectEqual((await themeState(second.page)).surface, "rgb(16, 24, 32)", "the surface after the relaunch");

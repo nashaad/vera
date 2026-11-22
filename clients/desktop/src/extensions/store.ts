@@ -13,11 +13,12 @@ import type { DesktopExtensionEntry, DesktopExtensionMenus, DesktopMenuItem } fr
 import type { ImportedThemeSummary } from "../../../ui/src/theme/imported.ts";
 import { MAX_EXTENSIONS, MAX_LISTED_THEMES } from "./limits.ts";
 import { STAGING_PREFIX } from "./paths.ts";
-import { MAX_PAGE_SCRIPT_BYTES, carriesCode, readExtension, readManifest, readRegularFile, taskWorkerFile, type ExtensionTheme } from "./read-extension.ts";
+import { isFolderName } from "../extension-files.ts";
+import { MAX_PAGE_SCRIPT_BYTES, carriesCode, hasUnavailableContributions, readExtension, readManifest, readRegularFile, taskWorkerFile, type ExtensionTheme } from "./read-extension.ts";
 import type { ExtensionStateStore } from "./state.ts";
 
 export type CommitResult =
-    | { readonly ok: true; readonly id: string; readonly replaced: string | undefined }
+    | { readonly ok: true; readonly id: string; readonly replaced: string | undefined; readonly replacedId?: string }
     | { readonly ok: false; readonly reason: string };
 
 export type RemoveResult = "removed" | "included" | "missing" | "failed";
@@ -30,6 +31,13 @@ export interface CommandTarget {
     readonly file?: DesktopFileFilter;
 }
 
+interface ScanResult {
+    readonly entries: Found[];
+    readonly diagnostics: { readonly directory: string; readonly problem: string }[];
+    readonly listingProblem?: string;
+    readonly truncated?: boolean;
+}
+
 interface Found {
     readonly id: string;
     readonly folder: string;
@@ -37,7 +45,10 @@ interface Found {
     readonly version: string;
     readonly themes: readonly string[];
     readonly hasMain: boolean;
+    readonly main?: string;
     readonly hasCommands: boolean;
+    readonly hasUnavailableContributions: boolean;
+    readonly keybindings: DesktopManifest["keybindings"];
     readonly tasks: readonly DesktopTask[];
     readonly commands: readonly DesktopCommand[];
     readonly menus: DesktopManifest["menus"];
@@ -95,16 +106,28 @@ export class ExtensionStore {
         private readonly included: string | undefined = undefined,
     ) {}
 
-    private scan(directory: string | undefined, included: boolean): Found[] {
-        if (directory === undefined) return [];
+    private scan(directory: string | undefined, included: boolean, collectDiagnostics = false): ScanResult {
+        if (directory === undefined) return { entries: [], diagnostics: [] };
         let names: string[];
         try {
             names = readdirSync(directory);
-        } catch {
-            return [];
+        } catch (error) {
+            const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
+            return {
+                entries: [],
+                diagnostics: [],
+                ...(!missing ? { listingProblem: "The extensions folder could not be read." } : {}),
+            };
         }
         const found: Found[] = [];
-        for (const name of names.sort()) {
+        const diagnostics: { directory: string; problem: string }[] = [];
+        const fail = (name: string, problem: string): void => {
+            if (collectDiagnostics && diagnostics.length < MAX_EXTENSIONS) diagnostics.push({ directory: name, problem });
+        };
+        names.sort();
+        let truncated = false;
+        for (let index = 0; index < names.length; index += 1) {
+            const name = names[index]!;
             if (name.startsWith(".")) continue;
             const folder = join(directory, name);
             try {
@@ -112,8 +135,19 @@ export class ExtensionStore {
             } catch {
                 continue;
             }
+            if (!isFolderName(name)) {
+                fail(name, "The folder name is not a valid extension id.");
+                continue;
+            }
             const read = readManifest(folder);
-            if (!read.ok || read.manifest.id !== name) continue;
+            if (!read.ok) {
+                fail(name, read.reason === "The extension has no vera.desktop.json." ? "No vera.desktop.json in this folder." : read.reason);
+                continue;
+            }
+            if (read.manifest.id !== name) {
+                fail(name, `The folder name must match the extension id "${read.manifest.id}".`);
+                continue;
+            }
             const { manifest } = read;
             found.push({
                 id: name,
@@ -122,22 +156,42 @@ export class ExtensionStore {
                 version: manifest.version,
                 themes: manifest.themes.map((theme) => theme.label),
                 hasMain: carriesCode(manifest),
+                ...(manifest.main === undefined ? {} : { main: manifest.main }),
                 hasCommands: manifest.commands.length > 0,
+                hasUnavailableContributions: !included && hasUnavailableContributions(manifest),
+                keybindings: manifest.keybindings,
                 tasks: manifest.tasks,
                 commands: manifest.commands,
                 menus: manifest.menus,
                 ...(manifest.filePreviews === undefined ? {} : { filePreviews: manifest.filePreviews }),
             });
-            if (found.length >= MAX_EXTENSIONS) break;
+            if (found.length >= MAX_EXTENSIONS) {
+                truncated = index < names.length - 1;
+                break;
+            }
         }
-        return found;
+        return { entries: found, diagnostics, truncated };
     }
 
     private all(): Found[] {
-        const included = this.scan(this.included, true);
+        const included = this.scan(this.included, true).entries;
         const taken = new Set(included.map((entry) => entry.id));
-        return [...included, ...this.scan(this.root, false).filter((entry) => !taken.has(entry.id))]
+        return [...included, ...this.scan(this.root, false).entries.filter((entry) => !taken.has(entry.id))]
             .sort((a, b) => a.id.localeCompare(b.id));
+    }
+
+    listing(): { readonly entries: readonly DesktopExtensionEntry[]; readonly diagnostics: readonly { readonly directory: string; readonly problem: string }[]; readonly listingProblem?: string; readonly truncated?: boolean } {
+        const included = this.scan(this.included, true).entries;
+        const installed = this.scan(this.root, false, true);
+        const taken = new Set(included.map((entry) => entry.id));
+        const entries = [...included, ...installed.entries.filter((entry) => !taken.has(entry.id))]
+            .sort((a, b) => a.id.localeCompare(b.id));
+        return {
+            entries: this.present(entries),
+            diagnostics: installed.diagnostics,
+            ...(installed.listingProblem === undefined ? {} : { listingProblem: installed.listingProblem }),
+            ...(installed.truncated === undefined ? {} : { truncated: installed.truncated }),
+        };
     }
 
     // An extension included with Vera is always on, whatever the state file lists.
@@ -146,23 +200,52 @@ export class ExtensionStore {
     }
 
     entries(): readonly DesktopExtensionEntry[] {
+        return this.listing().entries;
+    }
+
+    private present(entries: readonly Found[]): readonly DesktopExtensionEntry[] {
         const disabled = this.state.disabled();
-        return this.all().map((entry) => ({
-            id: entry.id,
-            version: entry.version,
-            themes: entry.themes,
-            hasMain: entry.hasMain,
-            hasCommands: entry.hasCommands,
-            commands: runnableCommands(entry).map((command) => ({
-                id: command.command,
+        return entries.map((entry) => {
+            const worker = this.worker(entry, disabled);
+            return {
+                id: entry.id,
+                version: entry.version,
+                themes: entry.themes,
+                hasMain: entry.hasMain,
+                hasCommands: entry.hasCommands,
+                hasUnavailableContributions: entry.hasUnavailableContributions,
+                ...(worker === undefined ? {} : { worker }),
+                commands: runnableCommands(entry).map((command) => ({
+                    id: command.command,
+                    title: command.title,
+                    ...(command.category === undefined ? {} : { category: command.category }),
+                })),
+                menus: menusOf(entry),
+                ...(entry.included && entry.filePreviews !== undefined ? { filePreviews: entry.filePreviews } : {}),
+                included: entry.included,
+                enabled: !this.off(entry, disabled),
+            };
+        });
+    }
+
+    private worker(entry: Found, disabled: ReadonlySet<string>): DesktopExtensionEntry["worker"] {
+        if (entry.included || this.off(entry, disabled) || entry.main === undefined) return undefined;
+        const commands = entry.commands.filter((command) => command.task === undefined && command.page === undefined);
+        return {
+            main: entry.main,
+            commands: commands.map((command) => ({
+                command: command.command,
                 title: command.title,
                 ...(command.category === undefined ? {} : { category: command.category }),
+                ...(command.when === undefined ? {} : { when: command.when.source }),
             })),
-            menus: menusOf(entry),
-            ...(entry.included && entry.filePreviews !== undefined ? { filePreviews: entry.filePreviews } : {}),
-            included: entry.included,
-            enabled: !this.off(entry, disabled),
-        }));
+            keybindings: entry.keybindings.filter((binding) => commands.some((command) => command.command === binding.command)).map((binding) => ({
+                command: binding.command,
+                key: binding.key,
+                ...(binding.mac === undefined ? {} : { mac: binding.mac }),
+                ...(binding.when === undefined ? {} : { when: binding.when.source }),
+            })),
+        };
     }
 
     // The entries of one menu place, from every enabled extension.
@@ -172,7 +255,13 @@ export class ExtensionStore {
     }
 
     installedVersion(id: string): string | undefined {
-        return this.scan(this.root, false).find((entry) => entry.id === id)?.version;
+        return this.scan(this.root, false).entries.find((entry) => entry.id === id)?.version;
+    }
+
+    installedMain(id: string): { readonly folder: string; readonly main: string } | undefined {
+        const disabled = this.state.disabled();
+        const entry = this.scan(this.root, false).entries.find((candidate) => candidate.id === id && !this.off(candidate, disabled));
+        return entry?.main === undefined ? undefined : { folder: entry.folder, main: entry.main };
     }
 
     // The themes of the enabled extensions, one extension's file at a time with its token rules dropped.
@@ -195,7 +284,7 @@ export class ExtensionStore {
     // The task behind a command of an extension included with Vera. An installed extension never runs a command.
     // Undefined means it must not run.
     commandTarget(command: string): CommandTarget | undefined {
-        const entry = this.scan(this.included, true).find((candidate) => candidate.commands.some((declared) => declared.command === command));
+        const entry = this.scan(this.included, true).entries.find((candidate) => candidate.commands.some((declared) => declared.command === command));
         const declared = entry?.commands.find((candidate) => candidate.command === command);
         const task = entry?.tasks.find((candidate) => candidate.id === declared?.task);
         if (entry === undefined || declared === undefined || task === undefined) return undefined;
@@ -205,7 +294,7 @@ export class ExtensionStore {
     }
 
     pageScript(command: string): string | undefined {
-        const entry = this.scan(this.included, true).find((candidate) => candidate.commands.some((declared) => declared.command === command));
+        const entry = this.scan(this.included, true).entries.find((candidate) => candidate.commands.some((declared) => declared.command === command));
         const declared = entry?.commands.find((candidate) => candidate.command === command);
         if (entry === undefined || declared?.page === undefined) return undefined;
         const file = taskWorkerFile(entry.folder, declared.page);
@@ -219,8 +308,8 @@ export class ExtensionStore {
     }
 
     remove(id: string): RemoveResult {
-        if (this.scan(this.included, true).some((entry) => entry.id === id)) return "included";
-        const entry = this.scan(this.root, false).find((candidate) => candidate.id === id);
+        if (this.scan(this.included, true).entries.some((entry) => entry.id === id)) return "included";
+        const entry = this.scan(this.root, false).entries.find((candidate) => candidate.id === id);
         if (entry === undefined) return "missing";
         try {
             rmSync(entry.folder, { recursive: true, force: true });
@@ -266,12 +355,12 @@ export class ExtensionStore {
         const read = readExtension(staging);
         if (!read.ok) return read;
         const id = read.manifest.id;
-        if (this.scan(this.included, true).some((entry) => entry.id === id)) {
+        if (this.scan(this.included, true).entries.some((entry) => entry.id === id)) {
             return { ok: false, reason: `"${id}" is included with Vera and cannot be replaced.` };
         }
         const target = join(this.root, id);
         const existing = existsSync(target);
-        if (!existing && this.scan(this.root, false).length >= MAX_EXTENSIONS) {
+        if (!existing && this.scan(this.root, false).entries.length >= MAX_EXTENSIONS) {
             return { ok: false, reason: `Vera keeps at most ${MAX_EXTENSIONS} desktop extensions. Remove one first.` };
         }
         const replaced = existing ? this.installedVersion(id) : undefined;
@@ -294,7 +383,7 @@ export class ExtensionStore {
         }
         rmSync(backup, { recursive: true, force: true });
         this.active.delete(staging);
-        return { ok: true, id, replaced };
+        return { ok: true, id, replaced, ...(existing ? { replacedId: id } : {}) };
     }
 
     private restore(target: string, backup: string, existed: boolean): void {

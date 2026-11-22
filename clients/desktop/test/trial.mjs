@@ -102,8 +102,13 @@ export function startTrial() {
     }
 
     async function cleanup() {
-        for (const app of apps) await closeApp(app);
-        if (hostPid() !== undefined) await stopTrialHost(home);
+        try {
+            for (const app of apps) await closeApp(app);
+            if (hostPid() !== undefined) await stopTrialHost(home);
+        } catch (error) {
+            console.error(`Trial retained at ${trialRoot}; app PIDs: ${apps.map((app) => app.process()?.pid).join(", ")}; host PID: ${hostPid() ?? "unknown"}`);
+            throw error;
+        }
         if (hostPid() !== undefined) throw new Error("Trial host remains alive; retaining its home.");
         rmSync(trialRoot, { recursive: true, force: true });
     }
@@ -132,15 +137,28 @@ export async function waitForAnnexPages(page, app) {
 
 // Playwright's close waits for the app's exit event, which a quit occasionally never delivers.
 const CLOSE_LIMIT_MS = 15_000;
+const closes = new WeakMap();
 
-async function closeApp(app) {
+export function closeApp(app) {
+    let closing = closes.get(app);
+    if (closing === undefined) {
+        closing = closeOnce(app);
+        closes.set(app, closing);
+    }
+    return closing;
+}
+
+async function closeOnce(app) {
     let timer;
     const limit = new Promise((resolve) => { timer = setTimeout(resolve, CLOSE_LIMIT_MS, "limit"); });
-    const outcome = await Promise.race([app.close().then(() => "closed", () => "closed"), limit]);
-    clearTimeout(timer);
-    if (outcome === "closed") return;
-    console.error(`${basename(process.argv[1])}: close timed out after ${CLOSE_LIMIT_MS / 1000} s`);
-    throw new Error("Trial app did not exit; refusing to signal an unverified process group.");
+    try {
+        const outcome = await Promise.race([app.close().then(() => "closed", () => "closed"), limit]);
+        if (outcome === "closed") return;
+        console.error(`${basename(process.argv[1])}: close timed out after ${CLOSE_LIMIT_MS / 1000} s`);
+        throw new Error("Trial app did not exit; refusing to signal an unverified process group.");
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 function hostRequest(socketPath, request, terminal, timeout = 3000) {

@@ -164,6 +164,45 @@ test("a VS Code import becomes a desktop extension, and the same name imported a
     expect(themes.themes().map((theme) => theme.slug)).toEqual(["pirate-crow"]);
 });
 
+test("worker contributions follow real installs, switches, replacements and removal", async () => {
+    const { home, service } = trial();
+    const manifest = {
+        id: "crow.worker", version: "1.0.0", engine: DESKTOP_ENGINE, main: "main.js",
+        contributes: {
+            commands: [{ command: "crow.worker.fly", title: "Fly" }],
+            keybindings: [{ command: "crow.worker.fly", key: "ctrl+alt+f" }],
+        },
+    };
+    const install = async (source: string) => {
+        const path = writePackage([
+            { name: "vera.desktop.json", data: JSON.stringify(manifest) },
+            { name: "main.js", data: source },
+        ]);
+        const preview = await service.preview(path);
+        if (!preview.ok || preview.preview === undefined) throw new Error("The package did not preview.");
+        return service.confirm(preview.preview.token);
+    };
+    const first = await install("export const revision = 1;");
+    expect(first.ok && first.extensions[0]?.worker).toMatchObject({
+        main: "main.js", commands: [{ command: "crow.worker.fly" }], keybindings: [{ key: "ctrl+alt+f" }],
+    });
+    expect(await service.readMain("crow.worker")).toEqual({ ok: true, source: "export const revision = 1;" });
+    const off = service.setEnabled("crow.worker", false);
+    expect(off.ok && off.extensions[0]?.worker).toBeUndefined();
+    expect((await service.readMain("crow.worker")).ok).toBe(false);
+    const on = service.setEnabled("crow.worker", true);
+    expect(on.ok && on.extensions[0]?.worker).toBeDefined();
+    const replacement = await install("export const revision = 2;");
+    expect(replacement.ok && replacement.replacedId).toBe("crow.worker");
+    expect(await service.readMain("crow.worker")).toEqual({ ok: true, source: "export const revision = 2;" });
+    writeText(join(extensionsDirectory(home), "broken", "vera.desktop.json"), "{");
+    const listed = service.list();
+    expect(listed.ok && listed.diagnostics?.map((item) => item.directory)).toEqual(["broken"]);
+    const removed = service.remove("crow.worker");
+    expect(removed.ok && removed.extensions).toEqual([]);
+    expect((await service.readMain("crow.worker")).ok).toBe(false);
+});
+
 test("@core the window hears of each install, switch and removal, and of nothing else", async () => {
     let changes = 0;
     const { service } = trial(undefined, () => { changes += 1; });

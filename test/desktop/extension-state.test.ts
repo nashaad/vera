@@ -19,6 +19,7 @@ function importer(enabled: boolean): DesktopExtensionEntry {
         themes: [],
         hasMain: true,
         hasCommands: true,
+        hasUnavailableContributions: false,
         commands: [{ id: THEME_IMPORT_COMMAND, title: "Import VS Code Theme…", category: "Theme" }],
         menus: { appearance: [], theme: [], browser: [] },
         included: true,

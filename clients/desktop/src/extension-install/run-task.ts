@@ -1,4 +1,4 @@
-import { carriesCode, readExtension } from "../extensions/read-extension.ts";
+import { carriesCode, hasUnavailableContributions, readExtension } from "../extensions/read-extension.ts";
 import { ExtensionRefusal } from "./refusal.ts";
 import type { InstallReply, InstallTask } from "./task-protocol.ts";
 import { checkSha256, packageEntries, readPackage, unpackEntries } from "./unpack.ts";
@@ -20,6 +20,7 @@ export function runInstallTask(task: InstallTask): InstallReply {
                 themes: manifest.themes.map((theme) => theme.label),
                 hasMain: carriesCode(manifest),
                 hasCommands: manifest.commands.length > 0,
+                hasUnavailableContributions: hasUnavailableContributions(manifest),
             },
         };
     } catch (error) {
