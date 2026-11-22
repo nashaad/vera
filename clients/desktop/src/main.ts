@@ -12,6 +12,7 @@ import { FILE_COUNT_LIMIT } from "../../../src/attachments/file-limits.ts";
 import { selectedVeraHome } from "../../../src/profile-paths.ts";
 import { findDesktopPackage } from "../../../src/release/desktop-packages.ts";
 import { runningDesktopShell } from "../../../src/release/desktop-shell.ts";
+import { desktopBuildPackagesDirectory } from "../../../src/release/layout.ts";
 import { takeRelaunchRecord, writeRelaunchRecord } from "../../../src/release/relaunch.ts";
 import type {
     BranchSessionResult,
@@ -34,10 +35,12 @@ import { buildMenuTemplate } from "./app-menu.ts";
 import { BrowserPane } from "./browser/pane.ts";
 import { BrowserCdp } from "./browser/cdp.ts";
 import { BrowserGateway } from "./browser/gateway.ts";
+import { BrowserHandoff } from "./browser/handoff.ts";
 import { AssignmentService } from "./assignments.ts";
 import { BootSession } from "./boot.ts";
 import { CHANNELS } from "./channels.ts";
 import { DEFAULT_DESKTOP_FLAGS, FlagsStore, flagsPath } from "./desktop-flags.ts";
+import { watchSettled } from "./package-watch.ts";
 import { DESKTOP_RELAUNCH_KEY, DesktopRelaunch } from "./relaunch.ts";
 import { CATALOG_TASK_FILE, CATALOG_TASK_SERVICE, parseCatalogReply, type CatalogTask } from "./extension-catalog/task-protocol.ts";
 import { EXTENSION_TASK_FILE, EXTENSION_TASK_SERVICE, parseInstallReply, type InstallTask } from "./extension-install/task-protocol.ts";
@@ -118,6 +121,7 @@ let annexUrl: string | undefined;
 let annexReadVersion = 0;
 let browserPane: BrowserPane | undefined;
 let browserGateway: BrowserGateway | undefined;
+let browserHandoff: BrowserHandoff | undefined;
 
 const relaunch = new DesktopRelaunch({
     shell: runningDesktopShell,
@@ -133,6 +137,8 @@ const relaunch = new DesktopRelaunch({
 });
 // The session the window before this one had open, and its composer text; the page is told once the host is attached.
 let sessionToReopen = relaunch.takeReopen();
+const PACKAGE_SETTLE_MS = 500;
+let stopPackageWatch: (() => void) | undefined;
 const pipe = new HostPipe(sendEvent);
 const flagsStore = new FlagsStore(flagsPath(selectedVeraHome()), app.isPackaged);
 // With Reasoning off the window asks the host for a character count in place of the reasoning text.
@@ -251,9 +257,21 @@ function startExtensions(): void {
     }
 }
 
+// A package installed for the build this window runs, such as one from install:local --desktop-only, reloads the window into it.
+function watchDesktopPackages(): void {
+    const shell = runningDesktopShell();
+    if (shell === undefined) return;
+    const directory = desktopBuildPackagesDirectory(shell.hostBuildId, shell.prefix);
+    stopPackageWatch = watchSettled(directory, PACKAGE_SETTLE_MS, () => {
+        if (!stopping) relaunch.packageAdded();
+    });
+}
+
 function shutdown(): void {
     if (stopping) return;
     stopping = true;
+    stopPackageWatch?.();
+    stopPackageWatch = undefined;
     updates.stop();
     browserGateway?.stop();
     pageCommands.stop();
@@ -263,6 +281,7 @@ function shutdown(): void {
     browserPane?.setAnnexUrl(undefined);
     browserPane?.dispose();
     browserPane = undefined;
+    browserHandoff = undefined;
     boot?.cancel();
     boot = undefined;
     hostSocketPath = undefined;
@@ -763,6 +782,12 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
         if (url !== undefined && /^https?:\/\//.test(url)) await shell.openExternal(url);
     }
     if (command === "tools" && typeof value === "boolean") await browserGateway?.settings(value);
+    if (command === "handoff" && typeof value === "object" && value !== null && !Array.isArray(value)) {
+        const answer = value as Record<string, unknown>;
+        if (typeof answer.id === "string" && (answer.result === "done" || answer.result === "skipped")) {
+            browserHandoff?.complete(answer.id, answer.result);
+        }
+    }
     if (command === "bounds") {
         const rect = value as Record<string, unknown> | null;
         if (rect === null || typeof rect !== "object") pane.layout(undefined);
@@ -780,6 +805,7 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
         ...pane.state(),
         toolsEnabled: browserGateway?.enabled ?? false,
         toolsAvailable: browserGateway?.available ?? false,
+        ...(browserHandoff?.state() === undefined ? {} : { handoff: browserHandoff.state() }),
         ...(opened === undefined ? {} : { opened }),
     };
 });
@@ -797,13 +823,17 @@ app.whenReady().then(() => {
     themeService.load();
     installMenu();
     window = createWindow();
+    watchDesktopPackages();
     browserPane = new BrowserPane(window,
         (url, title) => sendEvent({ type: "browser_loaded", url, title }),
         (id) => sendEvent({ type: "command", id }),
     );
+    browserHandoff = new BrowserHandoff(browserPane, () => sendEvent({ type: "command", id: BROWSER_STATE_CHANGED }));
     browserGateway = new BrowserGateway(
         new BrowserCdp(browserPane),
         () => sendEvent({ type: "command", id: "browser.reveal" }),
         () => sendEvent({ type: "command", id: BROWSER_STATE_CHANGED }),
+        undefined,
+        browserHandoff,
     );
 });

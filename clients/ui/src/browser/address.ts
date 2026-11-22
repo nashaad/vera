@@ -25,3 +25,7 @@ export function pageAt(path: string, pages: readonly AnnexPage[]): AnnexPage | u
     const bare = path.replace(/[?#].*$/, "").replace(/(.)\/+$/, "$1");
     return pages.find((page) => page.path === bare);
 }
+
+export function pageAtOrPath(path: string, pages: readonly AnnexPage[]): AnnexPage {
+    return pageAt(path, pages) ?? { label: path, path: path.replace(/[?#].*$/, "") };
+}

@@ -58,12 +58,19 @@ export function desktopPackagesDirectory(prefix = defaultInstallPrefix()): strin
     return join(veraShareRoot(prefix), "desktop");
 }
 
+export function desktopBuildPackagesDirectory(
+    hostBuildId: string,
+    prefix = defaultInstallPrefix(),
+): string {
+    return join(desktopPackagesDirectory(prefix), hostBuildId);
+}
+
 export function desktopPackageDirectory(
     hostBuildId: string,
     desktopVersion: string,
     prefix = defaultInstallPrefix(),
 ): string {
-    return join(desktopPackagesDirectory(prefix), hostBuildId, desktopVersion);
+    return join(desktopBuildPackagesDirectory(hostBuildId, prefix), desktopVersion);
 }
 
 // Written by the installer when it puts the desktop app in place. Its presence means a desktop package must match the host build that current names.

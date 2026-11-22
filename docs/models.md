@@ -43,6 +43,9 @@ switch scopes. Search follows the selected scope and keeps its query when you
 switch. The current model and recent models are included only when they are
 favorites. With no favorites, typing searches every connected model. Ctrl+F
 adds or removes the highlighted favorite.
+A favorite its provider no longer offers is left out of Favorites; a running
+one stays, marked unavailable. It remains listed in All connected and in Edit
+favorites, where you can remove it.
 
 Switch model has no filters, sort, scores, prices, or details panel. Those are
 in `/models`.
@@ -217,8 +220,16 @@ models, and any failures, then a tick. Press Escape to close it when no
 dialog is open;
 otherwise it clears after a few seconds. Another overlay waits its turn.
 A model that has disappeared from its provider is
-marked unavailable and cannot be selected.
+marked unavailable and cannot be selected. Switch model leaves it out unless
+it is the running model; the model page and Edit favorites still list it so
+you can remove it.
 To change credentials or endpoints, use [Configure providers](first-run-setup.md).
+
+When Vera starts while signed in to ChatGPT, it fetches the OpenAI Codex
+model list once if the saved list is missing or came from an earlier Vera
+build. The rows return without waiting for the daily refresh. A failed fetch
+leaves the saved list untouched and writes `codex_catalog_start_fetch_failed`
+to `runtime/logs/host.jsonl`.
 
 Vera also refreshes connected catalogs in the background once a day, whether or
 not the Models page is open. A refresh counts only when the request succeeds and

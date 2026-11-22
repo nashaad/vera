@@ -1,7 +1,14 @@
 #!/bin/sh
-# Refresh the agent guidance backup after each commit.
+# Refresh the agent guidance backup after each commit and report stale releases.
 
 hook_dir=$(dirname "$0")
-[ -f "$hook_dir/lib/agent-backup.sh" ] || exit 0
-. "$hook_dir/lib/agent-backup.sh"
+if [ -f "$hook_dir/lib/agent-backup.sh" ]; then
+    ( . "$hook_dir/lib/agent-backup.sh" )
+fi
+if [ -x "$hook_dir/lib/scan-stale-releases.sh" ] && common_dir=$(git rev-parse --git-common-dir 2>/dev/null) && [ -n "$common_dir" ]; then
+    stamp="$common_dir/vera-stale-releases-scan.stamp"
+    if [ -z "$(find "$stamp" -mtime -1 -print 2>/dev/null)" ] && touch "$stamp" 2>/dev/null; then
+        "$hook_dir/lib/scan-stale-releases.sh" /private/tmp "${TMPDIR:-/tmp}" >&2 || :
+    fi
+fi
 exit 0

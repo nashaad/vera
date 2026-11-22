@@ -8,6 +8,7 @@ export const PAGE_TAB_LIMIT = 3;
 export const PAGE_KIND_LIMIT = 8;
 
 const PAGE_KIND_PREFIX = "page:";
+export const GENERIC_PAGE_KIND = "page.generic";
 
 // A pane kind is named by its page's annex path, so one page is one kind whatever lists it.
 export function pageKindId(path: string): string {
@@ -35,14 +36,17 @@ export function panePages(pages: readonly AnnexPage[]): readonly AnnexPage[] {
     return [...builtInPages(pages), ...extensionPages(pages)];
 }
 
-// One kind for each available app page. Its tabs are saved with the layout.
+// Dedicated page tabs are saved with the layout; generic page tabs are temporary.
 export function pageKinds(pages: readonly AnnexPage[]): readonly PaneKind[] {
-    return panePages(pages).map((page) => ({
-        id: pageKindId(page.path),
-        title: page.label,
-        icon: "page",
-        maxTabs: PAGE_TAB_LIMIT,
-    }));
+    return [
+        ...panePages(pages).map((page) => ({
+            id: pageKindId(page.path),
+            title: page.label,
+            icon: "page",
+            maxTabs: PAGE_TAB_LIMIT,
+        })),
+        { id: GENERIC_PAGE_KIND, title: "Page", icon: "page", transientTabs: true },
+    ];
 }
 
 export function sameKinds(left: readonly PaneKind[], right: readonly PaneKind[]): boolean {

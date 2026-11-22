@@ -53,14 +53,14 @@ test("@core the guide is read by section, and every page stays under the cap", (
 test("@core a section is found by exact name, prefix or part, and a vague name lists its matches", () => {
     const sections = parseGuideSections([
         "# Guide", "intro",
-        "## Models and providers [lines=1]", "one",
-        "## Skills, rules, and standing instructions [lines=1]", "two",
-        "## Skills and agents [lines=1]", "three",
+        "## Models and providers", "one",
+        "## Skills, rules, and standing instructions", "two",
+        "## Skills and agents", "three",
     ].join("\n"));
     expect(sections.map((section) => section.name)).toEqual([
         "Guide", "Models and providers", "Skills, rules, and standing instructions", "Skills and agents",
     ]);
-    expect(sections[1]?.text).toBe("## Models and providers [lines=1]\none");
+    expect(sections[1]?.text).toBe("## Models and providers\none");
     expect(findGuideSection(sections, "models AND providers")).toMatchObject({ kind: "found" });
     expect(findGuideSection(sections, "models")).toMatchObject({ kind: "found", section: { name: "Models and providers" } });
     expect(findGuideSection(sections, "standing")).toMatchObject({ kind: "found", section: { name: "Skills, rules, and standing instructions" } });

@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 
-import { pagePathOfKind } from "../pagepane/kinds.ts";
+import { GENERIC_PAGE_KIND, pagePathOfKind } from "../pagepane/kinds.ts";
 import { CORE_VIEWS } from "../registry/core.ts";
 import { BrowserView } from "./BrowserView.tsx";
 import { ChatView } from "./ChatView.tsx";
 import { FilesView } from "./FilesView.tsx";
 import { OutputView } from "./OutputView.tsx";
-import { PageView } from "./PageView.tsx";
+import { GenericPageView, PageView } from "./PageView.tsx";
 import { PlanView } from "./PlanView.tsx";
 import { ReviewView } from "./ReviewView.tsx";
 import { SessionsView } from "./SessionsView.tsx";
@@ -27,6 +27,7 @@ const CORE_RENDERERS: Readonly<Record<string, (props: ViewProps) => ReactNode>> 
 // A registered view with no renderer in this client shows nothing. A view an extension page's pane
 // registered is drawn as that page.
 export function renderView(viewId: string, props: ViewProps): ReactNode {
+    if (viewId === GENERIC_PAGE_KIND) return <GenericPageView />;
     const page = pagePathOfKind(viewId);
     if (page !== undefined) return <PageView {...props} path={page} />;
     return CORE_RENDERERS[viewId]?.(props) ?? null;

@@ -16,7 +16,9 @@ function listedRate(value: number | undefined): string {
 }
 
 function modelStatus(option: TuiSettingsPickerOption, initialModel: string | undefined): string {
-    return option.unavailable ? "unavailable" : option.value === initialModel ? "current" : option.hiddenByDefault ? "hidden" : "";
+    const current = option.value === initialModel;
+    if (option.unavailable) return current ? "current · unavailable" : "unavailable";
+    return current ? "current" : option.hiddenByDefault ? "hidden" : "";
 }
 
 /** Same glyphs as the favorites rows: \u2713 verified, - not probed, \u2717 probe failed. */

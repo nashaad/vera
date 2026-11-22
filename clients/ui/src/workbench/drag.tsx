@@ -1,5 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 
+import type { LocationId } from "../layout/model.ts";
+import { GENERIC_PAGE_KIND } from "../pagepane/kinds.ts";
+
 export type DragPayload =
     | { readonly kind: "view"; readonly id: string }
     | { readonly kind: "container"; readonly id: string }
@@ -10,6 +13,11 @@ export type DragPayload =
 export function draggedContainer(payload: DragPayload): string | undefined {
     if (payload.kind === "container") return payload.id;
     return payload.kind === "tab" ? payload.container : undefined;
+}
+
+export function canDropInLocation(payload: DragPayload, location: LocationId): boolean {
+    if (payload.kind === "tab" && payload.container === GENERIC_PAGE_KIND) return location === "rightPane";
+    return payload.id !== GENERIC_PAGE_KIND;
 }
 
 interface DragApi {

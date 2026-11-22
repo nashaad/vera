@@ -2,6 +2,8 @@
 // Two desktop packages for two host builds sit in a temp prefix. The app shell starts on the first, `current` moves
 // to the second, and Reconnect makes the window relaunch itself: the new process loads the second package, the
 // first process drops its hold, and the new window reopens the session the first one showed.
+// Then a newer package for the second build is installed, as install:local --desktop-only does, and the window
+// relaunches into it with no reconnect, reopening the same session.
 // The app folder runs under the stock Electron binary: a packaged executable ignores the -r that keeps trial windows out of sight.
 
 import { execFileSync } from "node:child_process";
@@ -84,6 +86,13 @@ try {
     }
     const sha = (archive) => readFileSync(`${archive}.sha256`, "utf8").trim().split(/\s+/)[0];
     const desktopVersion = JSON.parse(execFileSync("tar", ["-xzOf", archives[FIRST].package, "desktop-package.json"], { encoding: "utf8" })).desktop_version;
+    const newerVersion = execFileSync(bun, ["--eval", `
+        import { nextLocalDesktopVersion } from ${JSON.stringify(join(root, "scripts", "install-local-desktop-only.ts"))};
+        console.log(nextLocalDesktopVersion(process.argv[1]));
+    `, desktopVersion], { encoding: "utf8" }).trim();
+    const newerOut = join(trial.trialRoot, "release-newer");
+    execFileSync(bun, ["run", join(root, "scripts", "build-desktop-release.ts"), "--build-id", SECOND, "--arch", arch, "--desktop-version", newerVersion, "--out", newerOut], { stdio: "inherit" });
+    const newerPackage = join(newerOut, `vera-desktop-darwin-${arch}.tar.gz`);
 
     // The shell follows VERA_DESKTOP_LAUNCHER into a prefix of its own; HOME stays the real one.
     const prefix = join(trial.trialRoot, "prefix");
@@ -95,14 +104,13 @@ try {
     }
     symlinkSync(join("releases", FIRST), join(share, "current"));
     symlinkSync(join(share, "current", "vera"), join(prefix, "bin", "vera"));
-    for (const build of [FIRST, SECOND]) {
-        execFileSync(bun, ["--eval", `
-            import { installDesktopPackage } from ${JSON.stringify(join(root, "src", "release", "desktop-packages.ts"))};
-            const [tarball, sha256, hostBuildId, desktopVersion, prefix] = process.argv.slice(1);
-            const result = await installDesktopPackage({ tarball, sha256, hostBuildId, desktopVersion, prefix });
-            if (!result.installed) throw new Error("The package was not installed.");
-        `, archives[build].package, sha(archives[build].package), build, desktopVersion, prefix], { stdio: "inherit" });
-    }
+    const installPackage = (tarball, build, version) => execFileSync(bun, ["--eval", `
+        import { installDesktopPackage } from ${JSON.stringify(join(root, "src", "release", "desktop-packages.ts"))};
+        const [tarball, sha256, hostBuildId, desktopVersion, prefix] = process.argv.slice(1);
+        const result = await installDesktopPackage({ tarball, sha256, hostBuildId, desktopVersion, prefix });
+        if (!result.installed) throw new Error("The package was not installed.");
+    `, tarball, sha(tarball), build, version, prefix], { stdio: "inherit" });
+    for (const build of [FIRST, SECOND]) installPackage(archives[build].package, build, desktopVersion);
 
     const applications = join(trial.trialRoot, "Applications");
     mkdirSync(applications);
@@ -113,7 +121,7 @@ try {
     const port = await freePort();
     const args = ["--use-mock-keychain", `--remote-debugging-port=${port}`];
     const loaded = join(share, "desktop", ".loaded");
-    const packageUrl = (build) => `file://${realpathSync(join(share, "desktop", build, desktopVersion))}/renderer/`;
+    const packageUrl = (build, version = desktopVersion) => `file://${realpathSync(join(share, "desktop", build, version))}/renderer/`;
 
     const folder = join(trial.home, "..", "nest");
     mkdirSync(folder, { recursive: true });
@@ -148,33 +156,27 @@ try {
 
     await until("the first process to exit", () => !alive(firstPid), 30_000);
     if (existsSync(join(loaded, `${firstPid}.json`))) throw new Error("The first process kept its hold on the first package.");
-    await until("the relaunched process to hold the second package", () => {
-        if (!existsSync(loaded)) return false;
-        for (const name of readdirSync(loaded)) {
-            const record = JSON.parse(readFileSync(join(loaded, name), "utf8"));
-            if (record.pid !== firstPid && alive(record.pid) && record.host_build_id === SECOND && record.desktop_version === desktopVersion) {
-                relaunchedPid = record.pid;
-                return true;
-            }
-        }
-        return false;
-    }, 60_000);
+    relaunchedPid = await relaunchedHolding(loaded, firstPid, SECOND, desktopVersion);
 
     // The relaunched window runs the second package and shows the session the first one had open.
-    let reopened;
-    await until("the relaunched window to be reachable", async () => {
-        try {
-            attached ??= await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-            reopened = attached.contexts().flatMap((context) => context.pages()).find((candidate) => decodeURIComponent(candidate.url()).startsWith(packageUrl(SECOND)));
-            return reopened !== undefined;
-        } catch {
-            return false;
-        }
-    }, 60_000);
+    const reopened = await windowFor(port, packageUrl(SECOND));
     await reopened.waitForSelector(`[data-session="${agentId}"][data-phase="attached"]`, { timeout: 60_000 });
     await reopened.waitForSelector(`text=${REPLY}`, { timeout: 45_000 });
     if (await reopened.locator("text=Vera was updated").count() !== 0) throw new Error("The relaunched window shows the update banner.");
     console.log(`relaunched pid ${firstPid} -> ${relaunchedPid}: loaded ${SECOND}, reopened session ${agentId}`);
+
+    // A newer package for the build the window runs relaunches it with no reconnect.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const secondPid = relaunchedPid;
+    installPackage(newerPackage, SECOND, newerVersion);
+    await until("the second process to exit", () => !alive(secondPid), 30_000);
+    await attached?.close().catch(() => {});
+    attached = undefined;
+    relaunchedPid = await relaunchedHolding(loaded, secondPid, SECOND, newerVersion);
+    const reloaded = await windowFor(port, packageUrl(SECOND, newerVersion));
+    await reloaded.waitForSelector(`[data-session="${agentId}"][data-phase="attached"]`, { timeout: 60_000 });
+    await reloaded.waitForSelector(`text=${REPLY}`, { timeout: 45_000 });
+    console.log(`reloaded pid ${secondPid} -> ${relaunchedPid}: loaded ${SECOND} ${newerVersion}, reopened session ${agentId}`);
 } catch (error) {
     failed = true;
     console.error(error);
@@ -183,6 +185,37 @@ try {
     await trial.cleanup();
 }
 process.exit(failed ? 1 : 0);
+
+async function relaunchedHolding(loaded, previousPid, build, version) {
+    let pid;
+    await until(`a relaunched process to hold ${build} ${version}`, () => {
+        if (!existsSync(loaded)) return false;
+        for (const name of readdirSync(loaded)) {
+            const record = JSON.parse(readFileSync(join(loaded, name), "utf8"));
+            if (record.pid !== previousPid && alive(record.pid) && record.host_build_id === build && record.desktop_version === version) {
+                pid = record.pid;
+                return true;
+            }
+        }
+        return false;
+    }, 60_000);
+    return pid;
+}
+
+async function windowFor(port, url) {
+    let found;
+    await until("the relaunched window to be reachable", async () => {
+        try {
+            attached ??= await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+            found = attached.contexts().flatMap((context) => context.pages()).find((candidate) => decodeURIComponent(candidate.url()).startsWith(url));
+            return found !== undefined;
+        } catch {
+            attached = undefined;
+            return false;
+        }
+    }, 60_000);
+    return found;
+}
 
 // The relaunched app is a process the test started through the first one; it is asked to close, then signalled by the pid it recorded.
 async function stopRelaunched() {

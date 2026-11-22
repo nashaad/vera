@@ -1,7 +1,8 @@
 import { HeaderToggle } from "../components/HeaderToggle.tsx";
 import { LOCATION_SIZES, LOCATION_TITLES, type LocationId } from "../layout/model.ts";
+import { GENERIC_PAGE_KIND } from "../pagepane/kinds.ts";
 import { useWorkbench } from "./context.tsx";
-import { draggedContainer, useDrag, useDropTarget } from "./drag.tsx";
+import { canDropInLocation, draggedContainer, useDrag, useDropTarget } from "./drag.tsx";
 import { SidebarFoot } from "./SidebarFoot.tsx";
 import { SidebarNav } from "./SidebarNav.tsx";
 import { PaneLauncher } from "./PaneLauncher.tsx";
@@ -32,7 +33,8 @@ export function LocationPane({ location }: LocationPaneProps) {
     // empty right pane; a container dropped there moves here.
     const drop = useDropTarget({
         id: `body.${location}`,
-        accepts: (dragged) => (dragged.kind === "view" ? active !== undefined || tiles : true),
+        accepts: (dragged) => canDropInLocation(dragged, location)
+            && (dragged.kind !== "view" || ((active !== undefined && active.id !== GENERIC_PAGE_KIND) || tiles)),
         onDrop: (dragged) => {
             if (dragged.kind === "view" && active !== undefined) {
                 dispatch({ type: "moveView", view: dragged.id, to: { container: active.id } });

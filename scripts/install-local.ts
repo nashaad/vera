@@ -7,6 +7,7 @@ import {
     type LocalDesktopOutcome,
     type LocalDesktopSettings,
 } from "./install-local-desktop.ts";
+import { describeDesktopOnlyOutcome, installDesktopOnly } from "./install-local-desktop-only.ts";
 import { packRunnableRelease, type InstallReleaseOptions as PackOptions } from "./pack-release.ts";
 import { defaultInstallPrefix } from "../src/release/layout.ts";
 import {
@@ -74,13 +75,20 @@ function fail(message: string): never {
     process.exit(1);
 }
 
-function parseArgs(argv: readonly string[]): {
+const USAGE = "usage: bun run install:local [--prefix DIR] [--force] [--no-desktop | --desktop-only]";
+
+export interface InstallLocalArgs {
     readonly prefix: string | undefined;
     readonly force: boolean;
     readonly noDesktop: boolean;
-} {
+    // Installs only the desktop app, for the host build already installed.
+    readonly desktopOnly: boolean;
+}
+
+export function parseArgs(argv: readonly string[], onError: (message: string) => never = fail): InstallLocalArgs {
     let force = false;
     let noDesktop = false;
+    let desktopOnly = false;
     let prefix: string | undefined;
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
@@ -92,19 +100,25 @@ function parseArgs(argv: readonly string[]): {
             noDesktop = true;
             continue;
         }
+        if (arg === "--desktop-only") {
+            desktopOnly = true;
+            continue;
+        }
         if (arg === "--prefix") {
             prefix = argv[++i];
             if (prefix === undefined || prefix.length === 0) {
-                fail("missing --prefix path");
+                onError("missing --prefix path");
             }
             continue;
         }
         if (arg?.startsWith("-")) {
-            fail(`unknown flag: ${arg}`);
+            onError(`unknown flag: ${arg}`);
         }
-        fail("usage: bun run install:local [--prefix DIR] [--force] [--no-desktop]");
+        onError(USAGE);
     }
-    return { prefix, force, noDesktop };
+    if (desktopOnly && noDesktop) onError("--desktop-only and --no-desktop cannot be used together");
+    if (desktopOnly && force) onError("--force packs the host, which --desktop-only never touches");
+    return { prefix, force, noDesktop, desktopOnly };
 }
 
 function printOutcome(outcome: InstallOutcome): number {
@@ -144,15 +158,29 @@ function printDesktop(desktop: LocalDesktopOutcome | undefined): number {
     return failure ? 1 : 0;
 }
 
+async function runDesktopOnly(prefix: string): Promise<number> {
+    const outcome = await installDesktopOnly({
+        prefix,
+        report: (line) => process.stderr.write(`${line}\n`),
+    });
+    const { lines, failure } = describeDesktopOnlyOutcome(outcome);
+    (failure ? process.stderr : process.stdout).write(`${lines.join("\n")}\n`);
+    return failure ? 1 : 0;
+}
+
 if (import.meta.main) {
     try {
         const args = parseArgs(Bun.argv.slice(2));
-        const result = await installLocal({
-            force: args.force,
-            noDesktop: args.noDesktop,
-            ...(args.prefix === undefined ? {} : { prefix: args.prefix }),
-        });
-        process.exitCode = Math.max(printOutcome(result.outcome), printDesktop(result.desktop));
+        if (args.desktopOnly) {
+            process.exitCode = await runDesktopOnly(args.prefix ?? defaultInstallPrefix());
+        } else {
+            const result = await installLocal({
+                force: args.force,
+                noDesktop: args.noDesktop,
+                ...(args.prefix === undefined ? {} : { prefix: args.prefix }),
+            });
+            process.exitCode = Math.max(printOutcome(result.outcome), printDesktop(result.desktop));
+        }
     } catch (error) {
         fail(error instanceof Error ? error.message : String(error));
     }

@@ -71,6 +71,7 @@ import {
     startCatalogRefreshTimer,
     type CatalogRefreshTimer,
 } from "./catalog-refresh-timer.ts";
+import { fetchCodexCatalogAtStart } from "./codex-start-refresh.ts";
 import { createHostLockfile, defaultHostLockPath, defaultHostSocketPath } from "./lockfile.ts";
 import { startClientWatchdog, type ClientWatchdog } from "./client-watchdog.ts";
 import { removeStoppedPoolLock } from "./pool/worker-records.ts";
@@ -255,6 +256,8 @@ export interface StartResidentHostOptions {
     readonly webRoot?: string;
     // Catalog requests only; model turns keep their own adapters.
     readonly catalogFetch?: typeof globalThis.fetch;
+    // Tests point the Codex catalog at a fake endpoint.
+    readonly codexCatalogBaseUrl?: string;
     // Shortens or re-clocks the daily catalog scan for tests.
     readonly catalogScan?: {
         readonly now?: () => number;
@@ -1188,6 +1191,42 @@ async function startHostRuntime(
         refreshWebDevArenaInBackground(catalogMaxAgeMs(options.config));
     }
 
+    // A cache from another build reads as empty, so the picker would lose every
+    // Codex model until the daily scan. Fetch once here, after the host serves.
+    const fetchCodexModelsAtStart = (): void => {
+        if (!discoversModelsAtStartup) return;
+        const fetched = catalogRefreshes.then(async () => {
+            if (catalogScanStopped) return;
+            try {
+                const outcome = await fetchCodexCatalogAtStart({
+                    authStorage,
+                    cacheDir: cacheDirectory,
+                    log: hostLog,
+                    ...(codexAuthorization === undefined ? {} : { authorization: codexAuthorization }),
+                    ...(options.catalogFetch === undefined ? {} : { fetch: options.catalogFetch }),
+                    ...(options.codexCatalogBaseUrl === undefined ? {} : { baseUrl: options.codexCatalogBaseUrl }),
+                });
+                if (outcome.status !== "fetched" || catalogScanStopped) return;
+                const rebuilt = await discoverAvailableModels(
+                    currentConfig(),
+                    authStorage,
+                    hostLog,
+                    cacheDirectory,
+                );
+                if (catalogScanStopped) return;
+                models = rebuilt;
+                registry.notifyModelCatalogChanged();
+                announceGlobalChange("catalog");
+            } catch (error) {
+                hostLog({
+                    type: "codex_catalog_start_refresh_failed",
+                    message: error instanceof Error ? error.message : String(error),
+                });
+            }
+        });
+        catalogRefreshes = fetched.then(() => undefined, () => undefined);
+    };
+
     let server!: HostServer;
     let annex: AnnexProcess | undefined;
     let annexUnavailable: string | undefined;
@@ -1624,6 +1663,7 @@ async function startHostRuntime(
         build_id: buildId,
     });
     hostStarted.resolve(true);
+    fetchCodexModelsAtStart();
     return {
         registry,
         extensions,
