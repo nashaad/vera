@@ -50,11 +50,17 @@ function notice(blocks: readonly Block[], tone: "info" | "error", text: string):
     return { kind: "notice", key: keyFor(blocks), tone, text };
 }
 
-// The retry line stays up until the next attempt streams something or the turn ends.
+// The retry line stays up until the next attempt streams something, the turn's
+// model changes, or the turn ends.
 export function retryAfter(retry: RetryState | undefined, message: LiveMessage): RetryState | undefined {
     switch (message.type) {
         case "model_retry":
             return message.retry;
+        case "model_substitution":
+            // A fallback runs another model, so the old model's retry no longer names it.
+            return message.substitution.scope === "model" && message.source === "turn"
+                ? undefined
+                : retry;
         case "assistant_delta":
         case "assistant_thinking":
         case "assistant_thinking_progress":
