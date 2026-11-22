@@ -13,6 +13,7 @@ export interface SessionArtifacts {
     readonly sessionPath: string;
     readonly attachmentsPath: string;
     readonly filesPath: string;
+    readonly scratchPath?: string;
     readonly eventLogPath?: string;
 }
 
@@ -49,6 +50,9 @@ export async function trashSessionArtifacts(
         for (const artifact of existing.toReversed()) {
             await (options.removeOriginal
                 ?? ((path) => rm(path, { recursive: true })))(artifact.path);
+        }
+        if (artifacts.scratchPath !== undefined) {
+            await rm(artifacts.scratchPath, { recursive: true, force: true });
         }
         await rm(stagingRoot, { recursive: true, force: true });
         await rm(trashRoot, { recursive: true, force: true });

@@ -8,6 +8,7 @@ import { startWorkerServer, type HostListener, type StartHostServerOptions } fro
 import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "../session-host.ts";
 import { sessionEndpoint } from "../session-host/endpoint.ts";
 import type { StopWaitEvent, StopWaitTarget } from "../stop-when-idle.ts";
+import type { GuardedScratchDetach } from "../scratch-retention.ts";
 import { prepareRoutedHost } from "./routing.ts";
 import { ForwardedShutdowns, forwardLocalRequest } from "./public-forward.ts";
 import { HostInboxBridge, WorkerInboxBridge } from "./inbox.ts";
@@ -43,6 +44,7 @@ export interface InProcessWorker {
     publishStopWait?(event: StopWaitEvent): Promise<void>;
     waitingOn(): Promise<readonly StopWaitTarget[]>;
     hasSession(id: string): boolean | Promise<boolean>;
+    removeScratchIfUnowned?(id: string, detach: GuardedScratchDetach): Promise<boolean>;
     recoverCrashedTurns?(options: PoolCrashScanOptions): Promise<PoolCrashScanResult>;
     cutSession(id: string, reason: string, stopCause?: StopCause): Promise<boolean>;
     clearProviderSelection(provider: string): Promise<void>;
@@ -141,6 +143,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
     let server: HostListener | undefined;
     return {
         hostHandlers: routed.hostHandlers,
+        removeScratchIfUnowned: routed.removeScratchIfUnowned,
         async start(identity) {
             workerStarting = true;
             try {

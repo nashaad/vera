@@ -2,8 +2,9 @@ import { IMAGE_ATTACHMENT_LIMITS } from "../attachments/image.ts";
 import type { AgentDefinition } from "../agents/definition.ts";
 import { withSubagentCatalog } from "../tools/subagent-catalog.ts";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, realpathSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
+import { sessionScratchDir } from "../session-scratch.ts";
+export { sessionScratchDir } from "../session-scratch.ts";
 import { join } from "node:path";
 
 import {
@@ -386,12 +387,6 @@ export interface SessionCompactionOptions {
     readonly retainedUserTurns?: number;
 }
 
-export function sessionScratchDir(sessionId: string): string {
-    const dir = join(tmpdir(), "vera", sessionId);
-    mkdirSync(dir, { recursive: true });
-    return realpathSync(dir);
-}
-
 function compactionContextForSettings(
     settings: ModelTurnSettings,
     model = settings.model,
@@ -524,7 +519,7 @@ export async function runHeadlessLoop(
     const processRegistry = owned.processRegistry
         ?? new ManagedProcessRegistry();
     const ownsProcessRegistry = owned.processRegistry === undefined;
-    const scratchDir = sessionScratchDir(sessionId);
+    const scratchDir = services.scratchDir ?? sessionScratchDir(sessionId);
     if (
         boundary.offers.approvalModeRead
         !== (boundary.updateApprovalMode !== undefined)

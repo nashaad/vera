@@ -286,7 +286,7 @@ Use `/usage` for local session usage and cost, plus current ChatGPT subscription
 
 The included Budget extension counts reported conversation cost, including billed side questions asked of that conversation. Missing prices count as a known subtotal. `/budget 5` sets a $5 conversation budget, `/budget .5` sets $0.50, and `/budget` with no amount turns it off. At 50% and 80%, the next request receives spend and remaining-budget information; you see the same notice. At or above the budget, work pauses. Choose Increase budget and continue to enter a higher total, Ignore budget and continue to keep working without more prompts for this session, or Stop. Setting a budget again clears Ignore. Escape stops work without another request. Settings survive reconnect and resume. There are no reservations or separate runs to start and end.
 Treat request captures, session files, reviewer logs, and inspected model requests as sensitive local data.
-Vera clears old diagnostic logs from `runtime/logs/` on its own; set `log_max_age_days` in `config.json` to keep them longer. Session files are never cleared.
+Vera clears old diagnostic logs from `runtime/logs/` on its own; set `log_max_age_days` in `config.json` to keep them longer. Session scratch in `runtime/scratch/` is removed with its session or after `scratch_max_age_days` idle days (default 4). Session files are never cleared.
 Manual: `docs/troubleshooting.md`.
 
 ## Answering rules

@@ -51,6 +51,7 @@ import {
     veraBlockedDirectory,
     veraMachineDirectoryIn,
 } from "../profile-paths.ts";
+import { sessionScratchRoot } from "../session-scratch.ts";
 import { createRequestOptionsSnapshotAdapter } from "../providers/routing.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 import { defaultModelFailureLedgerPath } from "../store/model-failures.ts";
@@ -88,6 +89,11 @@ import {
     openSidecarLogPaths,
     pruneLogs,
 } from "./log-retention.ts";
+import {
+    pruneScratch,
+    SCRATCH_PRUNE_INTERVAL_MS,
+    scratchMaxAgeMs,
+} from "./scratch-retention.ts";
 import { recoverCrashedTurns } from "./restart-scan.ts";
 import { checkpointOpenStores } from "./store-checkpoint.ts";
 
@@ -1251,12 +1257,16 @@ async function startHostRuntime(
     let closing: Promise<void> | undefined;
     let shutdownCause: HostShutdownCause = { reason: "shutdown_requested" };
     let logPruneTimer: ReturnType<typeof setInterval> | undefined;
+    let scratchPruneTimer: ReturnType<typeof setInterval> | undefined;
+    let scratchPruneStopped = false;
+    let scratchPruning: Promise<void> | undefined;
     let clientWatchdog: ClientWatchdog | undefined;
     let announceShutdown: () => void = () => {};
     const shutdownRequested = new Promise<void>((resolve) => {
         announceShutdown = resolve;
     });
     const closeHost = (cause?: HostShutdownCause): Promise<void> => {
+        scratchPruneStopped = true;
         // A worker lost while the host closes must not be replaced.
         inProcessWorker?.stopSupervising?.();
         sessionHost.stopMaintenance();
@@ -1266,6 +1276,10 @@ async function startHostRuntime(
         if (logPruneTimer !== undefined) {
             clearInterval(logPruneTimer);
             logPruneTimer = undefined;
+        }
+        if (scratchPruneTimer !== undefined) {
+            clearInterval(scratchPruneTimer);
+            scratchPruneTimer = undefined;
         }
         if (closing === undefined) {
             if (cause !== undefined) shutdownCause = cause;
@@ -1657,6 +1671,31 @@ async function startHostRuntime(
     pruneOldLogs();
     logPruneTimer = setInterval(pruneOldLogs, LOG_PRUNE_INTERVAL_MS);
     logPruneTimer.unref();
+    const pruneOldScratch = (): void => {
+        if (scratchPruneStopped || scratchPruning !== undefined) return;
+        let scratchDirectory: string;
+        try {
+            scratchDirectory = sessionScratchRoot(home);
+        } catch {
+            return;
+        }
+        const pending = pruneScratch(scratchDirectory, sessionDirectory, {
+            maxAgeMs: scratchMaxAgeMs(currentConfig()),
+            isStopped: () => scratchPruneStopped,
+            removeIfUnowned: (id, detach) => inProcessWorker?.removeScratchIfUnowned !== undefined
+                ? inProcessWorker.removeScratchIfUnowned(id, detach)
+                : (() => {
+                    const unowned = () => !registry.agents.has(id) && !registry.startingIds.has(id)
+                        && !registry.trashingIds.has(id);
+                    return unowned() ? detach(unowned) : false;
+                })(),
+        }).then(() => {}, () => {});
+        scratchPruning = pending;
+        void pending.then(() => { scratchPruning = undefined; });
+    };
+    pruneOldScratch();
+    scratchPruneTimer = setInterval(pruneOldScratch, SCRATCH_PRUNE_INTERVAL_MS);
+    scratchPruneTimer.unref();
     startupLog({
         type: "host_startup_complete",
         duration_ms: performance.now() - startupStarted,

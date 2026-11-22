@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 import type { PermissionRule } from "../../src/engine/permissions.ts";
 import { compileSandboxPolicy } from "../../src/sandbox/policy.ts";
@@ -62,6 +62,37 @@ test("@core sandbox policy allows the workspace, scratch and temp folders to be 
         new Set([workspace, scratch, resolve(temp)]),
     );
     expect(compiled.filesystem.denyRead).toEqual([]);
+});
+
+test("@core sandbox policy only allows this session scratch under the Vera home", () => {
+    const veraHome = "/state/vera";
+    const ownScratch = join(veraHome, "runtime", "scratch", "session-a");
+    const siblingScratch = join(veraHome, "runtime", "scratch", "session-b");
+    const homeConfig = join(veraHome, "config.json");
+    const sessions = join(veraHome, "runtime", "sessions");
+    for (const platform of ["linux", "darwin"] as const) {
+        const compiled = compileSandboxPolicy({
+            workspace,
+            platform,
+            protectedFiles: [],
+            protectedDirectories: [],
+            scratchDir: ownScratch,
+            tempDir: temp,
+            home,
+            otherCheckouts: [],
+            config: { enabled: true, network: "open", allowed_domains: [] },
+            permissionRules: [],
+        });
+        expect(compiled.filesystem.allowWrite).toEqual([workspace, resolve(temp), ownScratch]);
+        const allowed = (path: string) => compiled.filesystem.allowWrite.some((root) =>
+            path === root || path.startsWith(`${root}${sep}`));
+        expect(allowed(join(ownScratch, "todo.md"))).toBe(true);
+        for (const path of [homeConfig, join(sessions, "session-a.jsonl"), join(siblingScratch, "todo.md")]) {
+            expect(allowed(path)).toBe(false);
+        }
+        expect(compiled.filesystem.denyWrite).not.toContain(veraHome);
+        expect(compiled.filesystem.denyWrite).not.toContain(`${veraHome}*`);
+    }
 });
 
 test("@core sandbox policy adds a folder named by a path-only allow rule", () => {

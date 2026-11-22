@@ -341,6 +341,8 @@ export interface VeraConfig {
     readonly model_catalog_max_age_days?: number;
     /** Whole days a file under `runtime/logs/` is kept. Absent means the built-in week. */
     readonly log_max_age_days?: number;
+    /** Whole days an idle session's scratch directory is kept. Absent means four days. */
+    readonly scratch_max_age_days?: number;
     /** Source families this user has allowed to start delivery turns. */
     readonly inbox?: VeraInboxConfig;
 }
@@ -1539,6 +1541,16 @@ function parseVeraConfigValue(value: unknown): VeraConfig | undefined {
             ),
         );
     }
+    const scratchMaxAgeDays = parsePositiveWholeCount(config.scratch_max_age_days);
+    if (config.scratch_max_age_days !== undefined && scratchMaxAgeDays === undefined) {
+        return configProblem(
+            "scratch_max_age_days",
+            expectedValue(
+                "a whole number of days, 1 or more",
+                config.scratch_max_age_days,
+            ),
+        );
+    }
     const contextSizeEvents = parseContextSizeEvents(config.context_size_events);
     if (contextSizeEvents === undefined) {
         return configProblem(
@@ -1659,6 +1671,9 @@ function parseVeraConfigValue(value: unknown): VeraConfig | undefined {
         ...(logMaxAgeDays === undefined
             ? {}
             : { log_max_age_days: logMaxAgeDays }),
+        ...(scratchMaxAgeDays === undefined
+            ? {}
+            : { scratch_max_age_days: scratchMaxAgeDays }),
     };
 }
 

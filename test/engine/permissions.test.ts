@@ -2639,6 +2639,35 @@ test("a path escaping the scratch directory keeps its outside scope", () => {
     expect(decision.behavior).not.toBe("allow");
 });
 
+test("@core home-contained scratch writes do not rescope adjacent home paths", () => {
+    const scratchDir = `${homeDirectory}/runtime/scratch/session-1`;
+    const decideWrite = (path: string) => decideToolPermission(
+        "ask",
+        toolCall("write", { path, content: "x" }),
+        workspace,
+        [],
+        { homeDirectory, scratchDir },
+    );
+
+    expect(decideWrite(`${scratchDir}/todo.md`).behavior).toBe("allow");
+    expect(decideToolPermission(
+        "ask",
+        bash(`printf x > ${scratchDir}/todo.md`),
+        workspace,
+        [],
+        { homeDirectory, scratchDir },
+    ).behavior).toBe("allow");
+    for (const path of [
+        `${homeDirectory}/config.json`,
+        `${homeDirectory}/runtime/sessions/session-1.jsonl`,
+        `${homeDirectory}/runtime/scratch/session-2/todo.md`,
+        `${scratchDir}/../session-2/todo.md`,
+        `${scratchDir}/../../sessions/session-1.jsonl`,
+    ]) {
+        expect(decideWrite(path).behavior, path).not.toBe("allow");
+    }
+});
+
 test("the session scratch dir is canonical so realpathed tool paths match it", async () => {
     const { sessionScratchDir } = await import("../../src/engine/run-turn.ts");
     const { realpathSync, rmSync } = await import("node:fs");

@@ -362,3 +362,9 @@ it starts and once a day. To keep them longer, set a whole number of days in
 `config.json`, for example `"log_max_age_days": 30`. Copy a log elsewhere to
 keep it for good. A running sidecar's log is never deleted. Session files in
 `runtime/sessions/` are not logs and are never deleted this way.
+
+## Scratch notes are gone
+
+Scratch notes from a parked session are removed after its idle limit. Set
+`scratch_max_age_days` in `config.json` to a higher whole number to keep them
+longer. Invalid values are rejected like `log_max_age_days`.

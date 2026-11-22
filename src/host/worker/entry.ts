@@ -1,6 +1,7 @@
 
 import { createInProcessChannel } from "../../engine/message-channel.ts";
 import { runHeadlessLoop } from "../../engine/run-turn.ts";
+import { sessionScratchDir } from "../../session-scratch.ts";
 import type { InboundCommandRouter } from "../../engine/inbound-command-router.ts";
 import { clearCutHaltWhenIdle } from "../cut-release.ts";
 import type { AgentUpdate } from "../../engine/protocol.ts";
@@ -247,7 +248,7 @@ export async function runWorker(
                 options.model,
                 options.reasoningEffort,
                 options.data,
-                {},
+                { scratchDir: sessionScratchDir(remote.boundary.owned.sessionStore!.header.id, options.home) },
                 remote.boundary,
             ),
             replicaFailure,

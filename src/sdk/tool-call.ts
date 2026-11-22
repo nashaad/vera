@@ -4,6 +4,8 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { sessionScratchDir } from "../session-scratch.ts";
+
 import { ModelEventStream } from "../model/stream.ts";
 import {
     emptyUsage,
@@ -68,6 +70,12 @@ export class SdkRuntime {
         }
     }
 
+    async scratchDir(sessionId: string): Promise<string> {
+        const home = await this.root();
+        this.assertOpen();
+        return sessionScratchDir(sessionId, home);
+    }
+
     async sessionPath(name: string): Promise<string> {
         validateSessionName(name);
         this.assertOpen();
@@ -97,8 +105,13 @@ export class SdkRuntime {
         }
         if (this.directory !== undefined) return this.directory;
         this.creating ??= mkdtemp(join(tmpdir(), "vera-sdk-instance-"));
-        this.directory = await this.creating;
-        return this.directory;
+        const directory = await this.creating;
+        if (this.closed) {
+            await rm(directory, { recursive: true, force: true });
+            throw new Error("This Vera instance is closed");
+        }
+        this.directory = directory;
+        return directory;
     }
 }
 

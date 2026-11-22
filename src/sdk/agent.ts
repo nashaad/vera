@@ -297,21 +297,25 @@ export class Vera {
                 ? DEFAULT_AGENT
                 : { ...DEFAULT_AGENT, tools: options.tools }
         );
-        const result = await vera.agent(definition, {
-            workspace,
-            ...(options.provider === undefined ? {} : { provider: options.provider }),
-            ...(options.model === undefined ? {} : { model: options.model }),
-            ...(options.effort === undefined
-                ? {}
-                : { reasoningEffort: options.effort }),
-        }).run(options.prompt, {
-            ...(options.signal === undefined ? {} : { signal: options.signal }),
-            ...(options.output === undefined ? {} : { output: options.output }),
-            ...(options.sessionPath === undefined
-                ? {}
-                : { sessionPath: options.sessionPath }),
-        });
-        return mapCredentialFailure(result);
+        try {
+            const result = await vera.agent(definition, {
+                workspace,
+                ...(options.provider === undefined ? {} : { provider: options.provider }),
+                ...(options.model === undefined ? {} : { model: options.model }),
+                ...(options.effort === undefined
+                    ? {}
+                    : { reasoningEffort: options.effort }),
+            }).run(options.prompt, {
+                ...(options.signal === undefined ? {} : { signal: options.signal }),
+                ...(options.output === undefined ? {} : { output: options.output }),
+                ...(options.sessionPath === undefined
+                    ? {}
+                    : { sessionPath: options.sessionPath }),
+            });
+            return mapCredentialFailure(result);
+        } finally {
+            await vera.close();
+        }
     }
 
     agent(
@@ -470,7 +474,14 @@ async function runAgentTurn<Output>(
         ? undefined
         : await bound.runtime.claimSession(options.session);
     try {
-        return await runResolvedTurn(resolved, prompt, options, claimed, events);
+        return await runResolvedTurn(
+            resolved,
+            prompt,
+            options,
+            claimed,
+            events,
+            bound.runtime,
+        );
     } finally {
         claimed?.release();
     }
@@ -482,6 +493,7 @@ async function runResolvedTurn<Output>(
     options: AgentRunOptions<Output>,
     claimed: ClaimedSession | undefined,
     events: EngineEventBus | undefined,
+    runtime: SdkRuntime,
 ): Promise<AgentRunResult<Output>> {
     const id = randomUUID();
     const durableSessionPath = claimed?.path ?? options.sessionPath;
@@ -522,6 +534,7 @@ async function runResolvedTurn<Output>(
         }
     };
     try {
+        const scratchDir = await runtime.scratchDir(sessionStore.header.id);
         const configuredAdapter = resolved.createAdapter(
             resolved.config,
             resolved.workspace,
@@ -591,6 +604,7 @@ async function runResolvedTurn<Output>(
                     ? {}
                     : { hooks }),
                 sessionStore,
+                scratchDir,
                 eventBus: bus,
                 ...(resolved.functions.length === 0
                     ? {}
