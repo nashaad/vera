@@ -44,12 +44,14 @@ tui=0
 image_mounted=0
 cleanup() {
     cleanup_status=$?
-    curl -fsS --max-time 10 -X POST "$feed/control/complete-turn" >/dev/null 2>&1 || true
-    tries=0
-    while ! curl -fsS --max-time 10 "$feed/control/counts" 2>/dev/null | grep -q '"active":0'; do
-        tries=$((tries + 1)); [ "$tries" -lt 10 ] || break
-        sleep 1
-    done
+    # A failed complete-turn means there is no feed to wait on; its counts would fail the same way.
+    if curl -fsS --max-time 10 -X POST "$feed/control/complete-turn" >/dev/null 2>&1; then
+        tries=0
+        while ! curl -fsS --max-time 10 "$feed/control/counts" 2>/dev/null | grep -q '"active":0'; do
+            tries=$((tries + 1)); [ "$tries" -lt 10 ] || break
+            sleep 1
+        done
+    fi
     if [ "$tui" = 1 ]; then tmux -L "$tmux_name" kill-server 2>/dev/null || true; fi
     if [ -n "$stdio" ]; then
         printf '%s\n' '{"type":"detach"}' >&3 2>/dev/null || true
