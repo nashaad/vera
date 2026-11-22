@@ -4,6 +4,7 @@ import { viewMenu } from "../commands/menus.ts";
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
 import { ChevronRightIcon, MoreIcon } from "../components/Icons.tsx";
 import type { ResolvedContainer, ResolvedView } from "../layout/resolve.ts";
+import { GENERIC_PAGE_KIND } from "../pagepane/kinds.ts";
 import { renderView } from "../views/registry.tsx";
 import { useWorkbench } from "./context.tsx";
 import { useDrag, useDropTarget } from "./drag.tsx";
@@ -29,7 +30,7 @@ function ViewPane({ container, view, active, merged }: ViewPaneProps) {
 
     const drop = useDropTarget({
         id: `view.${view.id}`,
-        accepts: (dragged) => dragged.kind === "view" && dragged.id !== view.id,
+        accepts: (dragged) => dragged.kind === "view" && dragged.id !== view.id && dragged.id !== GENERIC_PAGE_KIND && view.id !== GENERIC_PAGE_KIND,
         onOver: (event) => setEdge(edgeOf(event)),
         onDrop: (dragged, event) => {
             setEdge(undefined);
@@ -53,7 +54,7 @@ function ViewPane({ container, view, active, merged }: ViewPaneProps) {
         <section className="view" data-view={view.id} data-collapsed={collapsed} data-merged={merged}>
             <header
                 className="view-header"
-                draggable
+                draggable={view.id !== GENERIC_PAGE_KIND}
                 data-view-header={view.id}
                 data-drop={drop.over ? "over" : drop.active ? "available" : undefined}
                 data-marker={drop.over ? edge : undefined}

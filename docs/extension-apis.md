@@ -490,8 +490,12 @@ keeps working.
 Add `"pane": true` to a page's entry to give it a place of its own in the
 desktop. The window lists it by its label as a sidebar entry and a right pane
 kind, with up to three tabs. Links to the page in a reply or tool notice open
-in that pane. A page without a pane, or one beyond the available pane kinds,
-opens in the system browser.
+in that pane, reusing a tab that already shows the same address. A page without a
+pane opens in a generic framed page tab in the right pane, including when its
+address is typed in the Browser address field. These generic page tabs are
+temporary and are not restored from the saved layout. Open in your browser opens
+it in the system browser. If the right pane cannot take another page, Vera shows
+a notice instead.
 
 The `server` module runs in the annex and exports `activatePage(page)`:
 
@@ -537,8 +541,8 @@ markdown artifacts an agent writes, with comments you leave in the margin.
 
 A tool can return a notice that the transcript shows under its run, even when
 the run is collapsed. Give the notice a `link` and the desktop draws a card
-with the page's icon and your title, which opens the page in its pane or in
-the system browser when you click it. The text of the notice is still what the
+with the page's icon and your title, which opens the page in the right pane
+when you click it. The text of the notice is still what the
 terminal shows. The `link` and the notice never reach the model.
 
 ```ts

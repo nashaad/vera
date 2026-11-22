@@ -1,4 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -9,7 +12,7 @@ import { currentToasts } from "../../clients/ui/src/overlays/toasts.ts";
 import { annexLink, splitAddresses } from "../../clients/ui/src/pagepane/links.ts";
 import { noticePage, noticeTarget } from "../../clients/ui/src/pagepane/notices.ts";
 import { openAnnexAddress } from "../../clients/ui/src/browser/annex-address.ts";
-import { extensionPages, PAGE_KIND_LIMIT, PAGE_TAB_LIMIT, pageKindId, pageKinds, pagePathOfKind, sameKinds } from "../../clients/ui/src/pagepane/kinds.ts";
+import { extensionPages, GENERIC_PAGE_KIND, PAGE_KIND_LIMIT, PAGE_TAB_LIMIT, pageKindId, pageKinds, pagePathOfKind, sameKinds } from "../../clients/ui/src/pagepane/kinds.ts";
 import { openAnnexPath, openPageTab, pageTabsFull, type PageHost } from "../../clients/ui/src/pagepane/open.ts";
 import { pageTabs } from "../../clients/ui/src/pagepane/store.ts";
 import { PageLinksProvider } from "../../clients/ui/src/pagepane/PageLinks.tsx";
@@ -26,6 +29,10 @@ import { WorkbenchContext, type WorkbenchApi } from "../../clients/ui/src/workbe
 import { ExtensionPage } from "../../clients/ui/src/pages/ExtensionPage.tsx";
 import { routeTitle, sameRoute, type ExtensionRoute } from "../../clients/ui/src/pages/routes.ts";
 import { renderView } from "../../clients/ui/src/views/registry.tsx";
+import { PageFrame } from "../../clients/ui/src/views/PageFrame.tsx";
+import { canDropInLocation } from "../../clients/ui/src/workbench/drag.tsx";
+import { switcherMenu, tabMenu, viewMenu } from "../../clients/ui/src/commands/menus.ts";
+import { LayoutStore } from "../../clients/desktop/src/layout-store.ts";
 
 const NEST: AnnexPage = { label: "Nests", path: "/x/vera.nests/nests", extensionId: "vera.nests", pane: true };
 const PLAIN: AnnexPage = { label: "Plain", path: "/x/vera.plain/plain", extensionId: "vera.plain" };
@@ -67,11 +74,12 @@ test("@core built-in pages and extension pages with panes become separate page k
         { id: pageKindId("/usage"), title: "Usage", icon: "page", maxTabs: PAGE_TAB_LIMIT },
         { id: pageKindId("/runs"), title: "Workflow runs", icon: "page", maxTabs: PAGE_TAB_LIMIT },
         { id: NEST_KIND, title: "Nests", icon: "page", maxTabs: PAGE_TAB_LIMIT },
+        { id: GENERIC_PAGE_KIND, title: "Page", icon: "page", transientTabs: true },
     ]);
-    expect(pageKinds([]).map((kind) => kind.title)).toEqual(["Usage", "Workflow runs"]);
+    expect(pageKinds([]).map((kind) => kind.title)).toEqual(["Usage", "Workflow runs", "Page"]);
     expect(pagePathOfKind(NEST_KIND)).toBe(NEST.path);
     expect(pagePathOfKind(CORE_CONTAINERS.browser)).toBeUndefined();
-    expect(pageKinds([{ label: "Other", path: "/other", pane: true }])).toHaveLength(2);
+    expect(pageKinds([{ label: "Other", path: "/other", pane: true }])).toHaveLength(3);
 });
 
 test("extension page kinds are capped separately from built-in page kinds", () => {
@@ -81,8 +89,8 @@ test("extension page kinds are capped separately from built-in page kinds", () =
         extensionId: "vera.many",
         pane: true,
     }));
-    expect(pageKinds(many)).toHaveLength(PAGE_KIND_LIMIT + 2);
-    expect(pageKinds([...many, USAGE])).toHaveLength(PAGE_KIND_LIMIT + 2);
+    expect(pageKinds(many)).toHaveLength(PAGE_KIND_LIMIT + 3);
+    expect(pageKinds([...many, USAGE])).toHaveLength(PAGE_KIND_LIMIT + 3);
     expect(sameKinds(pageKinds(ANNEX.pages), pageKinds([...ANNEX.pages]))).toBe(true);
     expect(sameKinds(pageKinds(ANNEX.pages), [])).toBe(false);
     expect(sameKinds(pageKinds(ANNEX.pages), pageKinds([{ ...NEST, label: "Renamed" }]))).toBe(false);
@@ -139,7 +147,7 @@ test("at its tab limit a page opens on the pane's last tab instead of adding one
     expect(pageTabs.get(tabs.at(-1)!.id)).toBe(`${NEST.path}?id=new`);
 });
 
-test("@core app pages open in their own kinds and non-pane pages use the system browser", () => {
+test("@core app pages open in their own kinds and non-pane pages open in generic tabs", () => {
     const opened: string[] = [];
     Object.assign(globalThis, { window: { veraDesktop: { openAnnexPage: (path: string) => void opened.push(path) } } });
     const host = harness();
@@ -152,11 +160,14 @@ test("@core app pages open in their own kinds and non-pane pages use the system 
     expect(tabsOf(host, CORE_CONTAINERS.browser)).toHaveLength(0);
 
     openAnnexPath(host, PLAIN, PLAIN.path);
-    expect(opened).toEqual([PLAIN.path]);
+    expect(opened).toEqual([]);
+    const [generic] = tabsOf(host, GENERIC_PAGE_KIND);
+    expect(pageTabs.get(generic!.id)).toBe(PLAIN.path);
+    expect(host.layout.locations.rightPane.activeTab?.id).toBe(generic!.id);
     expect(tabsOf(host, NEST_KIND)).toHaveLength(1);
 });
 
-test("@core annex addresses route by their resolved path, with unknown annex paths using system fallback", () => {
+test("@core annex addresses route by their resolved path, including unknown paths", () => {
     const opened: string[] = [];
     Object.assign(globalThis, { window: { veraDesktop: { openAnnexPage: (path: string) => void opened.push(path) } } });
     const host = harness();
@@ -165,8 +176,29 @@ test("@core annex addresses route by their resolved path, with unknown annex pat
     expect(usage).toBeDefined();
     expect(pageTabs.get(usage!.id)).toBe("/usage?session=s1");
     expect(openAnnexAddress(host, ANNEX, `${ANNEX.url}unknown?x=1`)).toBe(true);
-    expect(opened).toEqual(["/unknown?x=1"]);
+    expect(opened).toEqual([]);
+    expect(pageTabs.get(tabsOf(host, GENERIC_PAGE_KIND)[0]!.id)).toBe("/unknown?x=1");
     expect(openAnnexAddress(host, ANNEX, "https://example.com/path")).toBe(false);
+});
+
+test("@core typed annex addresses reuse a generic tab when the right pane is full", () => {
+    const opened: string[] = [];
+    Object.assign(globalThis, { window: { veraDesktop: { openAnnexPage: (path: string) => void opened.push(path) } } });
+    const host = harness();
+    const path = `${PLAIN.path}?item=one`;
+    const address = new URL(path, ANNEX.url).href;
+    expect(openAnnexAddress(host, ANNEX, address)).toBe(true);
+    const first = tabsOf(host, GENERIC_PAGE_KIND)[0]!;
+    expect(pageTabs.get(first.id)).toBe(path);
+    for (let index = 1; index < MAX_TABS; index++) host.dispatch({ type: "openTab", container: CORE_CONTAINERS.files });
+
+    expect(openAnnexAddress(host, ANNEX, address)).toBe(true);
+    expect(host.layout.locations.rightPane.activeTab?.id).toBe(first.id);
+    expect(openAnnexAddress(host, ANNEX, new URL(`${PLAIN.path}?item=two`, ANNEX.url).href)).toBe(true);
+    expect(currentToasts().at(-1)?.text).toBe(pageTabsFull(PLAIN.label));
+    expect(tabsOf(host, GENERIC_PAGE_KIND)).toHaveLength(1);
+    expect(pageTabs.get(first.id)).toBe(path);
+    expect(opened).toEqual([]);
 });
 
 test("@core loopback addresses are blocked until retried after the annex origin is known", () => {
@@ -194,15 +226,16 @@ test("@core loopback addresses are blocked until retried after the annex origin 
     expect(tabsOf(host, pageKindId(USAGE.path))).toHaveLength(1);
 });
 
-test("a page whose kind is not registered opens in the system browser", () => {
+test("a page whose own kind is not registered opens in a generic tab", () => {
     const opened: string[] = [];
     Object.assign(globalThis, { window: { veraDesktop: { openAnnexPage: (path: string) => void opened.push(path) } } });
-    const host = harness([]);
+    const host = harness(pageKinds([]));
     openAnnexPath(host, NEST, NEST.path);
-    expect(opened).toEqual([NEST.path]);
+    expect(opened).toEqual([]);
+    expect(pageTabs.get(tabsOf(host, GENERIC_PAGE_KIND)[0]!.id)).toBe(NEST.path);
 });
 
-test("a hidden or moved page kind uses the system browser", () => {
+test("a hidden or moved page kind opens in a generic tab", () => {
     const opened: string[] = [];
     Object.assign(globalThis, { window: { veraDesktop: { openAnnexPage: (path: string) => void opened.push(path) } } });
     const hidden = harness();
@@ -211,10 +244,12 @@ test("a hidden or moved page kind uses the system browser", () => {
     const moved = harness();
     moved.dispatch({ type: "moveContainer", container: NEST_KIND, location: "panel" });
     openAnnexPath(moved, NEST, `${NEST.path}?id=2`);
-    expect(opened).toEqual([`${NEST.path}?id=1`, `${NEST.path}?id=2`]);
+    expect(opened).toEqual([]);
+    expect(pageTabs.get(tabsOf(hidden, GENERIC_PAGE_KIND)[0]!.id)).toBe(`${NEST.path}?id=1`);
+    expect(pageTabs.get(tabsOf(moved, GENERIC_PAGE_KIND)[0]!.id)).toBe(`${NEST.path}?id=2`);
 });
 
-test("a link goes to the system browser when neither pane is available", () => {
+test("a link shows a notice when the generic page kind is unavailable", () => {
     const opened: string[] = [];
     Object.assign(globalThis, { window: { veraDesktop: { openAnnexPage: (path: string) => void opened.push(path) } } });
     const contributions = new ContributionRegistry();
@@ -223,7 +258,8 @@ test("a link goes to the system browser when neither pane is available", () => {
     const state = defaultLayout();
     const host: PageHost = { layout: resolveLayout(state, contributions.snapshot()), dispatch: () => undefined };
     openAnnexPath(host, PLAIN, `${PLAIN.path}?a=1`);
-    expect(opened).toEqual([`${PLAIN.path}?a=1`]);
+    expect(opened).toEqual([]);
+    expect(currentToasts().at(-1)?.text).toBe(pageTabsFull(PLAIN.label));
 });
 
 test("a page that cannot open because the right pane is full says so in a toast", () => {
@@ -235,13 +271,22 @@ test("a page that cannot open because the right pane is full says so in a toast"
     expect(tabsOf(host, NEST_KIND)).toHaveLength(0);
 });
 
-test("@core only a full address on the host's annex that names a listed page is a page link", () => {
+test("@core only a full address on the host's annex is a page link", () => {
     expect(annexLink("http://127.0.0.1:8372/x/vera.nests/nests?id=1", ANNEX)).toEqual({ page: NEST, path: "/x/vera.nests/nests?id=1" });
     expect(annexLink("http://localhost:8372/usage", ANNEX)?.page).toEqual(USAGE);
     expect(annexLink("http://vera.localhost:8372/usage", ANNEX)?.page).toEqual(USAGE);
     expect(annexLink("http://127.0.0.1:9999/usage", ANNEX)).toBeUndefined();
     expect(annexLink("https://example.com/usage", ANNEX)).toBeUndefined();
-    expect(annexLink("http://127.0.0.1:8372/x/vera.nests/missing", ANNEX)).toBeUndefined();
+    expect(annexLink("http://127.0.0.1:8372/x/vera.nests/missing?x=1", ANNEX)).toEqual({
+        page: { label: "/x/vera.nests/missing?x=1", path: "/x/vera.nests/missing" },
+        path: "/x/vera.nests/missing?x=1",
+    });
+    const unlisted = `/${"a".repeat(2_000)}`;
+    expect(annexLink(`${ANNEX.url}${unlisted.slice(1)}`, ANNEX)).toEqual({ page: { label: unlisted, path: unlisted }, path: unlisted });
+    for (const page of [NEST, PLAIN]) {
+        const path = `${page.path}?item=${"a".repeat(2_000)}`;
+        expect(annexLink(new URL(path, ANNEX.url).href, ANNEX)).toEqual({ page, path });
+    }
     expect(annexLink("/usage", ANNEX)).toBeUndefined();
     expect(annexLink("Usage", ANNEX)).toBeUndefined();
     expect(annexLink("http://127.0.0.1:8372/usage", undefined)).toBeUndefined();
@@ -297,14 +342,13 @@ test("@core a notice with a link draws as a card under a collapsed run, titled b
     expect(html).not.toContain("Artifact page:");
 });
 
-test("a card cannot open until the annex is read, and a link to an unlisted page shows the notice's text", () => {
+test("a card cannot open until the annex is read, then an unlisted page can be opened", () => {
     const early = withLinks(undefined, createElement(RunLine, { calls: [LINKED] }));
     expect(early).toContain("class=\"page-card\"");
     expect(early).not.toContain("data-page-card");
     const unlisted = withLinks(ANNEX, createElement(RunLine, { calls: [noticeCall({ kind: "tool_notice", text: "Elsewhere", link: { title: "Gone", page: "/x/vera.gone/gone" } })] }));
-    expect(unlisted).not.toContain("page-card");
-    expect(unlisted).toContain("class=\"run-notice\"");
-    expect(unlisted).toContain("Elsewhere");
+    expect(unlisted).toContain('data-page-card="/x/vera.gone/gone"');
+    expect(unlisted).toContain('class="page-card-title">Gone</span>');
 });
 
 test("@core a notice from before links, with a page address in its text, is a card titled by the artifact it names", () => {
@@ -330,6 +374,16 @@ test("a notice with no address is its text, and the card opens the page on the l
     const [tab] = tabsOf(host, NEST_KIND);
     expect(pageTabs.get(tab!.id)).toBe(NOTICE_PATH);
     expect(host.layout.locations.rightPane.activeTab?.id).toBe(tab!.id);
+});
+
+test("valid long notice queries still open listed pages", () => {
+    const query = { one: "é".repeat(200), two: "é".repeat(200) };
+    for (const page of [NEST, PLAIN]) {
+        const path = `${page.path}?${new URLSearchParams(query)}`;
+        expect(path.length).toBeGreaterThan(2_000);
+        const notice: ToolNoticePresentation = { kind: "tool_notice", text: "Open page", link: { title: "Open", page: page.path, query } };
+        expect(noticeView(notice, ANNEX)).toEqual({ kind: "card", title: "Open", open: { page, path } });
+    }
 });
 
 test("a run with no notice draws none", () => {
@@ -512,4 +566,73 @@ test("@core a page opened from the sidebar draws its frame on the page without a
     expect(html).not.toContain("?");
     expect(withLinks(undefined, createElement(ExtensionPage, { route: NEST_ROUTE }))).toContain("Finding Vera");
     expect(withLinks({ ...ANNEX, pages: [USAGE] }, createElement(ExtensionPage, { route: NEST_ROUTE }))).toContain("Not found");
+});
+
+test("@core generic tabs retain their individual paths and reuse only the same path", () => {
+    const host = harness();
+    openAnnexPath(host, PLAIN, `${PLAIN.path}?item=one`);
+    const first = tabsOf(host, GENERIC_PAGE_KIND)[0]!;
+    openAnnexPath(host, PLAIN, `${PLAIN.path}?item=two`);
+    const second = tabsOf(host, GENERIC_PAGE_KIND)[1]!;
+    expect(first.id).not.toBe(second.id);
+    expect(pageTabs.get(first.id)).toBe(`${PLAIN.path}?item=one`);
+    expect(pageTabs.get(second.id)).toBe(`${PLAIN.path}?item=two`);
+    openAnnexPath(host, PLAIN, `${PLAIN.path}?item=one`);
+    expect(tabsOf(host, GENERIC_PAGE_KIND)).toHaveLength(2);
+    expect(host.layout.locations.rightPane.activeTab?.id).toBe(first.id);
+    expect(tabsOf(host, CORE_CONTAINERS.browser)).toHaveLength(0);
+});
+
+test("@core a full pane reuses an existing generic page but does not replace it for another path", () => {
+    const host = harness();
+    openAnnexPath(host, PLAIN, `${PLAIN.path}?item=one`);
+    const first = tabsOf(host, GENERIC_PAGE_KIND)[0]!;
+    for (let index = 1; index < MAX_TABS; index++) host.dispatch({ type: "openTab", container: CORE_CONTAINERS.files });
+    openAnnexPath(host, PLAIN, `${PLAIN.path}?item=one`);
+    expect(host.layout.locations.rightPane.activeTab?.id).toBe(first.id);
+    openAnnexPath(host, PLAIN, `${PLAIN.path}?item=two`);
+    expect(currentToasts().at(-1)?.text).toBe(pageTabsFull(PLAIN.label));
+    expect(tabsOf(host, GENERIC_PAGE_KIND)).toHaveLength(1);
+    expect(pageTabs.get(first.id)).toBe(`${PLAIN.path}?item=one`);
+});
+
+test("a generic frame loads an unlisted path and preserves its query and fragment", () => {
+    const html = withLinks(ANNEX, createElement(PageFrame, { path: "/unknown", shown: "/unknown?x=1#part", allowUnlisted: true }));
+    expect(html).toContain(`src="${ANNEX.url}unknown?x=1#part"`);
+    expect(html).toContain('title="/unknown?x=1#part"');
+    expect(html).toContain('aria-label="Open in your browser"');
+    expect(withLinks(ANNEX, createElement(PageFrame, { path: "/unknown" }))).toContain("Not found");
+});
+
+test("the generic kind is not an addable or movable pane", () => {
+    const host = harness();
+    openAnnexPath(host, PLAIN, PLAIN.path);
+    const tab = tabsOf(host, GENERIC_PAGE_KIND)[0]!;
+    expect(switcherMenu(host.layout, "rightPane").some((entry) => entry.kind === "item" && entry.label === "Page")).toBe(false);
+    expect(tabMenu(host.layout, tab.id, PLAIN.label)).toMatchObject([{ kind: "item", label: "Close Plain" }]);
+    expect(viewMenu(host.layout, GENERIC_PAGE_KIND)).toEqual([]);
+    expect(viewMenu(host.layout, CORE_CONTAINERS.files).some((entry) => entry.kind === "item" && entry.label === "Move to Page (Right Pane)")).toBe(false);
+    expect(canDropInLocation({ kind: "tab", id: tab.id, container: GENERIC_PAGE_KIND }, "sidebar")).toBe(false);
+    expect(canDropInLocation({ kind: "tab", id: tab.id, container: GENERIC_PAGE_KIND }, "panel")).toBe(false);
+    expect(canDropInLocation({ kind: "tab", id: tab.id, container: GENERIC_PAGE_KIND }, "rightPane")).toBe(true);
+});
+
+test("@core generic tabs are omitted from a real saved layout while dedicated tabs survive", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-generic-layout-"));
+    try {
+        const host = harness();
+        openAnnexPath(host, NEST, NEST.path);
+        openAnnexPath(host, PLAIN, `${PLAIN.path}?item=one`);
+        const saved = forSave(host.state(), (container) => host.contributions.keepsTabsOut(container));
+        const store = new LayoutStore(join(directory, "layout.json"));
+        expect(store.save(saved)).toBe(true);
+        const loaded = store.load();
+        expect(loaded).toEqual(saved);
+        expect(loaded?.tabs.map((tab) => tab.container)).toEqual([NEST_KIND]);
+        const restored = resolveLayout(loaded!, host.contributions.snapshot());
+        expect(restored.locations.rightPane.activeTab?.container.id).toBe(NEST_KIND);
+        expect(restored.locations.rightPane.tabs.some((tab) => tab.container.id === GENERIC_PAGE_KIND)).toBe(false);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
 });

@@ -1,13 +1,13 @@
 import { LOCATION_TITLES, type LocationId } from "../layout/model.ts";
 import { useWorkbench } from "./context.tsx";
-import { draggedContainer, useDropTarget } from "./drag.tsx";
+import { canDropInLocation, draggedContainer, useDropTarget } from "./drag.tsx";
 
 // Shown only during a drag, for a location that has nothing on screen to drop onto.
 export function DropStrip({ location }: { readonly location: LocationId }) {
     const { dispatch } = useWorkbench();
     const drop = useDropTarget({
         id: `strip.${location}`,
-        accepts: () => true,
+        accepts: (dragged) => canDropInLocation(dragged, location),
         onDrop: (dragged) => {
             const container = draggedContainer(dragged);
             if (container !== undefined) {
