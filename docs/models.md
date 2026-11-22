@@ -253,7 +253,11 @@ available. The lower level lasts only for this request; the next request uses
 the turn's effort again.
 Once answer text has appeared, Vera keeps it and shows the error instead. If a
 model sends nothing for 5 minutes, Vera treats that as a timeout and retries.
-Retry activity shows the attempt and total attempt count, the time left before
+One model's retries stop about 10 minutes after its first failure: a retry
+whose wait would run past that point does not start, and an attempt's 5-minute
+silence limit is shortened to the time left. The request ends with the last
+failure. A fallback model gets its own 10-minute window. Retry activity shows
+the attempt and total attempt count, the time left before
 the next attempt, and a short name for the failure. Once the next attempt runs
 without a reply, it shows how long it has been silent instead. The TUI keeps
 the turn's elapsed time on the same line. Press Escape to cancel at any point,
