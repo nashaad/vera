@@ -68,7 +68,8 @@ test("@core the terminal and stdio clients create sessions without the notes arg
         expect(calls.length).toBeGreaterThan(0);
         for (const args of calls) {
             if (args[0] === "socketPath: string") continue;
-            expect(args.length).toBeLessThanOrEqual(5);
+            expect(args.length).toBeLessThanOrEqual(7);
+            if (args.length >= 6) expect(args[5]).toBe("undefined");
         }
     }
 });

@@ -73,7 +73,7 @@ export interface SessionEndpoint extends ExtensionSessionServices, PeerSessionSe
     tree(id: string): Promise<readonly string[]>;
     find(id: string, reserved?: boolean): Promise<RoutedSession | undefined>;
     create(options: Pick<CreateRegisteredAgentOptions,
-        "id" | "workspace" | "approvalMode" | "ephemeral" | "startupProfile" | "notesOffer">): Promise<RoutedSession>;
+        "id" | "workspace" | "approvalMode" | "ephemeral" | "startupProfile" | "notesOffer" | "writeRoots">): Promise<RoutedSession>;
     resume(path: string, options?: SessionResumeOptions): Promise<RoutedSession>;
     release(id: string): Promise<readonly string[] | undefined>;
     list(): Promise<readonly RegisteredAgentSummary[]>;

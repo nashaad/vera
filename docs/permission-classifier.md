@@ -140,6 +140,10 @@ Cancelling a turn while the classifier works is not a failure. It says the turn
 was cancelled before the classifier answered, so the action did not run, and
 that note is saved too.
 
+When a custom mode sends a write under a folder named with `--write-root` for
+review, the path facts show `authorized_root` instead of `outside_workspace`.
+See [Permission modes and rules](permission-rules.md).
+
 The classifier receives user turns and tool calls. It does not receive tool
 results.
 

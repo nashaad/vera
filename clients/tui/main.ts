@@ -813,6 +813,8 @@ export async function startConfiguredTui(
             undefined,
             undefined,
             resolvedTarget.startupProfile,
+            undefined,
+            resolvedTarget.writeRoots,
         )).id
         : resolvedTarget.type === "resume"
             ? (await resumeAgentThroughHost(

@@ -1,9 +1,11 @@
 import { afterEach, beforeAll, expect, test } from "bun:test";
-import { join } from "node:path";
+import { mkdirSync, symlinkSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import {
     BUILT_IN_PERMISSION_MODES,
     decideToolPermission,
+    extractPermissionActions,
     inspectPermissions,
     isPermissionInspection,
     type PermissionOutcome,
@@ -245,19 +247,152 @@ test("no rule allow lifts the other-worktree ask", () => {
     }
 });
 
+test("@core a declared write root lifts a file-tool write from review and ask but never a shell write", () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const root = join(dirname(repo), "shared-root");
+    mkdirSync(root);
+    const target = join(root, "notes.txt");
+
+    expect(write("auto", session, target)).toBe("review");
+    expect(write("auto", session, target, "write", [root])).toBe("allow");
+    expect(write("ask", session, target)).toBe("ask");
+    expect(write("ask", session, target, "write", [root])).toBe("allow");
+    expect(write("readonly", session, target, "write", [root])).toBe("deny");
+    expect(write("auto", session, target, "edit", [root])).toBe("allow");
+    expect(write("auto", session, join(root, "other.txt"), "write", [root]))
+        .toBe("allow");
+    expect(write("auto", session, join(root, "..", "outside.txt"), "write", [root]))
+        .toBe("review");
+
+    expect(shell("auto", session, `printf x > ${target}`)).toBe("review");
+    expect(shellWithRoots("auto", session, `printf x > ${target}`, [root]))
+        .toBe("review");
+    expect(shellWithRoots("ask", session, `printf x > ${target}`, [root]))
+        .toBe("ask");
+});
+
+test("@core explicit deny and ask rules win over a write root", () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const root = join(dirname(repo), "shared-root");
+    mkdirSync(root);
+    const target = join(root, "notes.txt");
+    const deny: readonly PermissionRule[] = [{
+        name: "permission_rules.0",
+        when: { verb: "write", path: target },
+        then: "deny",
+    }];
+    const ask: readonly PermissionRule[] = [{
+        name: "permission_rules.1",
+        when: { verb: "write", path: target },
+        then: "ask",
+    }];
+
+    expect(decideWithRules("auto", session, target, [], [], [root]))
+        .toBe("allow");
+    expect(decideWithRules("auto", session, target, deny, [], [root]))
+        .toBe("deny");
+    expect(decideWithRules("auto", session, target, ask, [], [root]))
+        .toBe("ask");
+    expect(decideWithRules("ask", session, target, deny, [], [root]))
+        .toBe("deny");
+});
+
+test("a write root inside another worktree does not lift its ask", () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const sibling = addWorktree(repo, "b");
+    const target = join(sibling, "src", "new.ts");
+
+    expect(write("auto", session, target, "write", [sibling])).toBe("ask");
+    expect(write("ask", session, target, "write", [sibling])).toBe("ask");
+});
+
+test("a symlink under a write root does not borrow its authority", () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const root = join(dirname(repo), "shared-root");
+    const outside = join(dirname(repo), "outside-root");
+    mkdirSync(root);
+    mkdirSync(outside);
+    symlinkSync(outside, join(root, "escape"));
+
+    expect(write("auto", session, join(root, "escape", "new.ts"), "write", [root]))
+        .toBe("review");
+});
+
+test("reviewer path facts mark a rooted write as authorized_root", async () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const root = join(dirname(repo), "shared-root");
+    mkdirSync(root);
+    const path = join(root, "notes.txt");
+    const call = { id: "call_1", name: "write", input: { path, content: "x" } };
+    const actions = extractPermissionActions({
+        toolCall: call,
+        workspace: session,
+        homeDirectory: session,
+        writeRoots: [root],
+    });
+    const facts = await collectReviewerPathFacts(
+        session,
+        call,
+        actions.map((action) => ({
+            action,
+            outcome: "allow" as const,
+            rule: "routine.write_root_write",
+        })),
+    );
+    const plainFacts = await collectReviewerPathFacts(
+        session,
+        call,
+        extractPermissionActions({
+            toolCall: call,
+            workspace: session,
+            homeDirectory: session,
+        }).map((action) => ({
+            action,
+            outcome: "review" as const,
+            rule: "auto.default",
+        })),
+    );
+
+    expect(facts[0]?.scope).toBe("authorized_root");
+    expect(plainFacts[0]?.scope).toBe("outside_workspace");
+});
+
+test("the ask and auto inspections list the write-root rule", () => {
+    for (const mode of ["ask", "auto"] as const) {
+        const inspection = inspectPermissions(mode);
+        expect(isPermissionInspection(inspection)).toBe(true);
+        expect(inspection?.selected.rules).toContainEqual({
+            name: "routine.write_root_write",
+            when: { verb: "write", writeRoot: true },
+            then: "allow",
+        });
+    }
+});
+
 function decideWithRules(
     mode: Mode,
     workspace: string,
     path: string,
     rules: readonly PermissionRule[],
     preferences: readonly PermissionPreference[] = [],
+    writeRoots: readonly string[] = [],
 ): PermissionOutcome {
     return decideToolPermission(
         mode,
         toolCall("write", { path, content: "x" }),
         workspace,
         [],
-        { homeDirectory: workspace, permissionRules: rules, permissionPreferences: preferences },
+        {
+            homeDirectory: workspace,
+            permissionRules: rules,
+            permissionPreferences: preferences,
+            ...(writeRoots.length === 0 ? {} : { writeRoots }),
+        },
     ).behavior;
 }
 
@@ -266,6 +401,7 @@ function write(
     workspace: string,
     path: string,
     tool: "write" | "edit" = "write",
+    writeRoots: readonly string[] = [],
 ): PermissionOutcome {
     const input: HookToolCall["input"] = tool === "write"
         ? { path, content: "x" }
@@ -275,7 +411,25 @@ function write(
         toolCall(tool, input),
         workspace,
         [],
-        { homeDirectory: workspace },
+        {
+            homeDirectory: workspace,
+            ...(writeRoots.length === 0 ? {} : { writeRoots }),
+        },
+    ).behavior;
+}
+
+function shellWithRoots(
+    mode: Mode,
+    workspace: string,
+    command: string,
+    writeRoots: readonly string[],
+): PermissionOutcome {
+    return decideToolPermission(
+        mode,
+        toolCall("bash", { command }),
+        workspace,
+        [],
+        { homeDirectory: workspace, writeRoots },
     ).behavior;
 }
 

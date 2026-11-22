@@ -8,6 +8,7 @@ import {
     realpath,
     rm,
     stat,
+    symlink,
     writeFile,
 } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -532,5 +533,28 @@ test("a session created with the notes offer keeps it fixed in its header and it
                 return new FauxAdapter([textResponse("done")]).stream(request);
             },
         }),
+    });
+});
+
+test("@core a create stores canonical write roots in the session header", async () => {
+    await withChats(async ({ root, registry, path }) => {
+        const target = join(root, "shared");
+        await mkdir(target);
+        const link = join(root, "shared-link");
+        await symlink(target, link);
+        const rooted = await registry.create({
+            id: "rooted",
+            sessionPath: path("rooted"),
+            writeRoots: [link],
+        });
+        expect(registry.agents.get("rooted")!.store.header.writeRoots).toEqual([target]);
+        await runPrompt(rooted.attach(), "first");
+        expect((await SessionStore.open(path("rooted"))).header.writeRoots).toEqual([target]);
+
+        const plain = await registry.create({ id: "plain", sessionPath: path("plain") });
+        await runPrompt(plain.attach(), "first");
+        expect("writeRoots" in (await SessionStore.open(path("plain"))).header).toBe(false);
+    }, {
+        createAdapter: () => new FauxAdapter([textResponse("done")]),
     });
 });

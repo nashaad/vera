@@ -908,6 +908,9 @@ export async function runSubagent(
             events,
             hooks: options.hooks ?? new ToolHooks(),
             approvalMode: options.approvalMode,
+            ...(store.header.writeRoots === undefined
+                ? {}
+                : { writeRoots: store.header.writeRoots }),
             ...(options.selectedAgent === undefined ? {} : {
                 readSelectedAgent: () => options.selectedAgent,
             }),

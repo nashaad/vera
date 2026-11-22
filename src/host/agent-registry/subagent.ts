@@ -685,6 +685,9 @@ export async function spawnAsyncSubagent(reg: AgentRegistry, parentStore: Sessio
                 {
                     approvalMode: context.approvalMode,
                     parentId: parentStore.header.id,
+                    ...(parentStore.header.writeRoots === undefined
+                        ? {}
+                        : { writeRoots: parentStore.header.writeRoots }),
                     delegation: {
                         kind: "subagent",
                         parentId: parentStore.header.id,

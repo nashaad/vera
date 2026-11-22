@@ -32,6 +32,7 @@ import type {
     SessionSearchResults,
 } from "../store/session-search.ts";
 import { isStartupProfile, type StartupProfile } from "../startup-profile.ts";
+import { MAX_SESSION_WRITE_ROOTS } from "../store/session-write-roots.ts";
 import type { HostRequester } from "./requester.ts";
 
 export type { HostRequester } from "./requester.ts";
@@ -339,6 +340,8 @@ export interface CreateAgentRequest {
     readonly startup_profile?: StartupProfile;
     // Window sessions only. Fixed for the life of the session; false is the same as omitted.
     readonly notes_offer?: boolean;
+    // Absolute directories the session may write to beyond its workspace. Fixed for the life of the session.
+    readonly write_roots?: readonly string[];
 }
 
 export interface ResumeAgentRequest {
@@ -1469,6 +1472,16 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             || isStartupProfile(value.startup_profile))
         && (value.notes_offer === undefined
             || typeof value.notes_offer === "boolean")
+        && (value.write_roots === undefined
+            || (Array.isArray(value.write_roots)
+                && value.write_roots.length <= MAX_SESSION_WRITE_ROOTS
+                && value.write_roots.every((root: unknown) =>
+                    typeof root === "string"
+                    && root.length > 0
+                    && root.length <= 4_096
+                    && !root.includes("\0")
+                    && isAbsolute(root)
+                )))
     ) {
         return {
             type: "create_agent",
@@ -1485,6 +1498,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
                 ? {}
                 : { startup_profile: value.startup_profile }),
             ...(value.notes_offer === true ? { notes_offer: true } : {}),
+            ...(value.write_roots === undefined
+                ? {}
+                : { write_roots: value.write_roots as readonly string[] }),
         };
     }
     if (

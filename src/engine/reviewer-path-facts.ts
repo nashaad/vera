@@ -7,7 +7,10 @@ import { basename, dirname, resolve } from "node:path";
 
 import type { HookToolCall } from "../sdk/hooks.ts";
 import type { PermissionActionDecision } from "./permissions.ts";
-import { workspaceScope } from "./workspace-scope.ts";
+import {
+    canonicalPermissionPath,
+    workspaceScope,
+} from "./workspace-scope.ts";
 
 const MAX_DIRECTORY_ENTRIES = 1_000;
 const GIT_CHECK_TIMEOUT_MS = 1_000;
@@ -24,7 +27,7 @@ export type ReviewerPathType =
 export interface ReviewerPathFacts {
     readonly requestedPath: string;
     readonly resolvedPath: string;
-    readonly scope: "workspace" | "outside_workspace";
+    readonly scope: "workspace" | "outside_workspace" | "authorized_root";
     readonly exists: boolean;
     readonly type: ReviewerPathType;
     readonly symlinkTarget?: string;
@@ -57,6 +60,11 @@ export async function collectReviewerPathFacts(
     signal?: AbortSignal,
 ): Promise<readonly ReviewerPathFacts[]> {
     const candidates = pathCandidates(workspace, toolCall, actions);
+    const authorizedRootPaths = new Set(actions.flatMap(({ action }) =>
+        action.writeRoot === true && action.path !== undefined
+            ? [canonicalPermissionPath(action.path)]
+            : []
+    ));
     const facts: ReviewerPathFacts[] = [];
     const seen = new Set<string>();
 
@@ -65,7 +73,12 @@ export async function collectReviewerPathFacts(
         if (seen.has(candidate.absolutePath)) {
             continue;
         }
-        const fact = await inspectPath(workspace, candidate, signal);
+        const fact = await inspectPath(
+            workspace,
+            candidate,
+            authorizedRootPaths,
+            signal,
+        );
         if (!seen.has(fact.resolvedPath)) {
             seen.add(fact.resolvedPath);
             facts.push(fact);
@@ -107,6 +120,7 @@ function pathCandidates(
 async function inspectPath(
     workspace: string,
     candidate: PathCandidate,
+    authorizedRootPaths: ReadonlySet<string>,
     signal?: AbortSignal,
 ): Promise<ReviewerPathFacts> {
     signal?.throwIfAborted();
@@ -118,7 +132,7 @@ async function inspectPath(
             return {
                 requestedPath: candidate.requestedPath,
                 resolvedPath: candidate.absolutePath,
-                scope: pathScope(workspace, candidate.absolutePath),
+                scope: pathScope(workspace, candidate.absolutePath, authorizedRootPaths),
                 exists: false,
                 type: "missing",
                 trackedGitState: await trackedGitState(
@@ -131,7 +145,7 @@ async function inspectPath(
         return {
             requestedPath: candidate.requestedPath,
             resolvedPath: candidate.absolutePath,
-            scope: pathScope(workspace, candidate.absolutePath),
+            scope: pathScope(workspace, candidate.absolutePath, authorizedRootPaths),
             exists: false,
             type: "unknown",
             trackedGitState: "unavailable",
@@ -143,7 +157,7 @@ async function inspectPath(
     const base = {
         requestedPath: candidate.requestedPath,
         resolvedPath,
-        scope: pathScope(workspace, resolvedPath),
+        scope: pathScope(workspace, resolvedPath, authorizedRootPaths),
         exists: true,
         type,
         ...(info.isSymbolicLink() ? { symlinkTarget: resolvedPath } : {}),
@@ -316,8 +330,13 @@ function pathType(
 function pathScope(
     workspace: string,
     path: string,
+    authorizedRootPaths: ReadonlySet<string>,
 ): ReviewerPathFacts["scope"] {
-    return workspaceScope(path, workspace);
+    const scope = workspaceScope(path, workspace);
+    if (scope === "workspace") return scope;
+    return authorizedRootPaths.has(canonicalPermissionPath(path))
+        ? "authorized_root"
+        : "outside_workspace";
 }
 
 function isMissingPathError(value: unknown): boolean {
