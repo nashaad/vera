@@ -9,6 +9,7 @@ import {
     groupByScope,
     KIND_LABELS,
     kindCounts,
+    latchedFolder,
     visibleItems,
     type CustomizeItem,
     type KindFilter,
@@ -169,10 +170,13 @@ export function CustomizePage() {
     const rows = connection.sessionRows ?? [];
     const folders = folderChoices(rows);
 
-    // Starts at the folder on screen; until the user picks, the folder of the most recently active session.
+    // Starts at the folder on screen; otherwise the latest folder is stored once and kept until the user picks another.
     // With no folder to offer, the read is what a new chat loads.
     const [chosen, setChosen] = useState<string | undefined>(() => (active === undefined || active.chat ? undefined : active.folder));
-    const folder = chosen ?? folders[0];
+    const folder = latchedFolder(chosen, folders);
+    useEffect(() => {
+        if (chosen === undefined && folder !== undefined) setChosen(folder);
+    }, [chosen, folder]);
 
     const [reload, setReload] = useState(0);
     const [kind, setKind] = useState<KindFilter>("all");

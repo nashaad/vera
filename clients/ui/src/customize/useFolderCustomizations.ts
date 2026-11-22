@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 
 import type { DesktopBridge } from "../protocol/bridge.ts";
-import { folderReadOutcome, LOADING, NO_ANSWER_REASON, NO_BRIDGE_REASON, type FolderReadState } from "./folderReading.ts";
+import {
+    folderReadOutcome,
+    LOADING,
+    NO_ANSWER_REASON,
+    NO_BRIDGE_REASON,
+    readingStartState,
+    type FolderReadState,
+} from "./folderReading.ts";
 
 // Asks the host what a new session in `folder` would load, or in a chat when there is none. `reload` reads again when it changes.
 export function useFolderCustomizations(
@@ -16,7 +23,7 @@ export function useFolderCustomizations(
             setState({ phase: "failed", reason: NO_BRIDGE_REASON });
             return undefined;
         }
-        setState(LOADING);
+        setState(readingStartState);
         if (!connected) return undefined;
         let live = true;
         bridge.readFolderCustomizations(folder).then(

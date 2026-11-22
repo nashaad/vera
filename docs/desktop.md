@@ -124,7 +124,8 @@ window.
   window reload.
 - Customize shows what Vera loads for a session in one folder: skills, agents,
   extensions, instruction files and memory files. A menu picks the folder; it
-  starts on the folder of the session last open, and lists no chats. The page
+  starts on the folder of the session last open, stays on it until you pick
+  another, and lists no chats. The page
   asks the host to read the folder, so it needs no session: a stopped session is
   not started and no message is sent. With no folder picked it lists what a new
   chat loads from the home: skills, agents, extensions, rules and memory files,
@@ -132,7 +133,7 @@ window.
   If the host was started before this request existed, the page says `Vera needs
   a restart to read what this folder loads.` with Retry. Pills filter by kind
   with a count on each, a search box matches names and
-  descriptions, and Reload reads again. Items are grouped as This folder, Your
+  descriptions, and Reload reads again while the current list stays on screen. Items are grouped as This folder, Your
   home, Extensions, Built in and Other. Extensions included with Vera are not
   listed; their skills and agents are. A card shows the name, the description, the kind
   and badges such as Current for the agent a new session starts on, Manual only for a skill
