@@ -1,6 +1,6 @@
 import { openAnnexPath, type PageHost } from "../pagepane/open.ts";
 import type { AnnexPagesAnswer } from "../protocol/bridge.ts";
-import { isAnnexPath, pageAt, resolveAddress } from "./address.ts";
+import { isAnnexPath, pageAtOrPath, resolveAddress } from "./address.ts";
 import { isLoopbackHost } from "./loopback.ts";
 import { browserUrl } from "./url.ts";
 
@@ -14,8 +14,6 @@ export function openAnnexAddress(host: PageHost, annex: AnnexPagesAnswer | undef
         return url !== undefined && isLoopbackHost(new URL(url).hostname);
     }
     if (annex === undefined || path.length > MAX_ANNEX_PATH) return true;
-    const page = pageAt(path, annex.pages);
-    if (page !== undefined) openAnnexPath(host, page, path);
-    else void window.veraDesktop?.openAnnexPage(path);
+    openAnnexPath(host, pageAtOrPath(path, annex.pages), path);
     return true;
 }

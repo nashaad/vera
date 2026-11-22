@@ -1,3 +1,4 @@
+import { isAnnexPath, pageAtOrPath } from "../browser/address.ts";
 import { annexLink, splitAddresses, type AnnexLink } from "../pagepane/links.ts";
 import { pagePathWithQuery } from "../pagepane/notices.ts";
 import type { AnnexPagesAnswer } from "../protocol/bridge.ts";
@@ -11,15 +12,16 @@ export type NoticeView =
 // Notices written before a link came with them name an artifact in the address's query.
 const LEGACY_TITLE_FIELD = "artifact";
 
-// A notice with a link is a card that opens its page. An older notice whose text holds the address of a listed page
+// A notice with a link is a card that opens its page. An older notice whose text holds an annex address
 // is a card too, titled by what the address names. Any other notice is its text.
 export function noticeView(notice: ToolNoticePresentation, annex: AnnexPagesAnswer | undefined): NoticeView {
     if (notice.link !== undefined) {
         if (annex === undefined) return { kind: "card", title: notice.link.title, open: undefined };
         const link = notice.link;
-        const page = annex.pages.find((candidate) => candidate.path === link.page);
-        if (page === undefined) return { kind: "text", text: notice.text };
-        return { kind: "card", title: link.title, open: { page, path: pagePathWithQuery(page, link.query) } };
+        if (!isAnnexPath(link.page)) return { kind: "text", text: notice.text };
+        const page = pageAtOrPath(link.page, annex.pages);
+        const path = pagePathWithQuery(page, link.query);
+        return { kind: "card", title: link.title, open: { page, path } };
     }
     for (const part of splitAddresses(notice.text)) {
         if (part.kind !== "url") continue;

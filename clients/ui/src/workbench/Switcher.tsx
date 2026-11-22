@@ -6,7 +6,7 @@ import { XIcon } from "../components/Icons.tsx";
 import type { LocationId } from "../layout/model.ts";
 import type { ResolvedContainer, ResolvedTab } from "../layout/resolve.ts";
 import { ContainerIcon } from "./ContainerIcon.tsx";
-import { draggedContainer, dropIndex, useDrag, useDropTarget } from "./drag.tsx";
+import { canDropInLocation, draggedContainer, dropIndex, useDrag, useDropTarget } from "./drag.tsx";
 import { useWorkbench } from "./context.tsx";
 import { useTabTitle } from "./tab-context.tsx";
 import { useTabDot } from "./tabDots.ts";
@@ -53,7 +53,7 @@ export function Switcher({ location, variant }: SwitcherProps) {
 
     const drop = useDropTarget({
         id: `switcher.${location}`,
-        accepts: () => true,
+        accepts: (dragged) => canDropInLocation(dragged, location),
         onOver: (event) => {
             const items = remaining();
             const index = indexAt(event);

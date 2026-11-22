@@ -1,5 +1,6 @@
 import { LOCATION_TITLES, LOCATIONS, type LocationId } from "../layout/model.ts";
 import { findContainer, findView, type ResolvedLayout } from "../layout/resolve.ts";
+import { GENERIC_PAGE_KIND } from "../pagepane/kinds.ts";
 import { LAYOUT_COMMANDS } from "./layout-commands.ts";
 
 export type MenuEntry =
@@ -23,7 +24,7 @@ function item(label: string, command: string, args?: unknown, extra: { checked?:
 export function viewMenu(layout: ResolvedLayout, viewId: string): readonly MenuEntry[] {
     const view = findView(layout, viewId);
     const container = view === undefined ? undefined : findContainer(layout, view.container);
-    if (view === undefined || container === undefined) return [];
+    if (view === undefined || container === undefined || viewId === GENERIC_PAGE_KIND) return [];
     const entries: MenuEntry[] = [];
     if (container.views.length > 1) {
         for (const sibling of container.views) {
@@ -49,7 +50,7 @@ export function viewMenu(layout: ResolvedLayout, viewId: string): readonly MenuE
     if (container.views.length > 1) {
         entries.push(item("Move to New Container", LAYOUT_COMMANDS.viewMoveTo, { view: view.id, location: container.location }));
     }
-    const targets = layout.containers.filter((other) => other.shown && other.id !== container.id);
+    const targets = layout.containers.filter((other) => other.shown && other.id !== container.id && other.id !== GENERIC_PAGE_KIND);
     if (targets.length > 0) entries.push(SEPARATOR);
     for (const target of targets) {
         entries.push(item(
@@ -87,6 +88,7 @@ export function containerMenu(layout: ResolvedLayout, containerId: string): read
 export function tabMenu(layout: ResolvedLayout, tabId: string, title?: string): readonly MenuEntry[] {
     const tab = layout.locations.rightPane.tabs.find((candidate) => candidate.id === tabId);
     if (tab === undefined) return [];
+    if (tab.container.id === GENERIC_PAGE_KIND) return [item(`Close ${title ?? tab.container.title}`, LAYOUT_COMMANDS.tabClose, { tab: tab.id })];
     return [
         item(`Close ${title ?? tab.container.title}`, LAYOUT_COMMANDS.tabClose, { tab: tab.id }),
         SEPARATOR,
@@ -96,7 +98,7 @@ export function tabMenu(layout: ResolvedLayout, tabId: string, title?: string): 
 
 // The menu on a switcher's empty area: every container placed there. A check means the container is shown.
 export function switcherMenu(layout: ResolvedLayout, location: LocationId): readonly MenuEntry[] {
-    return layout.locations[location].all.map((container) => item(
+    return layout.locations[location].all.filter((container) => container.id !== GENERIC_PAGE_KIND).map((container) => item(
         container.title,
         container.shown ? LAYOUT_COMMANDS.containerHide : LAYOUT_COMMANDS.containerShow,
         { container: container.id },

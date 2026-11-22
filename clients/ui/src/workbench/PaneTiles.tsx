@@ -6,6 +6,7 @@ import { useRecents, type RecentPage } from "../browser/recents.ts";
 import { typedAddress } from "../browser/url.ts";
 import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
 import { usePageLinks } from "../pagepane/PageLinks.tsx";
+import { GENERIC_PAGE_KIND } from "../pagepane/kinds.ts";
 import { canOpenTab } from "../layout/resolve.ts";
 import { paneEntry } from "../registry/core.ts";
 import { ContainerIcon } from "./ContainerIcon.tsx";
@@ -89,7 +90,7 @@ export function PaneTiles() {
                 </div>
                 <h3>New</h3>
                 <div className="pane-tiles-grid">
-                    {layout.locations.rightPane.containers.filter((container) => paneEntry(container.id, container).title.toLowerCase().includes(needle)).map((container) => {
+                    {layout.locations.rightPane.containers.filter((container) => container.id !== GENERIC_PAGE_KIND && paneEntry(container.id, container).title.toLowerCase().includes(needle)).map((container) => {
                         const keys = containerShortcutKeys(container.id, platform);
                         const entry = paneEntry(container.id, container);
                         return (

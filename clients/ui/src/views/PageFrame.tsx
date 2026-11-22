@@ -11,17 +11,19 @@ interface PageFrameProps {
     readonly path: string;
     // What the frame shows: the page's path with any query. Defaults to the page bare.
     readonly shown?: string;
+    readonly allowUnlisted?: boolean;
 }
 
 // One extension page in a frame with Reload and Open in your browser. The right pane and the main area both draw it.
-export function PageFrame({ path, shown = path }: PageFrameProps) {
+export function PageFrame({ path, shown = path, allowUnlisted = false }: PageFrameProps) {
     const { annex } = usePageLinks();
     const [round, setRound] = useState(0);
     const page = annex === undefined ? undefined : pageAt(shown, annex.pages);
+    const available = allowUnlisted || page?.path === path;
     return (
         <div className="browser">
             <div className="browser-bar">
-                <button type="button" className="icon-button" aria-label="Reload" title="Reload" data-page-reload={page?.path === path ? "" : undefined} onClick={() => setRound((current) => current + 1)}>
+                <button type="button" className="icon-button" aria-label="Reload" title="Reload" data-page-reload={annex !== undefined && available ? "" : undefined} onClick={() => setRound((current) => current + 1)}>
                     <RefreshIcon />
                 </button>
                 <button
@@ -35,13 +37,13 @@ export function PageFrame({ path, shown = path }: PageFrameProps) {
                 </button>
             </div>
             {annex === undefined ? <p className="view-empty">Finding Vera's pages…</p> : null}
-            {annex !== undefined && page?.path !== path ? (
+            {annex !== undefined && !available ? (
                 <div className="browser-missing">
                     <h3>Not found</h3>
                     <p>The annex serves nothing at {path}.</p>
                 </div>
             ) : null}
-            {annex !== undefined && page?.path === path ? <AnnexFrame annex={annex} entry={shown} title={page.label} round={round} /> : null}
+            {annex !== undefined && available ? <AnnexFrame annex={annex} entry={shown} title={page?.label ?? shown} round={round} /> : null}
         </div>
     );
 }

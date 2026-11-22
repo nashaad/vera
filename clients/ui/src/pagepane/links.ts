@@ -1,4 +1,4 @@
-import { isAnnexPath, pageAt, resolveAddress } from "../browser/address.ts";
+import { isAnnexPath, pageAtOrPath, resolveAddress } from "../browser/address.ts";
 import type { AnnexPage, AnnexPagesAnswer } from "../protocol/bridge.ts";
 
 export interface AnnexLink {
@@ -11,14 +11,12 @@ export interface AnnexLink {
 export const ANNEX_ADDRESS = String.raw`https?:\/\/(?:127\.0\.0\.1|localhost|vera\.localhost|\[::1\]):\d+\/[^\s<>"'\x60)\]]*`;
 const TRAILING_PUNCTUATION = /[.,;:!?]+$/;
 
-// The listed page a full address names on this host's annex, or undefined for anything else, so a link
-// to another site, a bare path or a path no page serves keeps the behavior it had.
+// Only full addresses on this host's annex are page links.
 export function annexLink(address: string, annex: AnnexPagesAnswer | undefined): AnnexLink | undefined {
     if (annex === undefined || !/^https?:\/\//.test(address)) return undefined;
     const path = resolveAddress(address, annex.url);
     if (!isAnnexPath(path)) return undefined;
-    const page = pageAt(path, annex.pages);
-    return page === undefined ? undefined : { page, path };
+    return { page: pageAtOrPath(path, annex.pages), path };
 }
 
 export type TextPart =

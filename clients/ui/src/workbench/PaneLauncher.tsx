@@ -10,6 +10,7 @@ import { usePopoverPlacement } from "../components/usePopoverPlacement.ts";
 import { useMenuDismiss } from "../composer/useMenuDismiss.ts";
 import { canOpenTab, findContainer, type ResolvedContainer } from "../layout/resolve.ts";
 import { usePageLinks } from "../pagepane/PageLinks.tsx";
+import { GENERIC_PAGE_KIND } from "../pagepane/kinds.ts";
 import { paneEntry } from "../registry/core.ts";
 import { ContainerIcon } from "./ContainerIcon.tsx";
 import { useWorkbench } from "./context.tsx";
@@ -44,7 +45,7 @@ export function PaneLauncher() {
     const rows: Row[] = [
         ...(address === undefined || browser === undefined ? [] : [{ kind: "address", address, container: browser } as const]),
         ...layout.locations.rightPane.containers
-            .filter((container) => paneEntry(container.id, container).title.toLowerCase().includes(needle))
+            .filter((container) => container.id !== GENERIC_PAGE_KIND && paneEntry(container.id, container).title.toLowerCase().includes(needle))
             .map((container) => ({ kind: "container", container }) as const),
     ];
     const current = Math.min(focus, Math.max(0, rows.length - 1));

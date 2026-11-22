@@ -300,7 +300,7 @@ tabs, a `+` button, and at the right the button that closes the pane. A tab show
 its kind's icon and title, or the page's title for a Browser tab, and has a close
 button that shows while the pointer is over the tab and on the active tab. The
 same kind can be open any number of times, up to 16 tabs in the pane; Browser and
-Chat each have a limit of their own, Chat tabs are limited to 6, Subagents has one tab, and an extension page has up to 3. A page's kind is titled with the page's label and has the page icon, and its tile and launcher row open the page's list. The Chat kind's
+Chat each have a limit of their own, Chat tabs are limited to 6, Subagents has one tab, and an extension page with its own pane has up to 3. A dedicated page kind is titled with the page's label and has the page icon, and its tile and launcher row open the page's list. Generic page tabs open from page links and addresses, not from a tile or launcher row. The Chat kind's
 tile and launcher row are titled Help and start a new Help chat. With no tabs the
 pane shows a search field, recent pages and a New section with one tile for each
 kind that can be opened. The field filters tiles and recent pages; it also opens a
@@ -423,9 +423,9 @@ You can:
   location.
 - Drag a container's row or tab to another place in the same strip,
   or to another location.
-- Drag a right pane tab to another place in the strip to reorder it. Dragging it
-  to the sidebar or the panel moves its kind's container there and closes every
-  tab of that kind in the pane. Dragging a container from the sidebar or the panel
+- Drag a right pane tab to another place in the strip to reorder it. Except for
+  generic page tabs, dragging one to the sidebar or the panel moves its kind's
+  container there and closes every tab of that kind in the pane. Dragging a container from the sidebar or the panel
   into the right pane opens one tab of its kind. Containers placed in the sidebar
   or the panel are not offered by the tiles or the launcher.
 - Right-click a view header, or use its actions button, to hide the view, move it
@@ -433,7 +433,7 @@ You can:
   a new container, or reset its location. Right-click a sidebar row or a panel tab
   for the same choices on the whole container. Right-click a right pane tab for
   Close, then the same choices on its kind's container; hiding or moving the
-  container closes every tab of that kind. Right-click an empty part of a strip to
+  container closes every tab of that kind. A generic page tab offers Close only. Right-click an empty part of a strip to
   show or hide any container placed there.
 - Collapse a view by clicking its header, when its container shows more than one
   view.
@@ -473,9 +473,9 @@ returns to where you last put it. A file that cannot be read is moved to
 `layout.json.bad` and the defaults apply.
 
 The file also holds the right pane's tabs: each tab's kind and order, and which
-one is active. Browser, Chat and Subagents tabs are not saved, so none returns after
-a restart, and a layout that holds only those tabs comes back with none. A tab of an
-extension page is saved and comes back showing the page's list. A layout saved before the
+one is active. Browser, Chat, Subagents and generic page tabs are not saved, so none
+returns after a restart, and a layout that holds only those tabs comes back with none.
+A tab of an extension page with its own pane is saved and comes back showing the page's list. A layout saved before the
 right pane held tabs opens with one tab, of the container that was active in the
 pane. A tab saved for a kind that is not registered is ignored, and a tab list
 that cannot be read is dropped and the pane opens with no tabs.
@@ -1217,9 +1217,12 @@ A notice stays at the bottom of the window while the tools are on, with Turn off
 to switch them off without returning to the pane. See [Browser use](browser-use.md).
 
 A link to one of Vera's pages in a reply or a tool notice opens inside the window.
-A page that has its own pane opens there. Other pages open in the right pane when
-available, or in the system browser when there is no pane or it cannot take
-another page. Links to websites are not opened.
+A page that has its own pane opens there, reusing a tab that already shows the same
+address. Other pages open in a generic framed page tab in the right pane. These
+generic page tabs are temporary and are not restored from the saved layout.
+Typing a Vera address in the Browser address field also opens a page tab. Open in
+your browser opens the page in the system browser. If the right pane cannot take
+another page, Vera shows a notice instead. Links to websites are not opened.
 
 The command palette's Pages group lists Vera's pages. `/usage` opens Usage in
 the right pane. Usage and Workflow runs have Reload and Open in your browser.
@@ -1895,7 +1898,7 @@ each kind, opens a tab from a tile and a second tab of the same kind from the
 launcher, filters the launcher, closes tabs from their close buttons and checks
 the tiles return with the last one. It opens a web address from the launcher as
 a Browser tab titled with the page, opens an empty Browser tab from the tile and
-checks one of Vera's pages reuses it, checks that closing a tab closes its page,
+checks one of Vera's pages opens its own tab, checks that closing a tab closes its page,
 and fills the Browser limit to check the launcher disables Browser and not the
 other kinds. It drags a tab to the panel and checks its kind's tabs close, moves
 the container back from its menu and checks it opens one tab, then checks the saved layout holds
