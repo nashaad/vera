@@ -690,8 +690,8 @@ export class InboundCommandRouter {
 
         if (terminal !== "completed") {
             this.release = undefined;
-            // A wake queued during the turn cannot start one now, and it would hold every later prompt.
-            this.discardHeldDeliveryTurns(undefined);
+            // A wake or control queued during the turn cannot run now, and it would hold every later prompt.
+            this.discardHeldTurns(undefined);
         } else if (active.final) {
             this.finishRelease();
         }
@@ -984,7 +984,7 @@ export class InboundCommandRouter {
                 || this.claimedQueueRelease?.id === this.release.id
             );
         this.resumeAfterAbort = visibleQueuedPrompts === 0;
-        this.discardHeldDeliveryTurns(
+        this.discardHeldTurns(
             queuedDirect ? this.release!.boundary : undefined,
         );
         if (queuedDirect || claimedTurn !== undefined) {
@@ -1011,19 +1011,48 @@ export class InboundCommandRouter {
         }
     }
 
-    // A stop or failure leaves no release, so a wake held behind it would also hold every later prompt; the host asks again.
-    private discardHeldDeliveryTurns(keep: QueuedTurn | undefined): void {
+    // A stop or failure leaves no release, so a held wake or control would never run and would hold every later prompt.
+    // A dropped wake makes the host ask again; a dropped switch or skill answers its request with the reason.
+    private discardHeldTurns(keep: QueuedTurn | undefined): void {
         const held = this.queuedTurns.filter(
-            (queued) => queued.triggeredByDelivery === true && queued !== keep,
+            (queued) => queued !== keep
+                && (
+                    queued.triggeredByDelivery === true
+                    || queued.select !== undefined
+                    || queued.skillInvocation !== undefined
+                ),
         );
         if (held.length === 0) return;
+        let wakes = 0;
         for (const queued of held) {
             this.queuedTurns.splice(this.queuedTurns.indexOf(queued), 1);
+            this.pendingPromptCount -= 1;
+            if (queued.triggeredByDelivery === true) {
+                wakes += 1;
+                continue;
+            }
+            if (queued.select !== undefined) {
+                this.events.emit({
+                    type: "agent_rejected",
+                    requestId: queued.select.requestId,
+                    reason: `The turn did not finish, so the switch to ${queued.select.name} was not applied. Select it again.`,
+                });
+                continue;
+            }
+            const skill = queued.skillInvocation;
+            if (skill === undefined) continue;
+            this.events.emit({
+                type: "skill_invocation_rejected",
+                requestId: skill.requestId,
+                name: skill.name,
+                reason: `The turn did not finish, so /${skill.name} did not run. Run it again.`,
+            });
         }
-        this.pendingPromptCount -= held.length;
-        this.deliveryTurnQueued = false;
-        for (let index = 0; index < held.length; index += 1) {
-            this.options.onDeliveryTurnDiscarded?.("aborted");
+        if (wakes > 0) {
+            this.deliveryTurnQueued = false;
+            for (let index = 0; index < wakes; index += 1) {
+                this.options.onDeliveryTurnDiscarded?.("aborted");
+            }
         }
     }
 

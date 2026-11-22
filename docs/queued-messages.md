@@ -18,6 +18,11 @@ prompt joins, Vera starts the oldest queued prompt after a successful reply
 and continues one prompt and one reply at a time. You can also send waiting
 prompts together before the current reply finishes.
 
+An agent switch or a skill command you send while Vera is working waits behind
+the current turn. If that turn fails or is stopped, Vera drops the waiting
+switch or skill and says so in one line; select the agent or run the skill
+again. Prompts waiting at the same time stay queued.
+
 ## Send queued prompts
 
 <div data-widget="screen-steps" data-steps="queued-messages"></div>
