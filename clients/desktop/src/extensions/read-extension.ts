@@ -77,9 +77,16 @@ export function taskWorkerFile(folder: string, main: string): string | undefined
     }
 }
 
-// Installed extensions cannot run modules, tasks or page scripts.
 export function carriesCode(manifest: DesktopManifest): boolean {
     return manifest.main !== undefined || manifest.tasks.length > 0 || manifest.commands.some((command) => command.page !== undefined);
+}
+
+export function hasUnavailableContributions(manifest: DesktopManifest): boolean {
+    return manifest.tasks.length > 0
+        || manifest.commands.some((command) => command.task !== undefined || command.page !== undefined)
+        || manifest.menus.appearance.length > 0
+        || manifest.menus.theme.length > 0
+        || manifest.menus.browser.length > 0;
 }
 
 export function readManifest(folder: string): ManifestRead {

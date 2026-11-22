@@ -6,6 +6,8 @@ import { DESKTOP_MANIFEST_FILENAME, parseDesktopManifest } from "../ui/src/exten
 import { EXTENSION_TASK_FILE } from "./src/extension-install/task-protocol.ts";
 import { releaseBuildId } from "../../src/release/build-id.ts";
 import { DESKTOP_BUILD_ID_SYMBOL } from "./src/client-build.ts";
+import { extensionFramePage } from "./extension-frame-page.ts";
+import { EXTENSION_FRAME_FILE } from "./src/extension-frame-file.ts";
 import { ASSIGNMENT_TASK_FILE } from "./src/model-assignments/task-protocol.ts";
 import { UPDATE_TASK_FILE } from "./src/update/task-protocol.ts";
 
@@ -116,6 +118,23 @@ const themeBoot = await Bun.build({
     naming: "theme-boot.js",
 });
 if (!themeBoot.success) fail(themeBoot.logs);
+
+// The frame page carries the worker bootstrap as text, so extensions start with no file read in the frame.
+const sandbox = join(root, "..", "ui", "src", "extensions", "sandbox");
+const workerBoot = await Bun.build({
+    entrypoints: [join(sandbox, "worker-main.ts")],
+    target: "browser",
+    format: "iife",
+});
+if (!workerBoot.success) fail(workerBoot.logs);
+const frameBoot = await Bun.build({
+    entrypoints: [join(sandbox, "frame-main.ts")],
+    target: "browser",
+    format: "iife",
+    define: { __WORKER_SOURCE__: JSON.stringify(await workerBoot.outputs[0]!.text()) },
+});
+if (!frameBoot.success) fail(frameBoot.logs);
+await Bun.write(join(rendererOut, EXTENSION_FRAME_FILE), extensionFramePage(await frameBoot.outputs[0]!.text()));
 
 const index = join(root, "index.html");
 if (!existsSync(index)) throw new Error(`Missing ${index}`);

@@ -27,7 +27,7 @@ const CROW = [{ label: "Crow Night", name: "Crow Night" }];
 
 test("@core a theme package unpacks into the staging folder and the reply is the preview", () => {
     const { reply, staging } = run(themeFiles("crow.pack", "1.2.0", [...CROW, { label: "Crow Day", name: "Crow Day" }]));
-    expect(reply).toEqual({ ok: true, preview: { id: "crow.pack", version: "1.2.0", themes: ["Crow Night", "Crow Day"], hasMain: false, hasCommands: false } });
+    expect(reply).toEqual({ ok: true, preview: { id: "crow.pack", version: "1.2.0", themes: ["Crow Night", "Crow Day"], hasMain: false, hasCommands: false, hasUnavailableContributions: false } });
     expect(readdirSync(staging).sort()).toEqual(["themes", "vera.desktop.json"]);
     expect(readdirSync(join(staging, "themes")).sort()).toEqual(["crow-day.json", "crow-night.json"]);
 });
@@ -37,7 +37,15 @@ test("a package with a module and commands says so in the preview", () => {
         { name: "vera.desktop.json", data: JSON.stringify({ id: "crow.cmds", version: "1.0.0", engine: DESKTOP_ENGINE, main: "main.js", contributes: { commands: [{ command: "crow.cmds.hello", title: "Hello" }] } }) },
         { name: "main.js", data: "export default {};" },
     ];
-    expect(run(items).reply).toEqual({ ok: true, preview: { id: "crow.cmds", version: "1.0.0", themes: [], hasMain: true, hasCommands: true } });
+    expect(run(items).reply).toEqual({ ok: true, preview: { id: "crow.cmds", version: "1.0.0", themes: [], hasMain: true, hasCommands: true, hasUnavailableContributions: false } });
+});
+
+test("a package with a page script or menu marks unavailable contributions", () => {
+    const items = [
+        { name: "vera.desktop.json", data: JSON.stringify({ id: "crow.page", version: "1.0.0", engine: DESKTOP_ENGINE, contributes: { commands: [{ command: "crow.page.open", title: "Open", page: "open.js" }], menus: { browser: [{ command: "crow.page.open", icon: "pointer" }] } } }) },
+        { name: "open.js", data: "document.body;" },
+    ];
+    expect(run(items).reply).toMatchObject({ ok: true, preview: { hasUnavailableContributions: true } });
 });
 
 test("a package whose only code is a task worker says it carries a module and commands", () => {
@@ -45,7 +53,7 @@ test("a package whose only code is a task worker says it carries a module and co
         { name: "vera.desktop.json", data: JSON.stringify({ id: "crow.tasks", version: "1.0.0", engine: DESKTOP_ENGINE, contributes: { tasks: [{ id: "scan", title: "Crow Scan", main: "scan.cjs" }], commands: [{ command: "crow.tasks.scan", title: "Scan", task: "scan" }] } }) },
         { name: "scan.cjs", data: "module.exports = {};" },
     ];
-    expect(run(items).reply).toEqual({ ok: true, preview: { id: "crow.tasks", version: "1.0.0", themes: [], hasMain: true, hasCommands: true } });
+    expect(run(items).reply).toEqual({ ok: true, preview: { id: "crow.tasks", version: "1.0.0", themes: [], hasMain: true, hasCommands: true, hasUnavailableContributions: true } });
     expect(run(items.slice(0, 1)).reply).toEqual({ ok: false, reason: 'The file "scan.cjs" that task "scan" names is not in the extension.' });
 });
 
@@ -99,14 +107,14 @@ test("a package over the size cap is refused without reading it", () => {
 test("@core the task and the reply survive structuredClone and a JSON round trip, and malformed ones are refused", () => {
     const task: InstallTask = { kind: "install", packagePath: "/tmp/a.tgz", sha256: "ab".repeat(32), staging: "/tmp/.staging-x" };
     for (const copy of [structuredClone(task), JSON.parse(JSON.stringify(task))]) expect(parseInstallTask(copy)).toEqual(task);
-    const reply = { ok: true as const, preview: { id: "a", version: "1", themes: ["T"], hasMain: false, hasCommands: false } };
+    const reply = { ok: true as const, preview: { id: "a", version: "1", themes: ["T"], hasMain: false, hasCommands: false, hasUnavailableContributions: false } };
     for (const copy of [structuredClone(reply), JSON.parse(JSON.stringify(reply))]) expect(parseInstallReply(copy)).toEqual(reply);
     expect(parseInstallReply({ ok: false, reason: "No." })).toEqual({ ok: false, reason: "No." });
 
     for (const bad of [undefined, null, "install", [], { kind: "other" }, { ...task, packagePath: "relative.tgz" }, { ...task, staging: "relative" }, { ...task, sha256: 4 }, { ...task, packagePath: 4 }]) {
         expect(parseInstallTask(bad)).toBeUndefined();
     }
-    for (const bad of [undefined, null, [], {}, { ok: true }, { ok: false }, { ok: false, reason: 4 }, { ok: true, preview: { ...reply.preview, themes: [4] } }, { ok: true, preview: { ...reply.preview, hasMain: "yes" } }]) {
+    for (const bad of [undefined, null, [], {}, { ok: true }, { ok: false }, { ok: false, reason: 4 }, { ok: true, preview: { ...reply.preview, themes: [4] } }, { ok: true, preview: { ...reply.preview, hasMain: "yes" } }, { ok: true, preview: { ...reply.preview, hasUnavailableContributions: undefined } }, { ok: true, preview: { ...reply.preview, hasUnavailableContributions: "yes" } }]) {
         expect(parseInstallReply(bad)).toBeUndefined();
     }
 });

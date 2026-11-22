@@ -1,5 +1,12 @@
+import { NATIVE_SHORTCUTS } from "../commands/keys.ts";
 import type { CommandRegistry } from "../commands/registry.ts";
-import { findKeybindingConflicts, type ContributedKeybinding, type KeybindingConflict } from "./keybindings.ts";
+import {
+    findCoreKeyConflicts,
+    findKeybindingConflicts,
+    type ContributedKeybinding,
+    type CoreKeyConflict,
+    type KeybindingConflict,
+} from "./keybindings.ts";
 import type { DesktopManifest } from "./manifest.ts";
 import { evaluateWhen, type WhenContext, type WhenExpression } from "./when.ts";
 
@@ -29,6 +36,7 @@ export interface ContributionSnapshot {
     readonly commands: readonly ContributedCommand[];
     readonly keybindings: readonly ContributedKeybinding[];
     readonly conflicts: readonly KeybindingConflict[];
+    readonly coreConflicts: readonly CoreKeyConflict[];
     readonly failures: readonly ExtensionFailure[];
 }
 
@@ -133,6 +141,7 @@ export class DesktopExtensionRegistry {
                 commands: loaded.flatMap((entry) => entry.commands),
                 keybindings,
                 conflicts: findKeybindingConflicts(keybindings),
+                coreConflicts: findCoreKeyConflicts(keybindings, NATIVE_SHORTCUTS),
                 failures: [...this.failures].map(([extensionId, reason]) => ({ extensionId, reason })),
             };
         }

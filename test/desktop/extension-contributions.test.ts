@@ -286,3 +286,39 @@ test("whensOverlap answers that two conditions with too many contexts may overla
 
     expect(whensOverlap(wide("a"), wide("b"))).toBe(true);
 });
+
+test("@core a binding on one of the desktop's own keys is reported against the desktop command", () => {
+    const { registry } = setup();
+    registry.add(load("acme.a", {
+        commands: [{ command: "acme.a.go", title: "A" }, { command: "acme.a.side", title: "Side" }],
+        keybindings: [
+            { command: "acme.a.go", key: "ctrl+k", mac: "cmd+k" },
+            { command: "acme.a.side", key: "ctrl+b", mac: "ctrl+b" },
+        ],
+    }));
+
+    expect(registry.snapshot().conflicts).toEqual([]);
+    expect(registry.snapshot().coreConflicts.map((conflict) => [conflict.binding.command, conflict.command, conflict.platforms])).toEqual([
+        ["acme.a.go", "palette.commands", ["mac", "other"]],
+        ["acme.a.side", "layout.toggleSidebar", ["other"]],
+    ]);
+});
+
+test("modifiers and shift must match a desktop key for the binding to be reported", () => {
+    const { registry } = setup();
+    registry.add(load("acme.a", {
+        commands: [{ command: "acme.a.go", title: "A" }],
+        keybindings: [
+            { command: "acme.a.go", key: "ctrl+alt+k", mac: "cmd+alt+k" },
+            { command: "acme.a.go", key: "ctrl+shift+p", mac: "cmd+shift+p" },
+            { command: "acme.a.go", key: "ctrl+alt+b", mac: "cmd+alt+b" },
+            { command: "acme.a.go", key: "ctrl+/", mac: "cmd+/" },
+        ],
+    }));
+
+    expect(registry.snapshot().coreConflicts.map((conflict) => conflict.command)).toEqual([
+        "palette.commands",
+        "layout.toggleRightPane",
+        "help.shortcuts",
+    ]);
+});

@@ -69,6 +69,8 @@ export const CHANNELS = {
     extensionFailures: "vera:extension-failures",
     newSessionAgents: "vera:new-session-agents",
     folderCustomizations: "vera:folder-customizations",
+    desktopExtensionMain: "vera:desktop-extension-main",
+    desktopExtensionLog: "vera:desktop-extension-log",
     annexPages: "vera:annex-pages",
     annexOpen: "vera:annex-open",
     browser: "vera:browser",

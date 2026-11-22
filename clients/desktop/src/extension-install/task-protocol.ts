@@ -20,6 +20,7 @@ export interface InstallPreview {
     readonly themes: readonly string[];
     readonly hasMain: boolean;
     readonly hasCommands: boolean;
+    readonly hasUnavailableContributions: boolean;
 }
 
 export type InstallReply =
@@ -36,10 +37,10 @@ function isString(value: unknown): value is string {
 
 function parsePreview(value: unknown): InstallPreview | undefined {
     if (!isRecord(value)) return undefined;
-    const { id, version, themes, hasMain, hasCommands } = value;
+    const { id, version, themes, hasMain, hasCommands, hasUnavailableContributions } = value;
     if (!isString(id) || !isString(version) || !Array.isArray(themes) || !themes.every(isString)) return undefined;
-    if (typeof hasMain !== "boolean" || typeof hasCommands !== "boolean") return undefined;
-    return { id, version, themes, hasMain, hasCommands };
+    if (typeof hasMain !== "boolean" || typeof hasCommands !== "boolean" || typeof hasUnavailableContributions !== "boolean") return undefined;
+    return { id, version, themes, hasMain, hasCommands, hasUnavailableContributions };
 }
 
 export function parseInstallTask(value: unknown): InstallTask | undefined {

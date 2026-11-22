@@ -418,6 +418,7 @@ test("@core the importer extension's manifest is valid, names its task and its w
         themes: [],
         hasMain: true,
         hasCommands: true,
+        hasUnavailableContributions: false,
         commands: manifest.commands.map((command) => ({ id: command.command, title: command.title, ...(command.category === undefined ? {} : { category: command.category }) })),
         menus: { appearance: [], theme: [], browser: [] },
         included: true,

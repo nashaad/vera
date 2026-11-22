@@ -2,7 +2,7 @@ import type { DesktopBridge } from "../protocol/bridge.ts";
 import type { DesktopExtensionEntry, ExtensionPreview } from "../protocol/extensions.ts";
 import { useDesktopExtensions, type DesktopExtensionsState } from "./useDesktopExtensions.ts";
 
-const NOT_LOADED = "Its commands are not loaded by this version of Vera.";
+const NOT_LOADED = "Some task, page, or menu contributions are not loaded by this version of Vera.";
 
 function themeLine(themes: readonly string[]): string {
     return themes.length === 0 ? "No themes" : `Themes: ${themes.join(", ")}`;
@@ -17,7 +17,7 @@ function ExtensionRow({ entry, state }: { readonly entry: DesktopExtensionEntry;
                     <span className="customize-card-desc">{themeLine(entry.themes)}</span>
                     <span className="customize-card-meta">
                         <span>{entry.version}</span>
-                        {entry.hasMain || entry.hasCommands ? <span>{NOT_LOADED}</span> : null}
+                        {entry.hasUnavailableContributions ? <span>{NOT_LOADED}</span> : null}
                     </span>
                 </span>
                 <span className="customize-card-actions">
@@ -58,7 +58,7 @@ function PreviewPanel({ preview, state }: { readonly preview: ExtensionPreview; 
                 <span className="customize-card-meta">
                     <span>{preview.version}</span>
                     {preview.replaces === undefined ? null : <span>Replaces version {preview.replaces}.</span>}
-                    {preview.hasMain || preview.hasCommands ? <span>{NOT_LOADED}</span> : null}
+                    {preview.hasUnavailableContributions ? <span>{NOT_LOADED}</span> : null}
                 </span>
             </span>
             <span className="customize-card-actions">

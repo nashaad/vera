@@ -1548,22 +1548,29 @@ of those, and on a `var(--vera-*)` name that is not declared.
 
 ## Desktop extensions
 
-A desktop extension adds to the desktop app itself. Today an extension can add
-themes, and an extension that ships with the app can add tasks, page scripts,
-file preview types, the commands that run them, and entries for those commands in Settings, the
-View menu and the Browser toolbar. It is a folder
-with a `vera.desktop.json` manifest. The terminal UI
-does not use desktop extensions and keeps its own themes.
+A desktop extension adds to the desktop app itself. Extensions can add themes;
+installed extensions can also add worker commands and keybindings. An extension
+included with the app can add tasks, page scripts, file preview types, and menu
+entries for its commands in Settings, the View menu and the Browser toolbar. It
+is a folder with a `vera.desktop.json` manifest. The terminal UI does not use
+desktop extensions and keeps its own themes.
 
-Customize > Yours lists them above its skills, agents and other items. A row shows the
-extension's id and version, the themes it adds, a switch, and Remove. Turning an
+Customize > Yours lists them above its skills, agents and other items. The
+section note reads `Desktop extensions add to this app, such as themes. They
+apply to every session.` A row shows the extension's id and version, the themes
+it adds, a switch, and Remove. When it contributes a task, a command naming a
+task or page script, or a menu entry, the row and install preview also say
+`Some task, page, or menu contributions are not loaded by this version of Vera.`
+The list note `More extension folders exist than are loaded.` and folder
+diagnostics such as an invalid folder name, a missing or invalid manifest, or a
+folder name that differs from the manifest id reach the window but are not
+shown in this version. Turning an
 extension off hides its themes at once; a window using one of them falls back to
 the built-in theme of the same type. Turning it on shows them again. Remove
 deletes an installed extension's folder. An extension included with the app is
-always on, cannot be removed, and is not listed. An installed extension whose
-manifest names commands or a `main` module is listed with the note that its
-commands are not loaded by this version of Vera; only the tasks and page scripts
-of an included extension run.
+always on, cannot be removed, and is not listed. Installed extensions' task and
+page-script commands do not run, and their `menus` entries are ignored; only
+included extensions run tasks and page scripts or contribute menu entries.
 
 Install from file opens a file picker for a package. The window first shows what
 the package holds: its id, its version, its themes, and `Replaces version <v>.`
@@ -1630,13 +1637,55 @@ a time, and stops it after 60 seconds. The process starts when a request
 arrives, answers once, and stops; it keeps nothing between runs. An extension
 installed from a package keeps its tasks listed but does not run them.
 
+### Worker commands and keybindings
+
+An installed extension's command that names neither `task` nor `page` can run
+in the desktop. Its manifest command and keybinding contributions are available
+without starting its code. A command becomes active when first invoked: the
+desktop reads the extension's self-contained `main` ES module (at most 1 MiB)
+and starts its `activate(vera)` entry point in a Web Worker inside a sandboxed
+frame. The worker has no access to the page, Node, files or the network. All
+running extension frames share a renderer process; they do not each start one.
+
+`activate(vera)` can register declared command handlers with
+`vera.commands.register`, show notices with `vera.window.showToast`, append to
+`machine/desktop/logs/<id>.log` with `vera.output.appendLine`, and set or clear
+extension-prefixed context keys with `vera.context.set`. Each incoming log
+message is truncated to 8,192 characters, each formatted log line is truncated
+to 8 KiB before its newline, and a file holds at most 1 MiB before the previous
+file is rotated to `<id>.log.1`. This version has no log view. If `main` is over
+1 MiB, the danger toast reads `Extension <id> could not start: The file is
+larger than 1024 KiB.` If it cannot be read, the toast includes the reason,
+such as `The file does not exist.` The desktop checks
+messages in both directions. A command's `when` condition controls whether it
+appears in the palette, and a keybinding checks both its own and its command's
+condition. Running a command directly does not check its `when`. A binding on a
+desktop-owned key is a conflict and never runs; if two bindings match a key and
+their conditions both hold, neither runs.
+
+Disabling, removing or replacing an installed extension stops its worker and
+drops its commands, keybindings and context keys. Replacing it takes effect on
+the next run. A worker failure can be retried by running one of its commands
+again, which starts a fresh worker. A handler error leaves the worker active. A
+missed ping stops it and reports that it stopped responding. Closing the
+window ends every worker. An extension over the runtime limits keeps its
+themes, switch and Remove, but its worker commands are not registered and no
+worker starts. The limits are 500 worker commands and command ids of 200
+characters. The runtime records a reason in its extension registry, but this
+version does not show the over-limit reason.
+
+Installed extension worker commands appear in the command palette but not in
+menus.
+
 ### Commands and menus
 
-A command that names a task is run by the app when the person chooses it. While
-its extension is on, the command is in the command palette as
-`<category>: <title>`, or the title alone when it has no category. Turning the
-extension off removes it. A command may also carry a file filter, and an
-extension may list commands under three menu places:
+An included extension's command that names a task runs that task when chosen;
+a command that names a page runs its script. An installed extension can
+contribute worker commands and keybindings as described above. Runnable commands
+appear in the command palette as `<category>: <title>`, or the title alone when
+it has no category. Turning an installed extension off removes its commands.
+A task command may also carry a file filter, and an extension may list commands
+under three menu places:
 
 ```json
 {
@@ -1680,8 +1729,8 @@ adds a button to the Browser toolbar. A `browser` entry must set `icon` to
 `pointer`; other places cannot set `icon`. Any other place is refused. A place holds at most 8 entries. Each entry names a command
 declared in the same manifest, and may set `title` (1 to 100 characters, in place
 of the command's title), `description` (1 to 300 characters) and `button` (1 to
-30 characters; an Appearance row's button says `Run` when it has none). Only the
-entries of enabled extensions show.
+30 characters; an Appearance row's button says `Run` when it has none). Only
+entries of enabled included extensions show.
 
 A task answers a command in one of three ways: themes the app installs as
 `imported.<name>` extensions, a list the window shows for the person to choose
@@ -1818,6 +1867,8 @@ node clients/desktop/test/approve.e2e.mjs
 node clients/desktop/test/transcript.e2e.mjs
 node clients/desktop/test/models.e2e.mjs
 node clients/desktop/test/defaults.e2e.mjs
+node clients/desktop/test/extensions.e2e.mjs
+node clients/desktop/test/extension-runtime.e2e.mjs
 node clients/desktop/test/slash.e2e.mjs
 node clients/desktop/test/chattab.e2e.mjs
 node clients/desktop/test/help.e2e.mjs

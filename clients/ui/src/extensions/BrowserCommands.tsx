@@ -3,6 +3,7 @@ import { useRef, useState, useSyncExternalStore } from "react";
 import { PointerIcon } from "../components/PointerIcon.tsx";
 import { queuePageCapture, type PageCapture } from "../composer/page-captures.ts";
 import { addOwnerCapture, closeOwnerCommand, startDraftCaptureOwner } from "../composer/draft-capture-owner.ts";
+import { readExtensions } from "../customize/desktop-extensions.ts";
 import { useRouter } from "../pages/router.tsx";
 import type { DesktopMenuItem } from "../protocol/extensions.ts";
 import { useActiveSession } from "../session/activeSession.ts";
@@ -49,6 +50,7 @@ export function BrowserCommands({ hasPage, onError, frameName }: BrowserCommands
             }, frameName);
             if (!result.ok) onError(result.reason);
             else if (result.kind === "capture") deliver(result.capture);
+            else if (result.kind === "themes" && result.imported.length > 0) await readExtensions(window.veraDesktop);
         } catch { onError("The page could not be read."); }
         finally {
             if (draft !== undefined) closeOwnerCommand(draft);
