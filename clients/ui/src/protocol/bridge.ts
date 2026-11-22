@@ -14,6 +14,12 @@ import type { ExtensionLogLevel, ExtensionMainResult } from "./desktop-extension
 import type { BrowserBounds, BrowserHandoffAnswer, BrowserState, BrowserToolsApproval } from "../browser/native-types.ts";
 import type { AgentInfo, SkillInfo, SourceInfo } from "../customize/wire.ts";
 import type { UpdateAction, UpdateState } from "./updates.ts";
+import type {
+    StorageCleaned,
+    StorageCleanupArea,
+    StorageMeasured,
+    StoragePreviewed,
+} from "./storage.ts";
 
 export type DesktopPhase = "starting" | "waiting" | "attached";
 
@@ -360,6 +366,12 @@ export interface DesktopBridge {
     // What a session created in a folder would load, or in a chat when there is no folder, read without a session.
     // A host that predates the request answers with a failure.
     readFolderCustomizations(workspace: string | undefined): Promise<FolderCustomizationsResult>;
+    // Measures the home now, or answers with the last measurement unless refresh is true.
+    measureStorage(refresh: boolean): Promise<StorageMeasured>;
+    // What cleaning one area would remove, counting only items idle at least this many days.
+    previewStorageCleanup(area: StorageCleanupArea, maxAgeDays: number): Promise<StoragePreviewed>;
+    // Removes those items; the host re-checks each one is still stale and unowned.
+    runStorageCleanup(area: StorageCleanupArea, maxAgeDays: number): Promise<StorageCleaned>;
     // The host's annex address and the pages it serves.
     readAnnexPages(): Promise<AnnexPagesResult>;
     // Opens an annex path in the system browser; false when there is no annex to open it on.

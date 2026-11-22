@@ -81,6 +81,8 @@ import { ExtensionLogs, extensionLogsDir } from "./extension-logs.ts";
 import { isFolderName } from "./extension-files.ts";
 import { readExtensionFailures } from "./extension-requests.ts";
 import { readNewSessionAgents } from "./agent-requests.ts";
+import { measureStorage, previewStorageCleanup, runStorageCleanup } from "./storage-requests.ts";
+import { isStorageAgeDays, isStorageCleanupArea } from "../../ui/src/protocol/storage.ts";
 import { readFolderCustomizations } from "./customization-requests.ts";
 import { searchArgument, searchSessions } from "./search-requests.ts";
 import { moveSessionToFolder } from "./session-move.ts";
@@ -744,6 +746,22 @@ ipcMain.handle(CHANNELS.folderReveal, async (event, folder: unknown): Promise<bo
 });
 ipcMain.handle(CHANNELS.extensionFailures, (event) =>
     fromWindow(event) ? readExtensionFailures(hostSocketPath) : { ok: false, reason: "The host is not running." });
+ipcMain.handle(CHANNELS.storageMeasure, (event, refresh: unknown) => {
+    if (!fromWindow(event) || typeof refresh !== "boolean") return { ok: false, reason: "That is not a storage request." };
+    return measureStorage(hostSocketPath, refresh);
+});
+ipcMain.handle(CHANNELS.storageCleanupPreview, (event, area: unknown, maxAgeDays: unknown) => {
+    if (!fromWindow(event) || !isStorageCleanupArea(area) || !isStorageAgeDays(maxAgeDays)) {
+        return { ok: false, reason: "That is not a storage request." };
+    }
+    return previewStorageCleanup(hostSocketPath, area, maxAgeDays);
+});
+ipcMain.handle(CHANNELS.storageCleanup, (event, area: unknown, maxAgeDays: unknown) => {
+    if (!fromWindow(event) || !isStorageCleanupArea(area) || !isStorageAgeDays(maxAgeDays)) {
+        return { ok: false, reason: "That is not a storage request." };
+    }
+    return runStorageCleanup(hostSocketPath, area, maxAgeDays);
+});
 ipcMain.handle(CHANNELS.newSessionAgents, (event, workspace: unknown) => {
     if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
     if (workspace !== undefined && workspaceArgument(workspace) === undefined) return { ok: false, reason: "That is not a folder." };

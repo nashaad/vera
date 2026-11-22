@@ -116,6 +116,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         name: "Data",
         group: "Desktop",
         Icon: BoltIcon,
-        terms: "data storage reset layout appearance sessions count folder chromium machine desktop",
+        terms: "data storage space disk size free clean reset layout appearance sessions count folder chromium machine desktop",
     },
 ];
