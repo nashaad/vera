@@ -682,6 +682,7 @@ socketTest(
                 expect(options).toEqual({
                     workspace: "/work/created",
                     approvalMode: "readonly",
+                    writeRoots: ["/work/shared"],
                 });
                 return created;
             },
@@ -697,6 +698,7 @@ socketTest(
                     type: "create_agent",
                     workspace: "/work/created",
                     approval_mode: "readonly",
+                    write_roots: ["/work/shared"],
                 });
                 expect(await createConnection.receive()).toEqual({
                     type: "agent_ready",

@@ -33,6 +33,7 @@ const PREDICATE_FIELDS = [
     "host",
     "scope",
     "otherWorktree",
+    "writeRoot",
     "operation",
     "executable",
 ] as const;
@@ -131,6 +132,8 @@ export function isPermissionPredicate(
             || value.scope === "outside_workspace")
         && (value.otherWorktree === undefined
             || typeof value.otherWorktree === "boolean")
+        && (value.writeRoot === undefined
+            || typeof value.writeRoot === "boolean")
         && (value.executable === undefined
             || isNonEmptyString(value.executable));
 }
@@ -153,6 +156,8 @@ export function permissionPredicateMatches(
         && (predicate.scope === undefined || predicate.scope === action.scope)
         && (predicate.otherWorktree === undefined
             || predicate.otherWorktree === (action.otherWorktree === true))
+        && (predicate.writeRoot === undefined
+            || predicate.writeRoot === (action.writeRoot === true))
         && (predicate.executable === undefined
             || predicate.executable === action.executable);
 }

@@ -5,6 +5,7 @@ export interface CreateTuiTarget {
     readonly type: "create";
     readonly workspace: string;
     readonly startupProfile?: StartupProfile;
+    readonly writeRoots?: readonly string[];
 }
 
 export interface AttachTuiTarget {

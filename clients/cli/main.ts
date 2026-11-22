@@ -397,6 +397,19 @@ export async function runCli(
     const originalArgs = args;
     const assumeYes = args[0] === "--yes" || args[0] === "-y";
     if (assumeYes) args = args.slice(1);
+    const writeRootArgs = parseWriteRootArgs(args);
+    if (writeRootArgs === undefined) {
+        errorOutput.write("vera: --write-root needs a directory.\n");
+        return 1;
+    }
+    args = writeRootArgs.args;
+    const writeRoots = writeRootArgs.roots;
+    if (writeRoots.length > 0 && !isNewSessionLaunch(args)) {
+        errorOutput.write(args[0] === "-p"
+            ? "vera -p does not take --write-root.\n"
+            : "vera: --write-root can only be used when starting a new session.\n");
+        return 1;
+    }
     const tuiOptions: TuiStartOptions = {
         confirmBusyUpgrade: assumeYes ? () => true : confirmBusyHostUpgrade,
     };
@@ -482,7 +495,9 @@ export async function runCli(
     }
 
     if (args.length === 0) {
-        await runTui({ type: "home", workspace: process.cwd() }, tuiOptions);
+        await runTui(writeRoots.length === 0
+            ? { type: "home", workspace: process.cwd() }
+            : { type: "create", workspace: process.cwd(), writeRoots }, tuiOptions);
         return 0;
     }
 
@@ -494,6 +509,7 @@ export async function runCli(
             type: "create",
             workspace: process.cwd(),
             startupProfile: args[0] === "--bare" ? "bare" : "prompt_only",
+            ...(writeRoots.length === 0 ? {} : { writeRoots }),
         }, tuiOptions);
         return 0;
     }
@@ -2183,6 +2199,31 @@ function helpColumns(output: CliOutput): number {
 
 function isHelpFlag(arg: string | undefined): boolean {
     return arg === "--help" || arg === "-h";
+}
+
+// Repeatable launch input for a new TUI session; the host canonicalizes each directory.
+function parseWriteRootArgs(
+    args: readonly string[],
+): { readonly args: readonly string[]; readonly roots: readonly string[] } | undefined {
+    const rest: string[] = [];
+    const roots: string[] = [];
+    for (let index = 0; index < args.length; index += 1) {
+        if (args[index] !== "--write-root") {
+            rest.push(args[index]!);
+            continue;
+        }
+        const value = args[index + 1];
+        if (value === undefined || value.length === 0) return undefined;
+        roots.push(value);
+        index += 1;
+    }
+    return { args: rest, roots };
+}
+
+function isNewSessionLaunch(args: readonly string[]): boolean {
+    return args.length === 0
+        || (args.length === 1
+            && (args[0] === "--bare" || args[0] === "--prompt-only"));
 }
 
 export function cliRequiresMigratedHome(args: readonly string[]): boolean {

@@ -492,6 +492,8 @@ export interface CreateRegisteredAgentOptions {
     readonly startupProfile?: StartupProfile;
     /** Window sessions only. Written to the session header, so it cannot change after creation. */
     readonly notesOffer?: true;
+    /** Absolute directories the session may write to beyond its workspace. Fixed at creation. */
+    readonly writeRoots?: readonly string[];
     /** The mode this agent starts in, when it must not be the host default. It is written to the session like any other approval-mode change, so a client that resumes the session later… */
     readonly approvalMode?: ApprovalMode;
 }
@@ -796,6 +798,8 @@ export interface InheritedAgentSettings {
     readonly modelSettings?: ModelTurnSettings;
     readonly parentId?: string;
     readonly delegation?: SessionDelegation;
+    // Copied from the parent header; the child does not revalidate the directories.
+    readonly writeRoots?: readonly string[];
 }
 
 export function samePair(

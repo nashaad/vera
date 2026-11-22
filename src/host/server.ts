@@ -294,7 +294,7 @@ export interface StartHostServerOptions {
     readonly createAgent?: (
         options: Pick<
             CreateRegisteredAgentOptions,
-            "workspace" | "approvalMode" | "ephemeral" | "startupProfile" | "notesOffer"
+            "workspace" | "approvalMode" | "ephemeral" | "startupProfile" | "notesOffer" | "writeRoots"
         >,
     ) => Promise<Pick<ResidentAgent, "id" | "workspace">>;
     readonly resumeAgent?: (sessionPath: string) => Promise<Pick<ResidentAgent, "id" | "workspace">>;
@@ -863,7 +863,7 @@ function receiveConnection(
     createAgent: (
         options: Pick<
             CreateRegisteredAgentOptions,
-            "workspace" | "approvalMode" | "ephemeral" | "startupProfile" | "notesOffer"
+            "workspace" | "approvalMode" | "ephemeral" | "startupProfile" | "notesOffer" | "writeRoots"
         >,
     ) => Promise<Pick<ResidentAgent, "id" | "workspace">>,
     resumeAgent: (sessionPath: string) => Promise<Pick<ResidentAgent, "id" | "workspace">>,
@@ -1985,6 +1985,9 @@ function receiveConnection(
                     ? {}
                     : { startupProfile: request.startup_profile }),
                 ...(request.notes_offer === true ? { notesOffer: true } : {}),
+                ...(request.write_roots === undefined
+                    ? {}
+                    : { writeRoots: request.write_roots }),
             }));
             return;
         }

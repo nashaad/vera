@@ -349,3 +349,35 @@ socketTest(
         }
     },
 );
+
+socketTest(
+    "agent startup client sends write roots only when they are set",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-start-client-"));
+        const socketPath = join(root, "host.sock");
+        const created = new ResidentAgent("created", "/work/created");
+        const seen: unknown[] = [];
+        const host = await startHostServer({
+            socketPath,
+            lockPath: join(root, "host.json"),
+            createAgent: async (options) => {
+                seen.push(options);
+                return created;
+            },
+        });
+        try {
+            await createAgentThroughHost(socketPath, "/work/created", "auto", undefined, "default", undefined, ["/work/shared"]);
+            await createAgentThroughHost(socketPath, "/work/created", "auto", undefined, "default", undefined, []);
+            await createAgentThroughHost(socketPath, "/work/created", "auto");
+            expect(seen).toEqual([
+                { workspace: "/work/created", approvalMode: "auto", writeRoots: ["/work/shared"] },
+                { workspace: "/work/created", approvalMode: "auto" },
+                { workspace: "/work/created", approvalMode: "auto" },
+            ]);
+        } finally {
+            created.close();
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);

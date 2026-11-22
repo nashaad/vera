@@ -18,6 +18,7 @@ import { announceSessionEnd } from "./session-end.ts";
 import { copyChatFolder, createChatFolder, restoreChatFolder } from "./chat.ts";
 import type { SessionArtifacts } from "../session-trash.ts";
 import type { TrashReservation, TrashRestartPlan } from "./trash.ts";
+import { resolveSessionWriteRoots } from "../write-roots.ts";
 
 export async function create(reg: AgentRegistry, options: CreateRegisteredAgentOptions): Promise<ResidentAgent> {
         return reg.createWithKind(
@@ -269,6 +270,9 @@ export async function createWithKind(reg: AgentRegistry, options: CreateRegister
             const startupProfile = storedStartupProfile(
                 options.startupProfile ?? "default",
             );
+            const writeRoots = options.writeRoots === undefined
+                ? inherited?.writeRoots
+                : await resolveSessionWriteRoots(options.writeRoots);
             ephemeralDirectory = options.ephemeral === true
                 ? await mkdtemp(join(tmpdir(), "vera-ephemeral-agent-"))
                 : undefined;
@@ -293,6 +297,9 @@ export async function createWithKind(reg: AgentRegistry, options: CreateRegister
                         ? {}
                         : { contextAssemblyMode: startupProfile }),
                     ...(options.notesOffer === true ? { notesOffer: true } : {}),
+                    ...(writeRoots === undefined || writeRoots.length === 0
+                        ? {}
+                        : { writeRoots }),
                     ...(kind === "interactive"
                         && inherited?.parentId === undefined
                         && inherited?.delegation === undefined

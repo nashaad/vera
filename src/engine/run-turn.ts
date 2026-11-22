@@ -315,6 +315,7 @@ export interface RunTurnState {
     readonly events: EngineEventBus;
     readonly hooks: ToolHooks;
     readonly approvalMode: ApprovalMode;
+    readonly writeRoots?: readonly string[];
     readonly applyToolEffect?: ApplyToolEffect;
     readonly applyCommittedToolEffect?: ApplyCommittedToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
@@ -919,6 +920,9 @@ export async function runHeadlessLoop(
         events,
         hooks: owned.hooks ?? new ToolHooks(),
         approvalMode: localApprovalMode,
+        ...(store.header.writeRoots === undefined
+            ? {}
+            : { writeRoots: store.header.writeRoots }),
         applyToolEffect,
         ...(boundary.applyCommittedToolEffect === undefined ? {} : {
             applyCommittedToolEffect: boundary.applyCommittedToolEffect,
@@ -2893,6 +2897,9 @@ async function executePreparedTool(
             permissionPreferences: state.readPermissionPreferences?.() ?? [],
             extensionTools: state.extensionTools,
             realShellTargets,
+            ...(state.writeRoots === undefined
+                ? {}
+                : { writeRoots: state.writeRoots }),
             ...(state.scratchDir === undefined
                 ? {}
                 : { scratchDir: state.scratchDir }),

@@ -246,7 +246,7 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     create(options: Pick<CreateRegisteredAgentOptions,
-        "workspace" | "approvalMode" | "ephemeral" | "startupProfile" | "notesOffer">): Promise<RoutedSession> {
+        "workspace" | "approvalMode" | "ephemeral" | "startupProfile" | "notesOffer" | "writeRoots">): Promise<RoutedSession> {
         return this.serial(async () => {
             let id = randomUUID();
             while (this.hostOpening.has(id) || this.owners.has(id)

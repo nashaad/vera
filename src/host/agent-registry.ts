@@ -1164,10 +1164,19 @@ export class AgentRegistry {
             offerTools: startupProfile !== "prompt_only",
             loadOptionalContext: startupProfile === "default",
             ...(store.header.contextAssemblyMode === undefined
+                    && store.header.writeRoots === undefined
                 ? {}
                 : {
                     sessionMetadata: {
-                        contextAssemblyMode: store.header.contextAssemblyMode,
+                        ...(store.header.contextAssemblyMode === undefined
+                            ? {}
+                            : {
+                                contextAssemblyMode:
+                                    store.header.contextAssemblyMode,
+                            }),
+                        ...(store.header.writeRoots === undefined
+                            ? {}
+                            : { writeRoots: store.header.writeRoots }),
                     },
                 }),
             ...(this.options.readPool === undefined

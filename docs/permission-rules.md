@@ -131,6 +131,39 @@ wraps. It does not check code built from variables or command output, such as
 into a shell such as `curl ... | sh`; those follow the mode. Commands like
 `find . -name '*.tmp' -exec rm {} +` and `xargs rm < list` follow the mode too.
 
+## Write outside the workspace
+
+Start a new session with `--write-root <dir>` to name a folder outside the
+workspace where `write` and `edit` run without asking or review:
+
+```sh
+vera --write-root /path/to/shared-assets
+```
+
+Repeat the flag for more folders, up to 16. Each one must already exist and
+be a directory. Vera records its real path, so a symlink and a path with `..`
+name the folder they reach. It refuses the filesystem root, your home
+directory, a folder that contains your home directory, and a folder that
+contains Vera's home at `~/.vera` or sits inside it, because those hold your
+configuration and rules.
+
+A root changes the file tools only. `write` and `edit` under it run as if it
+were inside the workspace; `bash` commands that write there still follow the
+mode and the [sandbox](sandbox.md), and reads, deletes, and other tools are
+unchanged. A custom mode keeps its own rules, so a root adds no allow there.
+A different worktree of the same repository still asks.
+
+A rooted write still counts as outside the workspace for every rule. A deny
+or ask in `permission_rules` that names the path wins, and so does anything
+else that already refuses. A folder outside every root keeps its review or
+ask, and `readonly` still refuses every write.
+
+The roots are fixed when the session is created. `resume`, `vera -c`, a
+branch, and a subagent keep them. The flag starts the session, so only a
+session launched with it has roots: `vera -p`, `vera -c`, `resume`, `attach`,
+and commands refuse the flag, and a conversation started inside the TUI or
+the desktop app has none.
+
 ## Write a home rule
 
 `permission_rules` in Home `config.json` holds rules that apply beside
@@ -250,7 +283,7 @@ A `when` must name at least one field, and every field it names must match.
 | `path` | That absolute path or anything under it. |
 | `path_glob` | The file name; `*` matches any run of characters. |
 | `host` | The website a URL points at, such as `github.com`. `*.github.com` matches its subdomains but not `github.com` itself. |
-| `path_scope` | `workspace` or `outside_workspace`. |
+| `path_scope` | `workspace` or `outside_workspace`. A write under a declared write root counts as `outside_workspace`. |
 | `operation` | An operation such as `git.push`, or a prefix ending in `*` such as `git.*`. |
 | `executable` | A shell command name, such as `make`. |
 

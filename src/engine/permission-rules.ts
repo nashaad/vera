@@ -1,8 +1,8 @@
-import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
+import { isAbsolute, resolve, sep } from "node:path";
 
 import { permissionPredicateMatches } from "./permission-grants.ts";
+import { canonicalPermissionPath } from "./workspace-scope.ts";
 import type {
     PermissionAction,
     PermissionRule,
@@ -20,25 +20,6 @@ export function normalizePermissionRulePath(
             ? resolve(home, value.slice(2))
             : value;
     return isAbsolute(expanded) ? resolve(expanded) : undefined;
-}
-
-// The path the kernel opens: the realpath of the longest existing prefix, with
-// the rest appended. On macOS this folds `/tmp` into `/private/tmp` and the
-// default volume's case differences.
-export function canonicalPermissionPath(path: string): string {
-    const normalized = resolve(path);
-    const rest: string[] = [];
-    let prefix = normalized;
-    while (true) {
-        try {
-            return resolve(realpathSync(prefix), ...rest);
-        } catch {
-            const parent = dirname(prefix);
-            if (parent === prefix) return normalized;
-            rest.unshift(basename(prefix));
-            prefix = parent;
-        }
-    }
 }
 
 export function permissionRulePathMatches(

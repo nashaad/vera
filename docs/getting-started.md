@@ -21,6 +21,10 @@ vera
 Vera opens Home. This directory is the workspace for your conversation.
 Personal settings and saved work live in your Vera home at `~/.vera`.
 
+To let Vera's file tools write in another folder without asking, start with
+`vera --write-root <dir>`, once per folder. See
+[Permission modes and rules](permission-rules.md).
+
 ## Connect a provider
 
 1. Choose **Connect a provider** on Home.

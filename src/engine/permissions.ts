@@ -40,7 +40,10 @@ import {
 } from "../tools/execute.ts";
 import type { PermissionInputSpec } from "../tools/types.ts";
 import type { RegisteredTool } from "../tools/types.ts";
-import { placeInWorkspace } from "./workspace-scope.ts";
+import {
+    canonicalPermissionPath,
+    placeInWorkspace,
+} from "./workspace-scope.ts";
 import {
     applyPermissionGrant,
     isPermissionGrant,
@@ -92,6 +95,8 @@ export interface PermissionAction {
     readonly host?: string;
     readonly scope?: PermissionScope;
     readonly otherWorktree?: true;
+    // Set only for a write by a file tool under a declared session write root.
+    readonly writeRoot?: true;
     readonly operation?: string;
     readonly executable?: string;
 }
@@ -102,6 +107,8 @@ export interface PermissionRequest {
     readonly homeDirectory: string;
     // Keyed by bashTargetPaths output. When set, a target missing from it is unknown.
     readonly realShellTargets?: ReadonlyMap<string, string>;
+    // Canonical roots; only file-tool writes use them.
+    readonly writeRoots?: readonly string[];
 }
 
 export interface PermissionPredicate {
@@ -112,6 +119,7 @@ export interface PermissionPredicate {
     readonly host?: string;
     readonly scope?: PermissionScope;
     readonly otherWorktree?: boolean;
+    readonly writeRoot?: boolean;
     readonly operation?: string;
     readonly executable?: string;
 }
@@ -189,6 +197,8 @@ export interface DecideToolPermissionOptions {
     readonly extensionTools?: readonly RegisteredTool[];
     readonly scratchDir?: string;
     readonly realShellTargets?: ReadonlyMap<string, string>;
+    // Canonical roots from the session header; only file-tool writes match them.
+    readonly writeRoots?: readonly string[];
 }
 
 const SECRET_FILE_HYGIENE_DENY_GLOBS: readonly string[] = [
@@ -276,6 +286,11 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
     {
         name: "routine.workspace_write",
         when: { verb: "write", scope: "workspace" },
+        then: "allow",
+    },
+    {
+        name: "routine.write_root_write",
+        when: { verb: "write", writeRoot: true },
         then: "allow",
     },
     {
@@ -693,6 +708,10 @@ export function decideToolPermission(
         };
     }
     const command = bashCommand(toolCall);
+    const writeRoots = options.writeRoots === undefined
+        || options.writeRoots.length === 0
+        ? undefined
+        : options.writeRoots.map(canonicalPermissionPath);
     const decisions = extractPermissionActions({
         toolCall,
         workspace,
@@ -700,6 +719,7 @@ export function decideToolPermission(
         ...(options.realShellTargets === undefined
             ? {}
             : { realShellTargets: options.realShellTargets }),
+        ...(writeRoots === undefined ? {} : { writeRoots }),
     }, options.extensionTools).map((action) =>
         rescopeScratchAction(action, options.scratchDir)
     ).map((action) =>
@@ -928,6 +948,9 @@ function isPermissionRule(value: unknown): value is PermissionRule {
         && isPermissionOutcome(value.then);
 }
 
+// Write roots lift file-tool writes only; bash keeps its sandbox and rules.
+const WRITE_ROOT_FILE_TOOLS = new Set(["write", "edit"]);
+
 export function extractPermissionActions(
     request: PermissionRequest,
     extensionTools: readonly RegisteredTool[] = [],
@@ -986,8 +1009,11 @@ export function extractPermissionActions(
             ? [{ tool: toolCall.name, verb: "unknown" }]
             : actions;
     }
+    const writeRoots = WRITE_ROOT_FILE_TOOLS.has(toolCall.name)
+        ? request.writeRoots
+        : undefined;
     const inputActions = declaredInputs.map((spec) =>
-        structuredInputAction(toolCall, spec, workspace)
+        structuredInputAction(toolCall, spec, workspace, writeRoots)
     );
     const urlIndexes = declaredInputs.flatMap((spec, index) =>
         spec.kind === "url" ? [index] : []
@@ -1142,6 +1168,7 @@ function structuredInputAction(
     toolCall: HookToolCall,
     spec: PermissionInputSpec,
     workspace: string,
+    writeRoots?: readonly string[],
 ): PermissionAction {
     const raw = toolCall.input[spec.field];
     if (typeof raw !== "string") {
@@ -1165,7 +1192,7 @@ function structuredInputAction(
         tool: toolCall.name,
         verb: spec.verb,
         path,
-        ...pathPlacement(path, workspace),
+        ...pathPlacement(path, workspace, writeRoots),
     };
 }
 
@@ -1856,9 +1883,18 @@ function rescopeScratchAction(
 function pathPlacement(
     path: string,
     workspace: string,
-): Pick<PermissionAction, "scope" | "otherWorktree"> {
-    const { scope, otherWorktree } = placeInWorkspace(path, workspace);
-    return otherWorktree ? { scope, otherWorktree } : { scope };
+    writeRoots?: readonly string[],
+): Pick<PermissionAction, "scope" | "otherWorktree" | "writeRoot"> {
+    const { scope, otherWorktree, writeRoot } = placeInWorkspace(
+        path,
+        workspace,
+        writeRoots,
+    );
+    return {
+        scope,
+        ...(otherWorktree ? { otherWorktree: true as const } : {}),
+        ...(writeRoot ? { writeRoot: true as const } : {}),
+    };
 }
 
 function accidentGuardReason(
