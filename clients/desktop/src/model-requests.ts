@@ -80,7 +80,11 @@ export async function setProviderEnabled(
         const reply = record(await connection.receiveWithin(REFRESH_TIMEOUT_MS, "The host did not answer in time."));
         if (reply?.type !== "model_operation_complete") return { ok: false, reason: "This host cannot change providers." };
         if (typeof reply.error === "string") return { ok: false, reason: reply.error };
-        return { ok: true, settings: reply.settings ?? null };
+        return {
+            ok: true,
+            settings: reply.settings ?? null,
+            ...(typeof reply.warning === "string" ? { warning: reply.warning } : {}),
+        };
     });
 }
 

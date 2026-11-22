@@ -113,6 +113,8 @@ export interface HostModelsAnswer {
     readonly ok: true;
     // The host's `model_settings`; the page parses it.
     readonly settings: unknown;
+    // The change landed but the provider's model list could not be read.
+    readonly warning?: string;
 }
 
 export type HostModelsResult = HostModelsAnswer | HostRequestFailure;

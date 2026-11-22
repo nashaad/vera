@@ -1540,13 +1540,32 @@ async function startHostRuntime(
                     const queued = catalogRefreshes.then(change);
                     catalogRefreshes = queued.then(() => undefined, () => undefined);
                     await queued;
-                    if (!enabled || !changed) return registry.readHostModelSettings(workspace);
+                    if (!enabled || !changed) return { settings: registry.readHostModelSettings(workspace) };
+                    let warning: string | undefined;
                     // The queue is free now, so the normal per-provider refresh can run without waiting on itself.
                     if (sharedServices !== undefined) {
                         const refresh = sharedServices.models.refreshCatalog;
-                        if (refresh !== undefined) await refresh(provider).catch(() => undefined);
+                        const refreshableProviders = sharedServices.models.refreshableProviders;
+                        if (refresh !== undefined) {
+                            let refreshable = false;
+                            if (refreshableProviders !== undefined) {
+                                try {
+                                    refreshable = refreshableProviders().includes(provider);
+                                } catch {
+                                    refreshable = false;
+                                }
+                            }
+                            const refreshed = await refresh(provider).catch(() => undefined);
+                            if (refreshable && refreshed === undefined) {
+                                const label = findConfiguredProvider(provider, currentConfig())?.label ?? provider;
+                                warning = `${label} is on, but its model list could not be refreshed. The saved list stands.`;
+                            }
+                        }
                     }
-                    return registry.readHostModelSettings(workspace);
+                    return {
+                        settings: registry.readHostModelSettings(workspace),
+                        ...(warning === undefined ? {} : { warning }),
+                    };
                 },
                 forgetProvider: async (provider, workspace) => {
                     const forget = async () => {

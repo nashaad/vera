@@ -1,7 +1,10 @@
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
+import type { ProviderEnabledOutcome } from "./server.ts";
 import { connectHost } from "./connection.ts";
 
-export async function setProviderEnabledThroughHost(socketPath: string, provider: string, enabled: boolean, workspace?: string): Promise<ModelTurnSettings | undefined> {
+export type { ProviderEnabledOutcome };
+
+export async function setProviderEnabledThroughHost(socketPath: string, provider: string, enabled: boolean, workspace?: string): Promise<ProviderEnabledOutcome> {
     const connection = await connectHost({ socketPath });
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -11,6 +14,11 @@ export async function setProviderEnabledThroughHost(socketPath: string, provider
         })]) as Record<string, unknown>;
         if (response.type !== "model_operation_complete") throw new Error("This host does not support turning providers off.");
         if (typeof response.error === "string") throw new Error(response.error);
-        return response.settings as ModelTurnSettings | undefined;
+        return {
+            ...(response.settings === undefined
+                ? {}
+                : { settings: response.settings as ModelTurnSettings }),
+            ...(typeof response.warning === "string" ? { warning: response.warning } : {}),
+        };
     } finally { clearTimeout(timeout); connection.close(); }
 }

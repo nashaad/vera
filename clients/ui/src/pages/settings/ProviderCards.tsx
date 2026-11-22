@@ -87,6 +87,7 @@ interface ConnectedProviderRowViewProps {
     readonly busy: boolean;
     readonly confirming: boolean;
     readonly failure?: string;
+    readonly notice?: string;
     readonly onOpen: () => void;
     readonly onToggle: (event: MouseEvent<HTMLButtonElement>) => void;
     readonly onForget: (event: MouseEvent<HTMLButtonElement>) => void;
@@ -100,6 +101,7 @@ export function ConnectedProviderRowView({
     busy,
     confirming,
     failure,
+    notice,
     onOpen,
     onToggle,
     onForget,
@@ -141,23 +143,38 @@ export function ConnectedProviderRowView({
                 />
             ) : null}
             {failure === undefined ? null : <p role="alert">{failure}</p>}
+            {notice === undefined ? null : <p role="status">{notice}</p>}
         </div>
     );
+}
+
+export function providerEnabledNotice(enabled: boolean, warning: string | undefined): string | undefined {
+    return enabled ? warning : undefined;
 }
 
 function ConnectedProviderRow({ bridge, provider, inUse, onConnect, onReload }: ConnectedProviderRowProps) {
     const [confirming, setConfirming] = useState(false);
     const [busy, setBusy] = useState(false);
     const [failure, setFailure] = useState<string>();
+    const [notice, setNotice] = useState<string>();
+
+    function clearStatus(): void {
+        setFailure(undefined);
+        setNotice(undefined);
+    }
 
     async function setEnabled(enabled: boolean): Promise<void> {
         setBusy(true);
-        setFailure(undefined);
+        clearStatus();
         try {
             const result = await bridge.setProviderEnabled(provider.id, enabled);
             if (!result.ok) {
                 setFailure(result.reason);
                 return;
+            }
+            const notice = providerEnabledNotice(enabled, result.warning);
+            if (notice !== undefined) {
+                setNotice(notice);
             }
             onReload();
         } catch {
@@ -169,7 +186,7 @@ function ConnectedProviderRow({ bridge, provider, inUse, onConnect, onReload }: 
 
     async function forget(): Promise<void> {
         setBusy(true);
-        setFailure(undefined);
+        clearStatus();
         try {
             const result = await bridge.forgetProvider(provider.id);
             if (!result.ok) {
@@ -192,11 +209,12 @@ function ConnectedProviderRow({ bridge, provider, inUse, onConnect, onReload }: 
             busy={busy}
             confirming={confirming}
             {...(failure === undefined ? {} : { failure })}
-            onOpen={onConnect}
+            {...(notice === undefined ? {} : { notice })}
+            onOpen={() => { clearStatus(); onConnect(); }}
             onToggle={(event) => { event.stopPropagation(); void setEnabled(!provider.enabled); }}
-            onForget={(event) => { event.stopPropagation(); setConfirming(true); }}
+            onForget={(event) => { event.stopPropagation(); clearStatus(); setConfirming(true); }}
             onConfirmForget={(event) => { event.stopPropagation(); void forget(); }}
-            onCancel={(event) => { event.stopPropagation(); setConfirming(false); }}
+            onCancel={(event) => { event.stopPropagation(); clearStatus(); setConfirming(false); }}
         />
     );
 }

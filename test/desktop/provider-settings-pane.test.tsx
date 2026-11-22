@@ -6,6 +6,7 @@ import {
     ConnectedProviderRowView,
     ProviderCards,
     ProviderForgetConfirmation,
+    providerEnabledNotice,
 } from "../../clients/ui/src/pages/settings/ProviderCards.tsx";
 import type { DesktopBridge, ProviderStatus } from "../../clients/ui/src/protocol/bridge.ts";
 
@@ -81,6 +82,41 @@ describe("Settings provider cards", () => {
         expect(html).toContain("role=\"group\" aria-label=\"Anthropic\"");
         expect(html).toContain(">Turn off</button>");
         expect(html).toContain(`<p role="alert">${refusal}</p>`);
+    });
+
+    test("@core a successful Turn on shows the host's warning and Turn off clears it", () => {
+        const warning = "OpenRouter is on, but its model list could not be refreshed. The saved list stands.";
+        expect(providerEnabledNotice(true, warning)).toBe(warning);
+        expect(providerEnabledNotice(false, warning)).toBeUndefined();
+        expect(providerEnabledNotice(true, undefined)).toBeUndefined();
+
+        const shown = renderToStaticMarkup(createElement(ConnectedProviderRowView, {
+            provider: providers[0]!,
+            inUse: false,
+            busy: false,
+            confirming: false,
+            notice: warning,
+            onOpen: () => undefined,
+            onToggle: () => undefined,
+            onForget: () => undefined,
+            onConfirmForget: () => undefined,
+            onCancel: () => undefined,
+        }));
+        expect(shown).toContain(`<p role="status">${warning}</p>`);
+        expect(shown).not.toContain("role=\"alert\"");
+
+        const cleared = renderToStaticMarkup(createElement(ConnectedProviderRowView, {
+            provider: providers[0]!,
+            inUse: false,
+            busy: false,
+            confirming: false,
+            onOpen: () => undefined,
+            onToggle: () => undefined,
+            onForget: () => undefined,
+            onConfirmForget: () => undefined,
+            onCancel: () => undefined,
+        }));
+        expect(cleared).not.toContain("role=\"status\"");
     });
 
     test("renders the existing inline Forget confirmation actions", () => {

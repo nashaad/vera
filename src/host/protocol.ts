@@ -1029,6 +1029,8 @@ export interface ModelOperationCompleteResponse {
     readonly type: "model_operation_complete";
     readonly settings?: ModelTurnSettings;
     readonly error?: string;
+    /** The change landed but a follow-up read did not; the saved state stands. */
+    readonly warning?: string;
 }
 
 export interface ProviderListRequest { readonly type: "provider_list"; readonly request_id: string; }

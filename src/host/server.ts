@@ -145,6 +145,12 @@ export type UnblockSessionOutcome =
     }
     | { readonly status: "rejected"; readonly reason: "not_found" | "failed" };
 
+export interface ProviderEnabledOutcome {
+    readonly settings?: ModelTurnSettings;
+    /** The change landed but the provider's model list could not be read. */
+    readonly warning?: string;
+}
+
 export type ExtensionRequestHandler = (
     extensionId: string,
     name: string,
@@ -260,7 +266,7 @@ export interface StartHostServerOptions {
     readonly providerSignIn?: ProviderSignInService;
     readonly selectProviderModel?: (provider: string, model: string) => Promise<void>;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
-    readonly setProviderEnabled?: (provider: string, enabled: boolean, workspace?: string) => Promise<ModelTurnSettings | undefined>;
+    readonly setProviderEnabled?: (provider: string, enabled: boolean, workspace?: string) => Promise<ProviderEnabledOutcome>;
     readonly stopWhenIdle?: StopWhenIdleControl;
     readonly stopWaitObserver?: Pick<StopWhenIdleControl, "observe">;
     readonly restartRecords?: RestartRecordsPort;
@@ -1696,8 +1702,12 @@ function receiveConnection(
             void (async () => {
                 try {
                     if (setProviderEnabled === undefined) throw new Error("This host does not support turning providers off.");
-                    const settings = await setProviderEnabled(request.provider, request.enabled, request.workspace);
-                    await send({ type: "model_operation_complete", settings });
+                    const outcome = await setProviderEnabled(request.provider, request.enabled, request.workspace);
+                    await send({
+                        type: "model_operation_complete",
+                        settings: outcome.settings,
+                        ...(outcome.warning === undefined ? {} : { warning: outcome.warning }),
+                    });
                 } catch (error) {
                     await send({ type: "model_operation_complete", error: error instanceof Error ? error.message : String(error) }).catch(() => {});
                 } finally { operationClosed(); socket.end(); }

@@ -150,10 +150,11 @@ socketAndLoopbackTest(
                 false,
                 test.root,
             );
-            expect(off?.availableModels?.some((model) => model.provider === "test-gateway"))
+            expect(off.settings?.availableModels?.some((model) => model.provider === "test-gateway"))
                 .toBe(false);
-            expect(off?.pooled?.some((model) => model.provider === "test-gateway"))
+            expect(off.settings?.pooled?.some((model) => model.provider === "test-gateway"))
                 .toBe(false);
+            expect(off.warning).toBeUndefined();
             const saved = loadVeraConfig({ path: test.configPath });
             expect(saved.disabled_providers).toEqual(["test-gateway"]);
             expect(Object.keys(saved.providers ?? {})).toContain("test-gateway");
@@ -180,14 +181,15 @@ socketAndLoopbackTest(
                 true,
                 test.root,
             );
-            expect(on?.availableModels).toContainEqual(expect.objectContaining({
+            expect(on.settings?.availableModels).toContainEqual(expect.objectContaining({
                 provider: "test-gateway",
                 model: "alpha",
             }));
-            expect(on?.pooled).toContainEqual(expect.objectContaining({
+            expect(on.settings?.pooled).toContainEqual(expect.objectContaining({
                 provider: "test-gateway",
                 model: "alpha",
             }));
+            expect(on.warning).toBeUndefined();
             expect(hits).toBe(hitsBeforeOff + 1);
             expect(loadVeraConfig({ path: test.configPath }).disabled_providers).toEqual([]);
         } finally {
@@ -280,16 +282,45 @@ socketAndLoopbackTest(
                 true,
                 test.root,
             );
-            expect(on?.availableModels).toContainEqual(expect.objectContaining({
+            expect(on.settings?.availableModels).toContainEqual(expect.objectContaining({
                 provider: "test-gateway",
                 model: "alpha",
             }));
-            expect(on?.pooled).toContainEqual(expect.objectContaining({
+            expect(on.settings?.pooled).toContainEqual(expect.objectContaining({
                 provider: "test-gateway",
                 model: "alpha",
             }));
+            expect(on.warning).toBe(
+                "test-gateway is on, but its model list could not be refreshed. The saved list stands.",
+            );
         } finally {
             server.stop(true);
+            await dispose(test);
+        }
+    },
+    20_000,
+);
+
+socketAndLoopbackTest(
+    "@core turning on a provider with no catalog to read carries no warning",
+    async () => {
+        let credential: string | undefined = "fixture-key";
+        const authStorage: AuthStorage = {
+            getCredential: (id) => id === "deepseek" && credential !== undefined
+                ? { type: "api_key", key: credential }
+                : undefined,
+            setCredential: () => { credential = "fixture-key"; },
+            deleteCredential: () => { credential = undefined; },
+        };
+        const test = await scratch("vera-provider-on-no-catalog-", {});
+        try {
+            await start(test, authStorage);
+            const off = await setProviderEnabledThroughHost(test.socketPath, "deepseek", false, test.root);
+            expect(off.warning).toBeUndefined();
+            const on = await setProviderEnabledThroughHost(test.socketPath, "deepseek", true, test.root);
+            expect(on.warning).toBeUndefined();
+            expect(loadVeraConfig({ path: test.configPath }).disabled_providers).toEqual([]);
+        } finally {
             await dispose(test);
         }
     },

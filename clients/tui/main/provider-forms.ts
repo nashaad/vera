@@ -116,7 +116,8 @@ export function setProviderEnabled(rt: TuiRuntime,
         return;
     }
     const caller = rt.settingsPicker;
-    void change(providerId, enabled, focusedAgentClient(rt).workspace).then((settings) => {
+    void change(providerId, enabled, focusedAgentClient(rt).workspace).then((answer) => {
+        const settings = answer.settings;
         if (settings !== undefined && rt.state.modelSettings !== undefined) {
             const current = rt.state.modelSettings;
             rt.state = { ...rt.state, modelSettings: { ...current, availableModels: settings.availableModels, pooled: settings.pooled } };
@@ -124,8 +125,16 @@ export function setProviderEnabled(rt: TuiRuntime,
         rt.state = appendTuiNotice(rt.state, enabled
             ? `Turned ${label} on.`
             : `Turned ${label} off. Its setup is kept, and sessions already running on its models finish.`);
+        if (answer.warning !== undefined) {
+            rt.state = appendTuiNotice(rt.state, answer.warning);
+        }
         requestAgentSettings(rt, focusedAgentClient(rt));
-        if (rt.settingsPicker === caller) openProviderPicker(rt, pane, { selected: providerId });
+        if (rt.settingsPicker === caller) {
+            openProviderPicker(rt, pane, {
+                selected: providerId,
+                ...(answer.warning === undefined ? {} : { subtitle: answer.warning }),
+            });
+        }
     }).catch((error) => {
         const reason = error instanceof Error ? error.message : String(error);
         if (rt.settingsPicker === caller) {
