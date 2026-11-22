@@ -1044,8 +1044,11 @@ The Models browser has four tabs:
 - `Help` explains the marks.
 
 Settings > Providers groups connected providers and providers you can add.
-Select a connected provider to manage its credential. `Forget` asks first, then
-removes the provider's saved connection and what Vera learned about its models.
+Select a connected provider to manage its credential. `Turn off` keeps its
+connection and settings but stops using it; the card shows `Off` and the button
+becomes `Turn on`. A session already running on its models finishes. `Forget`
+asks first, then removes the provider's saved connection and what Vera learned
+about its models.
 Select an available provider or `Custom provider` to connect with a key or
 browser sign-in. Choose a model and select `Check and use` to check it and make
 it the default. Escape and the back arrow return to the previous setup screen,

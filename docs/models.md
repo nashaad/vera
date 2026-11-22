@@ -240,6 +240,8 @@ one `model_dropped` line to `runtime/logs/host.jsonl`. The scan does not change
 your favorites, assignments, current model, or a running conversation. A full
 manual refresh holds the next background scan off for an hour. Miss history is
 in `runtime/model-availability.json`; deleting that file only loses the history.
+A provider you turned off is skipped by manual refresh, the daily scan, and
+the start fetch; turn it on again to read its catalog.
 
 Vera retries rate-limit, server, and dropped-connection failures up to six
 times, waiting about 1, 2, 4, 8, 15, and 30 seconds. Other transient request

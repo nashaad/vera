@@ -115,11 +115,28 @@ A provider Vera ships, such as OpenRouter or DeepSeek, cannot be declared
 again under `providers` in `config.json`; Vera refuses to load that file. Use
 Edit to send a shipped provider's requests to another URL.
 
+### Turn a provider off and on
+
+Turning a provider off keeps its connection and settings but stops using it.
+Vera skips its discovery, refresh, and daily catalog checks, and its models do
+not appear in the picker. Sessions already running on its models finish. Turn
+it on again to read its catalog and use it again.
+
+In the window, choose **Turn off** beside **Forget** on the provider's card.
+In the terminal, press Enter on the provider and choose **Turn off**, or press
+Ctrl+Shift+O on its row. The row shows `Off` while it is off.
+
+Vera refuses to turn off the provider that supplies the default model, one an
+assignment names, or one that is not connected. A connection supplied by the
+environment is turned off through the provider screen; remove its key from
+`machine/env` only when you also want to forget it.
+
 ### Forget credentials
 
 **Forget credentials** asks for confirmation and shows how many library
 entries are affected. It removes the provider's models, unsets affected
-defaults, and clears conversation selections using that provider.
+defaults, and clears conversation selections using that provider. Forgetting
+a provider that is off also clears that off state.
 
 Credentials supplied through the host environment must be removed from
 `machine/env` in the Vera home.
