@@ -75,6 +75,7 @@ import {
     MODEL_ARROW_HINT,
     pickerIsSearchable,
 } from "../../clients/tui/settings-picker-model.ts";
+import { catalogRefreshSweepProviders } from "../../clients/tui/main/settings-picker-transition.ts";
 
 // Most capable first, matching `CatalogModel.levels` ordering: the level
 // pane renders whatever order it is given, and `inferReasoningSelection`'s
@@ -3123,6 +3124,32 @@ test("@core an Off provider hides the refresh it cannot do", () => {
         .not.toHaveProperty("refreshCatalog");
     expect(handleTuiSettingsPickerKey({ ...on, selectedIndex: onIndex }, { name: "r", ctrl: true }))
         .toMatchObject({ refreshCatalog: "ollama" });
+});
+
+test("@core Refresh providers stays away when the only provider it would read is Off", () => {
+    const pane = startTuiProviderPicker([{ ...PROVIDER_ROWS[2], enabled: false }]);
+
+    expect(pane.options.map((row) => row.value))
+        .not.toContain(TUI_REFRESH_PROVIDERS_VALUE);
+});
+
+test("@core one On provider keeps Refresh providers beside an Off one", () => {
+    const pane = startTuiProviderPicker([
+        { ...PROVIDER_ROWS[1], enabled: false },
+        PROVIDER_ROWS[2],
+    ]);
+
+    expect(pane.options.map((row) => row.value))
+        .toContain(TUI_REFRESH_PROVIDERS_VALUE);
+});
+
+test("@core the refresh sweep queues only providers that are on", () => {
+    const pane = startTuiProviderPicker([
+        { ...PROVIDER_ROWS[1], enabled: false },
+        PROVIDER_ROWS[2],
+    ]);
+
+    expect(catalogRefreshSweepProviders(pane)).toEqual(["ollama"]);
 });
 
 test("the declare row survives a search that matches no provider", async () => {

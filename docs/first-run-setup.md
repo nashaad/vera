@@ -96,7 +96,7 @@ returns to the screen you came from.
 
 ### Refresh models
 
-Choose **Refresh providers** below the groups to read every connected catalog.
+Choose **Refresh providers** below the groups to read every connected catalog whose provider is on. The row appears only when a provider that can be refreshed is on.
 To refresh one connection, press Enter on its row and choose **Refresh**.
 The result appears as an overlay above the dialog that types the message
 quickly, then a tick. Escape still belongs to the dialog, so the overlay

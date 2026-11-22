@@ -41,6 +41,15 @@ function browsePreferenceState(
     return state?.kind === "model" && state.modelBrowse === "browse" ? state : undefined;
 }
 
+export function catalogRefreshSweepProviders(
+    picker: TuiSettingsPickerState | undefined,
+): readonly string[] {
+    if (picker?.kind !== "provider") return [];
+    return picker.allOptions
+        .filter((row) => row.refreshable === true && row.enabled !== false)
+        .map((row) => row.value);
+}
+
 export function applySettingsPickerTransition(rt: TuiRuntime, 
     transition:
         | TuiSettingsPickerTransition
@@ -321,9 +330,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         return;
     }
     if ("refreshAllCatalogs" in transition && transition.refreshAllCatalogs) {
-        startCatalogRefreshSweep(rt, previousPicker?.kind === "provider"
-            ? previousPicker.allOptions.filter((row) => row.refreshable === true).map((row) => row.value)
-            : []);
+        startCatalogRefreshSweep(rt, catalogRefreshSweepProviders(
+            previousPicker?.kind === "provider" ? previousPicker : undefined,
+        ));
         return;
     }
     if ("poolBulk" in transition && transition.poolBulk !== undefined) {
