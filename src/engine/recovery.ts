@@ -44,14 +44,21 @@ export interface ModelEffortSubstituted {
 
 export interface ModelRetryPolicy {
     readonly delaysMs: readonly number[];
+    // Wall-clock limit for one model's retry run, counted from its first failure.
+    readonly budgetMs?: number;
 }
+
+// A model request's retries stop this long after its first failure.
+export const DEFAULT_MODEL_RETRY_BUDGET_MS = 600_000;
 
 export const DEFAULT_MODEL_RETRY_POLICY: ModelRetryPolicy = {
     delaysMs: [500, 1_000],
+    budgetMs: DEFAULT_MODEL_RETRY_BUDGET_MS,
 };
 
 const DEFAULT_OVERLOAD_RETRY_POLICY: ModelRetryPolicy = {
     delaysMs: [1_000, 2_000, 4_000, 8_000, 15_000, 30_000],
+    budgetMs: DEFAULT_MODEL_RETRY_BUDGET_MS,
 };
 
 // Long because a high reasoning effort can think for minutes before sending a byte.
@@ -173,10 +180,13 @@ export async function requestModelWithRecovery(
     const wait = options.wait ?? waitForModelRetry;
     const random = options.random ?? Math.random;
     const now = options.now ?? (() => performance.now());
+    const retryBudgetMs = options.policy?.budgetMs
+        ?? DEFAULT_MODEL_RETRY_BUDGET_MS;
     let activeRequest = request;
     let fallbackPolicy = options.fallback;
     let requestAttempt = 0;
     let retryAttempt = 0;
+    let retryBudgetStartedAt: number | undefined;
     let consecutiveOverloadFailures = 0;
     let fallbackSelected = false;
     let pendingCutoffSubstitution: ModelEffortCoarsened | undefined;
@@ -201,6 +211,7 @@ export async function requestModelWithRecovery(
                 refusedEfforts.clear();
                 consecutiveOverloadFailures = 0;
                 retryAttempt = 0;
+                retryBudgetStartedAt = undefined;
             }
         }
         if (pendingCutoffSubstitution !== undefined) {
@@ -209,6 +220,15 @@ export async function requestModelWithRecovery(
         }
         const attempt = new AbortController();
         const attemptStarted = now();
+        const configuredIdleTimeoutMs = options.idleTimeoutMs
+            ?? DEFAULT_MODEL_STREAM_IDLE_TIMEOUT_MS;
+        // A silent attempt cannot outlast the budget that pays for it.
+        const idleTimeoutMs = retryBudgetStartedAt === undefined
+            ? configuredIdleTimeoutMs
+            : Math.min(
+                configuredIdleTimeoutMs,
+                Math.max(0, retryBudgetMs - (now() - retryBudgetStartedAt)),
+            );
         const stream = adapter.stream({
             ...activeRequest,
             signal: request.signal === undefined
@@ -229,7 +249,7 @@ export async function requestModelWithRecovery(
             attempt,
             activeRequest,
             request.signal,
-            options.idleTimeoutMs ?? DEFAULT_MODEL_STREAM_IDLE_TIMEOUT_MS,
+            idleTimeoutMs,
         )) {
             if (event.type === "start" && requestAttempt > 0) {
                 continue;
@@ -253,6 +273,7 @@ export async function requestModelWithRecovery(
                 }
                 if (event.error instanceof ProviderFailureError) {
                     const failure = event.error.failure;
+                    retryBudgetStartedAt ??= now();
                     if (!contentStarted && options.coarsening !== undefined) {
                         coarsened = coarsenAfterFailure(
                             {
@@ -314,12 +335,20 @@ export async function requestModelWithRecovery(
                                 options.coarsening,
                             );
                         }
+                        const delayMs = jitterRetryDelay(baseDelayMs, random);
+                        if (
+                            now() - retryBudgetStartedAt + delayMs
+                                >= retryBudgetMs
+                        ) {
+                            options.onEvent(event);
+                            return event.message;
+                        }
                         retry = {
                             scheduled: {
                                 model: activeRequest.model,
                                 nextAttempt: retryAttempt + 2,
                                 maxAttempts: policy.delaysMs.length + 1,
-                                delayMs: jitterRetryDelay(baseDelayMs, random),
+                                delayMs,
                                 failure,
                                 ...(contentStarted
                                     ? { replacesPartialAttempt: true as const }
@@ -375,6 +404,7 @@ export async function requestModelWithRecovery(
             };
             fallbackSelected = true;
             retryAttempt = 0;
+            retryBudgetStartedAt = undefined;
             requestAttempt += 1;
             continue;
         }
