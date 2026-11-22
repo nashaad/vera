@@ -690,6 +690,8 @@ export class InboundCommandRouter {
 
         if (terminal !== "completed") {
             this.release = undefined;
+            // A wake queued during the turn cannot start one now, and it would hold every later prompt.
+            this.discardHeldDeliveryTurns(undefined);
         } else if (active.final) {
             this.finishRelease();
         }
@@ -1009,7 +1011,7 @@ export class InboundCommandRouter {
         }
     }
 
-    // An abort leaves no release, so a wake held behind it would also hold every later prompt; the host asks again.
+    // A stop or failure leaves no release, so a wake held behind it would also hold every later prompt; the host asks again.
     private discardHeldDeliveryTurns(keep: QueuedTurn | undefined): void {
         const held = this.queuedTurns.filter(
             (queued) => queued.triggeredByDelivery === true && queued !== keep,
