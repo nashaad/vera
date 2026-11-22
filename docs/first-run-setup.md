@@ -120,7 +120,8 @@ Edit to send a shipped provider's requests to another URL.
 Turning a provider off keeps its connection and settings but stops using it.
 Vera skips its discovery, refresh, and daily catalog checks, and its models do
 not appear in the picker. Sessions already running on its models finish. Turn
-it on again to read its catalog and use it again.
+it on again to read its catalog and use it again. If that read fails, Vera
+says so and keeps the saved list.
 
 In the window, choose **Turn off** beside **Forget** on the provider's card.
 In the terminal, press Enter on the provider and choose **Turn off**, or press
