@@ -2396,9 +2396,11 @@ test("a session-only effort changes the session but not the saved default", asyn
             workspace: root,
             sessionPath: join(root, "future.jsonl"),
         });
+        // The default model changes, but the saved default effort stays low.
+        // This model does not publish low, so its own nearest level starts instead.
         expect(await readAgentSettings(future, "future")).toMatchObject({
             model: "z-ai/glm-5.2",
-            reasoningEffort: "low",
+            reasoningEffort: "high",
         });
         expect(await readAgentSettings(first, "first-live")).toMatchObject({
             reasoningEffort: "max",

@@ -58,7 +58,7 @@ import {
     cachedContextWindow,
     readCachedWindowIndex,
 } from "../model/cached-windows.ts";
-import { contextWindowForModel } from "../engine/model-settings.ts";
+import { bundledStartingReasoningEffort, contextWindowForModel } from "../engine/model-settings.ts";
 import { verifiedReasoningEfforts } from "../model/supported-models.ts";
 import { loadPoolFile } from "../model/pool-file-loader.ts";
 import { splitModelId } from "../model/pool-file.ts";
@@ -783,7 +783,11 @@ async function resolveAgentOptions(
         model,
         reasoningEffort: options.binding.reasoningEffort
             ?? pair?.reasoningEffort
-            ?? selectedConfig.reasoning_effort,
+            ?? bundledStartingReasoningEffort(
+                provider,
+                model,
+                selectedConfig.reasoning_effort,
+            ),
         posture,
         functions: (options.binding.functions ?? []).map(registeredFunctionTool),
         createAdapter: options.createAdapter,

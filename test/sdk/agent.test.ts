@@ -16,7 +16,6 @@ import {
     updateVeraConfigDefaults,
     type VeraConfig,
 } from "../../src/config.ts";
-import { veraProfileDirectory } from "../../src/profile-paths.ts";
 import {
     Vera,
     type AgentOutputSchema,
@@ -155,6 +154,29 @@ test("A4 defaultPair selects the model and effort", async () => {
         });
     } finally {
         rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test("A5 a new run on a Flash-shaped model starts on the model's default level", async () => {
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera(
+        [answer("done", "deepseek", "deepseek-flash")],
+        requests,
+        {
+            config: {
+                ...baseConfig(),
+                provider: "deepseek",
+                model: "deepseek-flash",
+                // The saved default names a level this model does not offer.
+                reasoning_effort: "low",
+            },
+        },
+    );
+    try {
+        await vera.agent(basicDefinition()).run("review");
+        expect(requests[0]?.reasoningEffort).toBe("high");
+    } finally {
+        await vera.close();
     }
 });
 

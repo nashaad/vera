@@ -207,6 +207,12 @@ The `▌` bar marks the level Enter will select. Use Up/Down to move it.
 Switching to a model with effort levels always asks which level to run, with
 your current level highlighted when the new model has it.
 
+When a new conversation starts on a model that does not offer the saved level,
+it starts on the model's own default level. If the model names no default, it
+starts on the nearest level it offers, never `off` while another level is
+available. Your saved level stays as it is, so a model that offers it still
+starts there.
+
 Choosing a level saves it as the default for new conversations, except `max`.
 `max` applies to the current conversation only, and new conversations keep the
 level they had before. Vera says which of the two happened when you choose.

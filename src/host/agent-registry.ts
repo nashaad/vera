@@ -12,7 +12,7 @@ import type { ContextualContributionContext, PromptContribution } from "../engin
 import type { PoolAdmissionVerdict } from "../engine/events.ts";
 import { BUILT_IN_PERMISSION_MODE_NAMES, type ApprovalMode } from "../engine/permissions.ts";
 import { ProviderUnavailableError, UserFacingError } from "../user-facing-error.ts";
-import { isModelReasoningEffort, type ModelSettingsPatch, type ModelTurnSettings } from "../engine/model-settings.ts";
+import { isModelReasoningEffort, startingReasoningEffort, type ModelSettingsPatch, type ModelTurnSettings } from "../engine/model-settings.ts";
 import type { EffectiveCatalogOptions } from "../model/catalog.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
 import { sessionScratchDir } from "../session-scratch.ts";
@@ -992,7 +992,15 @@ export class AgentRegistry {
                         model: this.defaultModel,
                         ...(this.defaultReasoningEffort === undefined
                             ? {}
-                            : { reasoningEffort: this.defaultReasoningEffort }),
+                            : {
+                                reasoningEffort: startingReasoningEffort(
+                                    this.defaultProvider,
+                                    this.defaultModel,
+                                    this.defaultReasoningEffort,
+                                    this.options.readPool?.(store.header.cwd),
+                                    this.catalog,
+                                ),
+                            }),
                     }
                     : {
                         ...storedSettings,
