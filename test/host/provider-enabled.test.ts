@@ -302,6 +302,42 @@ socketAndLoopbackTest(
 );
 
 socketAndLoopbackTest(
+    "@core turning on a shipped provider names it the way the host does when the refresh fails",
+    async () => {
+        const server = Bun.serve({
+            port: 0,
+            fetch: () => Response.json({ data: [{ id: "alpha" }] }),
+        });
+        let credential: string | undefined = "fixture-key";
+        const authStorage: AuthStorage = {
+            getCredential: (id) => id === "openrouter" && credential !== undefined
+                ? { type: "api_key", key: credential }
+                : undefined,
+            setCredential: () => { credential = "fixture-key"; },
+            deleteCredential: () => { credential = undefined; },
+        };
+        const test = await scratch("vera-provider-on-label-", {
+            provider_endpoints: { openrouter: `http://127.0.0.1:${server.port}/v1` },
+        });
+        try {
+            await start(test, authStorage);
+            const off = await setProviderEnabledThroughHost(test.socketPath, "openrouter", false, test.root);
+            expect(off.warning).toBeUndefined();
+
+            server.stop(true);
+            const on = await setProviderEnabledThroughHost(test.socketPath, "openrouter", true, test.root);
+            expect(on.warning).toBe(
+                "OpenRouter is on, but its model list could not be refreshed. The saved list stands.",
+            );
+        } finally {
+            server.stop(true);
+            await dispose(test);
+        }
+    },
+    20_000,
+);
+
+socketAndLoopbackTest(
     "@core turning on a provider with no catalog to read carries no warning",
     async () => {
         let credential: string | undefined = "fixture-key";
