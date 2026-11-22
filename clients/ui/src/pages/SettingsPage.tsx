@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState, type FocusEvent, type KeyboardEv
 
 import { SearchIcon } from "../components/Icons.tsx";
 import { AgentsSection } from "./settings/AgentsSection.tsx";
+import { BrowserSection } from "./settings/BrowserSection.tsx";
 import { AppearanceSection } from "./settings/AppearanceSection.tsx";
 import { DataSection } from "./settings/DataSection.tsx";
 import { ApprovalsSection } from "./settings/ApprovalsSection.tsx";
@@ -149,6 +150,7 @@ export function SettingsPage() {
             </nav>
             <div className="settings-main">
                 <div className="settings-col">
+                    {current?.id === "browser" ? <BrowserSection /> : null}
                     {current?.id === "appearance" ? <AppearanceSection /> : null}
                     {current?.id === "agents" ? <AgentsSection /> : null}
                     {current?.id === "approvals" ? <ApprovalsSection /> : null}

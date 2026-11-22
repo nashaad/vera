@@ -5,9 +5,19 @@ interface BrowserToolsNoticeProps {
     readonly enabled: boolean;
     readonly available: boolean;
     readonly onTurnOff: () => void;
+    readonly toolsAsk?: { readonly id: string };
 }
 
-export function BrowserToolsNotice({ enabled, available, onTurnOff }: BrowserToolsNoticeProps) {
+export function BrowserToolsNotice({ enabled, available, onTurnOff, toolsAsk }: BrowserToolsNoticeProps) {
+    if (toolsAsk !== undefined) {
+        return (
+            <div className="browser-tools-notice" role="status">
+                <span>Vera wants to use the Browser pane. Turn on Browser tools?</span>
+                <button type="button" className="chip chip-button" onClick={() => void nativeCommand("tools-approval", { id: toolsAsk.id, approved: true })}>Turn on</button>
+                <button type="button" className="chip chip-button" onClick={() => void nativeCommand("tools-approval", { id: toolsAsk.id, approved: false })}>Not now</button>
+            </div>
+        );
+    }
     if (!enabled) return null;
     return (
         <div className="browser-tools-notice" role="status">
@@ -24,6 +34,7 @@ export function BrowserToolsStatus() {
             enabled={native?.toolsEnabled ?? false}
             available={native?.toolsAvailable ?? false}
             onTurnOff={() => void nativeCommand("tools", false)}
+            toolsAsk={native?.toolsAsk}
         />
     );
 }

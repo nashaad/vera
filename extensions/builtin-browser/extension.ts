@@ -18,42 +18,59 @@ const MAX_MARKDOWN = 10_000_000;
 const MAX_URL = 8192;
 const MAX_TITLE = 300;
 const HANDOFF_DEADLINE_MS = 10 * 60_000;
+const ENABLE_TOOLS_DEADLINE_MS = 10 * 60_000;
+const KEPT_OFF_TEXT = "The user kept Browser tools off.";
+const ASK_EXPIRED_TEXT = "The user did not answer within 10 minutes, so Browser tools are still off.";
+const CANCELLED_TEXT = "Browser request cancelled.";
+
+interface BrowserSettings {
+    readonly enabled: boolean;
+    readonly offBehavior: "ask" | "refuse";
+}
 
 interface Job {
     readonly id: string;
-    readonly request: BrowserRequest;
+    readonly request: BrowserRequest | { readonly action: "enable_tools" };
     readonly finish: (reply: Record<string, unknown>, cancel?: boolean) => void;
 }
 
 export function activate(vera: VeraExtensionApi): void {
     const root = (): string => vera.storage.profile;
     const settingsPath = (): string => join(root(), "settings.json");
+    let settings = readSettings(settingsPath());
     const jobs = new Map<string, Job>();
     const delivered = new Set<string>();
     const cancelled = new Set<string>();
     let waiting: (() => void) | undefined;
     let desktopSeen = 0;
+    let enableAsk: {
+        readonly controller: AbortController;
+        readonly waiters: Set<(result: Record<string, unknown>) => void>;
+    } | undefined;
 
-    const enabled = (): boolean => {
-        try { return JSON.parse(readFileSync(settingsPath(), "utf8")).enabled === true; } catch { return false; }
-    };
-    const setEnabled = (value: boolean): void => {
+    const setSettings = (value: BrowserSettings): void => {
         mkdirSync(root(), { recursive: true, mode: 0o700 });
         chmodSync(root(), 0o700);
-        writeFileSync(settingsPath(), JSON.stringify({ enabled: value }), { mode: 0o600 });
+        writeFileSync(settingsPath(), JSON.stringify(value), { mode: 0o600 });
         chmodSync(settingsPath(), 0o600);
+        settings = value;
     };
 
     vera.requests.handle("settings", (payload: JsonValue): JsonValue => {
-        if (isRecord(payload) && typeof payload.enabled === "boolean") {
-            setEnabled(payload.enabled);
-            if (!payload.enabled) for (const job of jobs.values()) {
+        if (isRecord(payload) && (typeof payload.enabled === "boolean" || Object.hasOwn(payload, "offBehavior"))) {
+            setSettings({
+                enabled: typeof payload.enabled === "boolean" ? payload.enabled : settings.enabled,
+                offBehavior: Object.hasOwn(payload, "offBehavior")
+                    ? payload.offBehavior === "refuse" ? "refuse" : "ask"
+                    : settings.offBehavior,
+            });
+            if (payload.enabled === false) for (const job of jobs.values()) {
                 job.finish(job.request.action === "handoff"
                     ? { output: HANDOFF_CANCELLED }
                     : { error: BROWSER_TOOLS_OFF_TEXT, errorCode: BROWSER_TOOLS_OFF }, true);
             }
         }
-        return { enabled: enabled() };
+        return { ...settings };
     });
     const next = (): JsonValue => {
         const cancel = cancelled.values().next().value;
@@ -89,7 +106,7 @@ export function activate(vera: VeraExtensionApi): void {
     vera.requests.handle("reply", (payload: JsonValue): JsonValue => {
         if (!isRecord(payload) || typeof payload.id !== "string") return false;
         const job = jobs.get(payload.id);
-        if (job === undefined) return false;
+        if (job === undefined || (job.request.action === "enable_tools" && typeof payload.approved !== "boolean")) return false;
         job.finish(payload as Record<string, unknown>);
         return true;
     });
@@ -113,14 +130,62 @@ export function activate(vera: VeraExtensionApi): void {
                 resolve(reply);
                 if (cancel) waiting?.();
             };
-            const abort = (): void => finish(request.action === "handoff" ? { output: HANDOFF_CANCELLED } : { error: "Browser request cancelled." }, true);
-            const timer = setTimeout(() => finish(request.action === "handoff" ? { output: HANDOFF_TIMED_OUT } : { error: "The desktop window did not answer." }, true), request.action === "handoff" ? HANDOFF_DEADLINE_MS : 25_000);
+            const abort = (): void => finish(request.action === "handoff" ? { output: HANDOFF_CANCELLED } : { error: CANCELLED_TEXT }, true);
+            const timer = setTimeout(() => finish(
+                request.action === "handoff" ? { output: HANDOFF_TIMED_OUT }
+                    : request.action === "enable_tools" ? { error: ASK_EXPIRED_TEXT, errorCode: BROWSER_TOOLS_OFF }
+                    : { error: "The desktop window did not answer." },
+                true,
+            ), request.action === "handoff" ? HANDOFF_DEADLINE_MS : request.action === "enable_tools" ? ENABLE_TOOLS_DEADLINE_MS : 25_000);
             const job = { id, request, finish };
             jobs.set(id, job);
             signal.addEventListener("abort", abort, { once: true });
             if (signal.aborted) { abort(); return; }
             waiting?.();
         });
+    };
+
+    const askToEnable = async (signal: AbortSignal): Promise<Record<string, unknown>> => {
+        if (signal.aborted) return { error: CANCELLED_TEXT };
+        if (enableAsk === undefined) {
+            const controller = new AbortController();
+            const current = { controller, waiters: new Set<(result: Record<string, unknown>) => void>() };
+            enableAsk = current;
+            void dispatch({ action: "enable_tools" }, controller.signal).then((result) => {
+                if (enableAsk === current) enableAsk = undefined;
+                for (const finish of current.waiters) finish(result);
+            });
+        }
+        const current = enableAsk;
+        return await new Promise<Record<string, unknown>>((resolve) => {
+            const finish = (result: Record<string, unknown>): void => {
+                signal.removeEventListener("abort", abort);
+                current.waiters.delete(finish);
+                resolve(result);
+            };
+            const abort = (): void => {
+                finish({ error: CANCELLED_TEXT });
+                if (current.waiters.size === 0 && enableAsk === current) {
+                    enableAsk = undefined;
+                    current.controller.abort();
+                }
+            };
+            current.waiters.add(finish);
+            signal.addEventListener("abort", abort, { once: true });
+            if (signal.aborted) abort();
+        });
+    };
+
+    const ensureEnabled = async (signal: AbortSignal): Promise<VeraExtensionToolResult | undefined> => {
+        if (enableAsk === undefined && settings.enabled) return undefined;
+        if (enableAsk === undefined && settings.offBehavior === "refuse") return browserToolsOff();
+        const result = await askToEnable(signal);
+        if (result.errorCode === BROWSER_TOOLS_OFF) {
+            return browserToolsOff(typeof result.error === "string" ? result.error : BROWSER_TOOLS_OFF_TEXT);
+        }
+        if (typeof result.error === "string") return { output: result.error.slice(0, 1000), isError: true };
+        if (result.approved !== true || !settings.enabled) return browserToolsOff(KEPT_OFF_TEXT);
+        return undefined;
     };
 
     vera.tools.register({
@@ -137,11 +202,14 @@ export function activate(vera: VeraExtensionApi): void {
         },
         permissionOperation: "desktop.browser",
         parallel: false,
-        timeoutMs: HANDOFF_DEADLINE_MS + 30_000,
+        timeoutMs: ENABLE_TOOLS_DEADLINE_MS + HANDOFF_DEADLINE_MS + 30_000,
         run: async ({ input, signal }): Promise<VeraExtensionToolResult> => {
             const request = parseBrowserRequest(input);
             if (request === undefined || request.action === "eval") return { output: "Invalid browser request.", isError: true };
-            if (!enabled()) return browserToolsOff();
+            if (enableAsk !== undefined || !settings.enabled) {
+                const denied = await ensureEnabled(signal);
+                if (denied !== undefined) return denied;
+            }
             const result = await dispatch(request, signal);
             if (result.errorCode === BROWSER_TOOLS_OFF) return browserToolsOff();
             if (typeof result.error === "string") return { output: result.error.slice(0, 1000), isError: true };
@@ -175,11 +243,14 @@ export function activate(vera: VeraExtensionApi): void {
         },
         permissionOperation: "desktop.browser.eval",
         parallel: false,
-        timeoutMs: 30_000,
+        timeoutMs: ENABLE_TOOLS_DEADLINE_MS + 30_000,
         run: async ({ input, signal }): Promise<VeraExtensionToolResult> => {
             const request = parseBrowserRequest({ ...input, action: "eval" });
             if (request === undefined) return { output: "Invalid browser request.", isError: true };
-            if (!enabled()) return browserToolsOff();
+            if (enableAsk !== undefined || !settings.enabled) {
+                const denied = await ensureEnabled(signal);
+                if (denied !== undefined) return denied;
+            }
             const result = await dispatch(request, signal);
             if (result.errorCode === BROWSER_TOOLS_OFF) return browserToolsOff();
             if (typeof result.error === "string") return { output: result.error.slice(0, 1000), isError: true };
@@ -242,11 +313,19 @@ async function formatRead(result: Record<string, unknown>, offset: number): Prom
     return `${header}${markdown.slice(start, end)}${notice}${footer}`;
 }
 
-function browserToolsOff(): VeraExtensionToolResult {
+function readSettings(path: string): BrowserSettings {
+    try {
+        const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+        if (isRecord(value)) return { enabled: value.enabled === true, offBehavior: value.offBehavior === "refuse" ? "refuse" : "ask" };
+    } catch {}
+    return { enabled: false, offBehavior: "ask" };
+}
+
+function browserToolsOff(text = BROWSER_TOOLS_OFF_TEXT): VeraExtensionToolResult {
     return {
-        output: BROWSER_TOOLS_OFF_TEXT,
+        output: text,
         isError: true,
-        presentation: { kind: "tool_notice", text: BROWSER_TOOLS_OFF_TEXT, action: "open_browser" },
+        presentation: { kind: "tool_notice", text, action: "open_browser" },
     };
 }
 

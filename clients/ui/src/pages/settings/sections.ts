@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import {
     AgentIcon,
     BoltIcon,
+    GlobeIcon,
     BranchIcon,
     EyeIcon,
     FolderIcon,
@@ -32,6 +33,13 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         group: "Settings",
         Icon: EyeIcon,
         terms: "theme dark light contrast color text size font code density compact motion animation",
+    },
+    {
+        id: "browser",
+        name: "Browser",
+        group: "Settings",
+        Icon: GlobeIcon,
+        terms: "browser pane tools ask refuse settings",
     },
     {
         id: "agents",

@@ -64,7 +64,7 @@ test("@core gateway polls during handoff and refuses other browser jobs", async 
     let runs = 0;
     let reveals = 0;
     const request: typeof requestExtensionThroughHost = async (_socket, _extension, name, payload, signal) => {
-        if (name === "settings") return { enabled: true };
+        if (name === "settings") return { enabled: true, offBehavior: "ask" };
         if (name === "reply") { replies.push(payload); return true; }
         const next = queued.shift();
         if (next !== undefined) return next;
@@ -78,7 +78,7 @@ test("@core gateway polls during handoff and refuses other browser jobs", async 
     const gateway = new BrowserGateway(cdp, () => { reveals++; }, () => {}, request, trial.handoff);
     gateway.start("trial");
     try {
-        await gateway.settings(true);
+        await gateway.settings({ enabled: true });
         deliver({ id: "first", request: { action: "handoff", reason: "Complete the check" } });
         await until(() => trial.handoff.state()?.id === "first");
         deliver({ id: "other", request: { action: "read" } });

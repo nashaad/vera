@@ -38,6 +38,7 @@ export const SHOW_TARGETS: readonly ShowTarget[] = [
     dialog("nudges", "Standing Nudges", true),
     dialog("feedback", "Feedback", false),
     settings("appearance", "Appearance", true),
+    settings("browser", "Browser", false),
     settings("agents", "Agents", true),
     settings("approvals", "Approvals", true),
     settings("providers", "Providers", true),

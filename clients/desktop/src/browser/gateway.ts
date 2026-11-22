@@ -16,7 +16,9 @@ export class BrowserGateway {
     private writes = 0;
     private revision = 0;
     enabled = false;
+    offBehavior: "ask" | "refuse" = "ask";
     available = false;
+    private toolsAsk: { id: string; answer: (approved: boolean) => void; answering: boolean } | undefined;
 
     constructor(
         private readonly cdp: BrowserCdp,
@@ -39,6 +41,7 @@ export class BrowserGateway {
     stop(): void {
         this.controller?.abort();
         this.handoff?.cancel();
+        this.cancelToolsAsk();
         this.controller = undefined;
         if (this.refreshTimer !== undefined) clearInterval(this.refreshTimer);
         this.refreshTimer = undefined;
@@ -49,12 +52,12 @@ export class BrowserGateway {
         this.update(this.enabled, false);
     }
 
-    async settings(enabled?: boolean): Promise<void> {
+    async settings(patch?: { enabled?: boolean; offBehavior?: "ask" | "refuse" }): Promise<boolean> {
         const socket = this.socket;
         const controller = this.controller;
-        if (socket === undefined || controller === undefined) return;
-        if (enabled === undefined) {
-            if (this.refreshing || this.writes > 0) return;
+        if (socket === undefined || controller === undefined) return false;
+        if (patch === undefined) {
+            if (this.refreshing || this.writes > 0) return false;
             this.refreshing = true;
         } else {
             this.writes++;
@@ -63,17 +66,59 @@ export class BrowserGateway {
         const revision = this.revision;
         try {
             const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]);
-            const result = await this.request(socket, EXTENSION, "settings", enabled === undefined ? {} : { enabled }, signal);
-            if (this.controller !== controller || this.revision !== revision) return;
-            if (isRecord(result) && typeof result.enabled === "boolean") this.update(result.enabled, true);
+            const result = await this.request(socket, EXTENSION, "settings", patch ?? {}, signal);
+            if (this.controller !== controller || this.revision !== revision) return false;
+            if (!isRecord(result) || typeof result.enabled !== "boolean") return false;
+            this.update(result.enabled, true);
+            const offBehavior = result.offBehavior === "refuse" ? "refuse" : "ask";
+            if (offBehavior !== this.offBehavior) {
+                this.offBehavior = offBehavior;
+                this.changed();
+            }
+            return true;
         } catch {
             if (this.controller === controller && this.revision === revision) this.update(this.enabled, false);
+            return false;
         } finally {
             if (this.controller === controller) {
-                if (enabled === undefined) this.refreshing = false;
+                if (patch === undefined) this.refreshing = false;
                 else this.writes--;
             }
         }
+    }
+
+    async answerToolsAsk(id: string, approved: boolean): Promise<void> {
+        const pending = this.toolsAsk;
+        if (pending === undefined || pending.id !== id || pending.answering) return;
+        pending.answering = true;
+        const saved = approved ? await this.settings({ enabled: true }) : true;
+        if (this.toolsAsk !== pending) return;
+        if (approved && (!saved || !this.enabled)) {
+            pending.answering = false;
+            return;
+        }
+        this.toolsAsk = undefined;
+        pending.answer(approved);
+        this.changed();
+    }
+
+    private askTools(id: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            this.toolsAsk = { id, answer: resolve, answering: false };
+            this.changed();
+        });
+    }
+
+    private cancelToolsAsk(id?: string): void {
+        const pending = this.toolsAsk;
+        if (pending === undefined || (id !== undefined && pending.id !== id)) return;
+        this.toolsAsk = undefined;
+        pending.answer(false);
+        this.changed();
+    }
+
+    get pendingToolsAsk(): { id: string } | undefined {
+        return this.toolsAsk === undefined ? undefined : { id: this.toolsAsk.id };
     }
 
     private update(enabled: boolean, available: boolean): void {
@@ -96,10 +141,16 @@ export class BrowserGateway {
                 if (!isRecord(job)) continue;
                 if (typeof job.cancel === "string") {
                     this.handoff?.cancel(job.cancel);
+                    this.cancelToolsAsk(job.cancel);
                     continue;
                 }
                 if (typeof job.id !== "string") continue;
                 const raw = job.request;
+                if (isRecord(raw) && raw.action === "enable_tools") {
+                    const pending = this.askTools(job.id);
+                    void this.replyToolsAsk(socket, job.id, pending, signal);
+                    continue;
+                }
                 const request = isRecord(raw) ? parseBrowserRequest(raw) : undefined;
                 let result: Record<string, unknown>;
                 if (request === undefined) result = { error: "Invalid browser request." };
@@ -124,6 +175,15 @@ export class BrowserGateway {
                 this.update(this.enabled, false);
                 await new Promise<void>((resolve) => setTimeout(resolve, 1000));
             }
+        }
+    }
+
+    private async replyToolsAsk(socket: string, id: string, pending: Promise<boolean>, signal: AbortSignal): Promise<void> {
+        try {
+            const approved = await pending;
+            if (!signal.aborted) await this.request(socket, EXTENSION, "reply", { id, approved } as JsonValue, signal);
+        } catch {
+            if (!signal.aborted) this.update(this.enabled, false);
         }
     }
 

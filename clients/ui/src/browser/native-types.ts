@@ -20,12 +20,23 @@ export interface BrowserHandoffAnswer {
     readonly result: "done" | "skipped";
 }
 
+export interface BrowserToolsApproval {
+    readonly id: string;
+    readonly approved: boolean;
+}
+
+export interface BrowserToolsAsk {
+    readonly id: string;
+}
+
 export interface BrowserState {
     readonly tabs: readonly BrowserTab[];
     readonly active: number | null;
     readonly toolsEnabled: boolean;
     readonly toolsAvailable: boolean;
+    readonly toolsOffBehavior: "ask" | "refuse";
     readonly handoff?: BrowserHandoffState;
+    readonly toolsAsk?: BrowserToolsAsk;
     // The page an "open" command just created, so the caller can bind it to its tab.
     readonly opened?: number;
 }
