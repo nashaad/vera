@@ -177,6 +177,7 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "provider_sign_in":
         case "provider_sign_in_cancel":
         case "provider_forget":
+        case "provider_set_enabled":
         case "model_operation":
         case "model_settings":
         case "catalog_refresh":
@@ -259,6 +260,7 @@ export interface StartHostServerOptions {
     readonly providerSignIn?: ProviderSignInService;
     readonly selectProviderModel?: (provider: string, model: string) => Promise<void>;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
+    readonly setProviderEnabled?: (provider: string, enabled: boolean, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly stopWhenIdle?: StopWhenIdleControl;
     readonly stopWaitObserver?: Pick<StopWhenIdleControl, "observe">;
     readonly restartRecords?: RestartRecordsPort;
@@ -633,6 +635,7 @@ async function startListener(
             options.refreshCatalogs,
             options.operateModels,
             options.forgetProvider,
+            options.setProviderEnabled,
             providerSignIn,
             options.selectProviderModel,
             options.readAnnex,
@@ -942,6 +945,7 @@ function receiveConnection(
     refreshCatalogs: (() => Promise<readonly CatalogRefreshOutcome[]>) | undefined,
     operateModels: StartHostServerOptions["operateModels"],
     forgetProvider: StartHostServerOptions["forgetProvider"],
+    setProviderEnabled: StartHostServerOptions["setProviderEnabled"],
     providerSignIn: ProviderSignInCoordinator | undefined,
     selectProviderModel: StartHostServerOptions["selectProviderModel"],
     readAnnex: (() =>
@@ -1679,6 +1683,20 @@ function receiveConnection(
                 try {
                     if (forgetProvider === undefined) throw new Error("This host does not support forgetting providers.");
                     const settings = await forgetProvider(request.provider, request.workspace);
+                    await send({ type: "model_operation_complete", settings });
+                } catch (error) {
+                    await send({ type: "model_operation_complete", error: error instanceof Error ? error.message : String(error) }).catch(() => {});
+                } finally { operationClosed(); socket.end(); }
+            })();
+            return;
+        }
+        if (request?.type === "provider_set_enabled") {
+            clearDeadline(); finished = true;
+            const operationClosed = operationOpened();
+            void (async () => {
+                try {
+                    if (setProviderEnabled === undefined) throw new Error("This host does not support turning providers off.");
+                    const settings = await setProviderEnabled(request.provider, request.enabled, request.workspace);
                     await send({ type: "model_operation_complete", settings });
                 } catch (error) {
                     await send({ type: "model_operation_complete", error: error instanceof Error ? error.message : String(error) }).catch(() => {});

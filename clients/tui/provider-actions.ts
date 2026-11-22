@@ -32,6 +32,11 @@ export function providerActions(
     } else if (connected) {
         options.push({ value: "reconnect", label: "Reconnect", description: "Sign in again" });
     }
+    if (provider.connected === true) {
+        options.push(provider.enabled === false
+            ? { value: "turn_on", label: "Turn on", description: "Use it again and read its models" }
+            : { value: "turn_off", label: "Turn off", description: "Stop new use and keep the setup; running sessions finish" });
+    }
     // A provider Vera runs itself is also a process to start, stop and point
     // elsewhere. Those belong here rather than on keys of their own.
     if (provider.localRuntime === true) {
@@ -76,6 +81,11 @@ export function providerActionTransition(state: TuiSettingsPickerState): TuiSett
             handled: true,
             runtimeAction: { provider: provider.value, action: runtime },
         };
+    }
+    if (action === "turn_off" || action === "turn_on") {
+        return { state: parent, handled: true, toggleProviderEnabled: {
+            provider: provider.value, enabled: action === "turn_on",
+        } };
     }
     if (action === "reconnect") {
         return { state: parent, handled: true, selection: { kind: "provider", providerId: provider.value } };

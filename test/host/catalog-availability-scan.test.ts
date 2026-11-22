@@ -50,7 +50,7 @@ interface Fixture {
     readonly server: ReturnType<typeof Bun.serve>;
 }
 
-function fixture(prefix: string): Fixture {
+function fixture(prefix: string, extra: Record<string, unknown> = {}): Fixture {
     const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
     const listed = { value: ["alpha"] as readonly string[] };
     const status = { value: 200 };
@@ -78,6 +78,7 @@ function fixture(prefix: string): Fixture {
                 discovery: { mode: "models", credential: "none" },
             },
         },
+        ...extra,
     }));
     writeFileSync(join(root, "pool.json"), JSON.stringify({
         models: { "test-gateway/alpha": { added: true } },
@@ -285,6 +286,45 @@ socketAndLoopbackTest(
             expect(alpha(record!)!.missing_scans).toBe(1);
             expect(alpha(record!)!.first_missing_at).toBe(firstMissing);
             expect(alpha(record!)!.dropped_at).toBeUndefined();
+        } finally {
+            await close(test, host);
+        }
+    },
+    20_000,
+);
+
+socketAndLoopbackTest(
+    "@core an Off provider keeps its availability record without a drop",
+    async () => {
+        const test = fixture("vera-availability-off-", {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            disabled_providers: ["test-gateway"],
+        });
+        seed(test.root, {
+            provider: "test-gateway",
+            model: "alpha",
+            roles: ["favorite"],
+            last_seen_at: new Date(Date.now() - 48 * 60 * 60 * 1_000).toISOString(),
+            missing_scans: 0,
+        });
+        let host: ResidentHost | undefined;
+        try {
+            host = await startHost(test, { minDelayMs: 10, intervalMs: 100 });
+            const scanned = await waitFor(
+                () => readRecord(test.root),
+                (record) => record.last_scan_at !== undefined,
+                "the first daily scan",
+            );
+            const entry = alpha(scanned)!;
+            expect(entry.missing_scans).toBe(0);
+            expect(entry.first_missing_at).toBeUndefined();
+            expect(entry.dropped_at).toBeUndefined();
+            const outcomes = (await readLog(test.root))
+                .filter((line) => line.type === "model_catalog_scan")
+                .flatMap((line) => line.outcomes as readonly { readonly provider: string }[]);
+            expect(outcomes.some((outcome) => outcome.provider === "test-gateway"))
+                .toBe(false);
         } finally {
             await close(test, host);
         }

@@ -11,9 +11,9 @@ import type { ModelEntry } from "../../clients/ui/src/models/settings.ts";
 import type { ProviderStatus } from "../../clients/ui/src/protocol/bridge.ts";
 
 const providers: readonly ProviderStatus[] = [
-    { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: false, catalog_connected: false, custom: false },
-    { id: "local", name: "Local endpoint", methods: [], connected: true, catalog_connected: true, connected_by: "none", endpoint: "http://localhost:11434", custom: false },
-    { id: "custom", name: "Custom Endpoint", methods: ["key"], connected: true, catalog_connected: true, custom: true, endpoint: "http://localhost:8080" },
+    { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: false, catalog_connected: false, enabled: true, custom: false },
+    { id: "local", name: "Local endpoint", methods: [], connected: true, catalog_connected: true, enabled: true, connected_by: "none", endpoint: "http://localhost:11434", custom: false },
+    { id: "custom", name: "Custom Endpoint", methods: ["key"], connected: true, catalog_connected: true, enabled: true, custom: true, endpoint: "http://localhost:8080" },
 ];
 
 const models: readonly ModelEntry[] = [

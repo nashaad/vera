@@ -20,6 +20,7 @@ export function ProviderCards({ bridge, providers, runningProvider, onConnect, o
         <div className="provider-cards">
             <section className="provider-card">
                 <h2>Connected</h2>
+                <p className="provider-card-description">Turn a provider off to keep its setup and stop new use. Sessions already running on its models finish.</p>
                 {connected.map((provider) => (
                     <ConnectedProviderRow
                         key={provider.id}
@@ -80,10 +81,91 @@ interface ConnectedProviderRowProps {
     readonly onReload: () => void;
 }
 
+interface ConnectedProviderRowViewProps {
+    readonly provider: ProviderStatus;
+    readonly inUse: boolean;
+    readonly busy: boolean;
+    readonly confirming: boolean;
+    readonly failure?: string;
+    readonly onOpen: () => void;
+    readonly onToggle: (event: MouseEvent<HTMLButtonElement>) => void;
+    readonly onForget: (event: MouseEvent<HTMLButtonElement>) => void;
+    readonly onConfirmForget: (event: MouseEvent<HTMLButtonElement>) => void;
+    readonly onCancel: (event: MouseEvent<HTMLButtonElement>) => void;
+}
+
+export function ConnectedProviderRowView({
+    provider,
+    inUse,
+    busy,
+    confirming,
+    failure,
+    onOpen,
+    onToggle,
+    onForget,
+    onConfirmForget,
+    onCancel,
+}: ConnectedProviderRowViewProps) {
+    return (
+        <div
+            className="provider-card-entry"
+            role="group"
+            aria-label={provider.name}
+            tabIndex={0}
+            onClick={() => { if (!confirming) onOpen(); }}
+            onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    if (!confirming) onOpen();
+                }
+            }}
+        >
+            <div className="provider-card-row provider-card-connected-row">
+                <span className="provider-card-main">
+                    <span className="provider-card-name">{provider.name}</span>
+                    <span className="provider-card-label">{connectedProviderLabel(provider)}</span>
+                    {provider.enabled ? null : <span className="provider-card-label">Off</span>}
+                    {inUse ? <span className="provider-card-label">In use</span> : null}
+                    {customProviderHost(provider) ? <span className="provider-card-description">{customProviderHost(provider)}</span> : null}
+                </span>
+                <button type="button" className="button" disabled={busy} onClick={onToggle}>{provider.enabled ? "Turn off" : "Turn on"}</button>
+                <button type="button" className="button" disabled={busy} onClick={onForget}>Forget</button>
+            </div>
+            {confirming ? (
+                <ProviderForgetConfirmation
+                    name={provider.name}
+                    busy={busy}
+                    onForget={onConfirmForget}
+                    onCancel={onCancel}
+                />
+            ) : null}
+            {failure === undefined ? null : <p role="alert">{failure}</p>}
+        </div>
+    );
+}
+
 function ConnectedProviderRow({ bridge, provider, inUse, onConnect, onReload }: ConnectedProviderRowProps) {
     const [confirming, setConfirming] = useState(false);
     const [busy, setBusy] = useState(false);
     const [failure, setFailure] = useState<string>();
+
+    async function setEnabled(enabled: boolean): Promise<void> {
+        setBusy(true);
+        setFailure(undefined);
+        try {
+            const result = await bridge.setProviderEnabled(provider.id, enabled);
+            if (!result.ok) {
+                setFailure(result.reason);
+                return;
+            }
+            onReload();
+        } catch {
+            setFailure("The host is not connected.");
+        } finally {
+            setBusy(false);
+        }
+    }
 
     async function forget(): Promise<void> {
         setBusy(true);
@@ -104,38 +186,17 @@ function ConnectedProviderRow({ bridge, provider, inUse, onConnect, onReload }: 
     }
 
     return (
-        <div
-            className="provider-card-entry"
-            role="group"
-            aria-label={provider.name}
-            tabIndex={0}
-            onClick={() => { if (!confirming) onConnect(); }}
-            onKeyDown={(event) => {
-                if (event.target !== event.currentTarget) return;
-                if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    if (!confirming) onConnect();
-                }
-            }}
-        >
-            <div className="provider-card-row provider-card-connected-row">
-                <span className="provider-card-main">
-                    <span className="provider-card-name">{provider.name}</span>
-                    <span className="provider-card-label">{connectedProviderLabel(provider)}</span>
-                    {inUse ? <span className="provider-card-label">In use</span> : null}
-                    {customProviderHost(provider) ? <span className="provider-card-description">{customProviderHost(provider)}</span> : null}
-                </span>
-                <button type="button" className="button" disabled={busy} onClick={(event) => { event.stopPropagation(); setConfirming(true); }}>Forget</button>
-            </div>
-            {confirming ? (
-                <ProviderForgetConfirmation
-                    name={provider.name}
-                    busy={busy}
-                    onForget={(event) => { event.stopPropagation(); void forget(); }}
-                    onCancel={(event) => { event.stopPropagation(); setConfirming(false); }}
-                />
-            ) : null}
-            {failure === undefined ? null : <p role="alert">{failure}</p>}
-        </div>
+        <ConnectedProviderRowView
+            provider={provider}
+            inUse={inUse}
+            busy={busy}
+            confirming={confirming}
+            {...(failure === undefined ? {} : { failure })}
+            onOpen={onConnect}
+            onToggle={(event) => { event.stopPropagation(); void setEnabled(!provider.enabled); }}
+            onForget={(event) => { event.stopPropagation(); setConfirming(true); }}
+            onConfirmForget={(event) => { event.stopPropagation(); void forget(); }}
+            onCancel={(event) => { event.stopPropagation(); setConfirming(false); }}
+        />
     );
 }

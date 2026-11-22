@@ -29,5 +29,9 @@ export function forgetProviderConnection(providerId: string, authStorage: AuthSt
     }
     if (provider.custom) updateVeraConfigDefaults({ custom_provider: { id: providerId, declaration: null } }, configOptions);
     else if (provider.endpointOverridden) updateVeraConfigDefaults({ provider_endpoint: { id: providerId, url: null } }, configOptions);
+    // A later reconnect starts On rather than inheriting the old Off state.
+    if (config?.disabled_providers?.includes(providerId)) {
+        updateVeraConfigDefaults({ provider_enabled: { id: providerId, enabled: true } }, configOptions);
+    }
     rmSync(providerCatalogCachePath(providerId, options.cacheDir), { force: true });
 }

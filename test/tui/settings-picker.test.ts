@@ -2708,6 +2708,7 @@ const PROVIDER_ROWS = [
         group: "Subscriptions",
         hint: "ChatGPT Plus/Pro subscription",
         hasCredential: true,
+        connected: true,
         answerState: "connected",
     },
     {
@@ -2725,6 +2726,7 @@ const PROVIDER_ROWS = [
         group: "Local",
         hint: "local, no account",
         hasCredential: true,
+        connected: true,
         answerState: "connected",
         refreshable: true,
         endpointEditable: true,
@@ -2735,6 +2737,7 @@ const PROVIDER_ROWS = [
         group: "Added in config",
         hint: "API key",
         hasCredential: true,
+        connected: true,
         answerState: "key stored",
         refreshable: true,
         declared: true,
@@ -2960,6 +2963,19 @@ test("the connect pane carries a line the caller needs it to say", () => {
     expect(pane.options[pane.selectedIndex]?.value).toBe("openai-codex");
 });
 
+test("a refused Off lands as the pane's line without moving the selection", () => {
+    const refusal =
+        "OpenAI Codex provides the default model. Choose another default model before turning it off.";
+    const pane = startTuiProviderPicker(PROVIDER_ROWS, {
+        selected: "openai-codex",
+        subtitle: refusal,
+    });
+
+    expect(pane.subtitle).toBe(refusal);
+    expect(pane.options[pane.selectedIndex]?.value).toBe("openai-codex");
+    expect(pickerFooter(pane)).toContain("Ctrl+Shift+O turn off");
+});
+
 test("the declare row offers its action once", () => {
     const pane = startTuiProviderPicker(PROVIDER_ROWS);
     const onDeclare = { ...pane, selectedIndex: pane.options.length - 1 };
@@ -2980,6 +2996,113 @@ test("delete on the declare row asks to forget nothing", () => {
     expect(transition.handled).toBe(true);
     expect(transition.forgetProvider).toBeUndefined();
     expect(pickerFooter(onDeclare)).not.toContain("del forget");
+});
+
+test("ctrl+shift+o names the selected provider and its next state", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS);
+    const connected = { ...pane, selectedIndex: 0 };
+
+    const off = handleTuiSettingsPickerKey(connected, {
+        name: "o",
+        ctrl: true,
+        shift: true,
+    });
+    expect(off.handled).toBe(true);
+    expect(off.toggleProviderEnabled).toEqual({
+        provider: "openai-codex",
+        enabled: false,
+    });
+    expect(off.state).toBe(connected);
+
+    const disabled = startTuiProviderPicker([{
+        ...PROVIDER_ROWS[0],
+        enabled: false,
+    }]);
+    const on = handleTuiSettingsPickerKey({ ...disabled, selectedIndex: 0 }, {
+        name: "o",
+        ctrl: true,
+        shift: true,
+    });
+    expect(on.toggleProviderEnabled).toEqual({
+        provider: "openai-codex",
+        enabled: true,
+    });
+
+    // A provider with no connection has nothing to turn off.
+    const unconnected = handleTuiSettingsPickerKey({
+        ...pane,
+        selectedIndex: 1,
+    }, { name: "o", ctrl: true, shift: true });
+    expect(unconnected.handled).toBe(true);
+    expect(unconnected.toggleProviderEnabled).toBeUndefined();
+    expect(pickerFooter({ ...pane, selectedIndex: 1 }))
+        .not.toContain(tuiKeyHint("toggle_provider_enabled"));
+
+    // A local provider has no credential but is still connected.
+    const credentialless = startTuiProviderPicker([{
+        id: "local-runtime",
+        label: "Local runtime",
+        group: "Local",
+        hint: "local, no account",
+        hasCredential: false,
+        connected: true,
+        answerState: "connected",
+    }]);
+    const localOff = handleTuiSettingsPickerKey(credentialless, {
+        name: "o",
+        ctrl: true,
+        shift: true,
+    });
+    expect(localOff.toggleProviderEnabled).toEqual({
+        provider: "local-runtime",
+        enabled: false,
+    });
+    expect(pickerFooter(credentialless)).toContain("Ctrl+Shift+O turn off");
+});
+
+test("an Off provider is marked off and offers to turn on", async () => {
+    const pane = withTuiPickerParent(
+        startTuiProviderPicker([{ ...PROVIDER_ROWS[0], enabled: false }]),
+        modelPickerWithPool(),
+    );
+    const frame = await pickerFrame(pane, 151, 36);
+
+    expect(frame).toMatch(/OpenAI Codex.*Off.*connected/);
+    expect(frame).toContain("Ctrl+Shift+O turn on");
+    expect(pickerFooter(pane)).toContain("Ctrl+Shift+O turn on");
+});
+
+test("the provider actions menu offers the same turn off and turn on", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS);
+    const actions = handleTuiSettingsPickerKey({
+        ...pane,
+        selectedIndex: 0,
+    }, { name: "enter" }).state!;
+    const offAt = actions.options.findIndex((option) => option.value === "turn_off");
+    expect(offAt).toBeGreaterThanOrEqual(0);
+    expect(handleTuiSettingsPickerKey({ ...actions, selectedIndex: offAt }, {
+        name: "enter",
+    }).toggleProviderEnabled).toEqual({
+        provider: "openai-codex",
+        enabled: false,
+    });
+
+    const disabled = startTuiProviderPicker([{
+        ...PROVIDER_ROWS[0],
+        enabled: false,
+    }]);
+    const offActions = handleTuiSettingsPickerKey({
+        ...disabled,
+        selectedIndex: 0,
+    }, { name: "enter" }).state!;
+    const onAt = offActions.options.findIndex((option) => option.value === "turn_on");
+    expect(onAt).toBeGreaterThanOrEqual(0);
+    expect(handleTuiSettingsPickerKey({ ...offActions, selectedIndex: onAt }, {
+        name: "enter",
+    }).toggleProviderEnabled).toEqual({
+        provider: "openai-codex",
+        enabled: true,
+    });
 });
 
 test("the declare row survives a search that matches no provider", async () => {
@@ -3761,7 +3884,9 @@ test("provider Enter offers its actions without starting any of them", async () 
         const actions = opened.state as TuiSettingsPickerState;
         expect(actions.kind).toBe("provider_actions");
         expect(actions.options.map((row) => row.label)).toEqual(
-            connected ? ["Edit", "Refresh"] : ["Connect", "Edit", "Refresh"],
+            provider === "ollama" ? ["Edit", "Turn off", "Refresh"]
+                : provider === "gemini" ? ["Connect", "Edit", "Turn off", "Refresh"]
+                : ["Connect", "Edit", "Refresh"],
         );
         expect(opened.selection).toBeUndefined();
         expect(opened).not.toHaveProperty("refreshCatalog");
@@ -3773,7 +3898,10 @@ test("provider Enter offers its actions without starting any of them", async () 
         expect(edit).toMatchObject(provider === "gemini"
             ? { editProvider: provider, state: pane }
             : { editEndpoint: provider, state: pane });
-        const refresh = handleTuiSettingsPickerKey(at(editIndex + 1), { name: "enter" });
+        const refresh = handleTuiSettingsPickerKey(
+            at(actions.options.findIndex((row) => row.value === "refresh")),
+            { name: "enter" },
+        );
         expect(refresh).toMatchObject({ refreshCatalog: provider, state: pane });
         expect(refresh.selection).toBeUndefined();
         const frame = await pickerFrame(actions, 100, 30);
@@ -3797,7 +3925,7 @@ test("a provider that has never answered is connected from its actions, not its 
 test("fixed subscription endpoints retain reconnect without unsupported actions", () => {
     const pane = startTuiProviderPicker(PROVIDER_ROWS, { selected: "openai-codex" });
     const actions = handleTuiSettingsPickerKey(pane, { name: "enter" }).state!;
-    expect(actions.options.map((row) => row.label)).toEqual(["Reconnect"]);
+    expect(actions.options.map((row) => row.label)).toEqual(["Reconnect", "Turn off"]);
     expect(handleTuiSettingsPickerKey(actions, { name: "enter" })).toMatchObject({
         state: pane, selection: { kind: "provider", providerId: "openai-codex" },
     });
@@ -3805,7 +3933,7 @@ test("fixed subscription endpoints retain reconnect without unsupported actions"
 
 test("a subscription that is not connected offers Connect alone, not Reconnect too", () => {
     const rows = PROVIDER_ROWS.map((row) => row.id === "openai-codex"
-        ? { ...row, hasCredential: false, answerState: undefined }
+        ? { ...row, hasCredential: false, connected: false, answerState: undefined }
         : row);
     const pane = startTuiProviderPicker(rows, { selected: "openai-codex" });
     const actions = handleTuiSettingsPickerKey(pane, { name: "enter" }).state!;

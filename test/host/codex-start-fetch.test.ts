@@ -86,7 +86,7 @@ function signedOut(): AuthStorage {
     };
 }
 
-function writeConfig(root: string): string {
+function writeConfig(root: string, extra: Record<string, unknown> = {}): string {
     const path = join(root, "config.json");
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
@@ -95,6 +95,7 @@ function writeConfig(root: string): string {
         approval_mode: "ask",
         curated_models_url: "",
         provider_endpoints: { ollama: "http://127.0.0.1:1" },
+        ...extra,
     }));
     return path;
 }
@@ -387,6 +388,28 @@ socketAndLoopbackTest(
         } finally {
             await host?.close();
             endpoint.stop();
+            restoreHome();
+            rmSync(root, { recursive: true, force: true });
+        }
+    },
+    20_000,
+);
+
+socketAndLoopbackTest(
+    "@core an Off Codex provider means no start fetch",
+    async () => {
+        const root = scratch("vera-codex-start-off-");
+        const restoreHome = withHome(root);
+        writeConfig(root, { disabled_providers: ["openai-codex"] });
+        const counting = countingCodexFetch();
+        let host: ResidentHost | undefined;
+        try {
+            host = await startHost(root, { catalogFetch: counting.fetch });
+            await Bun.sleep(200);
+            expect(counting.requests.count).toBe(0);
+            expect(readLog(root).some((line) => line.type.startsWith("codex_catalog_start_fetch"))).toBe(false);
+        } finally {
+            await host?.close();
             restoreHome();
             rmSync(root, { recursive: true, force: true });
         }

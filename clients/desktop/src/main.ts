@@ -72,6 +72,7 @@ import {
     operationArgument,
     readModels,
     refreshProvider,
+    setProviderEnabled,
     workspaceArgument,
 } from "./model-requests.ts";
 import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
@@ -708,6 +709,13 @@ ipcMain.handle(CHANNELS.providerForget, (event, provider: unknown, workspace: un
     const id = providerArgument(provider);
     if (!fromWindow(event) || id === undefined) return { ok: false, reason: "That is not a provider Vera knows." };
     return forgetProvider(hostSocketPath, id, workspaceArgument(workspace));
+});
+ipcMain.handle(CHANNELS.providerSetEnabled, (event, provider: unknown, enabled: unknown, workspace: unknown) => {
+    const id = providerArgument(provider);
+    if (!fromWindow(event) || id === undefined || typeof enabled !== "boolean") {
+        return { ok: false, reason: "That is not a provider Vera knows." };
+    }
+    return setProviderEnabled(hostSocketPath, id, enabled, workspaceArgument(workspace));
 });
 ipcMain.handle(CHANNELS.modelOperate, (event, operation: unknown, provider: unknown, model: unknown, workspace: unknown) => {
     const kind = operationArgument(operation);

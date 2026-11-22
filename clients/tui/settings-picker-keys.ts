@@ -523,6 +523,15 @@ function providerPickerKey(
         }
         return { state, handled: true, forgetProvider: selected.value };
     }
+    if (binding === "toggle_provider_enabled") {
+        if (selected === undefined || selected.action === true
+            || selected.connected !== true) {
+            return unchanged(state, true);
+        }
+        return { state, handled: true, toggleProviderEnabled: {
+            provider: selected.value, enabled: selected.enabled === false,
+        } };
+    }
     return undefined;
 }
 

@@ -98,6 +98,45 @@ export function forgetProviderCredential(rt: TuiRuntime, candidate: {
     });
 }
 
+export function setProviderEnabled(rt: TuiRuntime,
+    providerId: string,
+    enabled: boolean,
+    pane: TuiSettingsPickerState | undefined,
+): void {
+    const label = findConfiguredProvider(
+        providerId,
+        loadOptionalVeraConfig(),
+    )?.label ?? providerId;
+    const change = rt.dependencies.setProviderEnabled;
+    if (change === undefined) {
+        openProviderPicker(rt, pane, {
+            selected: providerId,
+            subtitle: "This host does not support turning providers off.",
+        });
+        return;
+    }
+    const caller = rt.settingsPicker;
+    void change(providerId, enabled, focusedAgentClient(rt).workspace).then((settings) => {
+        if (settings !== undefined && rt.state.modelSettings !== undefined) {
+            const current = rt.state.modelSettings;
+            rt.state = { ...rt.state, modelSettings: { ...current, availableModels: settings.availableModels, pooled: settings.pooled } };
+        }
+        rt.state = appendTuiNotice(rt.state, enabled
+            ? `Turned ${label} on.`
+            : `Turned ${label} off. Its setup is kept, and sessions already running on its models finish.`);
+        requestAgentSettings(rt, focusedAgentClient(rt));
+        if (rt.settingsPicker === caller) openProviderPicker(rt, pane, { selected: providerId });
+    }).catch((error) => {
+        const reason = error instanceof Error ? error.message : String(error);
+        if (rt.settingsPicker === caller) {
+            openProviderPicker(rt, pane, { selected: providerId, subtitle: reason });
+        } else {
+            rt.state = appendTuiError(rt.state, `Could not change ${label}: ${reason}`);
+            renderState(rt);
+        }
+    });
+}
+
 export async function defaultLoginProvider(rt: TuiRuntime, 
     providerId: string,
     onBrowserUnavailable: (url: string) => void,

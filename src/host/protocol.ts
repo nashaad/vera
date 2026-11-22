@@ -1059,6 +1059,7 @@ export interface ProviderSignInCancelled { readonly type: "provider_sign_in_canc
 export interface ProviderRequestFailed { readonly type: "provider_request_failed"; readonly request_id: string; readonly reason: string; }
 
 export interface ProviderForgetRequest { readonly type: "provider_forget"; readonly provider: string; readonly workspace?: string; }
+export interface ProviderSetEnabledRequest { readonly type: "provider_set_enabled"; readonly provider: string; readonly enabled: boolean; readonly workspace?: string; }
 
 export type HostRequest =
     | ProviderListRequest
@@ -1067,6 +1068,7 @@ export type HostRequest =
     | ProviderSignInRequest
     | ProviderSignInCancelRequest
     | ProviderForgetRequest
+    | ProviderSetEnabledRequest
     | ModelOperationRequest
     | HostIdentityRequest
     | ModelSettingsRequest
@@ -1296,6 +1298,11 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     }
     if (value?.type === "provider_forget" && typeof value.provider === "string" && /^[a-z0-9][a-z0-9._-]*$/.test(value.provider)) {
         return { type: "provider_forget", provider: value.provider,
+            ...(typeof value.workspace === "string" ? { workspace: value.workspace } : {}) };
+    }
+    if (value?.type === "provider_set_enabled" && typeof value.provider === "string"
+        && /^[a-z0-9][a-z0-9._-]*$/.test(value.provider) && typeof value.enabled === "boolean") {
+        return { type: "provider_set_enabled", provider: value.provider, enabled: value.enabled,
             ...(typeof value.workspace === "string" ? { workspace: value.workspace } : {}) };
     }
     if (value?.type === "model_operation") {

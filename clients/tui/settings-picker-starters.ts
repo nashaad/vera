@@ -953,6 +953,8 @@ export function startTuiProviderPicker(
             searchText: provider.id,
             group: provider.group,
             hasCredential: provider.hasCredential,
+            ...(provider.connected === true ? { connected: true } : {}),
+            ...(provider.enabled === false ? { enabled: false } : {}),
             ...(provider.answerState === undefined
                 ? {}
                 : { answerState: provider.answerState }),

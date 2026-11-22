@@ -2010,6 +2010,12 @@ export function pickerFooterText(
             ...(selected?.hasCredential === true
                 ? [tuiKeyHint("forget_provider")]
                 : []),
+            ...(selected?.connected === true
+                ? [tuiKeyHint("toggle_provider_enabled").replace(
+                    "on/off",
+                    selected.enabled === false ? "turn on" : "turn off",
+                )]
+                : []),
             ...(selected?.endpointEditable === true
                 && selected.declared !== true
                 ? [tuiKeyHint("edit_endpoint")]

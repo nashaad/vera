@@ -516,6 +516,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "del forget",
     },
     {
+        id: "toggle_provider_enabled",
+        keys: ["ctrl+shift+o"],
+        scope: "model_picker",
+        description: "Turn the selected provider off or on",
+        hint: "Ctrl+Shift+O on/off",
+    },
+    {
         id: "reveal_all_models",
         keys: ["ctrl+a"],
         scope: "model_picker",
