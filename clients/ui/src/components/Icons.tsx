@@ -348,16 +348,6 @@ export function QuestionIcon({ className }: IconProps) {
     );
 }
 
-export function BubbleQuestionIcon({ className }: IconProps) {
-    return (
-        <Icon className={className}>
-            <path d="M5 4h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H10l-5 4v-4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
-            <path d="M9.5 8.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7" />
-            <path d="M12 14h.01" />
-        </Icon>
-    );
-}
-
 export function TerminalIcon({ className }: IconProps) {
     return (
         <Icon className={className}>

@@ -139,8 +139,7 @@ try {
     const sidebar = await page.locator(".sessions-view").boundingBox();
     if (sidebar === null || sidebar.width <= 0) throw new Error("The sidebar is not visible.");
 
-    // 5. A waiting root shows the question indicator; it focuses the reply field and a draft
-    // survives grouping changes.
+    // 5. A waiting row shows a filled dot in the time slot, and a draft survives grouping changes.
     await page.locator(`.session-row[data-session="${SAMPLE.usage}"]`).click();
     await page.waitForSelector(`[data-session="${SAMPLE.usage}"][data-phase="attached"]`, { timeout: 30_000 });
     const mode = page.locator(".approval-picker .pill-button");
@@ -155,17 +154,15 @@ try {
     await input.press("Enter");
     await page.locator('.request-card[data-kind="approval"]').waitFor({ timeout: 30_000 });
     const usageItem = page.locator(`.session-item:has(.session-row[data-session="${SAMPLE.usage}"])`);
-    await usageItem.locator(".session-question").waitFor({ timeout: 15_000 });
+    await usageItem.locator('.session-dot[aria-label="Waiting on you"]').waitFor({ timeout: 15_000 });
+    if (await usageItem.locator(".session-question").count() !== 0) throw new Error("The waiting row kept a question indicator.");
     await input.fill("Draft stays");
-    await usageItem.locator(".session-question").click();
-    await until("the reply field to take focus", async () => await input.evaluate((element) => element === document.activeElement), 5_000);
-    if (await input.inputValue() !== "Draft stays") throw new Error("The question indicator dropped the draft.");
     await setSidebarGrouping(page, "none");
     if (await input.inputValue() !== "Draft stays") throw new Error("Changing grouping dropped the draft.");
     await setSidebarGrouping(page, "folder");
     if (await input.inputValue() !== "Draft stays") throw new Error("Changing grouping back dropped the draft.");
     await page.locator('.request-card[data-kind="approval"]').getByRole("button", { name: "Deny", exact: true }).click();
-    await usageItem.locator(".session-question").waitFor({ state: "detached", timeout: 15_000 });
+    await usageItem.locator('.session-dot[aria-label="Waiting on you"]').waitFor({ state: "detached", timeout: 15_000 });
     await input.fill("");
 
     // 6. Unpin the last pinned session: Pinned goes away and the row returns to its folder.

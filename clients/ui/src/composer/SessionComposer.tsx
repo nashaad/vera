@@ -5,7 +5,6 @@ import { effortCommand, switchModelCommand } from "../models/commands.ts";
 import { ModelPills } from "../models/ModelPills.tsx";
 import { useSessionModels } from "../models/useSessionModels.ts";
 import type { DesktopBridge } from "../protocol/bridge.ts";
-import { subscribeComposerFocus } from "../session/composerFocus.ts";
 import { subscribeDrafts, takeDraft } from "../session/drafts.ts";
 import { stepAgentGate } from "../session/agentGate.ts";
 import { hasPendingPrompt, setPendingPrompt, takePendingPrompt, type PendingPrompt } from "../session/pendingPrompt.ts";
@@ -71,7 +70,6 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
     const withdrawing = useRef<string | undefined>(undefined);
     const input = useRef<HTMLTextAreaElement>(null);
     const [landed, setLanded] = useState(0);
-    const [focusWanted, setFocusWanted] = useState(false);
     // A New Chat prompt waits here until the session has switched to the model chosen for it.
     const modelGate = useRef<ModelGate | undefined>(undefined);
     // A New Chat prompt waits here until the session has confirmed the agent chosen for it.
@@ -163,16 +161,6 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
         box.focus();
         box.setSelectionRange(box.value.length, box.value.length);
     }, [landed]);
-
-    // A question in the sidebar can arrive before this session's composer has attached; keep the wish until it can take focus.
-    useEffect(() => subscribeComposerFocus(agentId, () => setFocusWanted(true)), [agentId]);
-    useEffect(() => {
-        const box = input.current;
-        if (!focusWanted || box === null || box.disabled) return;
-        setFocusWanted(false);
-        box.focus();
-        box.setSelectionRange(box.value.length, box.value.length);
-    }, [focusWanted, attached, hold, preparing]);
 
     // A prompt taken back out of the queue lands in the box to edit.
     useEffect(() => {

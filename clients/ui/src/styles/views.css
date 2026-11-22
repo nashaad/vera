@@ -429,8 +429,7 @@
     color: var(--vera-text);
 }
 
-.session-pin,
-.session-question {
+.session-pin {
     flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
@@ -445,12 +444,7 @@
     cursor: pointer;
 }
 
-.session-question {
-    color: var(--vera-link);
-}
-
-.session-pin:hover,
-.session-question:hover {
+.session-pin:hover {
     color: var(--vera-text);
     background: var(--vera-surface-selected);
 }
@@ -459,8 +453,7 @@
     color: var(--vera-link);
 }
 
-.session-pin:focus-visible,
-.session-question:focus-visible {
+.session-pin:focus-visible {
     outline: thin solid var(--vera-focus);
     outline-offset: calc(var(--vera-space) / -2);
 }
@@ -491,6 +484,11 @@
 .session-dot[data-running="true"] {
     background: var(--vera-link);
     border-color: var(--vera-link);
+}
+
+/* The dot sits in the time slot, with the age's right gap. */
+.session-line > .session-dot {
+    margin-right: calc(var(--vera-space) * 2);
 }
 
 .session-name {

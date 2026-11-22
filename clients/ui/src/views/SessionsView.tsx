@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from
 
 import { sessionRowMenu } from "../commands/session-row-menu.ts";
 import {
-    BubbleQuestionIcon,
     ChevronRightIcon,
     FolderIcon,
     MoreIcon,
@@ -13,7 +12,6 @@ import { useRouter } from "../pages/router.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
 import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
 import { ARCHIVED_KEY, buildSidebarTree, type SidebarNode, type SidebarSection } from "../protocol/sidebarTree.ts";
-import { requestComposerFocus } from "../session/composerFocus.ts";
 import { takePinFocus, toggleSessionPin, usePinnedSessions } from "../state/usePins.ts";
 import { useSidebarGrouping } from "../state/useSidebarGrouping.ts";
 import { useSurface } from "../state/useSurfaces.ts";
@@ -23,7 +21,7 @@ interface VisibleRow {
     readonly node: SidebarNode;
     readonly parentId?: string;
     readonly depth: number;
-    // True at the top of a family, where Pin and the question indicator live.
+    // True at the top of a family, where Pin lives.
     readonly root: boolean;
     // A section heading puts its rows one column in, behind a folder guide line.
     readonly headed: boolean;
@@ -107,8 +105,7 @@ function Row({
     const { openMenu } = useWorkbench();
     const files = useSurface("files");
     const active = route.kind === "session" && route.agentId === row.id;
-    // Only a top-level row carries the question indicator; a nested row shows the working spinner only.
-    const waitingHere = row.status === "waiting" && root;
+    const waitingHere = row.status === "waiting";
     const menu = (at: { readonly x: number; readonly y: number }): void => {
         openMenu(sessionRowMenu(row, pinned, files, archiveRoot, root), at);
     };
@@ -117,10 +114,6 @@ function Row({
         menu({ x: box.left, y: box.bottom });
     };
     const openRow = (): void => navigate({ kind: "session", agentId: row.id, title: row.name });
-    const confirm = (): void => {
-        navigate({ kind: "session", agentId: row.id, title: row.name });
-        requestComposerFocus(row.id);
-    };
     const lineClick = (event: MouseEvent<HTMLDivElement>): void => {
         if (event.target instanceof Element && event.target.closest("button") === null) openRow();
     };
@@ -178,15 +171,7 @@ function Row({
                 {row.status === "working" ? (
                     <span className="session-spinner" role="img" aria-label="Working" />
                 ) : waitingHere ? (
-                    <button
-                        type="button"
-                        className="session-question"
-                        aria-label={`Answer ${row.name}`}
-                        title="Waiting on you"
-                        onClick={confirm}
-                    >
-                        <BubbleQuestionIcon />
-                    </button>
+                    <span className="session-dot" data-running="true" role="img" aria-label="Waiting on you" />
                 ) : root ? (
                     <span className="session-time">{relativeTime(row.updatedAt, now)}</span>
                 ) : null}

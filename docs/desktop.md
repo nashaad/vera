@@ -389,11 +389,9 @@ Seven views ship with the app:
   top-level row shows the session's title, its time since the last activity
   (`now`, `5m`, `3h`, `2d`, `1mo`, `1y`) and a Pin or Unpin button. A working
   session has a rotating indicator in the time's place, and a session waiting on
-  you has a question mark in a speech bubble there; clicking the question mark
-  opens the session and puts the cursor in its reply field, keeping any draft
-  already there. Reduce motion stops the rotating indicator. A nested row shows
-  its title and the working spinner, without a time or Pin; only a top-level row
-  shows the question mark. Picking a row opens that session, and the row of the
+  you has a filled dot there. Reduce motion stops the rotating indicator. A
+  nested row shows its title, with the working spinner or waiting dot, and no
+  time or Pin. Picking a row opens that session, and the row of the
   open session is filled. The Pin or Unpin button on a top-level row does the
   same as the menu item. With a row focused, Up and Down move through the
   visible rows, Right expands a row or moves into its children, and Left
