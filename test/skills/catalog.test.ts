@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import {
-    existsSync,
     mkdirSync,
     mkdtempSync,
     rmSync,
@@ -118,13 +117,8 @@ test("copyable example skills are valid opt-in packages", async () => {
         systemDirectory: examples,
     });
 
-    // examples/skills/wireframe is a symlink that resolves only where vera-hq is checked out.
-    const linked = existsSync(join(examples, "wireframe", "SKILL.md"));
     expect(catalog.warnings).toEqual([]);
-    expect(catalog.skills.map((skill) => skill.metadata.name)).toEqual([
-        "consult",
-        ...(linked ? ["wireframe"] : []),
-    ]);
+    expect(catalog.skills.map((skill) => skill.metadata.name)).toEqual(["consult"]);
 });
 
 test("catalog discovery follows a symlinked skill directory", async () => {
