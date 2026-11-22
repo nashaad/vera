@@ -176,6 +176,30 @@ describe("fetchCodexCatalog", () => {
             .toBe("missing_credential");
     });
 
+    test("an abort drops a reply that ignores the signal", async () => {
+        const directory = scratch();
+        const controller = new AbortController();
+        let requestSignal: AbortSignal | null | undefined;
+        const fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+            requestSignal = init?.signal;
+            controller.abort();
+            await Bun.sleep(25);
+            return Response.json(fixture);
+        }) as typeof globalThis.fetch;
+
+        const failure = await fetchCodexCatalog({
+            authStorage: signedIn(directory),
+            cacheDir: directory,
+            fetch,
+            signal: controller.signal,
+        }).then(() => undefined, (error: unknown) => error);
+
+        expect((failure as { name?: string } | undefined)?.name).toBe("AbortError");
+        expect(requestSignal?.aborted).toBe(true);
+        expect(readProviderCatalogSnapshot("openai-codex", { cacheDir: directory }).models)
+            .toHaveLength(0);
+    });
+
     test("signed out is an error, not an empty list", async () => {
         const directory = scratch();
         await expect(fetchCodexCatalog({

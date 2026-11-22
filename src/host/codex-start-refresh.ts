@@ -53,15 +53,16 @@ export async function fetchCodexCatalogAtStart(
     }
 
     try {
-        const catalog = await withTimeout(
-            fetchCodexCatalog({
+        const catalog = await withAbortTimeout(
+            options.timeoutMs ?? CODEX_CATALOG_START_TIMEOUT_MS,
+            (signal) => fetchCodexCatalog({
                 authStorage: options.authStorage,
                 ...(options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir }),
                 ...(options.authorization === undefined ? {} : { authorization: options.authorization }),
                 ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
                 ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+                signal,
             }),
-            options.timeoutMs ?? CODEX_CATALOG_START_TIMEOUT_MS,
         );
         options.log({ type: "codex_catalog_start_fetch", models: catalog.models.length });
         return { status: "fetched", models: catalog.models.length };
@@ -78,13 +79,22 @@ export async function fetchCodexCatalogAtStart(
     }
 }
 
-function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+function withAbortTimeout<T>(
+    timeoutMs: number,
+    start: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+    const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new CodexStartTimeoutError(timeoutMs)), timeoutMs);
+        timer = setTimeout(() => {
+            // Reject before aborting: the race must report the timeout, not the
+            // abort error the same callback causes.
+            reject(new CodexStartTimeoutError(timeoutMs));
+            controller.abort();
+        }, timeoutMs);
         timer.unref?.();
     });
-    return Promise.race([work, deadline]).finally(() => {
+    return Promise.race([start(controller.signal), deadline]).finally(() => {
         if (timer !== undefined) clearTimeout(timer);
     });
 }
