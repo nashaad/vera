@@ -17,6 +17,7 @@ import { focusedAbortRequested, focusedAgentClient, focusedAgentState, focusedUi
 import { setComposerMargin } from "../main/chrome.ts";
 import { activityAnimationNow, animationLevelNow, syncStatusTimer } from "./animation-level.ts";
 import { paneHeaderText, quitArmedNow, renderHeldAddress, renderJumpToBottom, renderPendingQuote, renderSidebarJump } from "../main/notices.ts";
+import { tuiRetryLineFromActivity, type TuiRetryLine } from "../retry-line.ts";
 import { anyOverlayOpen } from "../main/render-state.ts";
 import { animateLiveThinking, animateLiveToolHeaders } from "../main/transcript-nodes.ts";
 import { workingLineText } from "../main/watchers.ts";
@@ -105,6 +106,7 @@ export function renderStatus(rt: TuiRuntime): void {
         READY_HINT,
         rt.runningBackgroundAgents,
     );
+    let retryLine: TuiRetryLine | undefined;
     if (rt.sessionSwitchPending) {
         lifecycleHint = rt.sessionSwitchActivity;
     } else if (rt.connectionFailed) {
@@ -140,16 +142,15 @@ export function renderStatus(rt: TuiRuntime): void {
         );
     } else if (statusState.working) {
         const modelActivity = statusState.modelActivity;
-        const waitingToRetry = modelActivity !== undefined
-            && Date.parse(modelActivity.retryAt) > Date.now();
-        lifecycleHint = waitingToRetry
-            ? `retrying · attempt ${modelActivity.nextAttempt}/${modelActivity.maxAttempts}`
-                + ` · ${focusedElapsed}`
-            : `${modelActivity === undefined ? focusedActivity : "thinking"}`
-                + ` · ${focusedElapsed}`
+        retryLine = modelActivity === undefined
+            ? undefined
+            : tuiRetryLineFromActivity(modelActivity, focusedElapsed, Date.now());
+        lifecycleHint = retryLine === undefined
+            ? `${focusedActivity} · ${focusedElapsed}`
                 + (statusState.autoApprovals === undefined
                     ? ""
-                    : ` · ${statusState.autoApprovals.length} auto-approved`);
+                    : ` · ${statusState.autoApprovals.length} auto-approved`)
+            : retryLine.text;
     } else if (rt.pendingImages.some((image) => image.id === undefined)) {
         lifecycleHint = "attaching image…";
     } else if (rt.promptSubmitting) {
@@ -486,7 +487,9 @@ export function renderStatus(rt: TuiRuntime): void {
             : {
                 text: statusLine,
                 color: updateForms.length > 0 && statusColor === TUI_MUTED ? TUI_ACCENT : statusColor,
-                alternates: updateForms.slice(1).map(withDevPrefix),
+                alternates: retryLine === undefined
+                    ? updateForms.slice(1).map(withDevPrefix)
+                    : retryLine.alternates.map(withDevPrefix),
             },
         keys: keysHint,
         limits: rt.subscriptionLimits.forms(),

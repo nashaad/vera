@@ -602,10 +602,20 @@ export function applyHistoryPage(
     };
 }
 
+// Retry activity ends when the attempt answers or works, or the turn's model
+// falls back; an effort change or a subagent fallback leaves it running.
+function clearModelActivity(state: TuiState): TuiState {
+    return state.modelActivity === undefined
+        ? state
+        : { ...state, modelActivity: undefined };
+}
+
 function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
     if (update.type === "prompt_admission") return state;
     // The TUI does not request reasoning progress, so none reaches it.
-    if (update.type === "assistant_thinking_progress") return state;
+    if (update.type === "assistant_thinking_progress") {
+        return clearModelActivity(state);
+    }
     if (update.type === "prompt_queue") {
         return {
             ...state,
@@ -620,10 +630,10 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
         return { ...next, modelActivity: update };
     }
     if (update.type === "assistant_delta") {
-        return appendAssistantText(state, update.text);
+        return clearModelActivity(appendAssistantText(state, update.text));
     }
     if (update.type === "assistant_thinking") {
-        return appendThinkingText(state, update.text);
+        return clearModelActivity(appendThinkingText(state, update.text));
     }
     if (update.type === "tool_started") {
         const waitProcessId = processReadId(update.tool, update.args);
@@ -636,7 +646,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
                 true,
             );
         return {
-            ...state,
+            ...clearModelActivity(state),
             ...(state.autoApprovals === undefined ? {} : {
                 autoApprovals: pairAutoApproval(state.autoApprovals, update.tool, update.args),
             }),
@@ -1045,9 +1055,9 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
         if (update.source === "subagent") {
             return appendEntry(state, substitutionEntry(update));
         }
-        if (update.scope !== "effort") {
+        if (update.scope === "model") {
             return appendEntry({
-                ...state,
+                ...clearModelActivity(state),
                 modelFallback: {
                     from: update.model,
                     to: update.using ?? update.model,

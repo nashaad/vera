@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { CheckIcon, ChevronRightIcon } from "../components/Icons.tsx";
+import { retryDelayText, retryDurationText, retryStatus } from "../../../shared/retry-status.ts";
 import type { Checklist, CompactionState, RetryState, ToolCall } from "./model.ts";
 import { CallList } from "./ToolRuns.tsx";
 import { liveAction } from "./toolTitle.ts";
@@ -93,12 +94,32 @@ export function LiveStatus({ since, calls, streaming, tokens, waiting, retry, co
     }
 
     if (retry !== undefined) {
+        const facts = retryStatus(retry, now);
+        const attempt = `attempt ${facts.attempt} of ${facts.maxAttempts}`;
+        if (facts.state === "waiting") {
+            return (
+                <div className="live-status" data-state="retrying">
+                    <Dots />
+                    <span className="label sweep">Retrying on {retry.model}</span>
+                    <span className="arg">
+                        {attempt} in {retryDelayText(facts.delayMs ?? 0)} · {facts.failure}
+                    </span>
+                    <span className="clock">{retryDurationText(elapsed)}</span>
+                </div>
+            );
+        }
         return (
             <div className="live-status" data-state="retrying">
                 <Dots />
                 <span className="label sweep">Retrying on {retry.model}</span>
-                <span className="arg">attempt {retry.nextAttempt} of {retry.maxAttempts}</span>
-                <span className="clock">{clock}</span>
+                <span className="arg">
+                    {attempt}
+                    {facts.silenceMs === undefined
+                        ? ""
+                        : ` · no reply ${retryDurationText(facts.silenceMs)}`}
+                    {` · ${facts.failure}`}
+                </span>
+                <span className="clock">{retryDurationText(elapsed)}</span>
             </div>
         );
     }
