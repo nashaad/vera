@@ -3,6 +3,7 @@ import { parseBrowserRequest } from "../../../../extensions/builtin-browser/argu
 import { BROWSER_TOOLS_OFF, BROWSER_TOOLS_OFF_TEXT } from "../../../../extensions/builtin-browser/failure.ts";
 import { HANDOFF_BUSY } from "../../../../extensions/builtin-browser/handoff.ts";
 import type { JsonValue } from "../../../../src/sdk/hooks.ts";
+import type { DefaultBrowser } from "../../../ui/src/browser/native-types.ts";
 import { NO_WEB_PAGE_ERROR, type BrowserCdp } from "./cdp.ts";
 import type { BrowserHandoff } from "./handoff.ts";
 
@@ -17,6 +18,7 @@ export class BrowserGateway {
     private revision = 0;
     enabled = false;
     offBehavior: "ask" | "refuse" = "ask";
+    defaultBrowser: DefaultBrowser = "ask";
     available = false;
     private toolsAsk: { id: string; answer: (approved: boolean) => void; answering: boolean } | undefined;
 
@@ -52,7 +54,11 @@ export class BrowserGateway {
         this.update(this.enabled, false);
     }
 
-    async settings(patch?: { enabled?: boolean; offBehavior?: "ask" | "refuse" }): Promise<boolean> {
+    async settings(patch?: {
+        enabled?: boolean;
+        offBehavior?: "ask" | "refuse";
+        defaultBrowser?: DefaultBrowser;
+    }): Promise<boolean> {
         const socket = this.socket;
         const controller = this.controller;
         if (socket === undefined || controller === undefined) return false;
@@ -73,6 +79,13 @@ export class BrowserGateway {
             const offBehavior = result.offBehavior === "refuse" ? "refuse" : "ask";
             if (offBehavior !== this.offBehavior) {
                 this.offBehavior = offBehavior;
+                this.changed();
+            }
+            const defaultBrowser = result.defaultBrowser === "pane" || result.defaultBrowser === "chrome"
+                ? result.defaultBrowser
+                : "ask";
+            if (defaultBrowser !== this.defaultBrowser) {
+                this.defaultBrowser = defaultBrowser;
                 this.changed();
             }
             return true;

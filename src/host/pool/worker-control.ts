@@ -19,7 +19,7 @@ import { createLiveVeraConfigReader, defaultVeraConfigPath } from "../../config.
 import { WorkerGlobals } from "./worker-globals.ts";
 import type { GlobalChange } from "./global-services.ts";
 import { applyConfigDefaults } from "./config-defaults.ts";
-import { remoteExtensions, type ExtensionCatalog } from "./extension-catalog.ts";
+import { remoteExtensions, setCatalogToolDescription, type ExtensionCatalog } from "./extension-catalog.ts";
 import { WorkerInboxBridge } from "./inbox.ts";
 import { recoverUnownedSessions } from "./recovery-scan.ts";
 import { discoverCrashSession, recoverCrashSession, type CrashSessionPath } from "./worker-crash-scan.ts";
@@ -236,6 +236,16 @@ export async function startControlledWorker(
         }
         if (method === "worker.annexChanged") {
             runtime.setAnnexUrl(typeof args[0] === "string" ? args[0] : undefined);
+            return;
+        }
+        if (method === "worker.setToolDescription") {
+            const [extensionId, name, description] = args;
+            if (typeof extensionId !== "string" || typeof name !== "string" || typeof description !== "string") {
+                throw new Error("Invalid tool description update");
+            }
+            if (!setCatalogToolDescription(bootstrap.extensionCatalog, extensionId, name, description)) {
+                throw new Error("Tool description update does not match the extension catalog");
+            }
             return;
         }
         if (method === "worker.stopMaintenance") {

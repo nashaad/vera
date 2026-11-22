@@ -9,7 +9,12 @@ import { EVAL_DESCRIPTION, EVAL_RESULT_LIMIT, EVAL_SCRIPT_LIMIT, EVAL_TIMEOUT_LI
 import { BROWSER_TOOLS_OFF, BROWSER_TOOLS_OFF_TEXT } from "./failure.ts";
 import { HANDOFF_BUSY, HANDOFF_CANCELLED, HANDOFF_TIMED_OUT } from "./handoff.ts";
 
-const DESCRIPTION = "Use the built-in browser, the Browser pane in the Vera desktop window. Open an http or https URL, read the page as markdown with link URLs and tables plus accessibility refs, click or type by ref, scroll, go back, or take a screenshot. Read the page before using refs. A long page is cut: read again with the offset the reply gives to continue. If the page shows a CAPTCHA or another human check, use handoff with a short reason so the user can complete it in the pane, then read the page again. Never try to solve a human check yourself. It cannot control Vera's own pages such as Usage. If a tool named browser is also available, ask the user once which browser to use before the first call, and keep the answer for this conversation.";
+const DESCRIPTION_START = "Use the built-in browser, the Browser pane in the Vera desktop window. Open an http or https URL, read the page as markdown with link URLs and tables plus accessibility refs, click or type by ref, scroll, go back, or take a screenshot. Read the page before using refs. A long page is cut: read again with the offset the reply gives to continue. If the page shows a CAPTCHA or another human check, use handoff with a short reason so the user can complete it in the pane, then read the page again. Never try to solve a human check yourself. It cannot control Vera's own pages such as Usage.";
+const BROWSER_SENTENCES: Record<DefaultBrowser, string> = {
+    ask: "If a tool named browser is also available, ask the user once which browser to use before the first call, and keep the answer for this conversation.",
+    pane: "If a tool named browser is also available, use this tool unless the user asks for Chrome.",
+    chrome: "If a tool named browser is also available, use that tool unless the user asks for the Browser pane.",
+};
 const MAX_IMAGE = 800_000;
 const MAX_PENDING = 8;
 const MAX_OUTPUT = 30_000;
@@ -26,7 +31,10 @@ const CANCELLED_TEXT = "Browser request cancelled.";
 interface BrowserSettings {
     readonly enabled: boolean;
     readonly offBehavior: "ask" | "refuse";
+    readonly defaultBrowser: DefaultBrowser;
 }
+
+type DefaultBrowser = "pane" | "chrome" | "ask";
 
 interface Job {
     readonly id: string;
@@ -57,13 +65,23 @@ export function activate(vera: VeraExtensionApi): void {
     };
 
     vera.requests.handle("settings", (payload: JsonValue): JsonValue => {
-        if (isRecord(payload) && (typeof payload.enabled === "boolean" || Object.hasOwn(payload, "offBehavior"))) {
-            setSettings({
+        if (isRecord(payload) && (typeof payload.enabled === "boolean"
+            || Object.hasOwn(payload, "offBehavior")
+            || Object.hasOwn(payload, "defaultBrowser"))) {
+            const previousBrowser = settings.defaultBrowser;
+            const nextSettings: BrowserSettings = {
                 enabled: typeof payload.enabled === "boolean" ? payload.enabled : settings.enabled,
                 offBehavior: Object.hasOwn(payload, "offBehavior")
                     ? payload.offBehavior === "refuse" ? "refuse" : "ask"
                     : settings.offBehavior,
-            });
+                defaultBrowser: Object.hasOwn(payload, "defaultBrowser")
+                    ? parseDefaultBrowser(payload.defaultBrowser)
+                    : settings.defaultBrowser,
+            };
+            setSettings(nextSettings);
+            if (nextSettings.defaultBrowser !== previousBrowser) {
+                vera.tools.setDescription("builtin_browser", descriptionFor(nextSettings.defaultBrowser));
+            }
             if (payload.enabled === false) for (const job of jobs.values()) {
                 job.finish(job.request.action === "handoff"
                     ? { output: HANDOFF_CANCELLED }
@@ -190,7 +208,7 @@ export function activate(vera: VeraExtensionApi): void {
 
     vera.tools.register({
         name: "builtin_browser",
-        description: DESCRIPTION,
+        description: descriptionFor(settings.defaultBrowser),
         inputSchema: {
             type: "object",
             properties: {
@@ -316,9 +334,21 @@ async function formatRead(result: Record<string, unknown>, offset: number): Prom
 function readSettings(path: string): BrowserSettings {
     try {
         const value: unknown = JSON.parse(readFileSync(path, "utf8"));
-        if (isRecord(value)) return { enabled: value.enabled === true, offBehavior: value.offBehavior === "refuse" ? "refuse" : "ask" };
+        if (isRecord(value)) return {
+            enabled: value.enabled === true,
+            offBehavior: value.offBehavior === "refuse" ? "refuse" : "ask",
+            defaultBrowser: parseDefaultBrowser(value.defaultBrowser),
+        };
     } catch {}
-    return { enabled: false, offBehavior: "ask" };
+    return { enabled: false, offBehavior: "ask", defaultBrowser: "ask" };
+}
+
+function parseDefaultBrowser(value: unknown): DefaultBrowser {
+    return value === "pane" || value === "chrome" ? value : "ask";
+}
+
+function descriptionFor(browser: DefaultBrowser): string {
+    return `${DESCRIPTION_START} ${BROWSER_SENTENCES[browser]}`;
 }
 
 function browserToolsOff(text = BROWSER_TOOLS_OFF_TEXT): VeraExtensionToolResult {

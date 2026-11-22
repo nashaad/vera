@@ -47,6 +47,7 @@ export interface InProcessWorker {
     cutSession(id: string, reason: string, stopCause?: StopCause): Promise<boolean>;
     clearProviderSelection(provider: string): Promise<void>;
     notifyModelCatalogChanged(): void;
+    notifyToolDescriptionChanged(extensionId: string, name: string, description: string): void;
     notifyAnnexChanged(url: string | undefined): Promise<void>;
     flushStores(): Promise<void>;
     knowsSession(id: string): Promise<boolean>;
@@ -177,6 +178,9 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         cutSession: (id, reason, stopCause) => router.cut(id, reason, stopCause),
         clearProviderSelection: (provider) => worker.clearProviderSelection(provider),
         notifyModelCatalogChanged: () => worker.registry.notifyModelCatalogChanged(),
+        notifyToolDescriptionChanged: (extensionId, name, description) => {
+            worker.extensions.setToolDescription(extensionId, name, description);
+        },
         notifyAnnexChanged: async () => {},
         flushStores: () => router.flush(),
         async knowsSession(id) {

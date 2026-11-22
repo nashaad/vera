@@ -15,19 +15,36 @@ function trial() {
     const root = mkdtempSync(join(tmpdir(), "vera-browser-preferences-"));
     const handlers = new Map<string, Handler>();
     const tools = new Map<string, VeraExtensionToolSpec>();
+    const descriptions = new Map<string, string>();
+    const descriptionCalls: Array<{ name: string; description: string }> = [];
     activate({
         storage: { profile: root },
         requests: { handle: (name: string, handler: Handler) => { handlers.set(name, handler); return () => {}; } },
-        tools: { register: (tool: VeraExtensionToolSpec) => { tools.set(tool.name, tool); } },
+        tools: {
+            register: (tool: VeraExtensionToolSpec) => {
+                tools.set(tool.name, tool);
+                descriptions.set(tool.name, tool.description);
+            },
+            setDescription: (name: string, description: string) => {
+                descriptionCalls.push({ name, description });
+                descriptions.set(name, description);
+            },
+        },
     } as unknown as VeraExtensionApi);
     const controller = new AbortController();
     return {
         call: (name: string, payload: JsonValue = {}, signal = controller.signal) => handlers.get(name)!(payload, { signal }),
         run: (name: string, input: Readonly<Record<string, unknown>>, signal = controller.signal) =>
             Promise.resolve(tools.get(name)!.run({ input, workspace: root, signal })),
+        description: (name: string) => descriptions.get(name),
+        descriptionCalls,
         close: () => { controller.abort(); rmSync(root, { recursive: true, force: true }); },
     };
 }
+
+const ASK_SENTENCE = "If a tool named browser is also available, ask the user once which browser to use before the first call, and keep the answer for this conversation.";
+const PANE_SENTENCE = "If a tool named browser is also available, use this tool unless the user asks for Chrome.";
+const CHROME_SENTENCE = "If a tool named browser is also available, use that tool unless the user asks for the Browser pane.";
 
 const offNotice = (text: string) => ({
     output: text,
@@ -43,33 +60,75 @@ test("@core Browser off setting merges and survives a real registry restart", as
     };
     const signal = new AbortController().signal;
     const path = join(home, "extension-data", "vera.builtin-browser", "settings.json");
+    const description = (registry: Awaited<ReturnType<typeof startExtensionRegistry>>): string | undefined =>
+        registry.tools().find((tool) => tool.definition.name === "builtin_browser")?.definition.description;
     try {
         mkdirSync(join(home, "extension-data", "vera.builtin-browser"), { recursive: true });
         writeFileSync(path, JSON.stringify({ enabled: true }));
         let registry = await startExtensionRegistry(options);
         try {
-            expect(await registry.handleRequest("vera.builtin-browser", "settings", {}, signal)).toEqual({ enabled: true, offBehavior: "ask" });
-            expect(await registry.handleRequest("vera.builtin-browser", "settings", { offBehavior: "refuse" }, signal)).toEqual({ enabled: true, offBehavior: "refuse" });
-            expect(await registry.handleRequest("vera.builtin-browser", "settings", { enabled: false }, signal)).toEqual({ enabled: false, offBehavior: "refuse" });
-            expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ enabled: false, offBehavior: "refuse" });
+            expect(await registry.handleRequest("vera.builtin-browser", "settings", {}, signal)).toEqual({ enabled: true, offBehavior: "ask", defaultBrowser: "ask" });
+            expect(description(registry)).toEndWith(ASK_SENTENCE);
+            expect(await registry.handleRequest("vera.builtin-browser", "settings", { offBehavior: "refuse" }, signal)).toEqual({ enabled: true, offBehavior: "refuse", defaultBrowser: "ask" });
+            expect(await registry.handleRequest("vera.builtin-browser", "settings", { defaultBrowser: "pane" }, signal)).toEqual({ enabled: true, offBehavior: "refuse", defaultBrowser: "pane" });
+            expect(description(registry)).toEndWith(PANE_SENTENCE);
+            expect(await registry.handleRequest("vera.builtin-browser", "settings", { enabled: false }, signal)).toEqual({ enabled: false, offBehavior: "refuse", defaultBrowser: "pane" });
+            expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ enabled: false, offBehavior: "refuse", defaultBrowser: "pane" });
         } finally { await registry.close(); }
         registry = await startExtensionRegistry(options);
         try {
-            expect(await registry.handleRequest("vera.builtin-browser", "settings", {}, signal)).toEqual({ enabled: false, offBehavior: "refuse" });
-            expect(await registry.handleRequest("vera.builtin-browser", "settings", { offBehavior: "unknown" }, signal)).toEqual({ enabled: false, offBehavior: "ask" });
+            expect(await registry.handleRequest("vera.builtin-browser", "settings", {}, signal)).toEqual({ enabled: false, offBehavior: "refuse", defaultBrowser: "pane" });
+            expect(description(registry)).toEndWith(PANE_SENTENCE);
+            expect(await registry.handleRequest("vera.builtin-browser", "settings", { offBehavior: "unknown", defaultBrowser: "chrome" }, signal)).toEqual({ enabled: false, offBehavior: "ask", defaultBrowser: "chrome" });
+            expect(description(registry)).toEndWith(CHROME_SENTENCE);
+            expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ enabled: false, offBehavior: "ask", defaultBrowser: "chrome" });
         } finally { await registry.close(); }
-        writeFileSync(path, JSON.stringify({ enabled: "unknown", offBehavior: "unknown" }));
+        writeFileSync(path, JSON.stringify({ enabled: "unknown", offBehavior: "unknown", defaultBrowser: "unknown" }));
         registry = await startExtensionRegistry(options);
         try {
-            expect(await registry.handleRequest("vera.builtin-browser", "settings", {}, signal)).toEqual({ enabled: false, offBehavior: "ask" });
+            expect(await registry.handleRequest("vera.builtin-browser", "settings", {}, signal)).toEqual({ enabled: false, offBehavior: "ask", defaultBrowser: "ask" });
+            expect(description(registry)).toEndWith(ASK_SENTENCE);
         } finally { await registry.close(); }
     } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test("@core each default browser value sets one exact closing sentence", async () => {
+    const fixture = trial();
+    try {
+        const ask = fixture.description("builtin_browser")!;
+        expect(ask).toEndWith(ASK_SENTENCE);
+        const head = ask.slice(0, ask.length - ASK_SENTENCE.length - 1);
+        expect(head).toContain("Use the built-in browser, the Browser pane in the Vera desktop window.");
+        expect(head).toEndWith("It cannot control Vera's own pages such as Usage.");
+        for (const [value, sentence] of [["pane", PANE_SENTENCE], ["chrome", CHROME_SENTENCE], ["ask", ASK_SENTENCE]] as const) {
+            expect(await fixture.call("settings", { defaultBrowser: value })).toEqual({ enabled: false, offBehavior: "ask", defaultBrowser: value });
+            expect(fixture.description("builtin_browser")).toBe(`${head} ${sentence}`);
+        }
+    } finally { fixture.close(); }
+});
+
+test("@core a changed default browser calls setDescription once and the same value does not", async () => {
+    const fixture = trial();
+    try {
+        expect(fixture.descriptionCalls).toEqual([]);
+        await fixture.call("settings", { defaultBrowser: "pane" });
+        expect(fixture.descriptionCalls).toEqual([
+            { name: "builtin_browser", description: fixture.description("builtin_browser")! },
+        ]);
+        await fixture.call("settings", { defaultBrowser: "pane" });
+        await fixture.call("settings", { enabled: true });
+        await fixture.call("settings", { offBehavior: "refuse" });
+        expect(fixture.descriptionCalls).toHaveLength(1);
+        await fixture.call("settings", { defaultBrowser: "chrome" });
+        expect(fixture.descriptionCalls).toHaveLength(2);
+        expect(fixture.descriptionCalls[1]?.description).toEndWith(CHROME_SENTENCE);
+    } finally { fixture.close(); }
 });
 
 test("@core Browser asks need a desktop and Refuse keeps the existing failure", async () => {
     const fixture = trial();
     try {
-        expect(await fixture.call("settings")).toEqual({ enabled: false, offBehavior: "ask" });
+        expect(await fixture.call("settings")).toEqual({ enabled: false, offBehavior: "ask", defaultBrowser: "ask" });
         for (const [name, input] of [
             ["builtin_browser", { action: "back" }],
             ["builtin_browser_eval", { script: "return 1" }],
@@ -122,7 +181,7 @@ test("@core declining a shared Browser ask fails both calls with the off notice"
         const denied = offNotice("The user kept Browser tools off.");
         expect(await browser).toEqual(denied);
         expect(await evaluate).toEqual(denied);
-        expect(await fixture.call("settings")).toEqual({ enabled: false, offBehavior: "ask" });
+        expect(await fixture.call("settings")).toEqual({ enabled: false, offBehavior: "ask", defaultBrowser: "ask" });
     } finally { fixture.close(); }
 });
 

@@ -23,7 +23,7 @@ test("@core the Browser tools notice follows the enabled setting", () => {
 test("@core shared Browser tools status remains visible across views", () => {
     try {
         for (const enabled of [false, true]) {
-            browserSlots.read({ active: null, tabs: [], toolsEnabled: enabled, toolsAvailable: true, toolsOffBehavior: "ask" });
+            browserSlots.read({ active: null, tabs: [], toolsEnabled: enabled, toolsAvailable: true, toolsOffBehavior: "ask", defaultBrowser: "ask" });
             for (const view of ["conversation", "settings", "browser"]) {
                 const native = browserSlots.get().native;
                 const html = renderToStaticMarkup(createElement("main", null,

@@ -168,6 +168,15 @@ nothing to drop the notice. The notice is also dropped when the client half
 has no renderer, the renderer throws, or it returns anything else. Register
 it once, during activation.
 
+## Update a tool's description
+
+`vera.tools.setDescription(name, description)` replaces the description the
+model sees for a tool the extension registered. It needs `tools.register`. The
+change reaches a running conversation's next model request, and a host that
+restarts later registers the tools again. It changes only the calling
+extension's tools: another extension's tool or a name it did not register
+throws. Passing the current text does nothing.
+
 ## Command tools in included extensions
 
 An included extension that declares `tools.register` can register a tool with

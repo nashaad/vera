@@ -56,6 +56,11 @@ export interface StartSessionHostOptions {
     readonly workerGlobals?: WorkerGlobals;
     readonly hostCredentialLease?: LeaseCredential;
     readonly onPreferencesChanged?: () => void;
+    readonly onToolDescriptionChanged?: (
+        extensionId: string,
+        name: string,
+        description: string,
+    ) => void;
     readonly poolHost?: boolean;
     readonly remoteExtensions?: WorkerExtensionServices;
     readonly processObservations?: AgentRegistryOptions["processObservations"];

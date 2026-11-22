@@ -762,7 +762,7 @@ ipcMain.handle(CHANNELS.annexOpen, async (event, path: unknown): Promise<boolean
     return true;
 });
 ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown) => {
-    if (!fromWindow(event) || browserPane === undefined) return { tabs: [], active: null, toolsEnabled: false, toolsAvailable: false, toolsOffBehavior: "ask" };
+    if (!fromWindow(event) || browserPane === undefined) return { tabs: [], active: null, toolsEnabled: false, toolsAvailable: false, toolsOffBehavior: "ask", defaultBrowser: "ask" };
     const pane = browserPane;
     const previousActive = pane.state().active;
     let opened: number | undefined;
@@ -784,6 +784,9 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
     if (command === "tools" && typeof value === "boolean") await browserGateway?.settings({ enabled: value });
     if (command === "toolsOffBehavior" && (value === "ask" || value === "refuse")) {
         await browserGateway?.settings({ offBehavior: value });
+    }
+    if (command === "defaultBrowser" && (value === "ask" || value === "pane" || value === "chrome")) {
+        await browserGateway?.settings({ defaultBrowser: value });
     }
     if (command === "tools-approval" && typeof value === "object" && value !== null && !Array.isArray(value)) {
         const answer = value as Record<string, unknown>;
@@ -815,6 +818,7 @@ ipcMain.handle(CHANNELS.browser, async (event, command: unknown, value: unknown)
         toolsEnabled: browserGateway?.enabled ?? false,
         toolsAvailable: browserGateway?.available ?? false,
         toolsOffBehavior: browserGateway?.offBehavior ?? "ask",
+        defaultBrowser: browserGateway?.defaultBrowser ?? "ask",
         ...(browserHandoff?.state() === undefined ? {} : { handoff: browserHandoff.state() }),
         ...(browserGateway?.pendingToolsAsk === undefined ? {} : { toolsAsk: browserGateway.pendingToolsAsk }),
         ...(opened === undefined ? {} : { opened }),

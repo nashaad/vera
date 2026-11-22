@@ -235,6 +235,34 @@ test("off-behavior writes use the shared settings request and retain the last sa
     } finally { gateway.stop(); }
 });
 
+test("default-browser writes use the shared settings request and decode the stored value", async () => {
+    const calls: JsonValue[] = [];
+    let reply: JsonValue = "ask";
+    const request: typeof requestExtensionThroughHost = async (_socket, _extension, name, payload, signal) => {
+        if (name !== "settings") return await new Promise((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+        calls.push(payload);
+        return { enabled: true, offBehavior: "ask", defaultBrowser: reply };
+    };
+    const gateway = new BrowserGateway({} as BrowserCdp, () => {}, () => {}, request);
+    gateway.start("trial");
+    try {
+        for (let i = 0; i < 100 && !gateway.available; i++) await Bun.sleep(1);
+        expect(gateway.defaultBrowser).toBe("ask");
+        reply = "pane";
+        expect(await gateway.settings({ defaultBrowser: "pane" })).toBe(true);
+        expect(calls.at(-1)).toEqual({ defaultBrowser: "pane" });
+        expect(gateway.defaultBrowser).toBe("pane");
+        reply = "chrome";
+        expect(await gateway.settings({ defaultBrowser: "chrome" })).toBe(true);
+        expect(gateway.defaultBrowser).toBe("chrome");
+        reply = "unknown";
+        expect(await gateway.settings({ defaultBrowser: "ask" })).toBe(true);
+        expect(gateway.defaultBrowser).toBe("ask");
+    } finally { gateway.stop(); }
+});
+
 test("@core gateway refreshes external setting changes and stops its timer", async () => {
     const { gateway, pending, changes } = trial();
     try {

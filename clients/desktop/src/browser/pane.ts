@@ -40,7 +40,7 @@ export class BrowserPane {
         return browserSession;
     }
 
-    state(): Omit<BrowserState, "toolsEnabled" | "toolsAvailable" | "toolsOffBehavior"> {
+    state(): Omit<BrowserState, "toolsEnabled" | "toolsAvailable" | "toolsOffBehavior" | "defaultBrowser"> {
         return {
             active: this.active,
             tabs: [...this.tabs].map(([id, view]) => ({

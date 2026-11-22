@@ -220,6 +220,13 @@ export interface VeraExtensionCommands {
 
 export interface VeraExtensionTools {
     register(spec: VeraExtensionToolSpec): void;
+    /**
+     * Replaces the description of a tool this extension registered. Throws for
+     * another extension's tool or a name it did not register. The same text is
+     * a no-op. The change reaches the model's next request; a restarted host
+     * uses the description the extension registers.
+     */
+    setDescription(name: string, description: string): void;
     onProcessOutcome(handler: VeraExtensionProcessOutcomeHandler): void;
 }
 

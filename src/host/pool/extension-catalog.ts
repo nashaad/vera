@@ -1,4 +1,5 @@
 import type { ExtensionCommandDescriptor, ExtensionCommandResult } from "../../extensions/commands.ts";
+import { replaceToolDescription } from "../../extensions/registry.ts";
 import type { ExtensionRegisteredTool, ExtensionRegistry } from "../../extensions/registry.ts";
 import { ToolRuntime } from "../../tools/runtime.ts";
 import type { RegisteredTool, ToolExecutionResult } from "../../tools/types.ts";
@@ -34,6 +35,28 @@ export function buildExtensionCatalog(registry: ExtensionRegistry): ExtensionCat
             .map(({ extensionId, tool }) => ({ extensionId, tool: toolMetadata(tool) })),
         commandCatalog: registry.commands().filter((command) => HOST_EXTENSION_IDS.has(command.source)),
     };
+}
+
+/**
+ * Applies a host-owned tool description change to a catalog in place. The
+ * bootstrap catalog is serialized to each worker when it connects, so a worker
+ * started after the change reads the new text.
+ */
+export function setCatalogToolDescription(
+    catalog: ExtensionCatalog,
+    extensionId: string,
+    name: string,
+    description: string,
+): boolean {
+    const entry = catalog.toolCatalog.find(({ extensionId: id, tool }) =>
+        id === extensionId && tool.definition.name === name);
+    if (entry === undefined) return false;
+    const next = description.trim();
+    if (next.length === 0) return false;
+    if (entry.tool.definition.description !== next) {
+        replaceToolDescription(entry.tool, next);
+    }
+    return true;
 }
 
 export function remoteExtensions(peer: ControlChannel, catalog: ExtensionCatalog): WorkerExtensionServices {

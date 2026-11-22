@@ -29,12 +29,15 @@ export interface BrowserToolsAsk {
     readonly id: string;
 }
 
+export type DefaultBrowser = "pane" | "chrome" | "ask";
+
 export interface BrowserState {
     readonly tabs: readonly BrowserTab[];
     readonly active: number | null;
     readonly toolsEnabled: boolean;
     readonly toolsAvailable: boolean;
     readonly toolsOffBehavior: "ask" | "refuse";
+    readonly defaultBrowser: DefaultBrowser;
     readonly handoff?: BrowserHandoffState;
     readonly toolsAsk?: BrowserToolsAsk;
     // The page an "open" command just created, so the caller can bind it to its tab.

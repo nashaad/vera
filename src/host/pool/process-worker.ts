@@ -18,7 +18,7 @@ import { startWorkerControlServer, type WorkerControlServer } from "./control-se
 import type { createCredentialBroker } from "./credentials.ts";
 import { createHostGlobals, type GlobalChange } from "./global-services.ts";
 import { applyConfigDefaults } from "./config-defaults.ts";
-import { buildExtensionCatalog, serveExtensionRequest } from "./extension-catalog.ts";
+import { buildExtensionCatalog, serveExtensionRequest, setCatalogToolDescription } from "./extension-catalog.ts";
 import { stopWorkerProcess, type WorkerStopIdentity } from "./stop-worker.ts";
 import { checkRecordIdentity, processIsAlive } from "../process-identity.ts";
 import type { StopWaitEvent } from "../stop-when-idle.ts";
@@ -63,6 +63,7 @@ interface WorkerSlot {
     peer?: ControlPeer;
     supervisor?: SessionWorkerSupervisor;
     generation: number;
+    catalogRevision: number;
     ready: boolean;
     starting: boolean;
     closed: boolean;
@@ -95,6 +96,12 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     let initializing = true;
     let turnsHeld = false;
     let stopWaitVersion = 0;
+    let catalogRevision = 0;
+    const changedToolDescriptions = new Map<string, {
+        readonly extensionId: string;
+        readonly name: string;
+        readonly description: string;
+    }>();
     let stopWaitState: Extract<StopWaitEvent, { type: "wait" | "wait_cleared" }> | undefined;
     const adopting = new Map(options.recoverableWorkers.map((worker) => [worker.record.index, worker]));
     const adoptedIndices = new Set(adopting.keys());
@@ -134,7 +141,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             started: Promise.withResolvers<void>(), exited, endpoint: remoteSessionEndpoint(() => slot.connected.promise),
             broker: new ControlReservations(reservations),
             inbox: makeInbox(index, () => slot.connected.promise),
-            generation: 0, ready: false, starting: true, closed: false,
+            generation: 0, catalogRevision: 0, ready: false, starting: true, closed: false,
             lastHeartbeat: performance.now(), lastInbound: performance.now(), failures: [], recoverySessions: [],
         };
         return slot;
@@ -155,6 +162,19 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     });
     const requestWorker = async <T>(slot: WorkerSlot, method: string, args: readonly unknown[] = []): Promise<T> =>
         await (await slot.connected.promise).request<T>(method, args, AbortSignal.timeout(5_000));
+    // A worker receives the bootstrap catalog at its handshake, before it is ready.
+    // Replay every change made since then so a startup window cannot miss one.
+    const catchUpToolDescriptions = async (slot: WorkerSlot): Promise<void> => {
+        while (slot.catalogRevision !== catalogRevision) {
+            const revision = catalogRevision;
+            const changed = [...changedToolDescriptions.values()];
+            for (const tool of changed) {
+                await requestWorker(slot, "worker.setToolDescription",
+                    [tool.extensionId, tool.name, tool.description]);
+            }
+            slot.catalogRevision = revision;
+        }
+    };
     const workerOptions = (slot: WorkerSlot) => ({
         id: slot.id, endpoint: slot.endpoint, socket: slot.socket,
         generation: () => slot.generation, ready: () => slot.ready,
@@ -225,6 +245,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                 ? Math.max(1, Math.min(adopted?.unrecorded === true ? 2_000 : SESSION_WORKER_STARTUP_TIMEOUT_MS,
                     startupDeadline - performance.now()))
                 : adopted?.unrecorded === true ? 2_000 : undefined;
+            slot.catalogRevision = catalogRevision;
             slot.supervisor = await startSessionWorkerSupervisor({
                 home: options.sessionOptions.home, socket: slot.socket, bootstrap,
                 control,
@@ -399,6 +420,8 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
                 await requestWorker(slot, "worker.activate");
             }
             if (closing || slot.closed) throw new Error("Session worker closed during activation");
+            await catchUpToolDescriptions(slot);
+            if (closing || slot.closed) throw new Error("Session worker closed during description update");
             slot.ready = true;
             slot.lastHeartbeat = performance.now();
             slot.lastInbound = slot.lastHeartbeat;
@@ -875,6 +898,16 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         },
         notifyModelCatalogChanged() {
             for (const slot of slots) if (slot.ready) void requestWorker(slot, "worker.catalogChanged").catch(() => {});
+        },
+        notifyToolDescriptionChanged(extensionId, name, description) {
+            if (!setCatalogToolDescription(bootstrap.extensionCatalog, extensionId, name, description)) return;
+            changedToolDescriptions.set(`${extensionId}\0${name}`, { extensionId, name, description });
+            catalogRevision += 1;
+            for (const slot of slots) {
+                if (slot.ready) {
+                    void requestWorker(slot, "worker.setToolDescription", [extensionId, name, description]).catch(() => {});
+                }
+            }
         },
         async notifyAnnexChanged(url) {
             await Promise.all(slots.filter((slot) => slot.ready)

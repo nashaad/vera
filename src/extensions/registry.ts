@@ -70,6 +70,7 @@ import type {
 } from "../sdk/hooks.ts";
 import { commandHookPhase, createCommandHook, type CommandHookSpec } from "./command-hook.ts";
 import { hookBlockReason, hookFailure, isHookJson, rejectModelFailurePolicy, validateHookFailureOptions } from "./hook-failure.ts";
+import type { ModelTool } from "../model/types.ts";
 import type { RegisteredTool } from "../tools/types.ts";
 import type { ManagedProcessRunResult } from "../tools/process-runtime.ts";
 import { isBuiltInToolName } from "../tools/execute.ts";
@@ -161,6 +162,11 @@ export interface StartExtensionRegistryOptions {
         readonly durationMs: number;
         readonly outcome: "loaded" | "failed";
     }) => void;
+    readonly onToolDescriptionChanged?: (
+        extensionId: string,
+        name: string,
+        description: string,
+    ) => void;
 }
 
 import {
@@ -181,6 +187,8 @@ export interface ExtensionRegistry {
     tools(): readonly RegisteredTool[];
     extensionIds(): readonly string[];
     toolsByExtension(): readonly ExtensionRegisteredTool[];
+    /** Applies a description the host changed for a tool this registry loaded. */
+    setToolDescription(extensionId: string, name: string, description: string): void;
     /** Tool name to extension id, for installed tools that run without review. */
     installedUnreviewedTools(): ReadonlyMap<string, string>;
     agents(): readonly AgentDefinition[];
@@ -348,6 +356,7 @@ export async function startExtensionRegistry(
                 searchProviders,
                 host,
                 options.storageRoots,
+                options.onToolDescriptionChanged,
             );
             validateCommandOwnership(extension, commands);
             validateToolOwnership(extension, tools);
@@ -437,6 +446,16 @@ export async function startExtensionRegistry(
             return loaded.flatMap((extension) => extension.tools.map((registered) => ({
                 extensionId: extension.id, tool: registered.tool,
             })));
+        },
+        setToolDescription(extensionId, name, description): void {
+            const owner = owners.get(extensionId);
+            const registered = owner?.tools.find(
+                (entry) => entry.tool.definition.name === name,
+            );
+            const next = description.trim();
+            if (registered === undefined || next.length === 0) return;
+            if (registered.tool.definition.description === next) return;
+            replaceToolDescription(registered.tool, next);
         },
         installedUnreviewedTools(): ReadonlyMap<string, string> {
             const owners = new Map<string, string>();
@@ -705,6 +724,7 @@ async function activateExtension(
     searchProviders: SearchProviderSet,
     host: ExtensionHostSlot,
     storageRoots: ExtensionStorageRoots | undefined,
+    onToolDescriptionChanged: StartExtensionRegistryOptions["onToolDescriptionChanged"],
 ): Promise<LoadedRegistryExtension> {
     const commands: RegisteredExtensionCommand[] = [];
     const commandNames = new Set<string>();
@@ -783,6 +803,26 @@ async function activateExtension(
                     handlerTimeoutMs,
                     activeInvocations,
                 );
+            },
+            setDescription(name: string, description: string): void {
+                if (typeof name !== "string" || typeof description !== "string") {
+                    throw new Error("Invalid extension tool description");
+                }
+                const registered = tools.find(
+                    (entry) => entry.tool.definition.name === name,
+                );
+                if (registered === undefined) {
+                    throw new Error(
+                        `Extension ${loaded.manifest.id} did not register tool ${name}`,
+                    );
+                }
+                const next = description.trim();
+                if (next.length === 0) {
+                    throw new Error("Invalid extension tool description");
+                }
+                if (registered.tool.definition.description === next) return;
+                replaceToolDescription(registered.tool, next);
+                onToolDescriptionChanged?.(loaded.manifest.id, name, next);
             },
             onProcessOutcome(handler: VeraExtensionProcessOutcomeHandler): void {
                 if (phase !== "activating" || !loaded.manifest.capabilities.includes("processes.observe")) {
@@ -1319,6 +1359,14 @@ async function activateExtension(
             `Extension ${loaded.manifest.id} failed to load: ${errorMessage(error)}${suffix}`,
         );
     }
+}
+
+/** Rewrites the model-facing description of a registered tool in place. */
+export function replaceToolDescription(
+    tool: { readonly definition: ModelTool },
+    description: string,
+): void {
+    (tool.definition as { description: string }).description = description;
 }
 
 function registerTool(

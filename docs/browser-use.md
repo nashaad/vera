@@ -52,8 +52,11 @@ run, turn on the switch, then ask again. Opening the Browser does not turn the
 switch on.
 Vera's own pages, such as Usage, cannot be controlled by `builtin_browser`.
 When the built-in browser and the Chrome extension's `browser` tool are both
-loaded, Vera asks which to use before its first browser call and keeps the
-answer for the conversation.
+loaded, Settings > Browser > Default browser chooses which one Vera uses.
+Ask each chat, the default, asks which to use before its first browser call
+and keeps the answer for the conversation. Browser pane uses
+`builtin_browser` unless you ask for Chrome, and Chrome uses the Chrome tool
+unless you ask for the Browser pane.
 
 If a site needs a human check, Vera can ask you to complete it in the Browser
 pane. The banner shows the reason; choose Done after completing the check, or

@@ -22,6 +22,11 @@ interface SessionExtensionOptions {
     readonly startupFindings: StartupFindings;
     readonly timed: <T>(phase: string, run: () => T | Promise<T>) => Promise<T>;
     readonly onExtensionFailure?: (failure: ExtensionRegistryFailure) => void;
+    readonly onToolDescriptionChanged?: (
+        extensionId: string,
+        name: string,
+        description: string,
+    ) => void;
     readonly remoteExtensions?: WorkerExtensionServices;
 }
 
@@ -78,6 +83,9 @@ export async function startSessionExtensions(options: SessionExtensionOptions) {
                 outcome: timing.outcome,
                 duration_ms: timing.durationMs,
             }),
+            ...(options.onToolDescriptionChanged === undefined
+                ? {}
+                : { onToolDescriptionChanged: options.onToolDescriptionChanged }),
         }),
     );
     const sessionIdentity = extensions.sessionIdentity();
