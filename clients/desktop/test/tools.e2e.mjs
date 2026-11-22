@@ -14,6 +14,8 @@ const BUILT = "The nest is built.";
 const SECOND = "The crow is resting.";
 const SUMMARY = "Built a nest and rested.";
 const PLAN = "# Crow plan\n\n- [x] Write the nest\n- [ ] Line the nest\n";
+// A first prompt longer than the summary note, so replacing it with the note shrinks the context.
+const BRIEF = "Line the nest with feathers, keep the eggs warm, and watch the west wind. ".repeat(80);
 const requests = [];
 let calls = 0;
 
@@ -22,8 +24,14 @@ function scratchIn(raw) {
     return /scratch directory: ([^\\\s"]+)/.exec(raw)?.[1];
 }
 
+// The summarizer sends the transcript as its prompt, so it must not be taken for the EDIT turn.
+function summarizerPrompt(messages) {
+    return JSON.stringify(messages.at(-1)?.content ?? "").includes("<transcript>");
+}
+
 // One tool call per step of the EDIT prompt, chosen by how many tool results follow it.
 function stepFor(messages, scratch) {
+    if (summarizerPrompt(messages)) return undefined;
     const lastUser = messages.findLastIndex((message) => message.role === "user");
     const user = JSON.stringify(messages[lastUser]?.content ?? "");
     if (!user.includes("EDIT")) return undefined;
@@ -35,6 +43,7 @@ function stepFor(messages, scratch) {
 }
 
 function replyText(messages) {
+    if (summarizerPrompt(messages)) return SUMMARY;
     const user = JSON.stringify([...messages].reverse().find((message) => message.role === "user")?.content ?? "");
     if (user.includes("EDIT")) return BUILT;
     if (user.includes("SECOND")) return SECOND;
@@ -106,7 +115,7 @@ try {
     await page.waitForSelector(".context-chips .chip-label:text-is(\"work\")");
     const input = page.locator(".composer-input");
     const send = page.locator(".send-button");
-    await input.fill("Build the nest, EDIT it");
+    await input.fill(`Build the nest, EDIT it. ${BRIEF}`);
     await input.press("Enter");
     await page.waitForSelector("[data-session][data-phase=\"attached\"]", { timeout: 45_000 });
     await page.waitForSelector(`text=${BUILT}`, { timeout: 45_000 });
@@ -229,8 +238,10 @@ try {
     // Compact from the session menu starts at once and ends in a transcript notice, with no sheet in the way.
     await input.fill("");
     await sessionMenu("Compact");
-    await page.locator(".transcript-notice", { hasText: /Compacted the conversation|Nothing (older )?to (compact|summarize) yet/ })
-        .waitFor({ timeout: 45_000 });
+    const compactNotice = page.locator(".transcript-notice", { hasText: /Compacted the conversation|Nothing (older )?to (compact|summarize) yet/ });
+    await compactNotice.first().waitFor({ timeout: 45_000 });
+    const compactText = await compactNotice.first().innerText();
+    if (!compactText.includes("Compacted the conversation")) throw new Error(`Compact did not summarize: ${compactText}`);
     if (await page.locator(".session-sheet").count() !== 0) throw new Error("Compact opened a sheet.");
     if (!await input.isEnabled()) throw new Error("The composer was not usable after compacting.");
 

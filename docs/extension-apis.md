@@ -244,8 +244,11 @@ The request has an optional `systemPrompt`, one or more user or assistant
 `messages`, an optional `maxTokens`, and an optional abort `signal`. The answer
 is the reply `text` plus the `model` and `provider` that gave it.
 
-The slot's models are tried in order, skipping any whose context window cannot
-hold the request. If none answers, the call rejects. It never falls back to a
+The slot's models are tried in order. Each request is fitted to a model's
+window: the room is the window less the request, and a model with less room
+than the smallest of 4,096 tokens, a quarter of its window and the call's cap
+is not asked. Otherwise the answer allowance is the smaller of the call's cap
+and the room. If none answers, the call rejects. It never falls back to a
 conversation's model.
 
 ### Run code after each turn

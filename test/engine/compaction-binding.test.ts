@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
     BUNDLED_COMPACTION_STRATEGIES,
+    COMPACTION_MAX_OUTPUT_TOKENS,
     DEFAULT_COMPACTION_LADDER,
     bindCompaction,
     bindRemoteCompaction,
@@ -16,7 +17,13 @@ import type {
     ResolvedCompactionProfile,
     ResolvedCompactionRung,
 } from "../../src/config/model-catalog.ts";
-import type { ModelAdapter } from "../../src/model/types.ts";
+import { measureMessages } from "../../src/engine/context-measurement.ts";
+import {
+    emptyUsage,
+    type ModelAdapter,
+    type ModelMessage,
+} from "../../src/model/types.ts";
+import { FauxAdapter } from "../support/faux-adapter.ts";
 
 const adapter = {} as ModelAdapter;
 
@@ -588,7 +595,7 @@ test("the summarizer guard reads the window from the catalog it is bound with", 
     );
     const summarize = windowed?.rungs[0].models.summarizer;
     if (summarize === undefined) throw new Error("summarizer is not bound");
-    await expect(summarize(request, signal)).rejects.toThrow(/skipped/);
+    await expect(summarize(request, signal)).rejects.toThrow(/was not asked/);
 
     const unwindowed = bindCompaction(
         profile({ slots }),
@@ -602,7 +609,62 @@ test("the summarizer guard reads the window from the catalog it is bound with", 
     const unknown = unwindowed?.rungs[0].models.summarizer;
     if (unknown === undefined) throw new Error("summarizer is not bound");
     const error = await unknown(request, signal).catch((caught: unknown) => caught);
-    expect(String(error)).not.toContain("skipped");
+    expect(String(error)).not.toContain("was not asked");
+});
+
+test("a summarizer on a 32,000-token window answers under the compaction ceiling", async () => {
+    // The 32,768 ceiling is larger than the window, so the rung has to fit the
+    // answer to the room rather than refuse the model outright.
+    const slots = {
+        summarizer: [{ name: "small", provider: "faux", model: "crow-0" }],
+    };
+    let seen: { requested: number; expected: number } | undefined;
+    const summarizer: ModelAdapter = {
+        stream(request) {
+            seen = {
+                requested: request.maxTokens ?? 0,
+                expected: Math.min(
+                    COMPACTION_MAX_OUTPUT_TOKENS,
+                    32_000 - measureMessages(
+                        request.messages as readonly ModelMessage[],
+                    )
+                        - Math.ceil((request.systemPrompt ?? "").length / 4),
+                ),
+            };
+            return new FauxAdapter([{
+                role: "assistant",
+                content: [{ type: "text", text: "# Task\nRun the long job." }],
+                source: { provider: "faux", api: "scripted", model: "crow-0" },
+                usage: emptyUsage(),
+                stopReason: "stop",
+            }]).stream(request);
+        },
+    };
+    const bound = bindCompaction(
+        profile({ slots }),
+        summarizer,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+        undefined,
+        undefined,
+        [{ provider: "faux", model: "crow-0", contextWindow: 32_000 }],
+    );
+    const rung = bound?.rungs[0];
+    if (rung === undefined) throw new Error("summarizer rung is not bound");
+    const messages: ModelMessage[] = [
+        { role: "user", content: [{ type: "text", text: "first question" }] },
+    ];
+
+    const proposal = await rung.strategy.compact(
+        { messages, targetTokens: 2_000, models: rung.models },
+        new AbortController().signal,
+    );
+
+    expect(proposal.model).toBe("crow-0");
+    expect(seen).toBeDefined();
+    expect(seen?.requested).toBe(seen?.expected);
+    expect(seen?.requested).toBeLessThan(COMPACTION_MAX_OUTPUT_TOKENS);
+    expect(seen?.requested).toBeGreaterThan(4_096);
 });
 
 test("the default ladder is the summary rung followed by drop-oldest", () => {
