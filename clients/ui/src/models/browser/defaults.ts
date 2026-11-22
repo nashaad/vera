@@ -70,6 +70,18 @@ export function currentOf(view: AssignmentsView | undefined, target: PickTarget)
     return primaryOf(view, target);
 }
 
+export function subagentConfigurationChanged(before: AssignmentsView | undefined, after: AssignmentsView): boolean {
+    const previous = slotOf(before, "subagents");
+    const current = slotOf(after, "subagents");
+    if (!previous || !current) return false;
+    if ((previous.allowSelf !== false) !== (current.allowSelf !== false)) return true;
+    if (previous.declared.length !== current.declared.length) return true;
+    return previous.declared.some((model, index) => {
+        const other = current.declared[index];
+        return other === undefined || model.provider !== other.provider || model.model !== other.model || model.effort !== other.effort;
+    });
+}
+
 // A set slot whose first model is not among the ones that can run now.
 export function unreachable(slot: AssignmentSlot | undefined): boolean {
     const first = slot?.bound === true ? slot.declared[0] : undefined;

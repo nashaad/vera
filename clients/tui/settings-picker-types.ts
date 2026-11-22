@@ -836,6 +836,16 @@ export function sessionRunsFact(
         : `${model} (${reasoningEffort})`;
 }
 
+export function assignmentMenuDescription(row: ModelAssignmentRow): string {
+    if (row.declared.length > 0) {
+        return row.declared.map((model) => `${model.provider}/${model.model}`).join(" → ");
+    }
+    if (row.assignment === "subagents") {
+        return row.allowSelf === true ? "unset, uses parent model" : "unset, subagent spawns are refused";
+    }
+    return isJobAssignmentId(row.assignment) ? "unset, inherits its intent" : "unset, no model bound";
+}
+
 export function assignmentStatusWord(row: ModelAssignmentRow): string {
     if (row.assignment === "subagents") {
         if (row.declared.length === 0) {
@@ -872,13 +882,14 @@ export function assignmentRunsFact(row: ModelAssignmentRow): string {
 export function assignmentFacts(
     row: ModelAssignmentRow,
 ): readonly (readonly [string, string])[] {
-    const setTo = !row.bound
+    const hasAssignment = row.bound && (row.assignment !== "subagents" || row.declared.length > 0);
+    const setTo = !hasAssignment
         ? "nothing"
         : row.route === undefined
         ? "a model picked here"
         : `route "${row.route}"`;
     const ifUnset = row.assignment === "subagents"
-        ? "spawn is refused"
+        ? row.allowSelf === true ? "parent model" : "spawn is refused"
         : row.inherits === undefined
         ? "this session's model"
         : `whatever ${row.inherits} uses`;
@@ -886,7 +897,7 @@ export function assignmentFacts(
         ["Runs", assignmentRunsFact(row)],
         ["Set to", setTo],
         ["If unset", ifUnset],
-        ...(row.bound
+        ...(hasAssignment
             ? [[
                 "In favorites",
                 row.source === "assignment" ? "yes" : "no",
@@ -897,10 +908,12 @@ export function assignmentFacts(
 
 export function assignmentNote(row: ModelAssignmentRow): string {
     const purpose = `${row.label}: ${row.intent}.`;
+    if (row.assignment === "subagents" && row.declared.length === 0) {
+        return row.allowSelf === true
+            ? `${purpose} Nothing is assigned, so subagents use the spawning session's model.`
+            : `${purpose} Nothing is assigned, so subagent spawns are refused.`;
+    }
     if (!row.bound) {
-        if (row.assignment === "subagents") {
-            return `${purpose} Nothing is set here, so subagent spawns are refused.`;
-        }
         if (row.inherits !== undefined) {
             return `${purpose} Nothing is set here, so it uses whatever ${row.inherits} uses.`;
         }
@@ -908,6 +921,11 @@ export function assignmentNote(row: ModelAssignmentRow): string {
     }
     if (row.source === "assignment") {
         return purpose;
+    }
+    if (row.assignment === "subagents") {
+        return row.allowSelf === true
+            ? `${purpose} No assigned model is available, so subagents use the spawning session's model.`
+            : `${purpose} No assigned model is available, so subagent spawns are refused.`;
     }
     const runs = `${row.inherits ?? "this session's model"} runs it instead`;
     return `${purpose} The model it is set to is not in your favorites, so ${runs}.`

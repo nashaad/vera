@@ -92,7 +92,24 @@ test("@core subagents add in order, move, drop and fall back to the spawning ses
     expect(slotOf(last, "subagents")).toMatchObject({ declared: [], allowSelf: true });
     expect(written(home).subagents).toEqual({ models: [], allow_self: true });
     view(store.edit({ assignment: "subagents", allowSelf: false }));
-    expect(written(home).subagents).toBeUndefined();
+    expect(written(home).subagents).toEqual({ models: [], allow_self: false });
+});
+
+test("@core clearing subagent models preserves the switch in the saved configuration", () => {
+    const home = trialHome();
+    const store = new AssignmentStore(home);
+    const initial = store.read();
+    expect(initial.ok && slotOf(initial, "subagents")?.allowSelf).toBe(true);
+    for (const allowSelf of [false, true]) {
+        view(store.edit({ assignment: "subagents", allowSelf }));
+        expect(written(home).subagents).toEqual({ models: [], allow_self: allowSelf });
+        view(store.edit({ assignment: "subagents", provider: "openrouter", model: "big-1" }));
+        const cleared = view(store.edit({ assignment: "subagents", clear: true }));
+        expect(slotOf(cleared, "subagents")).toMatchObject({ declared: [], allowSelf });
+        expect(written(home).subagents).toEqual({ models: [], allow_self: allowSelf });
+        const reopened = new AssignmentStore(home).read();
+        expect(reopened.ok && slotOf(reopened, "subagents")?.allowSelf).toBe(allowSelf);
+    }
 });
 
 test("assigning one model to all keeps the subagent list and the failsafe", () => {
@@ -102,11 +119,14 @@ test("assigning one model to all keeps the subagent list and the failsafe", () =
     view(store.edit({ assignment: "reviewer", provider: "openrouter", model: "big-1", failsafe: true }));
     view(store.edit({ assignment: "reviewer", provider: "openrouter", model: "small-1", failsafe: true }));
     view(store.edit({ assignment: "subagents", provider: "openrouter", model: "big-1" }));
+    view(store.edit({ assignment: "subagents", allowSelf: false }));
     const result = store.assignAll("openrouter", "small-1");
     if (!result.ok) throw new Error(result.reason);
     expect(result.assigned).toHaveLength(6);
     expect(result.favorite).toBe(false);
     expect(slotOf(result.view, "subagents")?.declared.map((entry) => entry.model)).toEqual(["small-1", "big-1"]);
+    expect(slotOf(result.view, "subagents")?.allowSelf).toBe(false);
+    expect((written(home).subagents as { allow_self: boolean }).allow_self).toBe(false);
     expect(slotOf(result.view, "reviewer")?.declared.map((entry) => entry.model)).toEqual(["small-1"]);
     expect(slotOf(result.view, "snappy")?.declared.map((entry) => entry.model)).toEqual(["small-1"]);
 });

@@ -6,6 +6,7 @@ import {
     MODEL_ASSIGNMENT_IDS,
     MODEL_ASSIGNMENT_INTENTS,
     bindModelAssignment,
+    describeModelAssignments,
     isAutoAssignable,
     slotExclusions,
     parseModelAssignmentsConfig,
@@ -100,7 +101,27 @@ test("subagents keep ordered models and an explicit self fallback flag", () => {
     }, ROUTES)).toBeUndefined();
 });
 
-test("an unbound subagents assignment does not inherit or reach the session", () => {
+test("@core subagent fallback defaults on and accepts empty model lists", () => {
+    const cases = [
+        { entry: { models: [] }, expected: true },
+        { entry: { models: [], allow_self: true }, expected: true },
+        { entry: { models: [], allow_self: false }, expected: false },
+        { entry: { model_route: "thinking" }, expected: true },
+        { entry: { model_route: "thinking", allow_self: true }, expected: true },
+        { entry: { model_route: "thinking", allow_self: false }, expected: false },
+    ];
+    expect(describeModelAssignments(catalog(), {}).find((row) => row.assignment === "subagents")?.allowSelf).toBe(true);
+    for (const { entry, expected } of cases) {
+        const assignments = parseModelAssignmentsConfig({ subagents: entry }, ROUTES);
+        expect(assignments?.subagents).toEqual(entry);
+        expect(describeModelAssignments(catalog(), assignments ?? {}).find((row) => row.assignment === "subagents")?.allowSelf)
+            .toBe(expected);
+    }
+    expect(parseModelAssignmentsConfig({ eco: { models: [] } }, ROUTES)).toBeUndefined();
+    expect(parseModelAssignmentsConfig({ subagents: { models: [], allow_self: "yes" } }, ROUTES)).toBeUndefined();
+});
+
+test("an unbound subagents assignment has no assigned models", () => {
     const assignments = parseModelAssignmentsConfig({
         eco: { model_route: "quick" },
     }, ROUTES);

@@ -8,6 +8,7 @@ import type { VeraModelCatalogConfig } from "../../src/config/model-catalog.ts";
 import { configuredModelAssignments } from "../../src/config.ts";
 import {
     MODEL_ASSIGNMENT_BROWSE_VALUE,
+    assignmentMenuDescription,
     tuiModelAssignmentOptions,
 } from "../../clients/tui/settings-picker.ts";
 
@@ -302,7 +303,25 @@ test("ordinary assignment rows always name what runs when unset", () => {
         ]);
     }
     expect(options.find((option) => option.label === "subagents")?.detailFacts)
+        .toContainEqual(["If unset", "parent model"]);
+    const disabled = tuiModelAssignmentOptions(
+        rows({ subagents: { models: [], allow_self: false } }),
+        "session-model",
+    );
+    expect(disabled.find((option) => option.label === "subagents")?.detailFacts)
         .toContainEqual(["If unset", "spawn is refused"]);
+    const defaultSubagents = rows({}).find((row) => row.assignment === "subagents")!;
+    const emptyOn = rows({ subagents: { models: [], allow_self: true } }).find((row) => row.assignment === "subagents")!;
+    const emptyOff = rows({ subagents: { models: [], allow_self: false } }).find((row) => row.assignment === "subagents")!;
+    expect(assignmentMenuDescription(defaultSubagents)).toBe("unset, uses parent model");
+    expect(assignmentMenuDescription(emptyOn)).toBe("unset, uses parent model");
+    expect(assignmentMenuDescription(emptyOff)).toBe("unset, subagent spawns are refused");
+    const emptyOnOption = tuiModelAssignmentOptions([emptyOn]).find((option) => option.label === "subagents")!;
+    const emptyOffOption = tuiModelAssignmentOptions([emptyOff]).find((option) => option.label === "subagents")!;
+    expect(emptyOnOption.detailFacts).toContainEqual(["Set to", "nothing"]);
+    expect(emptyOnOption.note).toContain("spawning session's model");
+    expect(emptyOffOption.detailFacts).toContainEqual(["Set to", "nothing"]);
+    expect(emptyOffOption.note).toContain("spawns are refused");
 });
 
 test("the session row names its level the way every other row does", () => {

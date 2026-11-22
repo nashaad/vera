@@ -60,6 +60,7 @@ export interface SetupRequest {
     readonly reason: string;
     readonly waiting: number;
     readonly destination?: string;
+    readonly assignment?: string;
     readonly provider?: string;
 }
 
@@ -196,6 +197,7 @@ function parseSetup(requestId: string, request: Fields): SetupRequest | undefine
     const destination = isRecord(request.destination) ? request.destination : {};
     return { kind: "setup", requestId, reason, waiting,
         ...(typeof destination.kind === "string" ? { destination: destination.kind } : {}),
+        ...(typeof destination.assignment === "string" ? { assignment: destination.assignment } : {}),
         ...(typeof destination.provider === "string" ? { provider: destination.provider } : {}) };
 }
 

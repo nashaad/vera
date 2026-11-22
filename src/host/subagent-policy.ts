@@ -8,6 +8,7 @@ import {
 import {
     MODEL_ASSIGNMENT_IDS,
     resolveModelAssignment,
+    subagentAllowsSelf,
 } from "../config/model-assignments.ts";
 import { effectiveCatalog, type EffectiveCatalogOptions } from "../model/catalog.ts";
 import type { CatalogModel } from "../model/catalog-shape.ts";
@@ -106,7 +107,7 @@ function buildSubagentPoolPolicy(
     return {
         ...(assignments === undefined ? {} : { assignments }),
         ...(assigned.length === 0 ? {} : { assigned }),
-        ...(config?.model_assignments?.subagents?.allow_self === true
+        ...(subagentAllowsSelf(config?.model_assignments)
             ? { allowSelf: true }
             : {}),
         ...(subagentDefault === undefined ? {} : { subagentDefault }),

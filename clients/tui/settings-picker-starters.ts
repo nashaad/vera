@@ -1253,7 +1253,7 @@ export function startTuiModelAssignmentPicker(
     const selfRow: TuiSettingsPickerOption = {
         value: MODEL_ASSIGNMENT_SELF_VALUE,
         label: "Spawning session model",
-        description: allowSelf ? "on" : "off",
+        description: allowSelf ? "on by default" : "off · on by default",
         card: true,
         rowMeta: parentModel === undefined
             ? "resolved from each spawning session"
@@ -1329,6 +1329,7 @@ export function startTuiAssignAllPicker(
 }
 
 export function unsetAssignmentMeans(assignment: ModelAssignmentId): string {
+    if (assignment === "subagents") return "unset, subagent spawns are refused";
     return isJobAssignmentId(assignment) ? "unset, inherits its intent" : "unset, no model bound";
 }
 

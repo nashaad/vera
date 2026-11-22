@@ -165,21 +165,21 @@ the dialog and ask again.
 Open Defaults from `/models` and choose **Subagents**. Add the models delegated tasks may
 use, in fallback order. Models can come from different connected providers. Type to
 search the list, then press Enter to add the highlighted model, or to remove it if it
-is already assigned. Favorites are listed first. Subagents only run models in
-your favorites, so assigning a model that is not a favorite, here or to any
-other default, also adds it to favorites.
+is already assigned. Favorites are listed first. Assigned subagent models
+must be favorites, so assigning a model that is not a favorite, here or to
+any other default, also adds it to favorites.
 
-**Spawning session model** is a separate option. Turn it on to allow the
-parent conversation's model after the assigned list. It is off by default.
+**Spawning session model** allows the parent conversation's model after the
+assigned list. It is on by default and can be turned off.
 
 A requested model must be in the list, or be the parent model with that
 option enabled. An unassigned model is refused.
 
 ### If a model is unavailable
 
-Vera tries the remaining assigned models in order. It reports a substitution
-with the requested model, the model used, and the reason. It does not choose
-an unassigned model.
+Vera tries the remaining assigned models in order, then the parent model if
+that option is on. It reports a substitution with the requested model, the
+model used, and the reason. It does not choose another unassigned model.
 
 If no model is assigned and parent fallback is off, an interactive client
 opens the Subagents settings. An unattended client returns a failure.
@@ -234,4 +234,4 @@ and disables parent fallback. Explorer's eco assignment works this way.
 Explicit model requests must remain inside the bound assignment.
 
 The parent-model option is stored as
-`model_assignments.subagents.allow_self`; an absent value means off.
+`model_assignments.subagents.allow_self`; an absent value means on.

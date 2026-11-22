@@ -71,6 +71,10 @@ export type VeraModelAssignmentsConfig = Readonly<
     & { never_auto?: SlotExclusionsConfig }
 >;
 
+export function subagentAllowsSelf(assignments: VeraModelAssignmentsConfig | undefined): boolean {
+    return assignments?.subagents?.allow_self !== false;
+}
+
 export interface ResolvedModelAssignment {
     readonly assignment: ModelAssignmentId;
     readonly label: string;
@@ -185,7 +189,7 @@ function parseSlot(
     if (!Array.isArray(inline)) {
         return configProblem(field, keyValue("models", "a list of models", inline));
     }
-    if (inline.length === 0 && !(assignment === "subagents" && allowSelf === true)) {
+    if (inline.length === 0 && assignment !== "subagents") {
         return configProblem(field, "models must not be empty");
     }
     const models: VeraCatalogModel[] = [];
@@ -416,7 +420,7 @@ export function describeModelAssignments(
                 ? { inherits: JOB_ASSIGNMENT_INTENTS[assignment] }
                 : {}),
             ...(assignment === "subagents"
-                ? { allowSelf: assignments.subagents?.allow_self === true }
+                ? { allowSelf: subagentAllowsSelf(assignments) }
                 : {}),
         };
     });

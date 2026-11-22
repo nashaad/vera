@@ -26,6 +26,7 @@ import {
     PICKER_TITLE,
     SLOT_COPY,
     subagentAddedText,
+    subagentConfigurationChanged,
     unreachable,
     unsetChoice,
     usedByText,
@@ -38,10 +39,11 @@ import { SlotPicker } from "./SlotPicker.tsx";
 export interface DefaultsTabProps {
     readonly controls: ModelControls;
     readonly settings: ModelSettings;
+    readonly onSubagentsChanged?: () => void;
 }
 
 // The models background work runs on, read from and written to the home's config.json.
-export function DefaultsTab({ controls, settings }: DefaultsTabProps) {
+export function DefaultsTab({ controls, settings, onSubagentsChanged }: DefaultsTabProps) {
     const bridge = window.veraDesktop as DesktopBridge | undefined;
     const [view, setView] = useState<AssignmentsView | undefined>(undefined);
     const [problem, setProblem] = useState<string | undefined>(
@@ -82,6 +84,7 @@ export function DefaultsTab({ controls, settings }: DefaultsTabProps) {
             return undefined;
         }
         setView(result.view);
+        if (change.assignment === "subagents" && subagentConfigurationChanged(view, result.view)) onSubagentsChanged?.();
         return result.view;
     };
 
@@ -103,6 +106,7 @@ export function DefaultsTab({ controls, settings }: DefaultsTabProps) {
         const before = view;
         let said: string;
         let favorite: boolean;
+        let subagentsChanged: boolean;
         if (target === "all") {
             if (value === undefined) return;
             const result = await bridge.assignToAll(value.provider, value.model);
@@ -111,6 +115,7 @@ export function DefaultsTab({ controls, settings }: DefaultsTabProps) {
                 return;
             }
             setView(result.view);
+            subagentsChanged = subagentConfigurationChanged(before, result.view);
             if (result.failure !== undefined) showToast(result.failure, "warning");
             said = allText(changedSlots(before, result.view), value, name);
             favorite = result.favorite;
@@ -123,6 +128,7 @@ export function DefaultsTab({ controls, settings }: DefaultsTabProps) {
                 return;
             }
             setView(result.view);
+            subagentsChanged = subagentConfigurationChanged(before, result.view);
             favorite = result.favorite;
             said = target === "failsafe"
                 ? failsafeText(value, name)
@@ -132,6 +138,7 @@ export function DefaultsTab({ controls, settings }: DefaultsTabProps) {
         }
         if (favorite && value !== undefined) await keep(value, said);
         else showToast(said, "success");
+        if (subagentsChanged) onSubagentsChanged?.();
     };
 
     const control = (target: PickTarget, label: ReactNode, unset: boolean, add = false) => (
@@ -265,7 +272,7 @@ export function DefaultsTab({ controls, settings }: DefaultsTabProps) {
                             </li>
                         ) : null}
                     </ol>
-                    <SlotRow name="Then the spawning session's model" about="Tried after every model above. Off by default." sub>
+                    <SlotRow name="Then the spawning session's model" about="Tried after every model above. On by default." sub>
                         <button
                             type="button"
                             role="switch"

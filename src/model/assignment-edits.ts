@@ -35,7 +35,7 @@ export interface AssignmentEdit {
     readonly reasoningEffort?: ModelReasoningEffort;
     // Subagents only: take the model off the list.
     readonly remove?: boolean;
-    // Subagents only: empty the list and stop falling back to the spawning session's model.
+    // Subagents only: empty the list without changing the parent-model setting.
     readonly clear?: boolean;
     // Subagents only: whether the spawning session's model is tried after the list.
     readonly allowSelf?: boolean;
@@ -110,10 +110,9 @@ export function editedBinding(row: ModelAssignmentRow | undefined, edit: Assignm
             : chosen === undefined
             ? [...current]
             : [...current.filter((entry) => !isSelected(entry)), chosen];
-        const allowSelf = edit.allowSelf ?? (edit.clear === true ? false : row?.allowSelf === true);
-        const unbinding = models.length === 0 && !allowSelf;
+        const allowSelf = edit.allowSelf ?? (row?.allowSelf !== false);
         return {
-            binding: unbinding ? null : { models, ...(allowSelf ? { allow_self: true } : {}) },
+            binding: { models, allow_self: allowSelf },
             models,
             allowSelf,
         };
@@ -168,10 +167,12 @@ export function assignModelToAll(
             : row.assignment === "reviewer" && row.source === "assignment"
             ? [entry, ...row.declared.slice(1, 2).filter((declared) => `${declared.provider}/${declared.model}` !== ref)]
             : [entry];
-        const allowSelf = row.assignment === "subagents" && row.allowSelf === true;
+        const subagentSetting = row.assignment === "subagents"
+            ? { allow_self: row.allowSelf !== false }
+            : {};
         try {
             updateVeraConfigDefaults(
-                { model_assignment: { assignment: row.assignment, binding: { models, ...(allowSelf ? { allow_self: true } : {}) } } },
+                { model_assignment: { assignment: row.assignment, binding: { models, ...subagentSetting } } },
                 files.configPath === undefined ? {} : { path: files.configPath },
             );
         } catch (error) {

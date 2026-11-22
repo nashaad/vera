@@ -178,10 +178,10 @@ An approval prompt offers Yes, for this chat, which allows calls like it for the
 An agent definition is reusable data. Workflows are ordinary application code that compose agent runs.
 A TypeScript agent run's result lists the tools the agent ran and that run's own usage (`docs/embedded-sdk-reviewer.md`).
 A Python program can put its own functions in an agent's `tools`, and the model calls them without asking for approval (`docs/python-agents.md`).
-Ordinary subagents use the list you set under Defaults then Subagents, tried in the order you put them in.
-A model named on a spawn call runs only if it is in that list, or if it is the parent session's model and the separate `Spawning session model` row is on. That row is off unless you turn it on.
-When an assigned model cannot run, Vera walks the rest of your list and stops there. It never reaches for an unassigned model, a same-family sibling, or a pool failsafe.
-If nothing is assigned and that row is off, no child starts. An interactive client opens the Subagents assignment so you can fix it.
+Ordinary subagents try the list you set under Defaults then Subagents in order, then the parent's model by default.
+A model named on a spawn call runs only if it is in that list, or if it is the parent session's model and the separate `Spawning session model` row is on, as it is by default.
+When an assigned model cannot run, Vera walks the rest of your list and then tries the parent's model if that row is on. It never reaches for another unassigned model, a same-family sibling, or a pool failsafe.
+If nothing is assigned and that row is off instead of its default on, no child starts and an interactive client opens the Subagents assignment so you can fix it.
 A substitution is reported in one sentence naming what was asked for, what ran, and why. A first choice that works says nothing.
 The included explorer investigates questions using read, search, and listing tools, then returns concise findings with precise references. The subagent result also identifies the actual agent, model, and reasoning effort. It cannot edit material, run shell commands, or invoke skills.
 Explorer uses Defaults then eco when called through the subagent tool. Its eco model does not also need to be assigned under Subagents. If eco is unset or unavailable, the launch fails with the assignment named; it does not use the parent or the Subagents list. Selecting explorer directly with `/agent` leaves the conversation model unchanged.

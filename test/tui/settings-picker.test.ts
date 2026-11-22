@@ -6,7 +6,13 @@ import { parseColor, TextareaRenderable, type StyledText } from "@opentui/core";
 
 import { tuiKeyHint } from "../../clients/tui/keymap.ts";
 import { applyTuiTheme, TUI_ACCENT } from "../../clients/tui/state.ts";
-import { formatSessionDate } from "../../clients/tui/settings-picker-types.ts";
+import {
+    assignmentFacts,
+    assignmentNote,
+    assignmentRunsFact,
+    assignmentStatusWord,
+    formatSessionDate,
+} from "../../clients/tui/settings-picker-types.ts";
 import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 import { resolveTuiTheme } from "../../clients/tui/theme-catalog.ts";
 
@@ -3948,7 +3954,7 @@ test("the subagent picker separates assigned, available, and parent fallback", a
         option.value === MODEL_ASSIGNMENT_SELF_VALUE))
         .toMatchObject({
             label: "Spawning session model",
-            description: "off",
+            description: "off · on by default",
             card: true,
             rowMeta: `currently ${parentRef}`,
             group: "Parent model fallback",
@@ -4101,6 +4107,15 @@ test("the Defaults row reports the subagent assignment instead of generic set", 
         bound: true,
         allowSelf: true,
     }])[2]?.description).toBe("parent fallback");
+
+    const fallback = { ...row([]), allowSelf: true };
+    expect(assignmentStatusWord(fallback)).toBe("parent fallback");
+    expect(assignmentRunsFact(fallback)).toBe("parent model");
+    expect(assignmentFacts(fallback).find(([label]) => label === "If unset")?.[1])
+        .toBe("parent model");
+    expect(assignmentNote(fallback)).toContain("spawning session's model");
+    expect(assignmentRunsFact(row([]))).toBe("not configured");
+    expect(assignmentNote(row([]))).toContain("spawns are refused");
 });
 
 test("the verify-favorites action asks how much of the collection it covers", () => {

@@ -855,7 +855,10 @@ Up and Down move between a card's choices and its typed answer.
 A setup request says what is needed and has `Dismiss` (Escape), which tells
 Vera the setup cannot be done from this window. A provider setup request also
 offers `Connect provider`: complete the provider and model steps to answer it.
-Finish other setup requests from the terminal.
+A subagent model setup request offers `Open model defaults`; changing the
+Subagents list or parent-model switch continues the waiting launch, which may
+ask for confirmation of a replacement model. Finish other setup requests
+from the terminal.
 
 The keys answer the first card without an answer. They work when the composer
 is empty or not focused, and not while you type in a field or hold Cmd, Ctrl or
@@ -1028,8 +1031,8 @@ The Models browser has four tabs:
   classifier has a failsafe row once it is set, and compaction says which
   tier it uses while it is not set. Subagents list their models in the order
   Vera tries them, with buttons to try one earlier or later or remove it, and
-  a switch for falling back to the spawning session's model. **Assign one
-  model to all** gives every default the same model. A model you assign that
+  a switch for falling back to the spawning session's model, on by default.
+  **Assign one model to all** gives every default the same model. A model you assign that
   is not a favorite becomes one. The window writes `config.json` in the home
   with the same rules as Assign model defaults in the terminal, so it works
   the same whichever folder the app was started from. Each read and each
