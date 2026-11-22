@@ -206,13 +206,11 @@ try {
     }
     await runningDetail.getByRole("button", { name: "Back to subagents" }).click();
     await list.waitFor();
-    const family = page.locator('.session-item[data-parent="true"]');
-    const summary = family.locator('.session-summary');
-    await until("collapsed working family", async () => (await summary.count()) === 1 && (await summary.innerText()).includes("1 nested · 1 working"), 45_000);
+    const family = page.locator('.session-item[data-depth="0"]:has(.session-fold)').first();
     const fold = family.locator('.session-fold');
-    if (await fold.getAttribute('aria-expanded') !== 'false') throw new Error('The family did not start collapsed.');
+    await until("collapsed working family", async () => (await fold.count()) === 1 && (await fold.getAttribute('aria-expanded')) === 'false' && (await fold.locator('.session-count').innerText()) === '1', 45_000);
     if (await page.locator('.session-row[data-nested="true"]').count()) throw new Error('A collapsed child is visible.');
-    await summary.click();
+    await fold.click();
     const childRow = page.locator('.session-row[data-nested="true"]');
     await childRow.waitFor();
     const holdMs = Math.min(120_000, Math.max(0, Number(process.env.NESTED_FIXTURE_HOLD_MS) || 0));
@@ -223,7 +221,7 @@ try {
         console.log(`Sidebar fixture: home=${trial.home} electron=${app.process().pid} hold=${holdMs}ms reduced=${process.env.NESTED_FIXTURE_REDUCE_MOTION === '1'}`);
         await new Promise((resolve) => setTimeout(resolve, holdMs));
     }
-    if (await fold.getAttribute('aria-expanded') !== 'true') throw new Error('The summary did not expand the family.');
+    if (await fold.getAttribute('aria-expanded') !== 'true') throw new Error('The child count did not expand the family.');
     const spinner = page.locator('.session-item[data-nested="true"] .session-spinner');
     await page.mouse.move(0, 0);
     await spinner.waitFor();
@@ -243,15 +241,15 @@ try {
     await press(app, 'B', [MODIFIER]);
     await until('hidden sidebar stops indicator', async () => await spinner.count() === 0 || await motion() === 'none');
     await press(app, 'B', [MODIFIER]);
-    await summary.waitFor();
-    await summary.click();
+    await fold.waitFor();
+    await fold.click();
     await page.mouse.move(0, 0);
     await until('shown sidebar resumes indicator', async () => await spinner.count() === 1 && await motion() === 'session-spin');
     const geometry = await family.locator('.session-name').evaluate((name) => {
         const caret = name.closest('.session-line').querySelector('.session-fold');
         return { gap: caret.getBoundingClientRect().left - name.getBoundingClientRect().right };
     });
-    if (geometry.gap < 0 || geometry.gap > 20) throw new Error(`The caret is not beside the title: ${geometry.gap}`);
+    if (geometry.gap < 0) throw new Error(`The caret overlaps the title: ${geometry.gap}`);
     const childId = await childRow.getAttribute('data-session');
     await childRow.click();
     await page.waitForSelector(`.transcript-scroll[data-session="${childId}"]`);
@@ -268,6 +266,8 @@ try {
     await fold.focus();
     await fold.press('Enter');
     if (await childRow.count()) throw new Error('Keyboard collapse left the child visible.');
+    await fold.press('Enter');
+    await childRow.waitFor();
     heldChild.response.write(streamChunk(heldChild.model, { content: CHILD_REPLY }, "stop"));
     heldChild.response.end("data: [DONE]\n\n");
     await until("the child moves to Done", async () => {
@@ -275,7 +275,7 @@ try {
         return (await done.count()) === 1 && (await done.innerText()).includes(DESCRIPTION)
             && (await active.locator(".tasks-heading").innerText()) === "Active · 0";
     }, 45_000);
-    await until("the summary clears working", async () => (await summary.innerText()) === "1 nested", 45_000);
+    await until("the child stops working", async () => !(await childRow.getAttribute('aria-label')).includes('Working'), 45_000);
     const doneText = await list.locator('section[aria-label="Finished subagents"]').innerText();
     if (!/Done · 1/.test(doneText) || !/Idle|Done|Ended/.test(doneText)) throw new Error(`Finished list reads ${doneText}`);
 

@@ -331,6 +331,13 @@ describe("session row menu", () => {
         expect(labels(sessionRowMenu(row, false, true))).toContain("Open Files Pane");
     });
 
+    test("@core a nested row offers no Pin", () => {
+        const nested = labels(sessionRowMenu(row, false, true, row, false));
+        expect(nested).not.toContain("Pin Session");
+        expect(nested).not.toContain("Unpin Session");
+        expect(nested).toContain("Archive Session");
+    });
+
     test("an archived child row unarchives the parent family", () => {
         const parent = { ...row, id: "parent", archived: true };
         const menu = sessionRowMenu({ ...row, parentId: "parent" }, false, true, parent);

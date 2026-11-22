@@ -26,6 +26,7 @@ import type {
     SyncSidekickResult,
 } from "../../ui/src/protocol/bridge.ts";
 import { NO_PINS } from "../../ui/src/protocol/pins.ts";
+import { DEFAULT_SIDEBAR_SETTINGS } from "../../ui/src/protocol/sidebarSettings.ts";
 import type { MoveSessionOutcome } from "../../ui/src/protocol/sessionMove.ts";
 import type { ExtensionCommandResult } from "../../ui/src/protocol/extension-commands.ts";
 import { BROWSER_STATE_CHANGED } from "../../ui/src/browser/native-types.ts";
@@ -76,6 +77,7 @@ import {
 } from "./model-requests.ts";
 import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
 import { PinStore, pinsPath } from "./pin-store.ts";
+import { SidebarSettingsStore, sidebarSettingsPath } from "./sidebar-settings-store.ts";
 import { EXTENSION_FRAME_FILE } from "./extension-frame-file.ts";
 import { ExtensionLogs, extensionLogsDir } from "./extension-logs.ts";
 import { isFolderName } from "./extension-files.ts";
@@ -152,6 +154,7 @@ const hidesReasoning = (): boolean => flagsStore.read().showReasoning !== "on";
 const sessionPanes = new SessionPanes(sendEvent, hidesReasoning);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
 const pinStore = new PinStore(pinsPath(selectedVeraHome()));
+const sidebarSettingsStore = new SidebarSettingsStore(sidebarSettingsPath(selectedVeraHome()));
 // Until the window reports, the menus hide every part the flags file does not turn on.
 let hiddenCommands: ReadonlySet<string> = hiddenCommandsFor(flagsStore.read());
 const assignmentTasks = new TaskRunner(() => startTaskProcess<AssignmentTask>(ASSIGNMENT_TASK_FILE, ASSIGNMENT_TASK_SERVICE), parseAssignmentTaskReply);
@@ -481,6 +484,10 @@ ipcMain.on(CHANNELS.layoutSave, (event, layout: unknown) => {
 ipcMain.handle(CHANNELS.pinsLoad, (event) => (fromWindow(event) ? pinStore.load() ?? NO_PINS : NO_PINS));
 ipcMain.on(CHANNELS.pinsSave, (event, pins: unknown) => {
     if (fromWindow(event)) pinStore.save(pins);
+});
+ipcMain.handle(CHANNELS.sidebarSettingsLoad, (event) => (fromWindow(event) ? sidebarSettingsStore.load() ?? DEFAULT_SIDEBAR_SETTINGS : DEFAULT_SIDEBAR_SETTINGS));
+ipcMain.on(CHANNELS.sidebarSettingsSave, (event, settings: unknown) => {
+    if (fromWindow(event)) sidebarSettingsStore.save(settings);
 });
 ipcMain.handle(CHANNELS.feedbackCapture, async (event): Promise<string | undefined> => {
     if (!fromWindow(event) || window === undefined) return undefined;

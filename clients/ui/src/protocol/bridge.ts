@@ -5,6 +5,7 @@ import type { DesktopFlags, FlagPatch } from "../state/desktopFlags.ts";
 import type { SessionPane } from "./panes.ts";
 import type { SavedPins } from "./pins.ts";
 import type { MoveSessionOutcome } from "./sessionMove.ts";
+import type { SidebarSettings } from "./sidebarSettings.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
 import type { ThemeChoice } from "../theme/tokens.ts";
 import type { CatalogListResult, CatalogPreviewResult } from "./extension-catalog.ts";
@@ -438,6 +439,9 @@ export interface DesktopBridge {
     // Pinned sessions from the desktop's own directory under the home; none when there is no file.
     loadPins(): Promise<SavedPins>;
     savePins(pins: SavedPins): void;
+    // The sidebar's own settings, beside pins and the layout; the build's default when there is no file.
+    loadSidebarSettings(): Promise<SidebarSettings>;
+    saveSidebarSettings(settings: SidebarSettings): void;
     // The desktop's flags from its own directory under the home, each at the file's value or the build default.
     loadFlags(): Promise<DesktopFlags>;
     // Writes the chosen flags and resolves to every flag after the change; undefined when the change was not saved.

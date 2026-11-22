@@ -29,6 +29,8 @@ export const CHANNELS = {
     layoutSave: "vera:layout-save",
     pinsLoad: "vera:pins-load",
     pinsSave: "vera:pins-save",
+    sidebarSettingsLoad: "vera:sidebar-settings-load",
+    sidebarSettingsSave: "vera:sidebar-settings-save",
     flagsLoad: "vera:flags-load",
     flagsSave: "vera:flags-save",
     flagsHidden: "vera:flags-hidden",
