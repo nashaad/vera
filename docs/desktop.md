@@ -796,6 +796,9 @@ Files and images:
   cannot be sent. An image the host refuses is removed, and a line above the box
   names it and gives the reason.
 - A message needs text; images go with it.
+- Comments added to selected patch lines appear as removable composer chips.
+  They are sent with the message as text containing the file path, side, line or
+  range, selected code and note.
 - On New Chat the images are attached once the new session is open, and the
   message is sent when they are all attached. If one is refused, the message
   stays in the box.
@@ -1208,13 +1211,44 @@ tab and opening it again shows the list.
 
 When a turn edits files, its end shows a card with the number of files edited
 and the lines added and removed. Each file row opens to its patch, cut at 400
-lines. `Review` opens the Review view; the button is drawn while Review is shown. Review lists the files changed in the
-last turn, or in the whole session, with their patches. Plan shows the newest
-checklist Vera wrote in its scratch folder: the title, how many items are done,
-a bar and the items, with recently completed items marked while the turn runs.
-Open plan file opens its displayed path in the system's default application.
-Files shows the
-session's folder (`Chat` for a chat) as a tree the window reads from disk:
+lines. The patch shows line numbers for the sides present, marks additions and removals with a
+tint, and summarizes unchanged lines with a divider before and between hunks. A
+divider names the number of unchanged lines. A note marks a file with no newline at its end.
+Separate edits to one file appear as hunks in the same patch. When a later
+edit changes lines an earlier edit showed, its hunks start a new patch below
+the earlier one and the file name heads that patch too. Changed words in
+a modified line pair have a stronger tint. Supported file extensions use syntax
+colors. Copying selected patch code leaves out line numbers and dividers.
+
+Review has Unified and Split, Wrap and Scroll controls above its files. Unified
+shows one code column and Split shows the old and new sides side by side. Wrap
+keeps long lines in view; Scroll lets them run sideways under a fixed gutter.
+The edit card is always unified and wrapped. Bars mark added and removed rows at
+the left edge. In the edit card a patch has a fixed maximum height and scrolls
+inside it; Review scrolls as one view.
+
+In the edit card and Review, hovering a code line shows `+` over its line
+number. Click the line number or `+` to select the line, drag over the numbers,
+or Shift-click another line in the same patch to select a range; selected lines
+share one tint. Choosing `+` opens a comment box under the selection. Enter a
+note and choose `Comment`, or press Enter; Shift+Enter adds a line, and Escape
+or Enter on an empty note closes the box and clears the selection. After the
+comment is added, its card stays under those lines and a removable chip appears
+in the composer, which stays if the inline card is not shown. A selection in the
+old column is sent as the old side; a selection that crosses both sides does not
+open the comment box.
+While a turn runs, sending follows the composer's queued follow-up behavior. `Review` opens
+the Review view; the button is drawn while Review is shown. Review lists the files changed in the
+last turn, or in the whole session, with their patches. Each patch header
+stays in view while you scroll through that patch. Each file row in the edit card
+and each file header in Review has a menu that copies the file's path, opens the
+file in the system's default application, or collapses and expands all of that
+file's patches.
+Plan shows the newest checklist
+Vera wrote in its scratch folder: the title, how many items are done, a bar and
+the items, with recently completed items marked while the turn runs. Open plan
+file opens its displayed path in the system's default application. Files shows
+the session's folder (`Chat` for a chat) as a tree the window reads from disk:
 folders come first, a folder opens one level at a time, and one folder lists
 at most 500 entries. It skips `.git` and `.DS_Store`, and open folders are read
 again when a turn ends. Picking a file shows it beside the tree, which keeps

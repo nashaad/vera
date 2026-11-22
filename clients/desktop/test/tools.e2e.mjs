@@ -12,6 +12,9 @@ import { setSidebarGrouping } from "./sidebar.mjs";
 import { startTrial } from "./trial.mjs";
 
 const BUILT = "The nest is built.";
+const BUILD_REPORT = Array.from({ length: 10 }, () =>
+    "The crow checked every twig twice, packed mud into the gaps, lined the cup with feathers, and stepped back to look at the rim."
+).join(" ");
 const SECOND = "The crow is resting.";
 const SUMMARY = "Built a nest and rested.";
 const PLAN = "# Crow plan\n\n- [x] Write the nest\n- [ ] Line the nest\n";
@@ -35,6 +38,7 @@ function stepFor(messages, scratch) {
     if (summarizerPrompt(messages)) return undefined;
     const lastUser = messages.findLastIndex((message) => message.role === "user");
     const user = JSON.stringify(messages[lastUser]?.content ?? "");
+    if (user.includes("Write the handover note") || user.includes("Produce the updated note")) return undefined;
     if (!user.includes("EDIT")) return undefined;
     const results = messages.slice(lastUser + 1).filter((message) => message.role === "tool").length;
     if (results === 0) return { name: "write", input: { path: join(scratch ?? "missing-scratch", "plan.md"), content: PLAN } };
@@ -46,7 +50,7 @@ function stepFor(messages, scratch) {
 function replyText(messages) {
     if (summarizerPrompt(messages)) return SUMMARY;
     const user = JSON.stringify([...messages].reverse().find((message) => message.role === "user")?.content ?? "");
-    if (user.includes("EDIT")) return BUILT;
+    if (user.includes("EDIT")) return `${BUILT}\n\n${BUILD_REPORT}`;
     if (user.includes("SECOND")) return SECOND;
     return SUMMARY;
 }
@@ -95,6 +99,17 @@ async function sessionMenu(label) {
     await page.locator(".menu-item", { hasText: label }).first().click();
 }
 
+async function closeMenuInside(where) {
+    const menu = page.locator(".menu").last();
+    await menu.waitFor({ timeout: 5_000 });
+    const box = await menu.boundingBox();
+    const viewport = page.viewportSize();
+    if (!box || !viewport || box.x < 0 || box.y < 0 || box.x + box.width > viewport.width || box.y + box.height > viewport.height) {
+        throw new Error(`${where} menu outside the viewport: ${JSON.stringify({ box, viewport })}`);
+    }
+    await page.keyboard.press("Escape");
+}
+
 try {
     await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
     configureFauxHome(trial.home, provider.address().port, "auto");
@@ -132,12 +147,80 @@ try {
     // Writes the rollup and the plan already name draw no line of their own.
     if (await page.locator(".run-head").count() !== 0) throw new Error("A run of landed writes drew a summary line.");
     await rollup.locator(".diff-file-head").first().click();
-    await rollup.locator(".diff-line[data-kind=\"add\"]", { hasText: "feathers" }).waitFor({ timeout: 5_000 });
+    // The file holds the creation run and the edit run, each its own Pierre diff.
+    const editRuns = await rollup.locator(".diff-patch").first().evaluate(async (patch) => {
+        const read = (container) => {
+            const root = container.shadowRoot;
+            return {
+                lines: [...(root?.querySelectorAll("[data-line]") ?? [])].map((line) => ({
+                    type: line.getAttribute("data-line-type"),
+                    text: line.textContent?.trim() ?? "",
+                })),
+                text: root?.textContent ?? "",
+            };
+        };
+        for (let attempt = 0; attempt < 200; attempt += 1) {
+            const containers = [...patch.querySelectorAll("diffs-container")];
+            if (containers.length >= 2 && containers.every((container) => container.shadowRoot)) {
+                const runs = containers.map(read);
+                if (runs[0].text.includes("twigs") && runs[1].text.includes("feathers")) return runs;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        return [...patch.querySelectorAll("diffs-container")].map(read);
+    });
+    if (editRuns.length !== 2) throw new Error(`The edit card rendered ${editRuns.length} runs, expected 2.`);
+    const created = editRuns[0].lines.filter((line) => line.type === "change-addition").map((line) => line.text);
+    if (!created.includes("twigs") || !created.includes("mud")) throw new Error(`The first run did not show the created lines: ${JSON.stringify(editRuns[0])}`);
+    if (editRuns[0].lines.some((line) => line.type === "change-deletion")) throw new Error(`The first run held a deletion: ${JSON.stringify(editRuns[0])}`);
+    const removed = editRuns[1].lines.filter((line) => line.type === "change-deletion").map((line) => line.text);
+    const added = editRuns[1].lines.filter((line) => line.type === "change-addition").map((line) => line.text);
+    if (!removed.includes("twigs") || !added.includes("feathers")) throw new Error(`The second run did not show twigs removed and feathers added: ${JSON.stringify(editRuns[1])}`);
 
-    // Review opens the right pane on the same change.
+    // The edit-card file menu stays inside the window at each checked width.
+    const patchMenu = rollup.locator(".diff-file-more").first();
+    for (const width of [1500, 1150, 980]) {
+        await page.setViewportSize({ width, height: 800 });
+        await patchMenu.click();
+        await closeMenuInside(`${width}px edit-card`);
+    }
+
+    // Review opens the right pane on the same change, one item per run.
     await rollup.locator(".diff-review").click();
-    await page.locator(".change-head", { hasText: "nest.txt" }).first().click();
-    await page.locator(".review .diff-line[data-kind=\"del\"]", { hasText: "twigs" }).waitFor({ timeout: 10_000 });
+    const reviewMenus = page.locator(".review-file-actions .diff-file-more");
+    const reviewRuns = () => page.locator(".review diffs-container").evaluateAll((containers) => containers.map((container) => {
+        const root = container.shadowRoot;
+        return {
+            title: root?.querySelector("[data-title]")?.textContent ?? "",
+            text: root?.textContent ?? "",
+            lines: root?.querySelectorAll("[data-line]").length ?? 0,
+        };
+    }));
+    await until("both nest.txt runs in Review", async () => {
+        const runs = await reviewRuns();
+        return runs.filter((run) => run.title === "nest.txt").length === 2;
+    });
+    for (const width of [1500, 1150, 980]) {
+        await page.setViewportSize({ width, height: 800 });
+        await reviewMenus.first().click();
+        await closeMenuInside(`${width}px Review`);
+    }
+    if (await reviewMenus.count() !== 2) throw new Error(`Review rendered ${await reviewMenus.count()} header menus for two runs.`);
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await reviewMenus.nth(1).click();
+    await page.getByRole("menuitem", { name: "Collapse file" }).click();
+    await until("both nest.txt runs to collapse with both headers showing", async () => {
+        const nests = (await reviewRuns()).filter((run) => run.title === "nest.txt");
+        return nests.length === 2 && nests.every((run) => run.lines === 0);
+    });
+    await reviewMenus.nth(1).click();
+    await page.getByRole("menuitem", { name: "Expand file" }).click();
+    let nests = [];
+    await until("both nest.txt runs to expand with feathers in the second", async () => {
+        nests = (await reviewRuns()).filter((run) => run.title === "nest.txt");
+        return nests.length === 2 && nests.every((run) => run.lines > 0) && nests[1].text.includes("feathers");
+    });
+    if (nests[0].text.includes("feathers")) throw new Error("Review's first run held the later edit.");
 
     // The Plan view shows the checklist the provider wrote; a pane opens from the right pane's "+".
     const openPane = async (title) => {

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 
 import type { MenuEntry } from "../commands/menus.ts";
 import { CheckIcon } from "../components/Icons.tsx";
@@ -84,7 +85,7 @@ export function ContextMenu({ entries, x, y, onRun, onClose }: ContextMenuProps)
         event.stopPropagation();
     };
 
-    return (
+    return createPortal(
         <div
             ref={ref}
             className="menu"
@@ -121,6 +122,7 @@ export function ContextMenu({ entries, x, y, onRun, onClose }: ContextMenuProps)
                     </div>
                 );
             })}
-        </div>
+        </div>,
+        document.body,
     );
 }

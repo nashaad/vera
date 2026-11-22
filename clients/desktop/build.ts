@@ -110,6 +110,18 @@ const renderer = await Bun.build({
 });
 if (!renderer.success) fail(renderer.logs);
 
+// The highlighting worker is a separate local file because worker-src cannot load a blob or a data URL.
+const workerEntry = Bun.resolveSync("@pierre/diffs/worker/worker-portable.js", import.meta.dir);
+const diffWorker = await Bun.build({
+    entrypoints: [workerEntry],
+    outdir: rendererOut,
+    target: "browser",
+    format: "esm",
+    minify: true,
+    naming: "worker.js",
+});
+if (!diffWorker.success) fail(diffWorker.logs);
+
 const themeBoot = await Bun.build({
     entrypoints: [join(root, "..", "ui", "src", "theme", "boot.ts")],
     outdir: rendererOut,

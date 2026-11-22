@@ -51,6 +51,7 @@
     "@anthropic-ai/sandbox-runtime": "0.0.83",
     "@openrouter/sdk": "^0.13.55",
     "@opentui/core": "^0.2.6",
+    "@pierre/diffs": "1.6.4",
     "croner": "^10.0.1",
     "diff": "^9.0.0",
     "highlight.js": "^11.12.0",

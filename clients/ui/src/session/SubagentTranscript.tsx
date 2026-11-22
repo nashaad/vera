@@ -7,6 +7,7 @@ import { usePinnedScroll } from "./usePinnedScroll.ts";
 import { useSlowOpening } from "./useSlowOpening.ts";
 
 export interface SubagentTranscriptProps {
+    readonly sessionId: string;
     readonly watch: SessionWatch;
     // The folder the child works in, for paths in its tool lines.
     readonly folder?: string | undefined;
@@ -15,7 +16,7 @@ export interface SubagentTranscriptProps {
 }
 
 // A subagent's conversation, as the Subagents tab shows it.
-export function SubagentTranscript({ watch, folder, after }: SubagentTranscriptProps) {
+export function SubagentTranscript({ sessionId, watch, folder, after }: SubagentTranscriptProps) {
     const blocks = useMemo(() => [...watch.history, ...watch.live], [watch.history, watch.live]);
     const scroller = usePinnedScroll();
     const slowOpening = useSlowOpening(watch);
@@ -35,6 +36,7 @@ export function SubagentTranscript({ watch, folder, after }: SubagentTranscriptP
                         message === undefined ? null : <p className="transcript-empty">{message}</p>
                     ) : (
                         <Transcript
+                            sessionId={sessionId}
                             blocks={blocks}
                             running={watch.status !== "idle"}
                             status={watch.status}

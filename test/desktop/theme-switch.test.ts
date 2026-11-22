@@ -5,12 +5,14 @@ import type { ThemeName } from "../../clients/ui/src/theme/tokens.ts";
 import { applyTheme, startingThemeName, themeFile } from "../../clients/ui/src/theme/apply.ts";
 import type { ThemeRoot } from "../../clients/ui/src/theme/apply.ts";
 
-function fakeRoot(): { root: ThemeRoot; values: Map<string, string>; attribute: () => string } {
+function fakeRoot(): { root: ThemeRoot; values: Map<string, string>; attribute: () => string; scheme: () => string } {
     const values = new Map<string, string>();
     let attribute = "";
+    let scheme = "";
     const root: ThemeRoot = {
         setAttribute(name: string, value: string): void {
             if (name === "data-theme") attribute = value;
+            if (name === "data-color-scheme") scheme = value;
         },
         style: {
             setProperty(name: string, value: string): void {
@@ -18,18 +20,20 @@ function fakeRoot(): { root: ThemeRoot; values: Map<string, string>; attribute: 
             },
         },
     };
-    return { root, values, attribute: () => attribute };
+    return { root, values, attribute: () => attribute, scheme: () => scheme };
 }
 
 test("@core switching themes applies at once without CSS or a reload", () => {
     const page = fakeRoot();
     applyTheme("dark", page.root);
     expect(page.attribute()).toBe("dark");
+    expect(page.scheme()).toBe("dark");
     expect(page.values.get("--vera-surface")).toBe(themeFile("dark").palette.canvas);
     expect(page.values.get("--vera-motion")).toBe(themeFile("dark").values.motion);
 
     applyTheme("light", page.root);
     expect(page.attribute()).toBe("light");
+    expect(page.scheme()).toBe("light");
     expect(page.values.get("--vera-surface")).toBe(themeFile("light").palette.canvas);
     expect(page.values.get("--vera-surface")).not.toBe(themeFile("dark").palette.canvas);
 

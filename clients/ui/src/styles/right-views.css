@@ -33,7 +33,6 @@
 }
 
 .right-seg-option:focus-visible,
-.change-head:focus-visible,
 .subagent-action:focus-visible,
 .tasks-pill:focus-visible,
 .sheet-x:focus-visible {
@@ -152,76 +151,29 @@ button.file-row:focus-visible {
     color: var(--vera-diff-removed);
 }
 
-.change-list {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.change {
-    border-bottom: thin solid var(--vera-border);
-}
-
-.change-head {
+.location .view-body:has(> .review) {
     display: flex;
-    width: 100%;
-    gap: calc(var(--vera-space) * 1.5);
-    align-items: center;
-    min-height: calc(var(--vera-row-height) - var(--vera-space) / 2);
-    padding: 0 calc(var(--vera-space) * 2);
-    color: var(--vera-text-muted);
-    font: inherit;
-    font-size: var(--vera-font-size-label);
-    text-align: left;
-    background: transparent;
-    border: 0;
-    cursor: pointer;
-}
-
-.change-head:hover {
-    color: var(--vera-text);
-    background: var(--vera-surface-hover);
-}
-
-.change-icon {
-    flex: 0 0 auto;
-    width: calc(var(--vera-space) * 3);
-    height: calc(var(--vera-space) * 3);
-}
-
-.change-name {
-    flex: 0 1 auto;
-    min-width: 0;
+    flex-direction: column;
     overflow: hidden;
-    color: var(--vera-text);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    padding-top: 0;
+    padding-bottom: 0;
 }
 
-.change-folder {
+/* The floating actions button sits over the body, so it moves inside the reserved gutter. */
+.view[data-merged="true"]:has(> .view-body > .review) > .view-header {
+    right: calc(var(--vera-space) * 2.5);
+}
+
+.review {
+    display: flex;
     flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--vera-text-disabled);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    flex-direction: column;
+    min-height: 0;
+    padding-top: var(--vera-space);
 }
 
-.change-tag {
-    flex: 0 0 auto;
-    padding: 0 calc(var(--vera-space) * 1);
-    color: var(--vera-badge-text);
-    font-size: calc(var(--vera-font-size-label) * 0.9);
-    background: var(--vera-badge);
-    border-radius: var(--vera-radius-sm);
-}
-
-.change-stat {
-    display: inline-flex;
-    flex: 0 0 auto;
-    gap: calc(var(--vera-space) * 1);
-    margin-left: auto;
-    font-family: var(--vera-font-code);
+.location[data-location="sidebar"] .review {
+    padding-top: calc(var(--vera-space) * 2.5);
 }
 
 /* plan */

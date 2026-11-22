@@ -184,6 +184,25 @@
     color: var(--vera-text-disabled);
 }
 
+.diff-comment-chip {
+    min-width: 0;
+    max-width: calc(var(--vera-space) * 80);
+}
+
+.diff-comment-chip-note {
+    flex: 1 1 auto;
+}
+
+.diff-comment-chip-location {
+    flex: none;
+    color: var(--vera-text-disabled);
+    white-space: nowrap;
+}
+
+.diff-comment-chip .chip-x {
+    flex: none;
+}
+
 .chip-x {
     display: inline-flex;
     align-items: center;
