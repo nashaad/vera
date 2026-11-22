@@ -183,6 +183,24 @@ test("a write is shown as its path and size", () => {
     ].join("\n"));
 });
 
+test("an eval script is shown as its lines, not as JSON", () => {
+    expect(tuiApprovalBodyText(approval("builtin_browser_eval", {
+        script: "const rows = [...document.querySelectorAll('tr')];\nreturn rows.map((row) => row.innerText);",
+    }))).toBe([
+        "const rows = [...document.querySelectorAll('tr')];",
+        "return rows.map((row) => row.innerText);",
+    ].join("\n"));
+});
+
+test("a long eval script is capped until it is expanded", () => {
+    const script = Array.from({ length: 20 }, (_, index) => `const x${index} = ${index};`).join("\n");
+    const update = approval("builtin_browser_eval", { script });
+    const capped = tuiApprovalBody(update);
+    expect(capped.hidden).toBeGreaterThan(0);
+    expect(capped.lines.at(-1)?.text).toContain("more lines");
+    expect(tuiApprovalBody(update, true).lines.map((line) => line.text)).toEqual(script.split("\n"));
+});
+
 test("an unknown tool still falls back to its serialized call", () => {
     expect(tuiApprovalBodyText(approval("frobnicate", { level: 3 })))
         .toBe('frobnicate {"level":3}');

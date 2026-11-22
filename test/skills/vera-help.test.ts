@@ -24,23 +24,14 @@ test("the guide ships as a skill, so any model can be asked how Vera works", () 
     expect(help?.instructions).toContain("llms.txt");
 });
 
-test("every counted section in the guide states its own line count", () => {
+test("no section header in the guide states a line count", () => {
     const guide = readFileSync(
         join(bundledSkillDirectory(), "vera-help", "llms.txt"),
         "utf8",
     ).split("\n");
-    const headers = guide
-        .map((line, index) => ({ line, index }))
-        .filter((entry) => entry.line.startsWith("## "));
+    const headers = guide.filter((line) => line.startsWith("## "));
     expect(headers.length).toBeGreaterThan(0);
-    for (const [order, header] of headers.entries()) {
-        const claimed = Number(/\[lines=(\d+)\]$/.exec(header.line)?.[1]);
-        const next = headers[order + 1]?.index ?? guide.length - 1;
-        expect([header.line, next - header.index - 1]).toEqual([
-            header.line,
-            claimed,
-        ]);
-    }
+    expect(headers.filter((header) => header.includes("[lines="))).toEqual([]);
 });
 
 test("every manual page the guide names ships in docs/", () => {

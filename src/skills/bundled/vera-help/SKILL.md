@@ -11,8 +11,8 @@ never have to derive Vera's behavior from Vera's source. Answer from it.
 1. Read `## How to answer` and `## Keep the user in the loop` at the top of
    `llms.txt` first, every time. The first matches the ask to a rope and names
    the section that carries the answer; the second is the shape of the turn.
-2. Read that one named section. Every `## ` header carries `[lines=N]`, the
-   exact line count of its section, so the cost is known in advance.
+2. Read that one named section. A section runs from its `## ` header to the
+   next one.
 3. Answer product questions from the guide, not from source code.
 4. When the section is not enough, read the manual page its `Manual:` line
    names. Those paths start at the Vera install root, which is

@@ -1,8 +1,10 @@
 import { requestExtensionThroughHost } from "../../../../src/host/extension-request-client.ts";
 import { parseBrowserRequest } from "../../../../extensions/builtin-browser/arguments.ts";
 import { BROWSER_TOOLS_OFF, BROWSER_TOOLS_OFF_TEXT } from "../../../../extensions/builtin-browser/failure.ts";
+import { HANDOFF_BUSY } from "../../../../extensions/builtin-browser/handoff.ts";
 import type { JsonValue } from "../../../../src/sdk/hooks.ts";
-import type { BrowserCdp } from "./cdp.ts";
+import { NO_WEB_PAGE_ERROR, type BrowserCdp } from "./cdp.ts";
+import type { BrowserHandoff } from "./handoff.ts";
 
 const EXTENSION = "vera.builtin-browser";
 
@@ -21,6 +23,7 @@ export class BrowserGateway {
         private readonly reveal: () => void,
         private readonly changed: () => void,
         private readonly request: typeof requestExtensionThroughHost = requestExtensionThroughHost,
+        private readonly handoff?: BrowserHandoff,
     ) {}
 
     start(socket: string): void {
@@ -35,6 +38,7 @@ export class BrowserGateway {
 
     stop(): void {
         this.controller?.abort();
+        this.handoff?.cancel();
         this.controller = undefined;
         if (this.refreshTimer !== undefined) clearInterval(this.refreshTimer);
         this.refreshTimer = undefined;
@@ -73,6 +77,7 @@ export class BrowserGateway {
     }
 
     private update(enabled: boolean, available: boolean): void {
+        if (!enabled) this.handoff?.cancel();
         if (enabled === this.enabled && available === this.available) return;
         this.enabled = enabled;
         this.available = available;
@@ -88,16 +93,29 @@ export class BrowserGateway {
                     await this.settings();
                     continue;
                 }
-                if (!isRecord(job) || typeof job.id !== "string") continue;
+                if (!isRecord(job)) continue;
+                if (typeof job.cancel === "string") {
+                    this.handoff?.cancel(job.cancel);
+                    continue;
+                }
+                if (typeof job.id !== "string") continue;
                 const raw = job.request;
                 const request = isRecord(raw) ? parseBrowserRequest(raw) : undefined;
                 let result: Record<string, unknown>;
                 if (request === undefined) result = { error: "Invalid browser request." };
+                else if (this.handoff?.state() !== undefined) result = { error: HANDOFF_BUSY };
                 else if (!this.enabled) result = { error: BROWSER_TOOLS_OFF_TEXT, errorCode: BROWSER_TOOLS_OFF };
                 else {
                     this.reveal();
-                    try { result = await this.cdp.run(request); }
-                    catch (error) { result = { error: error instanceof Error ? error.message : "Browser request failed." }; }
+                    try {
+                        if (request.action === "handoff") {
+                            if (this.handoff === undefined) throw new Error(NO_WEB_PAGE_ERROR);
+                            const pending = this.handoff.start(job.id, request.reason!);
+                            void this.replyHandoff(socket, job.id, pending, signal);
+                            continue;
+                        }
+                        result = await this.cdp.run(request);
+                    } catch (error) { result = { error: error instanceof Error ? error.message : "Browser request failed." }; }
                 }
                 if (signal.aborted) break;
                 await this.request(socket, EXTENSION, "reply", { id: job.id, ...result } as JsonValue, signal);
@@ -106,6 +124,15 @@ export class BrowserGateway {
                 this.update(this.enabled, false);
                 await new Promise<void>((resolve) => setTimeout(resolve, 1000));
             }
+        }
+    }
+
+    private async replyHandoff(socket: string, id: string, pending: Promise<Record<string, unknown>>, signal: AbortSignal): Promise<void> {
+        try {
+            const result = await pending;
+            if (!signal.aborted) await this.request(socket, EXTENSION, "reply", { id, ...result } as JsonValue, signal);
+        } catch {
+            if (!signal.aborted) this.update(this.enabled, false);
         }
     }
 }

@@ -135,6 +135,45 @@ in `_API_KEY`, and every variable that an `{env:NAME}` reference in
 that the file is never rewritten. Edit it and restart the host to change what
 the host sees.
 
+## Trial an update from a worktree
+
+A host started by `bun run dev:tui` runs the checkout's code and belongs to no
+install prefix. When asked to hand off to another build it refuses, because a
+handoff moves `current` in the prefix the host runs from. The refusal keeps a
+development host from moving the daily install's `current`.
+
+To exercise an update with checkout code, install the worktree as a release in
+a private prefix, then run the trial from that prefix with a private home:
+
+```sh
+P=/tmp/vera-trial/prefix
+H=/tmp/vera-trial/home
+mkdir -p "$P" "$H"
+VERA_HOME="$H" bun run install:local --prefix "$P" --no-desktop
+VERA_HOME="$H" "$P/bin/vera"
+```
+
+Start the TUI through `$P/bin/vera`, not `bun run dev:tui`. The host then runs
+from `$P`, and a TUI started this way can reopen on the new build after an
+update. To move the trial, install another build into the same prefix from its
+worktree:
+
+```sh
+VERA_HOME="$H" bun run install:local --prefix "$P" --no-desktop
+```
+
+From a terminal this waits for running turns, stops the host and activates the
+new release; press Ctrl+L to reopen the conversation on it. Add
+`VERA_HOT_UPDATE=1` to have the host hand off instead, as
+[Activate a new release](installed-command.md#activate-a-new-release)
+describes.
+
+Keep the prefix and the home private. A running host refuses an install that
+pairs a private prefix with the daily home, and the daily prefix with another
+home. Do not run `bun run dev:tui` and this trial on the same home. The trial
+is an installed release, not a development instance, so `bun run dev:sweep`
+leaves it alone; stop it with `VERA_HOME="$H" "$P/bin/vera" host stop`.
+
 ## Choose a cleanup command
 
 | Command | Scope and effect |

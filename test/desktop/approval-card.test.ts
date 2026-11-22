@@ -193,6 +193,25 @@ describe("the fold", () => {
         expect(html).not.toContain("Show command");
     });
 
+    test("an eval names the script and shows it in full in an open fold", () => {
+        const script = `const value = ${"a".repeat(500)};\nreturn value;`;
+        const html = render({
+            ...shellWrite,
+            requestId: "r3",
+            tool: "builtin_browser_eval",
+            input: { script },
+            reason: "",
+            warning: "",
+            grants: ["desktop.browser.eval"],
+            grantPredicates: [{ operation: "desktop.browser.eval" }],
+        });
+        expect(html).toContain("Run a script in the Browser pane?");
+        expect(html).toContain("aria-expanded=\"true\"");
+        expect(html).toContain("request-script");
+        expect(count(html, script)).toBe(1);
+        expect(html).not.toContain("Show command");
+    });
+
     test("a tool with no headline starts its fold open", () => {
         const html = render({ ...shellWrite, tool: "custom", input: {}, reason: "Because.", grants: [], grantPredicates: [] });
         expect(html).toContain("Show details");

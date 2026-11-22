@@ -5,6 +5,6 @@ export function activate(vera: VeraExtensionApi): void {
         name: "chat",
         description: "Conversation with web lookups and files in the chat's own folder.",
         instructions: "",
-        tools: ["web_search", "web_fetch", "read", "list", "write", "edit", "builtin_browser", "file_feedback"],
+        tools: ["web_search", "web_fetch", "read", "list", "write", "edit", "builtin_browser", "builtin_browser_eval", "file_feedback"],
     });
 }

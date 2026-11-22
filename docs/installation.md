@@ -128,6 +128,30 @@ With `--prefix` naming any other directory the command installs the host, skips
 the app, prints `The desktop app needs Vera in ~/.local; it was not installed.`
 and exits with status 0, the same as the installer script.
 
+### Update only the desktop app
+
+`bun run install:local --desktop-only` builds the desktop app from the checkout
+for the host build that `current` names and installs it without touching the
+host: no release is packed, `current` does not move and no host stops. It runs on
+macOS for the `~/.local` prefix only.
+
+The new package goes beside the installed ones for that build, with a newer
+desktop version. The command adds `.local.1` to the newest installed version,
+such as `0.1.0-alpha.2.local.1`, and each later run counts it up. With no
+package for the build yet, the package takes the build's product version. An
+open Vera window relaunches into the new package and reopens the conversation it
+showed, with its composer draft. Older packages for the build that no running
+window uses are removed.
+
+The desktop app and the host must speak the same protocol. When the checkout's
+`src/host/protocol.ts`, `src/engine/protocol.ts` or `src/engine/host-protocol.ts`
+differs from the installed build's, the command installs nothing, names the
+files, says to run `bun run install:local` to update both, and exits with
+status 1. When the new package needs a newer `Vera.app`, the command replaces the
+app first; while Vera is running it installs nothing and asks you to quit Vera
+and run it again. `--desktop-only` cannot be combined with `--no-desktop` or
+`--force`.
+
 ### Add the launcher to PATH
 
 If your shell cannot find `vera`, add this to your shell startup file and
@@ -151,6 +175,50 @@ running host.
 
 Change to your project directory, run `vera`, and follow
 [Getting started](getting-started.md).
+
+## Uninstall
+
+Run the uninstall script from a terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nashaad/vera/main/scripts/uninstall.sh | sh
+```
+
+The script lists the installed launcher, release files, Vera desktop app and
+Vera home that it found, with their sizes, then asks before removing them. The
+home is `~/.vera` unless `VERA_HOME` names another location. The install prefix
+is `~/.local` unless `VERA_INSTALL_PREFIX` names another location. On macOS the
+script checks the desktop install record, or looks in `/Applications` and
+`~/Applications` when the record or its app is missing. It leaves an app that
+is not Vera in place. If `VERA_HOME` is a symlink, the script stops and asks
+you to use its actual directory instead. It refuses the filesystem root, your
+home directory, and any ancestor of your home directory.
+
+The script asks all questions before stopping anything. It offers to back up
+the Vera home, defaulting to yes, and requires an answer on whether to include
+provider sign-ins from `machine/auth.json`. It asks where to save the backup,
+with your home folder as the default. A backup directory can start with `~` or
+`~/`.
+
+The script then quits the desktop app and stops the host. If it cannot confirm
+that the host stopped, nothing is removed. If the host is waiting for running
+turns, run the script again after it stops. After stopping the host, the script
+creates the backup before removing anything. If backup creation fails, nothing
+is removed; the host starts again the next time you run `vera`. The user-only
+`vera-backup-<date>-<time>.tar.gz` archive has a README describing its contents
+and restoration. Other home files can contain secrets even when sign-ins are
+excluded.
+
+Without an interactive terminal, uninstall requires `VERA_UNINSTALL=yes`. It
+then backs up the home including sign-ins by default, unless
+`VERA_UNINSTALL_BACKUP=no` disables the backup. `VERA_UNINSTALL_BACKUP_DIR`
+sets the backup location in either mode and is the interactive default.
+
+Uninstall removes the listed launcher, release files, desktop app and home. It
+leaves macOS preferences and saved application state at
+`~/Library/Preferences/dev.vera.desktop.plist` and
+`~/Library/Saved Application State/dev.vera.desktop.savedState` when present,
+and reports those paths and the backup path.
 
 ## Upgrade
 

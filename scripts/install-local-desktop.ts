@@ -2,7 +2,7 @@ import { accessSync, constants, lstatSync, mkdirSync, mkdtempSync, realpathSync,
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
-import { installDesktopPackage, type DesktopPackage } from "../src/release/desktop-packages.ts";
+import { installDesktopPackage } from "../src/release/desktop-packages.ts";
 import { processExecutables } from "../src/release/gc.ts";
 import { userHome } from "../src/release/layout.ts";
 import { VERA_PRODUCT_VERSION } from "../src/release/manifest.ts";
@@ -102,7 +102,7 @@ export async function installLocalDesktop(options: LocalDesktopOptions): Promise
             desktopVersion: version,
             prefix: options.prefix,
         });
-        return await placeApp(options, installed.package, built.shell.path, version);
+        return await placeApp(options, installed.package.shellApi, built.shell.path, version);
     } catch (error) {
         return { kind: "failed", message: error instanceof Error ? error.message : String(error) };
     } finally {
@@ -110,9 +110,16 @@ export async function installLocalDesktop(options: LocalDesktopOptions): Promise
     }
 }
 
-async function placeApp(
-    options: LocalDesktopOptions,
-    desktopPackage: DesktopPackage,
+export interface PlaceAppOptions {
+    readonly prefix: string;
+    readonly applicationsDirectory?: string;
+    readonly isRunning?: (appPath: string) => boolean;
+}
+
+// Installs Vera.app from the shell archive unless the app there already has shell API `shellApi`.
+export async function placeApp(
+    options: PlaceAppOptions,
+    shellApi: number,
     shellArchive: string,
     version: string,
 ): Promise<LocalDesktopOutcome> {
@@ -124,7 +131,7 @@ async function placeApp(
     if (present && api === undefined) {
         return failed(`${appPath} is not the Vera desktop app, so it was left alone. Move it away and run this again.`);
     }
-    if (api !== undefined && api >= desktopPackage.shellApi) {
+    if (api !== undefined && api >= shellApi) {
         writeDesktopInstallRecord(options.prefix, appPath);
         return { kind: "kept", appPath };
     }
@@ -143,7 +150,7 @@ async function placeApp(
     mkdirSync(apps, { recursive: true });
     try {
         const staged = await stageShell(
-            { kind: "swap", appPath, tarball: shellArchive, requiredApi: desktopPackage.shellApi, version },
+            { kind: "swap", appPath, tarball: shellArchive, requiredApi: shellApi, version },
             options.prefix,
         );
         staged.commit();

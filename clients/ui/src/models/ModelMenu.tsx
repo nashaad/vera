@@ -3,7 +3,7 @@ import { useState, type CSSProperties, type KeyboardEvent } from "react";
 import { ChevronRightIcon } from "../components/Icons.tsx";
 import { allModels, NUMBERED_ROWS } from "./catalog.ts";
 import type { ModelControls } from "./controls.ts";
-import { buildMenuRows, moveFocus, numberKeySlot, pickOrder, providerLabel, rowTitle, shortlistSub } from "./menuRows.ts";
+import { buildMenuRows, allFavoritesUnavailable, moveFocus, numberKeySlot, pickOrder, providerLabel, rowTitle, shortlistSub } from "./menuRows.ts";
 import { ModelMenuRow } from "./ModelMenuRow.tsx";
 import type { ModelEntry, ModelSettings } from "./settings.ts";
 
@@ -94,6 +94,9 @@ export function ModelMenu({ controls, settings, onClose, onBrowse, style, initia
             )}
             {settings.shortlist.length === 0 ? (
                 <p className="model-empty">You have no favorites. Add some in All models.</p>
+            ) : null}
+            {!rows.searching && allFavoritesUnavailable(settings) ? (
+                <p className="model-empty">None of your favorites is offered now. Manage them in All models.</p>
             ) : null}
             {rows.shortlist.map((row, index) => (
                 <ModelMenuRow

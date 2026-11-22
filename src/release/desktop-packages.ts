@@ -21,9 +21,9 @@ import {
 } from "./desktop-package-manifest.ts";
 import {
     defaultInstallPrefix,
+    desktopBuildPackagesDirectory,
     desktopInstallRecordPath,
     desktopPackageDirectory,
-    desktopPackagesDirectory,
 } from "./layout.ts";
 import { isReleaseVersion } from "./version.ts";
 import { compareReleaseVersions } from "./version-order.ts";
@@ -112,7 +112,7 @@ export function scanDesktopPackages(
     hostBuildId: string,
     prefix = defaultInstallPrefix(),
 ): DesktopPackageScan {
-    const hostDirectory = join(desktopPackagesDirectory(prefix), hostBuildId);
+    const hostDirectory = desktopBuildPackagesDirectory(hostBuildId, prefix);
     let names: string[];
     try {
         names = readdirSync(hostDirectory, { withFileTypes: true })

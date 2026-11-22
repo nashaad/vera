@@ -379,13 +379,14 @@ jobs:
         run: |
           set -eu
           cp scripts/install.sh dist/install.sh
+          cp scripts/uninstall.sh dist/uninstall.sh
           set --
           case "$RELEASE_VERSION" in
             *-*) set -- --prerelease ;;
           esac
           gh release create "v$RELEASE_VERSION" --draft --verify-tag "$@" \
             --title "Vera $RELEASE_VERSION" --notes-file dist/release-notes.md \
-            dist/vera-*.tar.gz dist/vera-*.tar.gz.sha256 dist/install.sh
+            dist/vera-*.tar.gz dist/vera-*.tar.gz.sha256 dist/install.sh dist/uninstall.sh
 
   container-smoke:
     name: Smoke test curl installer and faux model

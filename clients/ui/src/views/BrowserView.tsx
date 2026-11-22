@@ -27,6 +27,7 @@ export function BrowserView({ visible }: ViewProps) {
     const slot = useSlot(key);
     const { native } = useSlotStore();
     const page = slot.page === undefined ? undefined : native?.tabs.find((candidate) => candidate.id === slot.page);
+    const handoff = page !== undefined && native?.handoff?.page === page.id ? native.handoff : undefined;
     const [typed, setTyped] = useState<string | undefined>(undefined);
     const [error, setError] = useState<string | undefined>(undefined);
     const [historyOpen, setHistoryOpen] = useState(false);
@@ -158,6 +159,13 @@ export function BrowserView({ visible }: ViewProps) {
                     <span className="browser-tools-label">Browser tools {native?.toolsEnabled ? "on" : "off"}</span>
                 </label>
             </div>
+            {handoff === undefined ? null : <div className="browser-handoff" role="status">
+                <span>Vera needs you: {handoff.reason}</span>
+                <div className="browser-handoff-actions">
+                    <button type="button" onClick={() => { void nativeCommand("handoff", { id: handoff.id, result: "done" }); }}>Done</button>
+                    <button type="button" onClick={() => { void nativeCommand("handoff", { id: handoff.id, result: "skipped" }); }}>Skip</button>
+                </div>
+            </div>}
             {error === undefined ? null : <p role="alert" className="view-note">{error}</p>}
             {historyOpen ? (
                 <BrowserHistory focusClear={focusClear} open={(url) => {
