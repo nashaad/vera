@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { resolveSpawnModelChoice } from "../../src/engine/subagent.ts";
 import { subagentPoolPolicy } from "../../src/host/subagent-policy.ts";
 
 const directories: string[] = [];
@@ -41,6 +42,7 @@ test("allow, deny, the failsafe list and families come off the pool file", () =>
     });
 
     expect(subagentPoolPolicy({ userPath })).toEqual({
+        allowSelf: true,
         allow: ["*"],
         deny: ["openrouter/*:free"],
         failsafe: ["bedrock/claude-sonnet-5"],
@@ -88,8 +90,56 @@ test("a failsafe candidate nothing knows about is left out of tool support", () 
     expect(subagentPoolPolicy({ userPath }).tools).toBeUndefined();
 });
 
-test("an empty file gates nothing", () => {
-    expect(subagentPoolPolicy({ userPath: poolPath({}) })).toEqual({});
+test("an empty file permits the parent model", () => {
+    expect(subagentPoolPolicy({ userPath: poolPath({}) })).toEqual({ allowSelf: true });
+});
+
+test("@core subagent policy defaults to the parent and explicit off requires setup", () => {
+    const userPath = poolPath({});
+    const base = { schema_version: 1, provider: "openrouter", model: "parent", approval_mode: "auto" };
+    const context = { approvalMode: "auto" as const, provider: "openrouter", model: "parent" };
+    for (const subagents of [undefined, { models: [] }, { models: [], allow_self: true }]) {
+        const path = configPath({ ...base, ...(subagents === undefined ? {} : { model_assignments: { subagents } }) });
+        const policy = subagentPoolPolicy({ userPath, configPath: path });
+        expect(resolveSpawnModelChoice({}, context, () => [], undefined, policy)).toMatchObject({
+            ok: true, provider: "openrouter", model: "parent",
+        });
+    }
+    const path = configPath({ ...base, model_assignments: { subagents: { models: [], allow_self: false } } });
+    const policy = subagentPoolPolicy({ userPath, configPath: path });
+    expect(policy.allowSelf).not.toBe(true);
+    expect(resolveSpawnModelChoice({}, context, () => [], undefined, policy)).toMatchObject({
+        ok: false, reason: "configuration_required",
+    });
+});
+
+test("the default parent fallback follows assigned models and respects deny rules", () => {
+    const userPath = poolPath({ models: { "openrouter/worker": { added: true } } });
+    const base = {
+        schema_version: 1, provider: "openrouter", model: "parent", approval_mode: "auto",
+    };
+    const models = [{ name: "worker", provider: "openrouter", model: "worker" }];
+    const pool = [{ provider: "openrouter", model: "worker", label: "Worker", available: true, verified: true, levels: [] }];
+    const context = { approvalMode: "auto" as const, provider: "openrouter", model: "parent" };
+    const onPath = configPath({ ...base, model_assignments: { subagents: { models } } });
+    const onPolicy = subagentPoolPolicy({ userPath, configPath: onPath });
+    expect(resolveSpawnModelChoice({}, context, () => pool, undefined, onPolicy)).toMatchObject({
+        ok: true, model: "worker",
+    });
+    const unavailable = pool.map((entry) => ({ ...entry, available: false }));
+    expect(resolveSpawnModelChoice({}, context, () => unavailable, undefined, onPolicy)).toMatchObject({
+        ok: true, model: "parent",
+    });
+    const offPath = configPath({ ...base, model_assignments: { subagents: { models, allow_self: false } } });
+    const offPolicy = subagentPoolPolicy({ userPath, configPath: offPath });
+    expect(resolveSpawnModelChoice({}, context, () => unavailable, undefined, offPolicy)).toMatchObject({
+        ok: false, reason: "unavailable",
+    });
+    const denied = poolPath({ defaults: { deny: ["openrouter/parent"] } });
+    const deniedPolicy = subagentPoolPolicy({ userPath: denied, configPath: configPath(base) });
+    expect(resolveSpawnModelChoice({}, context, () => [], undefined, deniedPolicy)).toMatchObject({
+        ok: false, reason: "unavailable",
+    });
 });
 
 test("a relative subagent effort reaches the self rung", () => {

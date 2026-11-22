@@ -165,7 +165,7 @@ try {
     await until("Compaction leaning on Eco", async () => /Uses Eco/.test(await button("Compaction").innerText()));
     if (!(await row("Eco").innerText()).includes("compaction")) throw new Error("Eco does not say compaction uses it.");
 
-    // A subagent model joins the list, and the switch writes allow_self.
+    // A subagent model joins the list, and the switch follows the default-on state.
     await row("Subagents").locator(".slot-btn").click();
     await picker.waitFor();
 
@@ -199,8 +199,14 @@ try {
     await picker.locator(".slot-pick", { hasText: "Crow" }).click();
     await toast("Subagents can now run Crow, first in order");
     await until("crow-0 in subagents", async () => names("subagents").includes("crow-0"));
-    await page.getByRole("switch", { name: "Then the spawning session's model" }).click();
-    await until("allow_self in config.json", async () => assignments().subagents?.allow_self === true);
+    const allowSelf = page.getByRole("switch", { name: "Then the spawning session's model" });
+    await until("the spawning model switch on by default", async () => await allowSelf.getAttribute("aria-checked") === "true");
+    await allowSelf.click();
+    await until("allow_self false in config.json", async () => assignments().subagents?.allow_self === false);
+    await until("the spawning model switch off", async () => await allowSelf.getAttribute("aria-checked") === "false");
+    await allowSelf.click();
+    await until("allow_self true in config.json", async () => assignments().subagents?.allow_self === true);
+    await until("the spawning model switch on", async () => await allowSelf.getAttribute("aria-checked") === "true");
 
     // Each read and write ran in a process of its own, and none is left running.
     await until("the assignment processes to stop", async () => {

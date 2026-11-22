@@ -25,6 +25,8 @@ import {
 
 export interface ModelsBrowserProps {
     readonly controls: ModelControls;
+    readonly initialTab?: BrowserTab;
+    readonly onSubagentsChanged?: () => void;
     readonly onClose: () => void;
 }
 
@@ -36,9 +38,9 @@ interface ProbeResult {
     readonly outcome: ProbeOutcome;
 }
 
-export function ModelsBrowser({ controls, onClose }: ModelsBrowserProps) {
+export function ModelsBrowser({ controls, initialTab = "All models", onSubagentsChanged, onClose }: ModelsBrowserProps) {
     const [connecting, setConnecting] = useState(false);
-    const [tab, setTab] = useState<BrowserTab>("All models");
+    const [tab, setTab] = useState<BrowserTab>(initialTab);
     const [query, setQuery] = useState("");
     const [cutoff, setCutoff] = useState<IntelligenceCutoff>("any");
     const [provider, setProvider] = useState<string>(ANY_PROVIDER);
@@ -142,7 +144,7 @@ export function ModelsBrowser({ controls, onClose }: ModelsBrowserProps) {
                     {tab !== "Help" && settings === undefined && (
                         <div className="models-empty">Vera has not listed its models yet.</div>
                     )}
-                    {tab === "Defaults" && settings !== undefined && <DefaultsTab controls={controls} settings={settings} />}
+                    {tab === "Defaults" && settings !== undefined && <DefaultsTab controls={controls} settings={settings} onSubagentsChanged={onSubagentsChanged} />}
                     {showsList && settings !== undefined && (
                         <>
                             <div className="models-toolbar">

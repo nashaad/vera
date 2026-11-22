@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { OPEN_MODEL_DEFAULTS_EVENT, openModelDefaults, type OpenModelDefaultsDetail } from "../../clients/ui/src/models/open-defaults.ts";
 import { initialWatch, reduceWatch } from "../../clients/ui/src/session/transcript.ts";
 import {
     approvalAnswersFor,
@@ -173,6 +174,32 @@ describe("open requests", () => {
             waiting: 1, destination: "provider", provider: "openrouter" });
     });
 
+    test("a subagent setup request retains its assignment", () => {
+        const message = line({ type: "ui_request", requestId: "s3", request: {
+            type: "configuration_required", destination: { kind: "model_assignment", assignment: "subagents" },
+            reason: "Pick a subagent model.", pendingAction: { count: 1 },
+        } });
+        if (message.type !== "ui_request") throw new Error("expected a request");
+        expect(message.request).toEqual({ kind: "setup", requestId: "s3", reason: "Pick a subagent model.",
+            waiting: 1, destination: "model_assignment", assignment: "subagents" });
+    });
+
+    test("model defaults opens only in the requesting session", () => {
+        const session = new EventTarget();
+        const otherSession = new EventTarget();
+        let received = 0;
+        let otherReceived = 0;
+        let configured = 0;
+        session.addEventListener(OPEN_MODEL_DEFAULTS_EVENT, (event) => {
+            received += 1;
+            (event as CustomEvent<OpenModelDefaultsDetail>).detail.onSubagentsChanged();
+        });
+        otherSession.addEventListener(OPEN_MODEL_DEFAULTS_EVENT, () => { otherReceived += 1; });
+        const from = { closest: (selector: string) => selector === ".session-page" ? session : null } as unknown as Element;
+        openModelDefaults(from, () => { configured += 1; });
+        expect({ received, otherReceived, configured }).toEqual({ received: 1, otherReceived: 0, configured: 1 });
+    });
+
     test("unknown request types and malformed requests are skipped", () => {
         expect(parseSessionLine(JSON.stringify({ type: "ui_request", requestId: "x", request: { type: "other" } }))).toBeUndefined();
         expect(parseSessionLine(JSON.stringify({ type: "ui_request", request: approval.request }))).toBeUndefined();
@@ -245,6 +272,9 @@ describe("answers", () => {
         });
         expect(JSON.parse(setupResponse("s1", "unavailable"))).toEqual({
             type: "ui_response", requestId: "s1", response: { type: "configuration_required", outcome: "unavailable" },
+        });
+        expect(JSON.parse(setupResponse("s1", "configured"))).toEqual({
+            type: "ui_response", requestId: "s1", response: { type: "configuration_required", outcome: "configured" },
         });
         expect(approvalResponse("r1", "allow_once").endsWith("\n")).toBe(true);
     });

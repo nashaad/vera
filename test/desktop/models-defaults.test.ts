@@ -8,6 +8,7 @@ import {
     leaningJobs,
     ordinal,
     subagentAddedText,
+    subagentConfigurationChanged,
     unreachable,
     unsetChoice,
     usedByText,
@@ -89,6 +90,22 @@ describe("Defaults copy", () => {
         expect([1, 3, 4].map(ordinal)).toEqual(["first", "third", "number 4"]);
         expect(allText(0, big, name)).toBe("Every default already uses big-1");
         expect(allText(1, big, name)).toBe("1 default now use big-1");
+    });
+
+    test("subagent setup resumes only for an effective switch or list change", () => {
+        const before = view(slot({ id: "subagents", allowSelf: true, declared: [big, small] }));
+        expect(subagentConfigurationChanged(before, before)).toBe(false);
+        expect(subagentConfigurationChanged(undefined, before)).toBe(false);
+        const implicit = view(slot({ id: "subagents", declared: [big, small] }));
+        expect(subagentConfigurationChanged(implicit, before)).toBe(false);
+        expect(subagentConfigurationChanged(before, view(
+            slot({ id: "eco", declared: [small] }),
+            slot({ id: "subagents", allowSelf: true, declared: [big, small] }),
+        ))).toBe(false);
+        expect(subagentConfigurationChanged(before, view(slot({ id: "subagents", allowSelf: false, declared: [big, small] })))).toBe(true);
+        expect(subagentConfigurationChanged(before, view(slot({ id: "subagents", allowSelf: true, declared: [small, big] })))).toBe(true);
+        expect(subagentConfigurationChanged(before, view(slot({ id: "subagents", allowSelf: true, declared: [big] })))).toBe(true);
+        expect(subagentConfigurationChanged(before, view(slot({ id: "subagents", allowSelf: true, declared: [{ ...big, effort: "low" }, small] })))).toBe(true);
     });
 
     test("one model for all counts only the slots it changed", () => {

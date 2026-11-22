@@ -69,6 +69,11 @@ test("missing subagent settings are configured and confirmed through the real TU
                 probe: { ok: true, seen: "2026-09-22" },
             }, { path: poolPath });
             configPath = defaultVeraConfigPath();
+            await Bun.write(configPath, JSON.stringify({
+                schema_version: 1,
+                model: "faux/test",
+                model_assignments: { subagents: { models: [], allow_self: false } },
+            }));
             registry = new AgentRegistry({
                 createAdapter(): ModelAdapter {
                     adapterCount += 1;
@@ -189,7 +194,9 @@ test("missing subagent settings are configured and confirmed through the real TU
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("Could not write the assignment");
         expect(pane).toContain("Subagent models");
-        expect(existsSync(configPath)).toBe(false);
+        expect(existsSync(configPath)).toBe(true);
+        expect(loadVeraConfig({ path: configPath }).model_assignments?.subagents)
+            .toMatchObject({ models: [], allow_self: false });
 
         // A failed durable write leaves the same picker retryable. Restoring
         // the store and pressing Enter again completes the original request.
@@ -283,6 +290,11 @@ test("assigning a model outside the pool adds it to favorites and the subagent r
             await Bun.write(join(workspace, ".keep"), "");
             addPoolModel("ollama/worker", { added: true }, { path: poolPath });
             configPath = defaultVeraConfigPath();
+            await Bun.write(configPath, JSON.stringify({
+                schema_version: 1,
+                model: "faux/test",
+                model_assignments: { subagents: { models: [], allow_self: false } },
+            }));
             registry = new AgentRegistry({
                 createAdapter(): ModelAdapter {
                     adapterCount += 1;
