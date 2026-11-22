@@ -153,6 +153,13 @@ export const SETTINGS_ROWS: readonly SettingsRowEntry[] = [
     },
     {
         sectionId: "data",
+        rowId: "data.storage",
+        name: "Storage",
+        description: "See how much space Vera uses on this computer",
+        terms: "disk space size usage manage free up clean cleanup delete scratch logs caches",
+    },
+    {
+        sectionId: "data",
         rowId: "data.desktop-folder",
         name: "Desktop folder",
         description: "",
