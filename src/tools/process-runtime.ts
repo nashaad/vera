@@ -1206,6 +1206,12 @@ function stopProcessTree(pid: number, startedAt: string): string | undefined {
 
 function processGroupAlive(pid: number): boolean {
     if (process.platform === "win32") return false;
+    try {
+        process.kill(-pid, 0);
+        return true;
+    } catch (error) {
+        if (isMissingProcess(error)) return false;
+    }
     const result = Bun.spawnSync(["ps", "-axo", "pgid="], { stdout: "pipe", stderr: "pipe" });
     if (result.exitCode !== 0) throw new Error(result.stderr.toString().trim() || "ps failed");
     return result.stdout.toString().split("\n").some((line) => Number(line.trim()) === pid);
