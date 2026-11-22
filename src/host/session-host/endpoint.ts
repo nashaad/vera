@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { sessionScratchPath } from "../../session-scratch.ts";
 
 import { isStopCause } from "../../model/types.ts";
 import { chatFolderPath } from "../../store/chat-folder.ts";
@@ -182,6 +183,7 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
                     sessionPath: plan.sessionPath,
                     attachmentsPath: `${plan.sessionPath}.attachments`,
                     filesPath: chatFolderPath(plan.sessionPath),
+                    scratchPath: sessionScratchPath(plan.id, host.registry.options.home),
                     eventLogPath: plan.eventLogPath,
                 });
                 return true;

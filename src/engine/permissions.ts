@@ -1846,7 +1846,8 @@ function rescopeScratchAction(
         return action;
     }
     const root = resolve(scratchDir);
-    if (action.path !== root && !action.path.startsWith(`${root}${sep}`)) {
+    const path = resolve(action.path);
+    if (path !== root && !path.startsWith(`${root}${sep}`)) {
         return action;
     }
     const { otherWorktree: _otherWorktree, ...inside } = action;

@@ -179,6 +179,7 @@ export type RequestMediatedApproval = (
 
 export interface RunHeadlessLoopServices {
 
+    readonly scratchDir?: string;
     readonly sessionStore?: SessionStore;
     readonly eventBus?: EngineEventBus;
     readonly effortPool?: EffortPool;

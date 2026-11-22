@@ -38,11 +38,17 @@ changes with `/diff` and stop the active turn with Ctrl+C. Messages you submit
 during a turn are queued, and can join the turn after its next tool step. See
 [Queue messages](queued-messages.md) for the controls that send them.
 
-Each conversation has a scratch folder for Vera's own working notes. When Vera
-keeps a task list there, the transcript shows it as a checklist with the file's
-full path and a done count instead of a file diff. Other notes in that folder
-show as one `Updated notes` line with the note's full path. Tool rows show
-scratch files by their full path too, so you can open them.
+Each conversation has a scratch folder for Vera's own working notes at
+`runtime/scratch/<session-id>` in its Vera home. A synchronous subagent shares
+its parent's folder. The folder is removed when its session is deleted, or when
+a parked session has been idle for `scratch_max_age_days` (4 days by default).
+An open or running session keeps its folder. When a session resumes, Vera moves
+its scratch folder from the old temporary location into the home.
+
+When Vera keeps a task list there, the transcript shows it as a checklist with
+the file's full path and a done count instead of a file diff. Other notes in
+that folder show as one `Updated notes` line with the note's full path. Tool
+rows show scratch files by their full path too, so you can open them.
 
 If a conversation's working folder is deleted or moved while it is open, the
 `bash`, `read`, `list`, `grep`, `write`, and `edit` tools fail with

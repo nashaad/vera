@@ -1,4 +1,5 @@
 import { modelSelectionCleared } from "../model-catalog-settings.ts";
+import { sessionScratchPath } from "../../session-scratch.ts";
 import { randomUUID } from "node:crypto";
 import { link, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -231,7 +232,10 @@ export async function reapClosedAgent(reg: AgentRegistry, id: string, entry: Reg
         reg.agents.delete(id);
         reg.spawnNotices.delete(id);
         if (entry.ephemeral) {
-            await rm(dirname(entry.store.path), { recursive: true, force: true });
+            await Promise.all([
+                rm(dirname(entry.store.path), { recursive: true, force: true }),
+                rm(sessionScratchPath(id, reg.options.home), { recursive: true, force: true }),
+            ]);
         }
     }
 
@@ -581,6 +585,7 @@ export async function trashSession(reg: AgentRegistry, targetId: string): Promis
                     sessionPath: entry.store.path,
                     attachmentsPath: `${entry.store.path}.attachments`,
                     filesPath: chatFolderPath(entry.store.path),
+                    scratchPath: sessionScratchPath(targetId, reg.options.home),
                     eventLogPath: entry.eventLogPath,
                 });
             } catch {
@@ -1029,10 +1034,10 @@ export async function close(reg: AgentRegistry): Promise<void> {
         await Promise.all([...reg.deliveryTasks]);
         await Promise.all(entries
             .filter((entry) => entry.ephemeral)
-            .map((entry) => rm(dirname(entry.store.path), {
-                recursive: true,
-                force: true,
-            })));
+            .flatMap((entry) => [
+                rm(dirname(entry.store.path), { recursive: true, force: true }),
+                rm(sessionScratchPath(entry.agent.id, reg.options.home), { recursive: true, force: true }),
+            ]));
         const failed = entries.find((entry) => entry.closeFailure !== undefined);
         if (failed !== undefined) throw failed.closeFailure;
     }

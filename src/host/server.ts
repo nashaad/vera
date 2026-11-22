@@ -4,7 +4,7 @@ import type { JsonValue, SessionEndReason } from "../sdk/hooks.ts";
 import type { ExtensionLoadFailure, ModelOperationRequest } from "./protocol.ts";
 import type { ModelOperationResult, ModelOperationStep } from "../model/model-operations.ts";
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
-import { sessionScratchDir } from "../engine/run-turn.ts";
+import { sessionScratchDir } from "../session-scratch.ts";
 import { createServer, type Server, type Socket } from "node:net";
 import { chmod, link, lstat, mkdir, mkdtemp, rmdir, stat, unlink } from "node:fs/promises";
 import type { Stats } from "node:fs";
@@ -206,6 +206,7 @@ function isHostOnlyRequest(request: HostRequest): boolean {
 }
 
 export interface StartHostServerOptions {
+    readonly scratchDirectory?: (sessionId: string) => string;
     readonly readExtensionState?: (sessionId: string) => import("../extensions/session-state.ts").ExtensionSessionStates;
     readonly socketPath?: string;
     readonly lockPath?: string;
@@ -645,6 +646,7 @@ async function startListener(
             options.restartRecords ?? { list: () => [], dismiss: () => 0 },
             resolveHostLimits(options.limits),
             options.subscribeSessionShow,
+            options.scratchDirectory ?? sessionScratchDir,
         );
     });
     let ownedSocketStat: Stats | undefined;
@@ -961,6 +963,7 @@ function receiveConnection(
     restartRecords: RestartRecordsPort,
     limits: HostLimits,
     subscribeSessionShow: SessionShowHub["subscribe"] | undefined,
+    scratchDirectory: (sessionId: string) => string,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -2490,7 +2493,7 @@ function receiveConnection(
             type: "attached",
             agent_id: attachedId,
             workspace: agent.workspace,
-            scratch_directory: sessionScratchDir(attachedId),
+            scratch_directory: scratchDirectory(attachedId),
             ...(agent.failed ? { failed: true as const } : {}),
             background_agents: sentBackgroundAgents,
             capabilities: negotiated,

@@ -32,6 +32,7 @@ import { searchAcrossOwners } from "./search.ts";
 import { trashAcrossOwners, type PreparedTrash } from "./trash.ts";
 import { closeAcrossOwners } from "./close.ts";
 import { recoveryFileStamp, sameRecoveryFile, type RecoveryFileStamp } from "./recovery-file.ts";
+import type { GuardedScratchDetach } from "../scratch-retention.ts";
 export type { RoutedSession, SessionEndpoint, SessionResumeOptions, SessionSnapshot } from "./session-endpoint.ts";
 
 export class SessionTransferReservationsChanged extends Error {}
@@ -173,6 +174,29 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
             if (openings.length === 0) return;
             await Promise.all(openings);
         }
+    }
+
+    removeScratchIfUnowned(
+        id: string,
+        detach: GuardedScratchDetach,
+    ): Promise<boolean> {
+        return this.serial(async () => {
+            const ownershipUncertain = (): boolean => this.options.ownershipUncertain?.() === true
+                || this.workers.some((worker) => !worker.ready())
+                || this.hostOpening.size > 0
+                || this.recoveryOpens.size > 0
+                || this.workerOpenings.size > 0
+                || this.trashing.size > 0;
+            if (ownershipUncertain()) return false;
+            const residents = await Promise.all(
+                [...this.endpoints.values()].map((endpoint) => endpoint.residents()),
+            );
+            if (ownershipUncertain()) return false;
+            if (residents.some((sessions) => sessions.some((session) => session.id === id))) {
+                return false;
+            }
+            return await detach(() => !ownershipUncertain());
+        });
     }
 
     workerSessions(owner: WorkerOwner, held: readonly string[] = []): readonly WorkerRecoverySession[] {

@@ -14,7 +14,8 @@ import { BUILT_IN_PERMISSION_MODE_NAMES, type ApprovalMode } from "../engine/per
 import { ProviderUnavailableError, UserFacingError } from "../user-facing-error.ts";
 import { isModelReasoningEffort, type ModelSettingsPatch, type ModelTurnSettings } from "../engine/model-settings.ts";
 import type { EffectiveCatalogOptions } from "../model/catalog.ts";
-import { runHeadlessLoop, sessionScratchDir } from "../engine/run-turn.ts";
+import { runHeadlessLoop } from "../engine/run-turn.ts";
+import { sessionScratchDir } from "../session-scratch.ts";
 import type { RunHeadlessLoopData, RunHeadlessLoopServices } from "../engine/loop-services.ts";
 import { createRoutedCompletionService } from "../engine/completion-service.ts";
 import { BUNDLED_COMPACTION_STRATEGIES, bindCompaction } from "../engine/compaction-binding.ts";
@@ -1143,7 +1144,7 @@ export class AgentRegistry {
             workspace: store.header.cwd,
             parentSessionId: store.header.id,
             instructionRoot,
-            scratchDir: sessionScratchDir(store.header.id),
+            scratchDir: sessionScratchDir(store.header.id, this.options.home),
             processRegistry: this.processRegistry,
             get disabledPromptContributions() {
                 return disabledPromptContributions();
@@ -1336,6 +1337,7 @@ export class AgentRegistry {
             ? this.createInProcessBlockLatch(entry)
             : undefined;
         const loopServices: RunHeadlessLoopServices = {
+                scratchDir: sessionScratchDir(store.header.id, this.options.home),
                 sessionStore: store,
                 ...(this.options.modelFailureLedger === undefined
                     ? {}

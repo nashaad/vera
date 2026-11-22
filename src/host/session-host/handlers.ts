@@ -1,3 +1,4 @@
+import { sessionScratchDir, sessionScratchPath } from "../../session-scratch.ts";
 import type { HostLog } from "../host-log.ts";
 import type { SessionEndReason } from "../../sdk/hooks.ts";
 import { basename } from "node:path";
@@ -90,6 +91,7 @@ export interface SessionHandlers extends Required<Pick<StartHostServerOptions,
     | "canReplace"
     | "onAgentStartFailure"
     | "subscribeSessionShow"
+    | "scratchDirectory"
 >> {
     readonly createAgent: (...args: Parameters<NonNullable<StartHostServerOptions["createAgent"]>>) => Promise<ResidentAgent>;
     readonly importSession: (path: string, sessionId?: string) => Promise<SessionImportOutcome>;
@@ -181,6 +183,7 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
                 sessionPath,
                 attachmentsPath: `${sessionPath}.attachments`,
                 filesPath: chatFolderPath(sessionPath),
+                scratchPath: sessionScratchPath(targetId, registry.options.home),
                 ...(eventLogPathForId === undefined || workspace === undefined
                     ? {} : { eventLogPath: eventLogPathForId(targetId, workspace) }),
             };
@@ -249,6 +252,7 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
             : { status: "not_found" } as const;
     };
     return {
+        scratchDirectory: (id) => sessionScratchDir(id, registry.options.home),
         subscribeSessionShow: options.showHub.subscribe,
         blockParts: sessionBlocks,
         rememberStored(summary) {

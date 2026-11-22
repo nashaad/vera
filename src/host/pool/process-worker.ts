@@ -682,6 +682,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
     };
     return {
         hostHandlers: routed.hostHandlers,
+        removeScratchIfUnowned: routed.removeScratchIfUnowned,
         async recoverCrashedTurns(scanOptions) {
             try {
                 return await recoverPoolCrashedTurns({

@@ -11,6 +11,7 @@ import { HostRouter, SessionTransferReservationsChanged, type RouterWorker } fro
 import type { SessionEndpoint } from "./session-endpoint.ts";
 import type { SessionOwner } from "./roster.ts";
 import { RoutedSnapshots } from "./snapshots.ts";
+import type { GuardedScratchDetach } from "../scratch-retention.ts";
 
 export interface RoutedHostOptions {
     readonly host: SessionHost;
@@ -256,7 +257,9 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
             && (await Promise.all((options.extraWorkers ?? []).map((worker) => worker.canReplace()))).every(Boolean),
     };
     return {
-        router, attachments, common, branch, route, reserveAgent, snapshots, hostHandlers,
+        router,
+        removeScratchIfUnowned: (id: string, detach: GuardedScratchDetach) => router.removeScratchIfUnowned(id, detach),
+        attachments, common, branch, route, reserveAgent, snapshots, hostHandlers,
         close() {
             options.host.setExtensionSessions(options.host.localExtensionSessions);
             options.host.registry.peerSessions = undefined;
