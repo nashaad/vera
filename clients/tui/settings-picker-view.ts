@@ -2023,7 +2023,7 @@ export function pickerFooterText(
             ...(selected?.action === true
                 ? []
                 : [tuiKeyHint("declare_provider")]),
-            ...(selected?.refreshable === true
+            ...(selected?.refreshable === true && selected?.enabled !== false
                 ? [tuiKeyHint("refresh_catalog")]
                 : []),
             state.parent === undefined ? "esc close" : "esc back",

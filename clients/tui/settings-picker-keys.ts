@@ -540,7 +540,7 @@ function refreshCatalogKey(
     provider: string | undefined,
 ): TuiSettingsPickerTransition {
     const selected = state.options[state.selectedIndex];
-    if (provider === undefined || selected?.refreshable !== true) {
+    if (provider === undefined || selected?.refreshable !== true || selected.enabled === false) {
         return unchanged(state, true);
     }
     return { state, handled: true, refreshCatalog: provider };

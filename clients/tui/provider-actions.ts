@@ -42,7 +42,7 @@ export function providerActions(
     if (provider.localRuntime === true) {
         options.push(...localRuntimeActions(parent.localRuntime));
     }
-    if (provider.refreshable === true) {
+    if (provider.refreshable === true && provider.enabled !== false) {
         options.push({ value: "refresh", label: "Refresh", description: "Read this provider's model catalog" });
     }
     return {

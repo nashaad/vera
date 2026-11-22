@@ -3105,6 +3105,26 @@ test("the provider actions menu offers the same turn off and turn on", () => {
     });
 });
 
+test("@core an Off provider hides the refresh it cannot do", () => {
+    const on = startTuiProviderPicker([PROVIDER_ROWS[2]]);
+    const off = startTuiProviderPicker([{ ...PROVIDER_ROWS[2], enabled: false }]);
+    const onIndex = on.options.findIndex((row) => row.value === "ollama");
+    const offIndex = off.options.findIndex((row) => row.value === "ollama");
+
+    expect(pickerFooter(on)).toContain("Ctrl+R refresh");
+    expect(pickerFooter(off)).not.toContain("Ctrl+R refresh");
+
+    const onActions = handleTuiSettingsPickerKey({ ...on, selectedIndex: onIndex }, { name: "enter" }).state!;
+    expect(onActions.options.map((row) => row.label)).toContain("Refresh");
+    const offActions = handleTuiSettingsPickerKey({ ...off, selectedIndex: offIndex }, { name: "enter" }).state!;
+    expect(offActions.options.map((row) => row.label)).not.toContain("Refresh");
+
+    expect(handleTuiSettingsPickerKey({ ...off, selectedIndex: offIndex }, { name: "r", ctrl: true }))
+        .not.toHaveProperty("refreshCatalog");
+    expect(handleTuiSettingsPickerKey({ ...on, selectedIndex: onIndex }, { name: "r", ctrl: true }))
+        .toMatchObject({ refreshCatalog: "ollama" });
+});
+
 test("the declare row survives a search that matches no provider", async () => {
     const pane = startTuiProviderPicker(PROVIDER_ROWS);
 
