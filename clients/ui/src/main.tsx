@@ -34,6 +34,7 @@ import "./styles/overlays.css";
 import "./styles/palette.css";
 import "./styles/customize.css";
 import "./styles/settings-more.css";
+import "./styles/storage.css";
 import "./styles/dialogs.css";
 import "./styles/tour.css";
 import "./styles/coverage.css";

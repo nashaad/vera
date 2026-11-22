@@ -4,6 +4,7 @@ export interface HostIdentityFacts {
     readonly pid: number;
     readonly protocol_version: number;
     readonly build_id?: string | null;
+    readonly capabilities?: readonly string[];
 }
 
 export interface AgentListFacts {
@@ -173,7 +174,10 @@ function isHostIdentity(value: unknown): value is HostIdentityFacts {
     return identity.type === "host_identity"
         && typeof identity.pid === "number"
         && Number.isSafeInteger(identity.pid)
-        && typeof identity.protocol_version === "number";
+        && typeof identity.protocol_version === "number"
+        && (identity.capabilities === undefined
+            || (Array.isArray(identity.capabilities)
+                && identity.capabilities.every((entry) => typeof entry === "string")));
 }
 
 function isAgentList(value: unknown): value is AgentListFacts {

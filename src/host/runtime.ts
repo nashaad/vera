@@ -1,7 +1,7 @@
 import { selectOnboardingModel } from "../providers/select-onboarding-model.ts";
 import { createProviderSignInService } from "../providers/provider-sign-in.ts";
 import { accessSync, constants, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, basename } from "node:path";
 import { configuredModelAssignments as modelOperationAssignments } from "../config.ts";
 import { derivedModelName } from "../config/model-catalog.ts";
 import { effectiveCatalog } from "../model/catalog.ts";
@@ -52,6 +52,7 @@ import {
     veraMachineDirectoryIn,
 } from "../profile-paths.ts";
 import { sessionScratchRoot } from "../session-scratch.ts";
+import { defaultReviewLogPath } from "../engine/review-log.ts";
 import { createRequestOptionsSnapshotAdapter } from "../providers/routing.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 import { defaultModelFailureLedgerPath } from "../store/model-failures.ts";
@@ -93,7 +94,14 @@ import {
     pruneScratch,
     SCRATCH_PRUNE_INTERVAL_MS,
     scratchMaxAgeMs,
+    type GuardedScratchDetach,
 } from "./scratch-retention.ts";
+import { createStorageMeasurer } from "./storage-measure.ts";
+import {
+    previewStorageCleanup,
+    runStorageCleanup,
+    type StorageCleanupOptions,
+} from "./storage-cleanup.ts";
 import { recoverCrashedTurns } from "./restart-scan.ts";
 import { checkpointOpenStores } from "./store-checkpoint.ts";
 
@@ -1179,6 +1187,16 @@ async function startHostRuntime(
     };
     const sessionHost = await startSessionHost(sessionOptions);
     const { registry, extensions, createAdapter } = sessionHost;
+    const removeScratchIfUnowned = (
+        id: string,
+        detach: GuardedScratchDetach,
+    ): boolean | Promise<boolean> => inProcessWorker?.removeScratchIfUnowned !== undefined
+        ? inProcessWorker.removeScratchIfUnowned(id, detach)
+        : (() => {
+            const unowned = () => !registry.agents.has(id) && !registry.startingIds.has(id)
+                && !registry.trashingIds.has(id);
+            return unowned() ? detach(unowned) : false;
+        })();
     if (workerReservations !== undefined) {
         sessionHost.startStorage();
         sessionHost.setParkIdle(async () => {});
@@ -1371,11 +1389,50 @@ async function startHostRuntime(
             : new SchedulerRuntime(schedulerOptions);
         const providerGenerations = new Map<string, number>();
         const providerSignIn = createProviderSignInService({ configPath, cacheDir: cacheDirectory, authStorage });
+        const storageMeasurer = createStorageMeasurer({
+            home,
+            sessionDirectory,
+            logDirectory,
+            scratchDirectory: () => sessionScratchRoot(home),
+        });
+        const storageCleanupOptions = (): StorageCleanupOptions => {
+            let scratchDirectory: string | undefined;
+            try {
+                scratchDirectory = sessionScratchRoot(home);
+            } catch {
+                scratchDirectory = undefined;
+            }
+            return {
+                sessionDirectory,
+                scratchDirectory,
+                logDirectory,
+                removeIfUnowned: removeScratchIfUnowned,
+                keepLog: (path) => {
+                    const resolved = resolve(path);
+                    // The running host and its reviewer append to these files by path.
+                    if (resolved === resolve(defaultHostLogPath(home))) return true;
+                    if (resolved === resolve(defaultReviewLogPath(home))) return true;
+                    if (openSidecarLogPaths(sidecars?.statuses() ?? []).has(resolved)) return true;
+                    const name = basename(resolved);
+                    if (!name.endsWith(".jsonl")) return false;
+                    const id = name.slice(0, -".jsonl".length);
+                    if (registry.agents.has(id) || registry.startingIds.has(id) || registry.trashingIds.has(id)) {
+                        return true;
+                    }
+                    return inProcessWorker?.hasSession(id) ?? false;
+                },
+            };
+        };
         server = await timed(
             "server_listen_and_lockfile",
             () => startHostServer({
                 ...sessionHost.handlers,
                 ...inProcessWorker?.hostHandlers,
+                storageMeasure: (refresh) => storageMeasurer.measure(refresh),
+                storageCleanupPreview: (area, maxAgeDays) =>
+                    previewStorageCleanup(area, maxAgeDays, storageCleanupOptions()),
+                storageCleanup: (area, maxAgeDays) =>
+                    runStorageCleanup(area, maxAgeDays, storageCleanupOptions()),
                 capabilities: HOST_CAPABILITIES,
                 socketPath,
                 lockPath,
@@ -1685,13 +1742,7 @@ async function startHostRuntime(
         const pending = pruneScratch(scratchDirectory, sessionDirectory, {
             maxAgeMs: scratchMaxAgeMs(currentConfig()),
             isStopped: () => scratchPruneStopped,
-            removeIfUnowned: (id, detach) => inProcessWorker?.removeScratchIfUnowned !== undefined
-                ? inProcessWorker.removeScratchIfUnowned(id, detach)
-                : (() => {
-                    const unowned = () => !registry.agents.has(id) && !registry.startingIds.has(id)
-                        && !registry.trashingIds.has(id);
-                    return unowned() ? detach(unowned) : false;
-                })(),
+            removeIfUnowned: removeScratchIfUnowned,
         }).then(() => {}, () => {});
         scratchPruning = pending;
         void pending.then(() => { scratchPruning = undefined; });

@@ -1,14 +1,16 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { LAYOUT_COMMANDS } from "../../commands/layout-commands.ts";
 import { THEME_COMMANDS } from "../../commands/theme-commands.ts";
 import type { DesktopBridge } from "../../protocol/bridge.ts";
+import { STORAGE_CAPABILITY } from "../../protocol/storage.ts";
 import { showToast } from "../../overlays/toasts.ts";
 import { DEFAULT_APPEARANCE, changeAppearance } from "../../theme/preferences.ts";
 import { DEFAULT_THEME } from "../../theme/tokens.ts";
 import { useViewEnvironment } from "../../views/env.tsx";
 import { useWorkbench } from "../../workbench/context.tsx";
 import { desktopFolder, sessionCountLabel } from "./data.ts";
+import { StorageDialog } from "./StorageDialog.tsx";
 
 interface DataRowProps {
     readonly name: string;
@@ -36,7 +38,10 @@ export function DataSection() {
     const attached = connection.phase === "attached";
     const sessionCount = sessionCountLabel(connection.sessionRows?.length, attached);
     const folder = desktopFolder(connection.ready?.home);
+    const home = connection.ready?.home;
     const revealLabel = bridge?.platform === "darwin" ? "Show in Finder" : "Open folder";
+    const storageSupported = connection.identity?.capabilities?.includes(STORAGE_CAPABILITY) === true;
+    const [storageOpen, setStorageOpen] = useState(false);
 
     async function reveal(path: string): Promise<void> {
         if (bridge === undefined) return;
@@ -62,6 +67,21 @@ export function DataSection() {
             <p className="settings-lede">What this desktop keeps in the Vera home it is attached to. Sessions and settings belong to the host; the folder, appearance and layout are the window's own.</p>
             <DataRow name="Sessions" description="Listed by the host this window is attached to">
                 <span className="data-value">{sessionCount}</span>
+            </DataRow>
+            <DataRow
+                name="Storage"
+                description={connection.identity !== undefined && !storageSupported
+                    ? "Needs a newer Vera host"
+                    : "See how much space Vera uses on this computer"}
+            >
+                <button
+                    type="button"
+                    className="ghost-btn"
+                    disabled={!storageSupported || bridge === undefined || home === undefined}
+                    onClick={() => setStorageOpen(true)}
+                >
+                    Manage
+                </button>
             </DataRow>
             <DataRow
                 name="Desktop folder"
@@ -91,6 +111,9 @@ export function DataSection() {
                     Reset
                 </button>
             </DataRow>
+            {storageOpen && bridge !== undefined && home !== undefined ? (
+                <StorageDialog bridge={bridge} home={home} onClose={() => setStorageOpen(false)} />
+            ) : null}
         </>
     );
 }

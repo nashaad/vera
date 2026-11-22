@@ -205,7 +205,15 @@ window.
   - Data, under Desktop, counts the sessions the host lists, shows the
     desktop's folder `machine/desktop` in the home with Show in Finder (Open
     folder on other platforms), and has Reset for the appearance and for the
-    layout.
+    layout. Its Storage row opens a Storage dialog with the space Vera uses on
+    this computer, split into Sessions, Scratch, Logs, Caches, Extensions,
+    Browser and Other, each with its size, a summary and its largest items;
+    Old scratch outside the home is shown apart from the total. Refresh checks
+    again, and Open folder reveals the home. Scratch, Logs and Old scratch
+    have Free up space…, which shows what would be removed after a chosen idle
+    age, then removes it after you tick the box. Session files are never
+    removed. The row needs a host that knows the request: an older host shows
+    Needs a newer Vera host and Manage is disabled.
 
 The sidebar's top rows are the page rows: New Chat, Search, Work and Customize.
 New Chat is always there; the others show when their part of the window is shown.

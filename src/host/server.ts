@@ -48,6 +48,12 @@ import {
     type UnblockSessionRequest,
 } from "./protocol.ts";
 import type { StopWaitEvent, StopWhenIdleControl } from "./stop-when-idle.ts";
+import type {
+    StorageCleanupArea,
+    StorageCleanupPreview,
+    StorageCleanupResult,
+    StorageMeasurement,
+} from "./storage-protocol.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 import type {
     CreateRegisteredAgentOptions,
@@ -183,6 +189,9 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "refresh_catalogs":
         case "annex_url":
         case "extension_load_failures":
+        case "storage_measure":
+        case "storage_cleanup_preview":
+        case "storage_cleanup":
         case "new_session_agents":
         case "folder_customizations":
         case "list_extension_commands":
@@ -268,6 +277,15 @@ export interface StartHostServerOptions {
         | { readonly unavailable: string }
         | undefined;
     readonly readExtensionLoadFailures?: () => readonly ExtensionLoadFailure[];
+    readonly storageMeasure?: (refresh: boolean) => Promise<StorageMeasurement>;
+    readonly storageCleanupPreview?: (
+        area: StorageCleanupArea,
+        maxAgeDays: number,
+    ) => Promise<StorageCleanupPreview>;
+    readonly storageCleanup?: (
+        area: StorageCleanupArea,
+        maxAgeDays: number,
+    ) => Promise<StorageCleanupResult>;
     readonly readNewSessionAgents?: (workspace: string | undefined) => Promise<NewSessionAgents>;
     readonly readFolderCustomizations?: (workspace: string | undefined) => Promise<FolderCustomizations>;
     readonly checkpointStores?: (
@@ -637,6 +655,9 @@ async function startListener(
             options.selectProviderModel,
             options.readAnnex,
             options.readExtensionLoadFailures,
+            options.storageMeasure,
+            options.storageCleanupPreview,
+            options.storageCleanup,
             options.readNewSessionAgents,
             options.readFolderCustomizations,
             options.checkpointStores,
@@ -949,6 +970,9 @@ function receiveConnection(
         | { readonly unavailable: string }
         | undefined) | undefined,
     readExtensionLoadFailures: StartHostServerOptions["readExtensionLoadFailures"],
+    storageMeasure: StartHostServerOptions["storageMeasure"],
+    storageCleanupPreview: StartHostServerOptions["storageCleanupPreview"],
+    storageCleanup: StartHostServerOptions["storageCleanup"],
     readNewSessionAgents: StartHostServerOptions["readNewSessionAgents"],
     readFolderCustomizations: StartHostServerOptions["readFolderCustomizations"],
     checkpointStores: ((
@@ -1516,6 +1540,7 @@ function receiveConnection(
                 ...(identity.worker_index === undefined ? {} : { worker_index: identity.worker_index }),
                 ...(identity.worker_count === undefined ? {} : { worker_count: identity.worker_count }),
                 ...(readWorkersReady === undefined ? {} : { workers_ready: readWorkersReady() }),
+                capabilities,
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
@@ -1831,6 +1856,50 @@ function receiveConnection(
                         failures: readExtensionLoadFailures(),
                     },
             ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "storage_measure") {
+            clearDeadline();
+            finished = true;
+            if (storageMeasure === undefined) {
+                void send({
+                    type: "protocol_error",
+                    reason: "unsupported_or_invalid_command",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            void storageMeasure(request.refresh).then(
+                (measurement) => send({ type: "storage_measured", measurement }),
+                () => send({
+                    type: "storage_failed",
+                    operation: "measure",
+                    reason: "failed",
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "storage_cleanup_preview" || request?.type === "storage_cleanup") {
+            clearDeadline();
+            finished = true;
+            const operation = request.type === "storage_cleanup_preview" ? "preview" : "cleanup";
+            const cleanupOptions = { area: request.area, maxAgeDays: request.max_age_days };
+            if (storageCleanupPreview === undefined || storageCleanup === undefined) {
+                void send({
+                    type: "protocol_error",
+                    reason: "unsupported_or_invalid_command",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            void (operation === "preview"
+                ? storageCleanupPreview(cleanupOptions.area, cleanupOptions.maxAgeDays)
+                    .then((preview) => send({ type: "storage_cleanup_previewed", preview }))
+                : storageCleanup(cleanupOptions.area, cleanupOptions.maxAgeDays)
+                    .then((result) => send({ type: "storage_cleaned", result }))
+            ).catch(() => send({
+                type: "storage_failed",
+                operation,
+                reason: "failed",
+            })).then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (request?.type === "new_session_agents") {

@@ -38,6 +38,12 @@ import type { CatalogListResult, CatalogPreviewResult } from "../../ui/src/proto
 import type { ExtensionChangeResult, ExtensionPreviewResult } from "../../ui/src/protocol/extensions.ts";
 import type { ExtensionCommandResult } from "../../ui/src/protocol/extension-commands.ts";
 import type { ExtensionLogLevel, ExtensionMainResult } from "../../ui/src/protocol/desktop-extensions.ts";
+import type {
+    StorageCleaned,
+    StorageCleanupArea,
+    StorageMeasured,
+    StoragePreviewed,
+} from "../../ui/src/protocol/storage.ts";
 import type { ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import type { BrowserBounds, BrowserHandoffAnswer, BrowserState, BrowserToolsApproval } from "../../ui/src/browser/native-types.ts";
 import { CHANNELS } from "./channels.ts";
@@ -175,6 +181,12 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.sessionsSearch, request)) as SessionSearchResult,
     readExtensionFailures: async () =>
         (await ipcRenderer.invoke(CHANNELS.extensionFailures)) as ExtensionFailuresResult,
+    measureStorage: async (refresh: boolean) =>
+        (await ipcRenderer.invoke(CHANNELS.storageMeasure, refresh)) as StorageMeasured,
+    previewStorageCleanup: async (area: StorageCleanupArea, maxAgeDays: number) =>
+        (await ipcRenderer.invoke(CHANNELS.storageCleanupPreview, area, maxAgeDays)) as StoragePreviewed,
+    runStorageCleanup: async (area: StorageCleanupArea, maxAgeDays: number) =>
+        (await ipcRenderer.invoke(CHANNELS.storageCleanup, area, maxAgeDays)) as StorageCleaned,
     readNewSessionAgents: async (workspace: string | undefined) =>
         (await ipcRenderer.invoke(CHANNELS.newSessionAgents, workspace)) as NewSessionAgentsResult,
     readFolderCustomizations: async (workspace: string | undefined) =>

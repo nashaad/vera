@@ -34,6 +34,25 @@ import type {
 import { isStartupProfile, type StartupProfile } from "../startup-profile.ts";
 import { MAX_SESSION_WRITE_ROOTS } from "../store/session-write-roots.ts";
 import type { HostRequester } from "./requester.ts";
+import {
+    isStorageAgeDays,
+    isStorageCleanupArea,
+    type StorageCleanupPreviewedResponse,
+    type StorageCleanedResponse,
+    type StorageFailedResponse,
+    type StorageMeasuredResponse,
+    type StorageRequest,
+} from "./storage-protocol.ts";
+
+export type {
+    StorageArea,
+    StorageCategoryMeasurement,
+    StorageCleanupArea,
+    StorageCleanupPreview,
+    StorageCleanupResult,
+    StorageLargestItem,
+    StorageMeasurement,
+} from "./storage-protocol.ts";
 
 export type { HostRequester } from "./requester.ts";
 
@@ -517,6 +536,8 @@ export interface HostIdentityResponse {
     readonly minimum_compatible_protocol_version:
         typeof HOST_MIN_COMPATIBLE_PROTOCOL_VERSION;
     readonly build_id: string;
+    /** What this build can answer; additive, and absent on older hosts. */
+    readonly capabilities?: readonly string[];
     readonly role?: HostRole;
     readonly worker_id?: string;
     readonly worker_generation?: number;
@@ -1103,6 +1124,7 @@ export type HostRequest =
     | FolderCustomizationsRequest
     | CheckpointStoresRequest
     | LocateAgentRequest
+    | StorageRequest
     | AttachRequest;
 export type AttachedClientMessage =
     | ClientCommand
@@ -1188,6 +1210,10 @@ export type HostResponse =
     | FolderCustomizationsResponse
     | CheckpointStoresFinishedResponse
     | CheckpointStoresFailedResponse
+    | StorageMeasuredResponse
+    | StorageCleanupPreviewedResponse
+    | StorageCleanedResponse
+    | StorageFailedResponse
     | ProtocolErrorResponse;
 
 const SESSION_FACT_NAMES: readonly SessionFactName[] = [
@@ -1360,6 +1386,16 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     }
     if (value?.type === "extension_load_failures") {
         return { type: "extension_load_failures" };
+    }
+    if (value?.type === "storage_measure" && typeof value.refresh === "boolean") {
+        return { type: "storage_measure", refresh: value.refresh };
+    }
+    if (
+        (value?.type === "storage_cleanup_preview" || value?.type === "storage_cleanup")
+        && isStorageCleanupArea(value.area)
+        && isStorageAgeDays(value.max_age_days)
+    ) {
+        return { type: value.type, area: value.area, max_age_days: value.max_age_days };
     }
     if (value?.type === "new_session_agents" || value?.type === "folder_customizations") {
         const folder = parseOptionalFolder(value.workspace);
