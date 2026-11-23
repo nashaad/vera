@@ -1,6 +1,7 @@
 import {
     CodeView,
     type CodeViewAnnotationArgs,
+    type CodeViewHandle,
     type CodeViewItem,
     type DiffLineAnnotation,
     type FileDiffMetadata,
@@ -14,8 +15,13 @@ import { useActiveSession, type ActiveSession } from "../session/activeSession.t
 import { MAX_PATCH_LINES, capDiff } from "../session/diff/cap.ts";
 import { lineOrdinal, resolveKeyedRange } from "../session/diff/commentRange.ts";
 import { diffOptions, type DiffStyle, type OverflowMode } from "../session/diff/pierreOptions.ts";
+import { useDiffsFit } from "../session/diff/useDiffsFit.ts";
 import { parseKeyedPatches, reviewItemId, splitKeyedPatches, type KeyedPatch } from "../session/diff/patches.ts";
-import { DiffFileMenu } from "../session/DiffFileMenu.tsx";
+import { OpenFileIcon } from "../components/Icons.tsx";
+import { DiffFileMenu, isAbsolutePath } from "../session/DiffFileMenu.tsx";
+import { firstNewSideLine, openFileInFiles } from "../session/fileOpen.ts";
+import { useWorkbench } from "../workbench/context.tsx";
+import { childPath } from "./files.ts";
 import { DiffViewControls } from "../session/DiffViewControls.tsx";
 import { CommentEditor, CommentNote, annotationForComment, annotationForEditor, locationText, matchesComment, quoteNotice, type DiffCommentAnnotation, type PendingComment } from "../session/DiffComments.tsx";
 import { collectChanges, lastTurn, MAX_CHANGED_FILES, type FileChange } from "../session/changes.ts";
@@ -64,6 +70,7 @@ export function ReviewView({ visible }: ViewProps) {
 }
 
 function ReviewBody({ session, visible }: { readonly session: ActiveSession; readonly visible: boolean }) {
+    const workbench = useWorkbench();
     const [scope, setScope] = useState<Scope>("turn");
     const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
     const [diffStyle, setDiffStyle] = useState<DiffStyle>("unified");
@@ -72,6 +79,7 @@ function ReviewBody({ session, visible }: { readonly session: ActiveSession; rea
     const [pending, setPending] = useState<ReviewPending>();
     const [note, setNote] = useState("");
     const [notice, setNotice] = useState<string>();
+    const view = useRef<CodeViewHandle<DiffCommentAnnotation, undefined> | null>(null);
     const itemVersions = useRef(new Map<string, { signature: string; collapsed: boolean; diff: FileDiffMetadata; version: number }>());
     const { history, live, hasOlder } = session.watch;
 
@@ -149,6 +157,8 @@ function ReviewBody({ session, visible }: { readonly session: ActiveSession; rea
             version,
         };
     })), [files, annotations, collapsed]);
+
+    const diffsFit = useDiffsFit(view, items);
 
     const toggle = (path: string): void => {
         setCollapsed((current) => {
@@ -233,8 +243,16 @@ function ReviewBody({ session, visible }: { readonly session: ActiveSession; rea
         const entry = runByItem.get(item.id);
         if (entry === undefined) return null;
         const path = entry.file.change.path;
+        const line = firstNewSideLine(entry.run.diff.hunks);
+        const deleted = entry.run.diff.type === "deleted";
+        const openFile = (): void => {
+            const folder = session.folder;
+            const fullPath = folder === undefined || isAbsolutePath(path) ? path : childPath(folder, path);
+            openFileInFiles(workbench, session.agentId, fullPath, line);
+        };
         return <div className="review-file-actions">
             {entry.run.cut ? <span className="review-file-note">First {MAX_PATCH_LINES} lines</span> : null}
+            <button type="button" className="icon-button" aria-label="Open file" title="Open file" disabled={deleted} onClick={openFile}><OpenFileIcon /></button>
             <DiffFileMenu
                 path={path}
                 open={!collapsed.has(path)}
@@ -273,7 +291,8 @@ function ReviewBody({ session, visible }: { readonly session: ActiveSession; rea
                 <p className="view-empty">{scope === "turn" ? "No file changes in this turn." : "No file changes in this session."}</p>
             ) : (
                 <CodeView<DiffCommentAnnotation, undefined>
-                    className="review-diffs"
+                    ref={view}
+                    className={`review-diffs${diffsFit ? " review-diffs-fits" : ""}`}
                     items={items}
                     selectedLines={direction}
                     onSelectedLinesChange={(selection) => {

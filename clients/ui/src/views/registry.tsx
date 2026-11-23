@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { GENERIC_PAGE_KIND, pagePathOfKind } from "../pagepane/kinds.ts";
 import { CORE_VIEWS } from "../registry/core.ts";
 import { BrowserView } from "./BrowserView.tsx";
+import { ChangesView } from "./ChangesView.tsx";
 import { ChatView } from "./ChatView.tsx";
 import { FilesView } from "./FilesView.tsx";
 import { OutputView } from "./OutputView.tsx";
@@ -18,6 +19,7 @@ const CORE_RENDERERS: Readonly<Record<string, (props: ViewProps) => ReactNode>> 
     [CORE_VIEWS.sessions]: (props) => <SessionsView {...props} />,
     [CORE_VIEWS.output]: (props) => <OutputView {...props} />,
     [CORE_VIEWS.review]: (props) => <ReviewView {...props} />,
+    [CORE_VIEWS.changes]: (props) => <ChangesView {...props} />,
     [CORE_VIEWS.plan]: (props) => <PlanView {...props} />,
     [CORE_VIEWS.files]: (props) => <FilesView {...props} />,
     [CORE_VIEWS.browser]: (props) => <BrowserView {...props} />,

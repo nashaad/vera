@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { preloadPatchDiff } from "@pierre/diffs/ssr";
+import { getBuiltInSpriteSheet } from "@pierre/trees";
 
 import { ALLOWED_HTML_ATTRIBUTES, ALLOWED_HTML_TAGS, filterHtml } from "../../clients/ui/src/security/trustedTypes.ts";
 
@@ -56,6 +57,11 @@ test("@core app source has no HTML string sinks", () => {
 test("@core the trusted types policy admits real Pierre output and its sprite", () => {
     expect(() => filterHtml(SPRITE)).not.toThrow();
     expect(() => filterHtml(PIERRE_HTML)).not.toThrow();
+    for (const set of ["minimal", "standard", "complete"] as const) {
+        const treeSprite = getBuiltInSpriteSheet(set);
+        expect(() => filterHtml(treeSprite)).not.toThrow();
+        expect(filterHtml(treeSprite)).toBe(treeSprite);
+    }
     expect(filterHtml(PIERRE_HTML)).toBe(PIERRE_HTML);
     expect(PIERRE_HTML).toContain("<style data-core-css=\"\">");
     const text = renderedText(PIERRE_HTML);

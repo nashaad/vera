@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
 import { startTrial } from "./trial.mjs";
 
@@ -40,6 +40,40 @@ function copies(root) {
     walk(root);
     return found;
 }
+
+const selectedLineText = (line) => line.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const text = selection.toString();
+    selection.removeAllRanges();
+    return text;
+});
+const fillGeometry = (page) => page.evaluate(() => {
+    const app = document.querySelector(".app");
+    const pane = document.querySelector('.location[data-location="rightPane"]');
+    const top = pane.querySelector(":scope > .pane-top");
+    const tab = top.querySelector('.switcher-item[role="tab"]');
+    const fileTabs = pane.querySelector(".file-tabs");
+    const bar = pane.querySelector(".file-preview-bar");
+    const line = pane.querySelector(".files-code diffs-container").shadowRoot.querySelector('[data-line="1"]');
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:absolute;visibility:hidden;width:var(--traffic-room)";
+    app.append(probe);
+    const trafficRoom = probe.getBoundingClientRect().width;
+    probe.remove();
+    return {
+        platform: app.dataset.platform,
+        trafficRoom,
+        tabLeft: tab.getBoundingClientRect().left,
+        paneTopHeight: top.getBoundingClientRect().height,
+        fileTabsHeight: fileTabs.getBoundingClientRect().height,
+        barHeight: bar.getBoundingClientRect().height,
+        lineHeight: line.getBoundingClientRect().height,
+    };
+});
 
 const trial = startTrial();
 let failed = false;
@@ -90,11 +124,28 @@ try {
     await until("the copied file", () => copies(trial.home).length === 1);
     const [copied] = copies(trial.home);
     if (!copied.includes(".jsonl.files/") || readFileSync(copied, "utf8") !== "a crow report") throw new Error(`Unexpected copy: ${copied}`);
+    writeFileSync(join(dirname(copied), "empty.txt"), "");
     await page.getByRole('button', { name: 'Toggle Right Pane' }).click();
     await page.locator('[data-pane-launcher]').click();
     await page.locator('[data-pane-option="core.files"]').click();
-    await page.locator('.file-entry', { hasText: 'report.txt' }).click();
-    await page.locator('.file-preview-lines', { hasText: 'a crow report' }).waitFor();
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /report\.txt/ }).click();
+    await page.locator('.files-code [data-line]', { hasText: 'a crow report' }).waitFor();
+    const sourceSelection = await selectedLineText(page.locator('.files-code [data-line="1"]'));
+    if (sourceSelection !== "a crow report") throw new Error(`Unexpected source selection: ${JSON.stringify(sourceSelection)}`);
+    const beforeFill = await fillGeometry(page);
+    await page.getByRole("button", { name: "Fill window", exact: true }).click();
+    await page.getByRole("button", { name: "Restore window", exact: true }).waitFor();
+    const afterFill = await fillGeometry(page);
+    if (afterFill.platform === "darwin" && (!Number.isFinite(afterFill.trafficRoom) || afterFill.trafficRoom <= 0 || afterFill.tabLeft < afterFill.trafficRoom)) {
+        throw new Error(`The first pane tab overlaps traffic-light room: ${JSON.stringify(afterFill)}`);
+    }
+    for (const property of ["paneTopHeight", "fileTabsHeight", "barHeight", "lineHeight"]) {
+        if (Math.abs(beforeFill[property] - afterFill[property]) > 0.2) {
+            throw new Error(`Fill window changed ${property}: ${JSON.stringify({ beforeFill, afterFill })}`);
+        }
+    }
+    console.log("Fill window geometry", JSON.stringify({ beforeFill, afterFill }));
+    await page.getByRole("button", { name: "Restore window", exact: true }).click();
     await page.evaluate(() => {
         const picker = document.createElement("input");
         picker.type = "file";
@@ -112,6 +163,13 @@ try {
     await input.press("Enter");
     await until("the renamed reference", () => seen.some((body) => body.includes("report 2.txt")));
     if (readFileSync(copied.replace("report.txt", "report 2.txt"), "utf8") !== "a crow report") throw new Error("The second copy is missing.");
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /empty\.txt/ }).click();
+    await page.getByText("Empty file", { exact: true }).waitFor();
+    if (await page.locator('.file-preview .files-code, .file-preview diffs-container').count() !== 0) {
+        throw new Error("The empty file displayed a code view.");
+    }
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /report\.txt/ }).click();
+    await page.locator('.files-code [data-line]', { hasText: 'a crow report' }).waitFor();
     console.log("files e2e passed");
 } catch (error) {
     failed = true;

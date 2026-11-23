@@ -4,16 +4,25 @@ import { RefreshIcon } from "../components/Icons.tsx";
 import { BrowserCommands } from "../extensions/BrowserCommands.tsx";
 import { desktopExtensions, subscribeDesktopExtensions } from "../extensions/state.ts";
 
-import { MAX_FILE_PREVIEW_BYTES, type DesktopBridge, type FilePreview as Preview } from "../protocol/bridge.ts";
-import { byteSize, gutterText, lineCount } from "./files.ts";
+import { MAX_FILE_PREVIEW_BYTES, type DesktopBridge, type FileLineChange, type FilePreview as Preview } from "../protocol/bridge.ts";
+import type { FileTabMode } from "./file-tabs.ts";
+import { byteSize, pathUnder } from "./files.ts";
+import { FilesCode } from "./FilesCode.tsx";
 import { useTurnsEnded } from "./useTurnsEnded.ts";
 
 export interface FilePreviewProps {
     readonly bridge: DesktopBridge;
     readonly path: string;
     readonly folder: string;
+    readonly sessionId: string;
     readonly visible: boolean;
     readonly running: boolean;
+    readonly mode: FileTabMode;
+    readonly onModeChange: (mode: FileTabMode) => void;
+    readonly wordWrap: boolean;
+    readonly scrollPastEnd: boolean;
+    readonly tabSize: 2 | 4 | 8;
+    readonly targetLine?: { readonly line: number; readonly request: number };
 }
 
 interface ActiveScope {
@@ -26,14 +35,14 @@ interface ActiveScope {
 interface Shown {
     readonly path: string;
     readonly preview: Preview;
+    readonly changes: readonly FileLineChange[];
 }
 
 // Read again when the pane comes back into view and when a turn ends, keeping the last text on screen meanwhile.
-export function FilePreview({ bridge, folder, path, visible, running }: FilePreviewProps) {
+export function FilePreview({ bridge, folder, path, sessionId, visible, running, mode, onModeChange, wordWrap, scrollPastEnd, tabSize, targetLine }: FilePreviewProps) {
     const extensions = useSyncExternalStore(subscribeDesktopExtensions, desktopExtensions);
     const suffix = path.split(".").pop()?.toLowerCase();
     const supported = suffix !== undefined && (extensions?.some((entry) => entry.enabled && entry.filePreviews?.includes(suffix)) ?? false);
-    const [mode, setMode] = useState<"source" | "preview">("source");
     const [openedScope, setScope] = useState<ActiveScope | undefined>();
     const scope = openedScope?.path === path && openedScope.folder === folder && visible && mode === "preview" ? openedScope : undefined;
     const [error, setError] = useState<string | undefined>();
@@ -44,13 +53,16 @@ export function FilePreview({ bridge, folder, path, visible, running }: FilePrev
     useEffect(() => {
         if (!visible) return;
         let current = true;
-        void bridge.readFilePreview(path).then((preview) => {
-            if (current) setShown({ path, preview });
+        void Promise.all([
+            bridge.readFilePreview(path),
+            bridge.readFileChanges(folder, pathUnder(folder, path)).catch(() => null),
+        ]).then(([preview, changes]) => {
+            if (current) setShown({ path, preview, changes: changes ?? [] });
         });
         return () => {
             current = false;
         };
-    }, [bridge, path, visible, turnsEnded]);
+    }, [bridge, folder, path, visible, turnsEnded]);
 
     useEffect(() => {
         if (!visible || mode !== "preview" || !supported) return;
@@ -73,15 +85,25 @@ export function FilePreview({ bridge, folder, path, visible, running }: FilePrev
         <div className="file-preview">
             {supported ? <div className="local-preview-controls">
                 <div className="right-seg" role="group" aria-label="File view">
-                    <button type="button" className="right-seg-option" data-on={mode === "source"} aria-pressed={mode === "source"} onClick={() => setMode("source")}>Source</button>
-                    <button type="button" className="right-seg-option" data-on={mode === "preview"} aria-pressed={mode === "preview"} onClick={() => setMode("preview")}>Preview</button>
+                    <button type="button" className="right-seg-option" data-on={mode === "source"} aria-pressed={mode === "source"} onClick={() => onModeChange("source")}>Source</button>
+                    <button type="button" className="right-seg-option" data-on={mode === "preview"} aria-pressed={mode === "preview"} onClick={() => onModeChange("preview")}>Preview</button>
                 </div>
                 {mode === "preview" ? <>
                     <button type="button" className="icon-button" aria-label="Reload" title="Reload" data-page-reload="" disabled={scope === undefined} onClick={() => setRound((value) => value + 1)}><RefreshIcon /></button>
                     <BrowserCommands hasPage={visible && scope !== undefined} onError={setError} frameName={frameName} />
                 </> : null}
             </div> : null}
-            {mode === "source" || !supported ? <PreviewBody preview={preview} /> : <>
+            {mode === "source" || !supported ? <PreviewBody
+                preview={preview}
+                sessionId={sessionId}
+                folder={folder}
+                path={path}
+                wordWrap={wordWrap}
+                scrollPastEnd={scrollPastEnd}
+                tabSize={tabSize}
+                targetLine={targetLine}
+                changes={preview === undefined || shown?.path !== path ? [] : shown.changes}
+            /> : <>
                 {error === undefined ? null : <p className="file-preview-note" role="alert">{error}</p>}
                 {visible && scope !== undefined ? <iframe key={`${scope.token}:${round}`} className="browser-frame local-preview-frame" name={frameName} title="File preview" src={scope.url} sandbox="allow-scripts allow-same-origin allow-forms" /> : null}
             </>}
@@ -89,7 +111,19 @@ export function FilePreview({ bridge, folder, path, visible, running }: FilePrev
     );
 }
 
-function PreviewBody({ preview }: { readonly preview: Preview | undefined }) {
+interface PreviewBodyProps {
+    readonly preview: Preview | undefined;
+    readonly sessionId: string;
+    readonly folder: string;
+    readonly path: string;
+    readonly wordWrap: boolean;
+    readonly scrollPastEnd: boolean;
+    readonly tabSize: 2 | 4 | 8;
+    readonly targetLine?: { readonly line: number; readonly request: number };
+    readonly changes: readonly FileLineChange[];
+}
+
+function PreviewBody({ preview, ...codeProps }: PreviewBodyProps) {
     if (preview === undefined) return <p className="file-preview-note">Reading…</p>;
     if (!preview.ok) return <p className="file-preview-note">{preview.reason}</p>;
     if (preview.text === "") return <p className="file-preview-note">Empty file</p>;
@@ -98,10 +132,7 @@ function PreviewBody({ preview }: { readonly preview: Preview | undefined }) {
             {preview.cut ? (
                 <p className="file-preview-note">Showing the first {byteSize(MAX_FILE_PREVIEW_BYTES)} of {byteSize(preview.size)}.</p>
             ) : null}
-            <div className="file-preview-text">
-                <pre className="file-preview-gutter" aria-hidden="true">{gutterText(lineCount(preview.text))}</pre>
-                <pre className="file-preview-lines">{preview.text}</pre>
-            </div>
+            <FilesCode {...codeProps} contents={preview.text} />
         </>
     );
 }

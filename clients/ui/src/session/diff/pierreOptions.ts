@@ -2,7 +2,7 @@ import { activeThemeType, VERA_DIFF_THEME } from "./pierreTheme.ts";
 
 export type DiffStyle = "unified" | "split";
 export type OverflowMode = "wrap" | "scroll";
-export type HunkSeparatorMode = "line-info-basic" | "simple";
+export type HunkSeparatorMode = "line-info" | "line-info-basic" | "simple";
 export type DiffIndicatorMode = "bars" | "none";
 
 export const MAX_LINE_DIFF_LENGTH = 512;

@@ -1,5 +1,5 @@
 import type { DiffLineAnnotation, FileDiffMetadata } from "@pierre/diffs";
-import type { KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 
 import { MAX_DIFF_COMMENT_CHARS, MAX_DIFF_COMMENT_LINES, MAX_DIFF_QUOTE_CHARS } from "../../../shared/diff-comment.ts";
 import type { StoredDiffComment } from "../composer/diff-comments.ts";
@@ -40,18 +40,52 @@ export function commentControlsEnabled(sessionId: string | undefined, patchKeys:
     return sessionId !== undefined && patchKeys !== undefined && patchKeys.length > 0 && readable;
 }
 
+// Pierre draws the box's slot a frame or more after React mounts the textarea,
+// so retry until focus holds; a pointer or key event means the person moved on.
+function useSlotFocus(revision: string) {
+    const area = useRef<HTMLTextAreaElement>(null);
+    useEffect(() => {
+        let attempts = 0;
+        let handle = 0;
+        let cancelled = false;
+        let moved = false;
+        const interrupt = (): void => { moved = true; };
+        document.addEventListener("pointerdown", interrupt, true);
+        document.addEventListener("keydown", interrupt, true);
+        const attempt = (): void => {
+            if (cancelled || moved) return;
+            const node = area.current;
+            if (node !== null && document.activeElement !== node) {
+                node.focus({ preventScroll: true });
+            }
+            attempts += 1;
+            if (attempts < 20) handle = requestAnimationFrame(attempt);
+        };
+        attempt();
+        return () => {
+            cancelled = true;
+            cancelAnimationFrame(handle);
+            document.removeEventListener("pointerdown", interrupt, true);
+            document.removeEventListener("keydown", interrupt, true);
+        };
+    }, [revision]);
+    return area;
+}
+
+export function commentEditorKeyDown(event: KeyboardEvent<HTMLTextAreaElement>, note: string, onClose: () => void, onAdd: () => boolean): void {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+    } else if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        if (note.trim()) onAdd();
+        else onClose();
+    }
+}
+
 export function CommentEditor({ title, note, notice, onNoteChange, onClose, onAdd }: CommentEditorProps) {
-    const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-        if (event.nativeEvent.isComposing) return;
-        if (event.key === "Escape") {
-            event.preventDefault();
-            onClose();
-        } else if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            if (note.trim()) onAdd();
-            else onClose();
-        }
-    };
+    const area = useSlotFocus(title);
     const canAdd = note.trim().length > 0;
     return <div className="diff-comment-box">
         <div className="diff-comment-head">
@@ -59,13 +93,14 @@ export function CommentEditor({ title, note, notice, onNoteChange, onClose, onAd
             <span className="diff-comment-where">{title}</span>
         </div>
         <textarea
+            ref={area}
             autoFocus
             rows={2}
             maxLength={MAX_DIFF_COMMENT_CHARS}
             placeholder="Add a comment..."
             value={note}
             onChange={(event) => onNoteChange(event.currentTarget.value)}
-            onKeyDown={keyDown}
+            onKeyDown={(event) => commentEditorKeyDown(event, note, onClose, onAdd)}
         />
         {notice ? <div className="diff-comment-notice" role="status">{notice}</div> : null}
         <div className="diff-comment-actions">
@@ -76,7 +111,9 @@ export function CommentEditor({ title, note, notice, onNoteChange, onClose, onAd
 }
 
 export function CommentNote({ comment }: { readonly comment: StoredDiffComment }) {
-    const title = locationText(comment.startLine, comment.endLine, comment.side === "old");
+    const title = comment.file === true
+        ? comment.path
+        : locationText(comment.startLine, comment.endLine, comment.side === "old");
     return <div className="diff-comment-box diff-comment-readonly">
         <div className="diff-comment-head">
             <span className="diff-comment-who">You</span>
@@ -106,5 +143,14 @@ export function annotationForEditor(pending: PendingComment): DiffLineAnnotation
         side: annotationSide(pending.range.side),
         lineNumber: pending.range.endLine,
         metadata: { kind: "editor", pending },
+    };
+}
+
+// Line zero is Pierre's file-level slot, shown under the header.
+export function annotationForFileComment(comment: StoredDiffComment): DiffLineAnnotation<DiffCommentAnnotation> {
+    return {
+        side: "additions",
+        lineNumber: 0,
+        metadata: { kind: "comment", comment },
     };
 }

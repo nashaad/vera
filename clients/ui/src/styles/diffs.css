@@ -148,6 +148,7 @@
 
 .diff-file-head .diff-tally {
     display: inline-flex;
+    gap: var(--vera-space);
     justify-content: flex-end;
     min-width: calc(var(--vera-space) * 12);
     text-align: right;

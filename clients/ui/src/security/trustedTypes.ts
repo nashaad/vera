@@ -1,11 +1,13 @@
 export const ALLOWED_HTML_TAGS = new Set([
-    "bdi", "br", "button", "code", "div", "path", "pre", "slot", "span", "style", "svg", "symbol", "use",
+    "bdi", "br", "button", "circle", "code", "defs", "div", "lineargradient", "path", "pre", "slot",
+    "span", "stop", "style", "svg", "symbol", "use",
 ]);
 
 export const ALLOWED_HTML_ATTRIBUTES = new Set([
-    "aria-hidden", "class", "clip-rule", "d", "fill", "fill-rule", "focusable", "height", "href", "id",
-    "name", "opacity", "preserveaspectratio", "role", "stroke", "stroke-linecap", "stroke-linejoin",
-    "stroke-width", "style", "tabindex", "title", "transform", "type", "viewbox", "width", "xmlns",
+    "aria-hidden", "class", "clip-rule", "cx", "cy", "d", "fill", "fill-rule", "focusable", "gradientunits",
+    "height", "href", "id", "name", "offset", "opacity", "preserveaspectratio", "r", "role", "stop-color",
+    "stop-opacity", "stroke", "stroke-linecap", "stroke-linejoin", "stroke-width", "style", "tabindex",
+    "title", "transform", "type", "viewbox", "width", "x1", "x2", "xmlns", "y1", "y2",
 ]);
 
 const DATA_ATTRIBUTE = /^data-[a-z0-9-]+$/;

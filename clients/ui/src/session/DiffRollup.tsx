@@ -7,7 +7,9 @@ import { useWorkbench } from "../workbench/context.tsx";
 import { revealContainer } from "../workbench/reveal.ts";
 import { activeSession } from "./activeSession.ts";
 import { type FileChange, fileFolder, fileName } from "./changes.ts";
-import { DiffFileMenu } from "./DiffFileMenu.tsx";
+import { firstNewSideLine, openFileInFiles } from "./fileOpen.ts";
+import { parseKeyedPatches } from "./diff/patches.ts";
+import { DiffFileMenu, isAbsolutePath } from "./DiffFileMenu.tsx";
 import { PatchView } from "./PatchView.tsx";
 
 const COLLAPSED_ROWS = 5;
@@ -71,9 +73,19 @@ function Tally({ added, removed }: { readonly added: number; readonly removed: n
 }
 
 function FileRow({ change, folder, sessionId }: { readonly change: FileChange; readonly folder?: string; readonly sessionId: string | undefined }) {
+    const workbench = useWorkbench();
     const [open, setOpen] = useState(false);
     const folderText = fileFolder(change.path, folder);
     const reveal = activeSession()?.bridge.revealFolder;
+    const openInFiles = sessionId === undefined || folder === undefined ? undefined : () => {
+        const separator = folder.includes("/") || !folder.includes("\\") ? "/" : "\\";
+        const fullPath = isAbsolutePath(change.path)
+            ? change.path
+            : folder.endsWith(separator) ? `${folder}${change.path}` : `${folder}${separator}${change.path}`;
+        const hunks = parseKeyedPatches(change.patches, change.patchKeys)
+            .flatMap((patch) => patch.diff?.hunks ?? []);
+        openFileInFiles(workbench, sessionId, fullPath, firstNewSideLine(hunks));
+    };
     return (
         <div className="diff-file" data-open={open}>
             <div className="diff-file-head">
@@ -86,7 +98,7 @@ function FileRow({ change, folder, sessionId }: { readonly change: FileChange; r
                     <Tally added={change.added} removed={change.removed} />
                     {open ? <ChevronDownIcon className="diff-chev" /> : <ChevronRightIcon className="diff-chev" />}
                 </button>
-                <DiffFileMenu path={change.path} open={open} onToggle={() => setOpen(!open)} reveal={reveal} />
+                <DiffFileMenu path={change.path} open={open} onToggle={() => setOpen(!open)} reveal={reveal} openInFiles={openInFiles} />
             </div>
             {open ? <PatchView
                 key={sessionId}

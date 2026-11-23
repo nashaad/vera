@@ -27,16 +27,27 @@ function notify(sessionId: string): void {
 }
 
 function valid(comment: Omit<StoredDiffComment, "id">): boolean {
+    const file = comment.file === true;
+    const rangeValid = file
+        ? Number.isSafeInteger(comment.startLine) && comment.startLine >= 0
+            && Number.isSafeInteger(comment.endLine) && comment.endLine >= comment.startLine
+            && Number.isSafeInteger(comment.startRow) && comment.startRow >= 0
+            && Number.isSafeInteger(comment.endRow) && comment.endRow >= comment.startRow
+        : Number.isSafeInteger(comment.startLine) && comment.startLine > 0
+            && Number.isSafeInteger(comment.endLine) && comment.endLine >= comment.startLine
+            && Number.isSafeInteger(comment.startRow) && comment.startRow >= 0
+            && Number.isSafeInteger(comment.endRow) && comment.endRow >= comment.startRow;
+    const quoteValid = file
+        ? comment.quote.length <= MAX_DIFF_COMMENT_LINES
+            && comment.quote.reduce((total, line) => total + line.length, 0) <= MAX_DIFF_QUOTE_CHARS
+        : comment.quote.length > 0 && comment.quote.length <= MAX_DIFF_COMMENT_LINES
+            && comment.quote.reduce((total, line) => total + line.length, 0) <= MAX_DIFF_QUOTE_CHARS;
     return comment.path.length > 0 && comment.path.length <= MAX_PATH_CHARS
         && comment.patchKey.length > 0 && comment.patchKey.length <= MAX_PATCH_KEY_CHARS
         && (comment.side === "old" || comment.side === "new")
-        && Number.isSafeInteger(comment.startLine) && comment.startLine > 0
-        && Number.isSafeInteger(comment.endLine) && comment.endLine >= comment.startLine
-        && Number.isSafeInteger(comment.startRow) && comment.startRow >= 0
-        && Number.isSafeInteger(comment.endRow) && comment.endRow >= comment.startRow
+        && rangeValid
         && comment.note.trim().length > 0 && comment.note.length <= MAX_DIFF_COMMENT_CHARS
-        && comment.quote.length > 0 && comment.quote.length <= MAX_DIFF_COMMENT_LINES
-        && comment.quote.reduce((total, line) => total + line.length, 0) <= MAX_DIFF_QUOTE_CHARS;
+        && quoteValid;
 }
 
 export function getDiffComments(sessionId: string): readonly StoredDiffComment[] {

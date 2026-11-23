@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { createElement, type KeyboardEvent, type ReactElement } from "react";
+import { createElement, type KeyboardEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { MAX_DIFF_COMMENT_LINES, MAX_DIFF_QUOTE_CHARS } from "../../clients/shared/diff-comment.ts";
 import type { StoredDiffComment } from "../../clients/ui/src/composer/diff-comments.ts";
-import { CommentEditor, CommentNote, annotationForComment, annotationForEditor, commentControlsEnabled, locationText, matchesComment, quoteNotice } from "../../clients/ui/src/session/DiffComments.tsx";
+import { CommentEditor, CommentNote, annotationForComment, annotationForEditor, commentControlsEnabled, commentEditorKeyDown, locationText, matchesComment, quoteNotice } from "../../clients/ui/src/session/DiffComments.tsx";
 import { PatchView } from "../../clients/ui/src/session/PatchView.tsx";
 import { rangeInPatch, resolveKeyedRange } from "../../clients/ui/src/session/diff/commentRange.ts";
 import { mergeKeyedPatches, parseKeyedPatches, rawPatchText, splitKeyedPatches } from "../../clients/ui/src/session/diff/patches.ts";
@@ -156,15 +156,10 @@ test("@core comment editor handles empty, multiline, composition and escape keys
     let added = 0;
     let closed = 0;
     const press = (note: string, key: string, shiftKey = false, isComposing = false) => {
-        const editor = CommentEditor({
-            title: "Line 2", note, notice: undefined, onNoteChange: () => {},
-            onAdd: () => { added += 1; return true; }, onClose: () => { closed += 1; },
-        });
-        const fields = editor.props.children as ReactElement<{ onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void }>[];
         let prevented = false;
-        fields[1]!.props.onKeyDown({
+        commentEditorKeyDown({
             key, shiftKey, nativeEvent: { isComposing }, preventDefault: () => { prevented = true; },
-        } as unknown as KeyboardEvent<HTMLTextAreaElement>);
+        } as unknown as KeyboardEvent<HTMLTextAreaElement>, note, () => { closed += 1; }, () => { added += 1; return true; });
         return prevented;
     };
     expect(press("   ", "Enter")).toBe(true);

@@ -7,6 +7,7 @@ export const CORE_VIEWS = {
     sessions: "core.sessions",
     output: "core.output",
     review: "core.review",
+    changes: "core.changes",
     plan: "core.plan",
     files: "core.files",
     browser: "core.browser",
@@ -18,6 +19,7 @@ export const CORE_CONTAINERS = {
     sessions: "core.sessions",
     output: "core.output",
     review: "core.review",
+    changes: "core.changes",
     plan: "core.plan",
     files: "core.files",
     browser: "core.browser",
@@ -45,6 +47,7 @@ export interface PaneKind {
 // Kinds that come from the pages extensions add join it at run time through registerPaneKind (see pagepane/).
 export const PANE_KINDS: readonly PaneKind[] = [
     { id: CORE_CONTAINERS.review, title: "Review", icon: "review" },
+    { id: CORE_CONTAINERS.changes, title: "Changes", icon: "changes" },
     { id: CORE_CONTAINERS.plan, title: "Plan", icon: "plan" },
     { id: CORE_CONTAINERS.files, title: "Files", icon: "files" },
     { id: CORE_CONTAINERS.browser, title: "Browser", icon: "browser", maxTabs: BROWSER_TAB_LIMIT, transientTabs: true },

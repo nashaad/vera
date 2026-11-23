@@ -177,6 +177,92 @@ try {
     const added = editRuns[1].lines.filter((line) => line.type === "change-addition").map((line) => line.text);
     if (!removed.includes("twigs") || !added.includes("feathers")) throw new Error(`The second run did not show twigs removed and feathers added: ${JSON.stringify(editRuns[1])}`);
 
+    // The card header tally keeps a space between its counts, like the top line.
+    const cardTallyGap = await page.evaluate(() => {
+        const tally = document.querySelector(".diff-file-head .diff-tally");
+        const add = tally?.querySelector(".add") ?? null;
+        const del = tally?.querySelector(".del") ?? null;
+        if (add === null || del === null) return null;
+        return Math.round(del.getBoundingClientRect().left - add.getBoundingClientRect().right);
+    });
+    if (cardTallyGap === null || cardTallyGap < 4) throw new Error(`The card tally has no gap: ${cardTallyGap}`);
+
+    // A card comment takes focus without changing an existing composer draft.
+    await input.fill("");
+    await input.click();
+    await page.keyboard.type("x");
+    const draft = await input.inputValue();
+    if (draft !== "x" || !await input.evaluate((node) => node === document.activeElement)) {
+        throw new Error(`The composer was not focused with its draft: ${JSON.stringify(draft)}`);
+    }
+    const cardLine = await page.evaluate(() => {
+        for (const container of document.querySelectorAll(".diff-patch diffs-container")) {
+            const shadow = container.shadowRoot;
+            const line = shadow?.querySelector('[data-line][data-line-type="change-addition"]');
+            if (!shadow || !line) continue;
+            const rect = line.getBoundingClientRect();
+            line.dispatchEvent(new PointerEvent("pointermove", {
+                bubbles: true,
+                composed: true,
+                pointerType: "mouse",
+                clientX: rect.x + 20,
+                clientY: rect.y + rect.height / 2,
+            }));
+            return { x: rect.x + 20, y: rect.y + rect.height / 2 };
+        }
+        return undefined;
+    });
+    if (cardLine === undefined) throw new Error("No changed line in the edit card to comment on.");
+    await page.waitForTimeout(300);
+    const plus = await page.evaluate(() => {
+        for (const container of document.querySelectorAll(".diff-patch diffs-container")) {
+            const button = container.shadowRoot?.querySelector("[data-utility-button]");
+            if (!button) continue;
+            const rect = button.getBoundingClientRect();
+            if (rect.width === 0) continue;
+            return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        }
+        return undefined;
+    });
+    if (plus === undefined) throw new Error("The card's gutter plus did not show on hover.");
+    await page.mouse.click(plus.x, plus.y);
+    const cardComment = page.locator(".diff-comment-box:not(.diff-comment-readonly) textarea");
+    await cardComment.waitFor({ timeout: 5_000 });
+    await page.waitForTimeout(150);
+    const focus = await page.evaluate(() => {
+        const area = document.querySelector(".diff-comment-box:not(.diff-comment-readonly) textarea");
+        const active = document.activeElement;
+        return {
+            focused: area !== null && area === active,
+            active: active === null ? "none" : `${active.tagName}.${active.className}`,
+        };
+    });
+    const draftAfterOpen = await input.inputValue();
+    if (!focus.focused || draftAfterOpen !== draft) {
+        throw new Error(`A card comment box did not take focus with its draft unchanged: ${JSON.stringify({ ...focus, draft, draftAfterOpen })}`);
+    }
+    await input.click();
+    await page.waitForTimeout(350);
+    if (!await input.evaluate((node) => node === document.activeElement)) {
+        throw new Error("A card comment box took focus back after the composer was clicked.");
+    }
+    await cardComment.click();
+    await page.keyboard.type("y");
+    if (await cardComment.inputValue() !== "y" || await input.inputValue() !== draft) {
+        throw new Error("Typing a card comment changed the composer draft.");
+    }
+    await page.keyboard.press("Escape");
+    let closed = false;
+    try {
+        await page.locator(".diff-comment-box:not(.diff-comment-readonly)").waitFor({ state: "detached", timeout: 3_000 });
+        closed = true;
+    } catch {
+        closed = false;
+    }
+    if (!closed) throw new Error("Escape did not close the card comment box.");
+    if (await input.inputValue() !== draft) throw new Error("Escape changed the composer draft.");
+    await input.fill("");
+
     // The edit-card file menu stays inside the window at each checked width.
     const patchMenu = rollup.locator(".diff-file-more").first();
     for (const width of [1500, 1150, 980]) {
@@ -213,6 +299,24 @@ try {
         const nests = (await reviewRuns()).filter((run) => run.title === "nest.txt");
         return nests.length === 2 && nests.every((run) => run.lines === 0);
     });
+    // Collapsed Review content fits, so the sticky container must not clamp it below the top.
+    const reviewGap = await page.evaluate(async () => {
+        const diff = document.querySelector(".review-diffs");
+        if (diff !== null) {
+            diff.scrollTop = 0;
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        }
+        const container = document.querySelector(".review diffs-container");
+        const header = container?.shadowRoot?.querySelector("[data-diffs-header], [data-header]") ?? container;
+        const box = (node) => {
+            const rect = node?.getBoundingClientRect();
+            return rect === undefined ? null : { top: rect.top, bottom: rect.bottom };
+        };
+        return { diff: box(diff), header: box(header), scrollHeight: diff?.scrollHeight ?? null, clientHeight: diff?.clientHeight ?? null };
+    });
+    if (reviewGap.diff === null || reviewGap.header === null || reviewGap.header.top - reviewGap.diff.top >= 40) {
+        throw new Error(`Review left a gap above the first collapsed file: ${JSON.stringify(reviewGap)}`);
+    }
     await reviewMenus.nth(1).click();
     await page.getByRole("menuitem", { name: "Expand file" }).click();
     let nests = [];
@@ -266,31 +370,34 @@ try {
 
     // The Files view reads the session's folder itself, one folder at a time.
     await openPane("Files");
-    await page.locator(".file-row", { hasText: "nest.txt" }).waitFor({ timeout: 10_000 });
-    await page.locator(".file-folder", { hasText: "hold" }).click();
-    await page.locator(".file-row", { hasText: "doubloon.txt" }).waitFor({ timeout: 10_000 });
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /nest\.txt/ }).waitFor({ timeout: 10_000 });
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: 'hold' }).click();
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /doubloon\.txt/ }).waitFor({ timeout: 10_000 });
 
-    // A file opens beside the tree with numbered lines and stays marked there.
-    await page.locator(".file-entry", { hasText: "nest.txt" }).click();
-    await page.locator(".file-preview-lines", { hasText: "feathers" }).waitFor({ timeout: 10_000 });
-    const gutter = await page.locator(".file-preview-gutter").innerText();
-    if (gutter !== "1\n2") throw new Error(`The gutter numbered ${JSON.stringify(gutter)}`);
+    // A file opens in a preview tab with numbered source lines.
+    const nestEntry = page.locator('.vera-file-tree').getByRole('treeitem', { name: /nest\.txt/ });
+    await nestEntry.click();
+    await page.locator(".files-code [data-line]", { hasText: "feathers" }).waitFor({ timeout: 10_000 });
+    const gutter = await page.locator(".files-code [data-column-number]").allTextContents();
+    if (gutter.slice(0, 2).join("\n") !== "1\n2") throw new Error(`The gutter numbered ${JSON.stringify(gutter)}`);
     const shownPath = async () => page.locator(".file-preview-path").innerText();
     if (await shownPath() !== "nest.txt") throw new Error(`The preview named ${await shownPath()}`);
-    await page.locator(".file-entry[aria-current=\"true\"]", { hasText: "nest.txt" }).waitFor({ timeout: 5_000 });
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /nest\.txt/, selected: true }).waitFor({ timeout: 5_000 });
+    await nestEntry.dblclick();
+    if (await page.locator(".file-tab--preview", { hasText: "nest.txt" }).count() !== 0) throw new Error("A double-click did not keep the tab.");
 
-    // Previous and next step through the files opened, and Browse files hides and shows the tree.
-    await page.locator(".file-entry", { hasText: "doubloon.txt" }).click();
+    // A second preview leaves the kept tab available, and Browse files hides and shows the tree.
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /doubloon\.txt/ }).click();
     await until("doubloon.txt open", async () => (await shownPath()) === "hold/doubloon.txt");
-    await page.getByRole("button", { name: "Previous file" }).click();
+    await page.getByRole("tab", { name: /nest.txt/ }).click();
     await until("nest.txt open again", async () => (await shownPath()) === "nest.txt");
-    await page.getByRole("button", { name: "Next file" }).click();
+    await page.getByRole("tab", { name: /doubloon.txt/ }).click();
     await until("doubloon.txt open again", async () => (await shownPath()) === "hold/doubloon.txt");
     const browse = page.getByRole("button", { name: "Browse files" });
     await browse.click();
-    await page.locator(".file-tree").waitFor({ state: "hidden", timeout: 5_000 });
+    await page.locator(".files-tree").waitFor({ state: "hidden", timeout: 5_000 });
     await browse.click();
-    await page.locator(".file-entry[aria-current=\"true\"]", { hasText: "doubloon.txt" }).waitFor({ timeout: 5_000 });
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /doubloon\.txt/, selected: true }).waitFor({ timeout: 5_000 });
 
     // The context pill fills in once the host measures the conversation.
     const pill = page.locator(".context-pill");
@@ -363,7 +470,7 @@ try {
     await page.locator(".switcher-item[aria-label=\"Plan\"]").click();
     await page.locator(".plan-title").waitFor({ timeout: 5_000 });
     await rowMenu(agentId, "Open Files Pane");
-    await page.locator(".file-row", { hasText: "nest.txt" }).waitFor({ timeout: 10_000 });
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /nest\.txt/ }).waitFor({ timeout: 10_000 });
 
     // Right-click opens the same menu; Unpin puts the row back under its folder.
     await rowItem(agentId).click({ button: "right" });

@@ -45,6 +45,7 @@ export const CHANNELS = {
     folderChoose: "vera:folder-choose",
     foldersExisting: "vera:folders-existing",
     branchRead: "vera:branch-read",
+    gitRead: "vera:git-read",
     folderList: "vera:folder-list",
     fileRead: "vera:file-read",
     previewOpen: "vera:preview-open",

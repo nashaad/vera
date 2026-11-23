@@ -65,6 +65,14 @@ test("@core comment chips distinguish old and new sides at the same line", () =>
     expect(rangeHtml).toContain('aria-label="Remove comment on src/crow.ts:9-12 (old)"');
 });
 
+test("@core a file comment chip shows the path alone", () => {
+    const added = addDiffComment("captain", { ...crow, file: true, startLine: 0, endLine: 0, quote: [], note: "Review this file." })!;
+    const html = renderToStaticMarkup(createElement(DiffCommentChips, { sessionId: "captain", comments: [added] }));
+    expect(html).toContain('<span class="diff-comment-chip-location">src/crow.ts</span>');
+    expect(html).toContain('title="src/crow.ts: Review this file."');
+    expect(html).toContain('aria-label="Remove comment on src/crow.ts"');
+});
+
 test("@core comment chip styles reserve space for the full location", () => {
     const css = readFileSync(new URL("../../clients/ui/src/styles/composer.css", import.meta.url), "utf8");
     expect(css).toMatch(/\.diff-comment-chip\s*\{[^}]*max-width:\s*calc\(var\(--vera-space\)\s*\*\s*80\);/s);

@@ -27,6 +27,7 @@ import "./styles/models-browser.css";
 import "./styles/session-tools.css";
 import "./styles/diffs.css";
 import "./styles/right-views.css";
+import "./styles/changes.css";
 import "./styles/browser.css";
 import "./styles/session-panes.css";
 import "./styles/chat.css";

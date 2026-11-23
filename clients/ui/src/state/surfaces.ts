@@ -44,6 +44,7 @@ const AUTO_CONDITIONS: Readonly<Partial<Record<FlagKey, (evidence: SurfaceEviden
     work: (evidence) => evidence.sessions >= 2,
     customize: (evidence) => evidence.hostReady,
     review: (evidence) => evidence.review,
+    changes: (evidence) => evidence.files,
     plan: (evidence) => evidence.plan,
     files: (evidence) => evidence.files,
     output: (evidence) => evidence.output,
@@ -63,6 +64,7 @@ export function resolveVisibility(flags: DesktopFlags, evidence: SurfaceEvidence
 // The view containers each flag puts in the layout. Browser is one pane; the rest are one each.
 export const FLAG_CONTAINERS: Readonly<Partial<Record<FlagKey, string>>> = {
     review: CORE_CONTAINERS.review,
+    changes: CORE_CONTAINERS.changes,
     plan: CORE_CONTAINERS.plan,
     files: CORE_CONTAINERS.files,
     output: CORE_CONTAINERS.output,
@@ -107,7 +109,7 @@ export type EmptyLocations = Readonly<Record<ToggleLocation, boolean>>;
 // Without the layout, a location is empty when none of the core panes placed there by default is available.
 export function emptyLocations(visible: Visibility): EmptyLocations {
     return {
-        rightPane: !visible.review && !visible.plan && !visible.files && !visible.browser,
+        rightPane: !visible.review && !visible.changes && !visible.plan && !visible.files && !visible.browser,
         panel: !visible.output,
     };
 }

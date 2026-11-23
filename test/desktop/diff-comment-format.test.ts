@@ -69,6 +69,22 @@ describe('diff comment formatter', () => {
         expect(formatted.split('\n\n')[1]!.split('\n')).toHaveLength(MAX_DIFF_COMMENT_LINES);
     });
 
+    test('@core formats a file comment as its path and note', () => {
+        expect(formatDiffComment(makeComment({
+            file: true,
+            startLine: 0,
+            endLine: 0,
+            quote: [],
+        }))).toBe('src/treasure.ts\n\nKeep the crow’s map dry.');
+        expect(formatDiffComment(makeComment({
+            file: true,
+            startLine: 0,
+            endLine: 0,
+            quote: [],
+            note: 'y'.repeat(MAX_DIFF_COMMENT_CHARS + 1),
+        }))).toHaveLength('src/treasure.ts\n\n'.length + MAX_DIFF_COMMENT_CHARS);
+    });
+
     test('@core appends comments without a leading blank line for empty text', () => {
         expect(appendDiffComments('', [makeComment()])).toBe(formatDiffComment(makeComment()));
         expect(appendDiffComments('Mark the crow’s nest.', [makeComment()])).toBe(

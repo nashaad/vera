@@ -9,6 +9,7 @@ import { copyText } from "./copyText.ts";
 
 export const DIFF_FILE_COPY_PATH = "diff-file-copy-path";
 export const DIFF_FILE_OPEN = "diff-file-open";
+export const DIFF_FILE_OPEN_IN_FILES = "diff-file-open-in-files";
 export const DIFF_FILE_TOGGLE = "diff-file-toggle";
 
 const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
@@ -18,9 +19,10 @@ export function isAbsolutePath(path: string): boolean {
     return path.startsWith("/") || DRIVE_PATH.test(path) || UNC_PATH.test(path);
 }
 
-export function fileMenuEntries(open: boolean, canOpen: boolean): readonly MenuEntry[] {
+export function fileMenuEntries(open: boolean, canOpen: boolean, canOpenInFiles = false): readonly MenuEntry[] {
     return [
         { kind: "item", label: "Copy path", command: DIFF_FILE_COPY_PATH },
+        ...(canOpenInFiles ? [{ kind: "item" as const, label: "Open file", command: DIFF_FILE_OPEN_IN_FILES }] : []),
         { kind: "item", label: "Open in default app", command: DIFF_FILE_OPEN, disabled: !canOpen },
         { kind: "item", label: open ? "Collapse file" : "Expand file", command: DIFF_FILE_TOGGLE },
     ];
@@ -55,9 +57,10 @@ export interface DiffFileMenuProps {
     readonly open: boolean;
     readonly onToggle: () => void;
     readonly reveal?: ((path: string) => Promise<boolean>) | undefined;
+    readonly openInFiles?: (() => void) | undefined;
 }
 
-export function DiffFileMenu({ path, open, onToggle, reveal }: DiffFileMenuProps) {
+export function DiffFileMenu({ path, open, onToggle, reveal, openInFiles }: DiffFileMenuProps) {
     const [at, setAt] = useState<{ readonly x: number; readonly y: number }>();
     const show = (event: MouseEvent<HTMLButtonElement>): void => {
         event.stopPropagation();
@@ -77,11 +80,12 @@ export function DiffFileMenu({ path, open, onToggle, reveal }: DiffFileMenuProps
         </button>
         {at === undefined ? null : (
             <ContextMenu
-                entries={fileMenuEntries(open, reveal !== undefined && isAbsolutePath(path))}
+                entries={fileMenuEntries(open, reveal !== undefined && isAbsolutePath(path), openInFiles !== undefined)}
                 x={at.x}
                 y={at.y}
                 onRun={(command) => {
-                    void runFileMenuCommand(command, path, { reveal, onToggle });
+                    if (command === DIFF_FILE_OPEN_IN_FILES) openInFiles?.();
+                    else void runFileMenuCommand(command, path, { reveal, onToggle });
                 }}
                 onClose={() => setAt(undefined)}
             />

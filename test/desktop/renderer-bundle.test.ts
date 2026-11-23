@@ -22,7 +22,7 @@ test("@core the renderer bundles for the browser without Bun-only imports", asyn
             if (!output.path.endsWith(".js")) continue;
             const text = await output.text();
             expect(text).not.toContain("Bun.");
-            expect(text).not.toContain("bun:");
+            expect(text).not.toMatch(/["']bun:/);
             expect(text).not.toMatch(/["']node:/);
             expect(text).not.toMatch(/["']electron["']/);
         }

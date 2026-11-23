@@ -80,6 +80,15 @@ test("@core diff comments reject blank or over-limit notes and quotes", () => {
     expect(getDiffComments("captain")).toEqual([]);
 });
 
+test("@core a file comment needs no line range or quote", () => {
+    const file = addDiffComment("captain", crow({ file: true, startLine: 0, endLine: 0, quote: [] }));
+    expect(file).toBeDefined();
+    expect(file?.file).toBe(true);
+    expect(file?.quote).toEqual([]);
+    expect(getDiffComments("captain")).toEqual([file!]);
+    expect(addDiffComment("captain", crow({ file: true, startLine: 0, endLine: 0, quote: [], note: " " }))).toBeUndefined();
+});
+
 test("@core diff comments copy quotes and ignore invalid destinations", () => {
     const quote = ["crow at sea"];
     expect(addDiffComment("", crow({ quote }))).toBeUndefined();

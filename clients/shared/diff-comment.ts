@@ -11,16 +11,21 @@ export interface DiffComment {
     readonly endLine: number;
     readonly quote: readonly string[];
     readonly note: string;
+    // A comment on the whole file has no line range and sends the path alone.
+    readonly file?: boolean;
 }
 
 export function formatDiffComment(comment: DiffComment): string {
+    const note = comment.note.slice(0, MAX_DIFF_COMMENT_CHARS);
+    if (comment.file === true) {
+        return `${comment.path}\n\n${note}`;
+    }
     const startLine = Math.max(1, Math.floor(comment.startLine));
     const endLine = Math.max(startLine, Math.floor(comment.endLine));
     const location = startLine === endLine
         ? `${comment.path}:${startLine}`
         : `${comment.path}:${startLine}-${endLine}`;
     const header = `${location} (${comment.side})`;
-    const note = comment.note.slice(0, MAX_DIFF_COMMENT_CHARS);
     const quoteLines: string[] = [];
     let quotedChars = 0;
 

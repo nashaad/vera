@@ -25,6 +25,7 @@ const parsePong = (message: unknown): { pong: number } | undefined =>
 class FakeProcess implements TaskProcess<Ping> {
     readonly posted: Array<TaskRunMessage<Ping> | TaskCancelMessage> = [];
     kills = 0;
+    closeOnKill = true;
     private message: ((message: unknown) => void) | undefined;
     private exit: (() => void) | undefined;
 
@@ -42,6 +43,7 @@ class FakeProcess implements TaskProcess<Ping> {
 
     kill(): void {
         this.kills += 1;
+        if (this.closeOnKill) this.exit?.();
     }
 
     answer(message: unknown): void {
@@ -102,6 +104,47 @@ test("@core a process that exits, answers badly or takes too long is stopped and
     await expect(garbled).rejects.toThrow("could not be read");
     await expect(tasks.run({ ping: 3 })).rejects.toThrow("did not answer in time");
     expect(started.map((child) => child.kills)).toEqual([1, 1, 1]);
+});
+
+test("@core the next task starts only after the previous process exits", async () => {
+    const started: FakeProcess[] = [];
+    const tasks = new TaskRunner(() => {
+        const child = new FakeProcess();
+        started.push(child);
+        return child;
+    }, parsePong);
+    const pending = tasks.run({ ping: 1 });
+    await settle();
+    started[0]!.closeOnKill = false;
+    const second = tasks.run({ ping: 2 });
+    started[0]?.answer(result(1));
+    await settle();
+    expect(started).toHaveLength(1);
+    started[0]?.stop();
+    await settle();
+    expect(await pending).toEqual({ pong: 1 });
+    expect(started).toHaveLength(2);
+    started[1]?.answer(result(2));
+    expect(await second).toEqual({ pong: 2 });
+});
+
+test("@core the caller gets its reply before the process has exited", async () => {
+    const { started, start } = fakeStarts();
+    const tasks = new TaskRunner(start, parsePong);
+    const pending = tasks.run({ ping: 1 });
+    await settle();
+    const child = started[0];
+    child!.closeOnKill = false;
+    child?.answer(result(1));
+    expect(await pending).toEqual({ pong: 1 });
+    const second = tasks.run({ ping: 2 });
+    await settle();
+    expect(started).toHaveLength(1);
+    child?.stop();
+    await settle();
+    expect(started).toHaveLength(2);
+    started[1]?.answer(result(2));
+    expect(await second).toEqual({ pong: 2 });
 });
 
 test("@core tasks run one at a time", async () => {
@@ -316,6 +359,7 @@ test("@core the main process loads no task code; each task process loads its own
     expect(inDesktop(main.files, "extension-install")).toEqual(["extension-install/task-protocol.ts"]);
     expect(inDesktop(main.files, "extension-catalog")).toEqual(["extension-catalog/task-protocol.ts"]);
     expect(inDesktop(main.files, "update")).toEqual(["update/task-protocol.ts"]);
+    expect(inDesktop(main.files, "git")).toEqual(["git/task-protocol.ts"]);
     expect(main.files).not.toContain(join(REPOSITORY, "clients", "shared", "updates.ts"));
     expect(main.files).not.toContain(join(REPOSITORY, "src", "config.ts"));
     expect([...main.packages].filter((name) => name.startsWith("zod"))).toEqual([]);
@@ -349,6 +393,13 @@ test("@core the main process loads no task code; each task process loads its own
     expect(inImporter(catalog.files)).toEqual([]);
     expect(catalog.files).not.toContain(join(REPOSITORY, "src", "config.ts"));
     expect(catalog.packages.has("electron")).toBe(false);
+    const git = reachable(join(DESKTOP_SOURCE, "git", "worker.ts"));
+    for (const file of ["git/run-task.ts", "git/worker.ts"]) expect(inDesktop(git.files, "git")).toContain(file);
+    expect(git.files).toContain(join(REPOSITORY, "clients", "shared", "git-changes.ts"));
+    expect(git.files).toContain(join(REPOSITORY, "clients", "shared", "git-wire.ts"));
+    expect(git.packages.has("electron")).toBe(false);
+    expect(git.files).not.toContain(join(REPOSITORY, "src", "config.ts"));
+
     const update = reachable(join(DESKTOP_SOURCE, "update", "worker.ts"));
     expect(inDesktop(update.files, "update")).toContain("update/run-task.ts");
     expect(update.files).toContain(join(REPOSITORY, "clients", "shared", "updates.ts"));
@@ -357,7 +408,7 @@ test("@core the main process loads no task code; each task process loads its own
     expect(inDesktop(update.files, "model-assignments")).toEqual([]);
     expect(inImporter(update.files)).toEqual([]);
     expect(update.packages.has("electron")).toBe(false);
-    for (const worker of [themes, assignments, install, catalog, update]) expect(worker.files).not.toContain(join(DESKTOP_SOURCE, "main.ts"));
+    for (const worker of [themes, assignments, install, catalog, update, git]) expect(worker.files).not.toContain(join(DESKTOP_SOURCE, "main.ts"));
 });
 
 function sourcesUnder(directory: string): string[] {

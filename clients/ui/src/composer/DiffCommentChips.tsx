@@ -14,7 +14,9 @@ export function DiffCommentChips({ sessionId, comments }: DiffCommentChipsProps)
                 const line = comment.startLine === comment.endLine
                     ? `${comment.startLine}`
                     : `${comment.startLine}-${comment.endLine}`;
-                const location = `${comment.path}:${line}${comment.side === "old" ? " (old)" : ""}`;
+                const location = comment.file === true
+                    ? comment.path
+                    : `${comment.path}:${line}${comment.side === "old" ? " (old)" : ""}`;
                 const label = comment.note.trim().replace(/\s+/g, " ");
                 return (
                     <span className="chip chip-file diff-comment-chip" key={comment.id} title={`${location}: ${comment.note}`}>
