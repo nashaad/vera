@@ -974,7 +974,7 @@ export function startTuiProviderPicker(
         ...(rows.some((row) => row.refreshable === true && row.enabled !== false) ? [{
             value: TUI_REFRESH_PROVIDERS_VALUE,
             label: "Refresh providers",
-            description: "read model catalogs from all connected providers",
+            description: "read model catalogs from all providers that are on",
             action: true,
         }] : []),
         TUI_DECLARE_PROVIDER_OPTION,

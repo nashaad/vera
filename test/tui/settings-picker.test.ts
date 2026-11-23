@@ -4729,7 +4729,7 @@ test("Refresh providers is a visible action that preserves the provider list", a
     const pane = startTuiProviderPicker(PROVIDER_ROWS, { selected: TUI_REFRESH_PROVIDERS_VALUE });
     const frame = await pickerFrame(pane, 151, 36);
     expect(frame).toContain("Refresh providers");
-    expect(frame).toContain("read model catalogs from all connected providers");
+    expect(frame).toContain("read model catalogs from all providers that are on");
     const transition = handleTuiSettingsPickerKey(pane, { name: "enter" });
     expect(transition).toMatchObject({ state: pane, refreshAllCatalogs: true });
     expect(transition.selection).toBeUndefined();
