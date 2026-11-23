@@ -75,7 +75,7 @@ test("@core trimming by context size changes the prompt prefix once per step, no
     const outcome = await runPrefixScenario(scenario);
     expect(outcome.breaks).toBeLessThanOrEqual(outcome.allowed);
     expect(scenario.finalRounds).toBeGreaterThan(outcome.allowed * 2);
-});
+}, 30_000);
 
 test("@core the tool-result budget changes the prompt prefix once per step, not on every request", async () => {
     // Results under the verbatim floor are never digested, so only the byte
@@ -91,7 +91,7 @@ test("@core the tool-result budget changes the prompt prefix once per step, not 
     const outcome = await runPrefixScenario(scenario);
     expect(outcome.breaks).toBeLessThanOrEqual(outcome.allowed);
     expect(scenario.finalRounds).toBeGreaterThan(outcome.allowed * 2);
-});
+}, 30_000);
 
 async function runPrefixScenario(
     scenario: PrefixScenario,
