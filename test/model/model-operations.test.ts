@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { applyModelOperation, eligibleForDefault, type ModelOperationOptions } from "../../src/model/model-operations.ts";
 import { isCuratedPoolEntry, isVerifiedPoolEntry } from "../../src/model/pool-file.ts";
 import { readUserPoolFile, recordModelVerification, removeProviderPoolModels } from "../../src/model/pool-file-store.ts";
+import { resolveEffort } from "../../src/model/pool-policy.ts";
 import { emptyUsage, type AssistantMessage, type ModelAdapter } from "../../src/model/types.ts";
 
 const dirs: string[] = [];
@@ -86,6 +87,52 @@ test("verification makes real adapter requests and does not keep a model", async
     expect(new Set(steps.map((line) => line.split(" ")[1]))).toEqual(new Set(["response", "tool_call", "image"]));
     expect(isVerifiedPoolEntry(entry(opts))).toBe(true);
     expect(isCuratedPoolEntry(entry(opts))).toBe(false);
+});
+
+test("successful re-verification replaces a stored max failure", async () => {
+    const opts = options();
+    recordModelVerification("test/one", {
+        "efforts.max": {
+            ok: false,
+            seen: "2026-11-22T00:00:00.000Z",
+            error: "returned unexpected text for the probe prompt",
+            checked: "user_key",
+        },
+    }, opts);
+    expect(entry(opts).learned?.["efforts.max"]?.ok).toBe(false);
+    expect(resolveEffort("max", { entry: entry(opts) })).toMatchObject({ status: "forbidden" });
+
+    const adapter: ModelAdapter = { stream(request) {
+        const tool = request.tools?.[0];
+        const emptyMax = tool === undefined && request.reasoningEffort === "max";
+        const message: AssistantMessage = {
+            role: "assistant",
+            content: emptyMax ? [] : tool === undefined
+                ? [{ type: "text", text: "vera-admission-ok" }]
+                : [{ type: "tool_call", id: "call", name: tool.name, input: { value: "ok" } }],
+            source: { provider: "test", api: "test", model: request.model },
+            usage: emptyUsage(),
+            stopReason: emptyMax ? "length" : tool === undefined ? "stop" : "tool_use",
+        };
+        return { async *[Symbol.asyncIterator]() { yield { type: "done" as const, message }; },
+            result: () => Promise.resolve(message) };
+    } };
+    const results = await applyModelOperation({ operation: "verify", models: [model] }, {
+        ...opts,
+        createAdapter: () => adapter,
+        catalog: () => ({ id: "one", label: "One", levels: [
+            { id: "max", label: "Max" }, { id: "high", label: "High" },
+        ] }),
+    });
+
+    expect(results[0]?.status).toBe("passed");
+    expect(entry(opts).learned?.["efforts.max"]).toMatchObject({
+        ok: true, wire: "max", checked: "user_key",
+    });
+    expect(entry(opts).learned?.["efforts.max"]?.error).toBeUndefined();
+    expect(resolveEffort("max", { entry: entry(opts) })).toMatchObject({
+        status: "supported", wire: "max", source: "learned",
+    });
 });
 
 test("verification failure leaves membership and assignments untouched", async () => {

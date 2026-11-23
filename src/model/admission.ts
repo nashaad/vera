@@ -94,22 +94,11 @@ async function runAdmission(
 ): Promise<AdmissionVerdict> {
     const candidates = probeCandidates(request.catalogModel);
     const learned: Record<string, LearnedFact> = {};
-    const verified: string[] = [];
+    const answeringLevels: string[] = [];
     const dropped: string[] = [];
     const seen = (request.now?.() ?? new Date()).toISOString();
     const checked = request.checked ?? "user_key";
     let responseModel: string | undefined;
-
-    if (candidates.length === 0) {
-        const step = stepReporter(request, "response", "Model responds");
-        const outcome = await probeText(request, undefined);
-        if (outcome.kind === "incompatible") {
-            step("failed", outcome.reason);
-            return outcome.verdict;
-        }
-        responseModel = outcome.responseModel;
-        step("passed");
-    }
 
     for (const candidate of candidates) {
         const step = stepReporter(
@@ -129,8 +118,10 @@ async function runAdmission(
             };
             continue;
         }
-        responseModel ??= outcome.responseModel;
-        verified.push(candidate.wire);
+        if (outcome.containsSentinel) {
+            responseModel ??= outcome.responseModel;
+            answeringLevels.push(candidate.wire);
+        }
         learned[effortLearnedKey(candidate.level)] = {
             ok: true,
             seen,
@@ -140,12 +131,17 @@ async function runAdmission(
         step("passed");
     }
 
-    if (candidates.length > 0 && verified.length === 0) {
+    if (answeringLevels.length === 0) {
         const step = stepReporter(request, "response", "Model responds");
         const outcome = await probeText(request, undefined);
         if (outcome.kind === "incompatible") {
             step("failed", outcome.reason);
             return outcome.verdict;
+        }
+        if (!outcome.containsSentinel) {
+            const failure = incompatible("returned unexpected text for the probe prompt");
+            step("failed", failure.reason);
+            return failure.verdict;
         }
         responseModel = outcome.responseModel;
         step("passed");
@@ -154,7 +150,7 @@ async function runAdmission(
     const toolStep = stepReporter(request, "tool_call", "Calls a tool");
     const toolOutcome = await probeToolCall(
         request,
-        verified[0],
+        answeringLevels[0],
     );
     if (toolOutcome !== undefined) {
         toolStep("failed", toolOutcome.reason);
@@ -163,7 +159,7 @@ async function runAdmission(
     toolStep("passed");
 
     const imageStep = stepReporter(request, "image", "Accepts an image");
-    const imageOutcome = await probeImage(request, verified[0]);
+    const imageOutcome = await probeImage(request, answeringLevels[0]);
     if (imageOutcome !== undefined) {
         learned[IMAGES_LEARNED_KEY] = imageOutcome.ok
             ? { ok: true, seen, checked }
@@ -202,6 +198,7 @@ interface IncompatibleOutcome {
 interface PassedOutcome {
     readonly kind: "passed";
     readonly responseModel: string;
+    readonly containsSentinel: boolean;
 }
 
 async function probeText(
@@ -228,13 +225,11 @@ async function probeText(
         .filter((block) => block.type === "text")
         .map((block) => block.text)
         .join("");
-    if (!text.toLowerCase().includes(PROBE_SENTINEL)) {
-        return incompatible("returned unexpected text for the probe prompt");
-    }
     return {
         kind: "passed",
         responseModel: result.message.source.responseModel
             ?? result.message.source.model,
+        containsSentinel: text.toLowerCase().includes(PROBE_SENTINEL),
     };
 }
 

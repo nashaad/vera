@@ -5,6 +5,8 @@ import {
     type AdmissionStep,
 } from "../../src/model/admission.ts";
 import type { CatalogModel } from "../../src/model/catalog-shape.ts";
+import { deepSeekCatalogModels } from "../../src/model/deepseek-catalog.ts";
+import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
 import {
     ProviderFailureError,
     type ProviderFailure,
@@ -22,6 +24,7 @@ const SENTINEL = "vera-admission-ok";
 
 type ScriptedReply =
     | { readonly kind: "text"; readonly text: string; readonly responseModel?: string }
+    | { readonly kind: "empty_length" }
     | { readonly kind: "tool_call"; readonly name: string }
     | { readonly kind: "failure"; readonly failure: ProviderFailure };
 
@@ -57,7 +60,7 @@ function replyStream(reply: ScriptedReply, model: string): ModelStream {
         }
         : {
             role: "assistant",
-            content: [reply.kind === "text"
+            content: reply.kind === "empty_length" ? [] : [reply.kind === "text"
                 ? { type: "text", text: reply.text }
                 : {
                     type: "tool_call",
@@ -74,7 +77,8 @@ function replyStream(reply: ScriptedReply, model: string): ModelStream {
                     : {}),
             },
             usage: emptyUsage(),
-            stopReason: reply.kind === "text" ? "stop" : "tool_use",
+            stopReason: reply.kind === "text" ? "stop"
+                : reply.kind === "empty_length" ? "length" : "tool_use",
         };
     const events: ModelStreamEvent[] = [
         { type: "start" },
@@ -187,6 +191,160 @@ test("every level verifies, and the response model is recorded verbatim", async 
         "tool_call:passed",
         "image:running",
         "image:passed",
+    ]);
+});
+
+test("an accepted max probe with empty length-limited output stays supported", async () => {
+    const { adapter, requests } = scriptedAdapter([
+        { kind: "empty_length" },
+        { kind: "text", text: SENTINEL, responseModel: "verified-model" },
+        { kind: "tool_call", name: "admission_probe" },
+        { kind: "text", text: "ok" },
+    ]);
+    const steps: AdmissionStep[] = [];
+    const verdict = await admitModel({
+        adapter,
+        provider: "scripted",
+        model: "probe-model",
+        catalogModel: {
+            id: "probe-model", label: "Probe model",
+            levels: [{ id: "max", label: "Max" }, { id: "high", label: "High" }],
+        },
+        onStep: (step) => steps.push(step),
+    });
+
+    expect(verdict.status).toBe("added");
+    if (verdict.status !== "added") throw new Error("expected added");
+    expect(verdict.droppedLevels).toEqual([]);
+    expect(verdict.learned["efforts.max"]).toMatchObject({ ok: true, wire: "max" });
+    expect(verdict.learned["efforts.high"]).toMatchObject({ ok: true, wire: "high" });
+    expect(verdict.learned.probe).toMatchObject({ ok: true, wire: "verified-model" });
+    expect(steps.map((step) => `${step.step}:${step.status}`)).toContain("level:max:passed");
+    expect(requests.map((request) => request.reasoningEffort))
+        .toEqual(["max", "high", "high", "high"]);
+    expect(requests.every((request) => request.maxTokens === 2_048)).toBe(true);
+});
+
+test("DeepSeek reasoning-only length output is accepted through the real adapter", async () => {
+    const requests: Record<string, unknown>[] = [];
+    const adapter = createConfiguredModelAdapter({
+        schema_version: 1,
+        provider: "deepseek",
+        model: "deepseek-flash",
+        approval_mode: "ask",
+    }, {
+        env: { DEEPSEEK_API_KEY: "fake-deepseek-key" },
+        imageSupport: () => true,
+        fetch: async (_input, init) => {
+            const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+            requests.push(body);
+            const toolProbe = Array.isArray(body.tools) && body.tools.length > 0;
+            const maxProbe = body.reasoning_effort === "max" && !toolProbe;
+            const delta = toolProbe
+                ? { role: "assistant", tool_calls: [{
+                    index: 0, id: "call-1", type: "function",
+                    function: { name: "admission_probe", arguments: '{"value":"ok"}' },
+                }] }
+                : maxProbe
+                    ? { role: "assistant", reasoning_content: "Thinking" }
+                    : { role: "assistant", content: SENTINEL };
+            const chunk = (value: unknown, finish: string | null) =>
+                `data: ${JSON.stringify({ id: "c1", model: "deepseek-flash", choices: [{
+                    index: 0, delta: value, finish_reason: finish,
+                }] })}\n\n`;
+            return new Response(
+                chunk(delta, null) + chunk({}, toolProbe ? "tool_calls" : maxProbe ? "length" : "stop")
+                    + "data: [DONE]\n\n",
+                { headers: { "content-type": "text/event-stream" } },
+            );
+        },
+    });
+    const catalogModel = deepSeekCatalogModels().find((row) => row.id === "deepseek-flash");
+    if (catalogModel === undefined) throw new Error("missing DeepSeek Flash catalog model");
+    const verdict = await admitModel({
+        adapter, provider: "deepseek", model: "deepseek-flash", catalogModel,
+    });
+
+    expect(verdict.status).toBe("added");
+    if (verdict.status !== "added") throw new Error("expected added");
+    expect(verdict.droppedLevels).toEqual([]);
+    expect(verdict.learned["efforts.max"]).toMatchObject({ ok: true, wire: "max" });
+    expect(verdict.learned["efforts.high"]).toMatchObject({ ok: true, wire: "high" });
+    expect(requests.map((body) => body.reasoning_effort)).toEqual(["max", "high", "high", "high"]);
+    expect(requests.every((body) => body.max_tokens === 2_048)).toBe(true);
+});
+
+test("a 400 refusal still drops max without failing the admission", async () => {
+    const { adapter } = scriptedAdapter([
+        { kind: "failure", failure: userActionFailure(400) },
+        { kind: "text", text: SENTINEL },
+        { kind: "tool_call", name: "admission_probe" },
+        { kind: "text", text: "ok" },
+    ]);
+    const verdict = await admitModel({
+        adapter,
+        provider: "scripted",
+        model: "probe-model",
+        catalogModel: {
+            id: "probe-model", label: "Probe model",
+            levels: [{ id: "max", label: "Max" }, { id: "high", label: "High" }],
+        },
+    });
+
+    expect(verdict.status).toBe("added");
+    if (verdict.status !== "added") throw new Error("expected added");
+    expect(verdict.droppedLevels).toEqual(["max"]);
+    expect(verdict.learned["efforts.max"]).toMatchObject({
+        ok: false, error: "the provider rejected the request",
+    });
+    expect(verdict.learned["efforts.high"]).toMatchObject({ ok: true, wire: "high" });
+});
+
+test("accepted levels use the no-effort probe when none returns the sentinel", async () => {
+    const { adapter, requests } = scriptedAdapter([
+        { kind: "empty_length" },
+        { kind: "text", text: "unrelated response" },
+        { kind: "text", text: SENTINEL, responseModel: "fallback-model" },
+        { kind: "tool_call", name: "admission_probe" },
+        { kind: "text", text: "ok" },
+    ]);
+    const steps: AdmissionStep[] = [];
+    const verdict = await admitModel({
+        adapter, provider: "scripted", model: "probe-model", catalogModel: catalogModel(),
+        onStep: (step) => steps.push(step),
+    });
+
+    expect(verdict.status).toBe("added");
+    if (verdict.status !== "added") throw new Error("expected added");
+    expect(verdict.droppedLevels).toEqual([]);
+    expect(verdict.learned["efforts.high"]).toMatchObject({ ok: true, wire: "high" });
+    expect(verdict.learned["efforts.low"]).toMatchObject({ ok: true, wire: "low" });
+    expect(verdict.learned.probe).toMatchObject({ ok: true, wire: "fallback-model" });
+    expect(requests.map((request) => request.reasoningEffort))
+        .toEqual(["high", "low", undefined, undefined, undefined]);
+    expect(steps.map((step) => `${step.step}:${step.status}`)).toContain("response:passed");
+});
+
+test("admission fails when neither level nor no-effort probes return the sentinel", async () => {
+    const { adapter, requests } = scriptedAdapter([
+        { kind: "empty_length" },
+        { kind: "text", text: "unrelated response" },
+        { kind: "empty_length" },
+    ]);
+    const steps: AdmissionStep[] = [];
+    const verdict = await admitModel({
+        adapter, provider: "scripted", model: "probe-model", catalogModel: catalogModel(),
+        onStep: (step) => steps.push(step),
+    });
+
+    expect(verdict).toEqual({
+        status: "incompatible", reason: "returned unexpected text for the probe prompt",
+    });
+    expect(requests.map((request) => request.reasoningEffort))
+        .toEqual(["high", "low", undefined]);
+    expect(steps.map((step) => `${step.step}:${step.status}`)).toEqual([
+        "level:high:running", "level:high:passed", "level:low:running", "level:low:passed",
+        "response:running", "response:failed",
     ]);
 });
 
@@ -319,6 +477,22 @@ test("a model the catalog has never seen is not given a fabricated effort map", 
     expect(
         Object.keys(verdict.learned).some((key) => key.startsWith("efforts.")),
     ).toBe(false);
+});
+
+test("a model without levels still needs the no-effort sentinel", async () => {
+    const { adapter, requests } = scriptedAdapter([{ kind: "empty_length" }]);
+    const steps: AdmissionStep[] = [];
+    const verdict = await admitModel({
+        adapter, provider: "scripted", model: "probe-model",
+        onStep: (step) => steps.push(step),
+    });
+
+    expect(verdict).toEqual({
+        status: "incompatible", reason: "returned unexpected text for the probe prompt",
+    });
+    expect(requests.map((request) => request.reasoningEffort)).toEqual([undefined]);
+    expect(steps.map((step) => `${step.step}:${step.status}`))
+        .toEqual(["response:running", "response:failed"]);
 });
 
 test("a model the catalog knows is probed only at its own levels", async () => {
