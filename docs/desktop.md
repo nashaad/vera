@@ -1591,8 +1591,9 @@ A desktop extension adds to the desktop app itself. Extensions can add themes;
 installed extensions can also add worker commands and keybindings. An extension
 included with the app can add tasks, page scripts, file preview types, and menu
 entries for its commands in Settings, the View menu and the Browser toolbar. It
-is a folder with a `vera.desktop.json` manifest. The terminal UI does not use
-desktop extensions and keeps its own themes.
+is a folder with a `vera.desktop.json` manifest. A plugin can also contain a
+desktop extension. The terminal UI does not use desktop extensions and keeps
+its own themes.
 
 Customize > Yours lists them above its skills, agents and other items. The
 section note reads `Desktop extensions add to this app, such as themes. They
@@ -1603,24 +1604,48 @@ task or page script, or a menu entry, the row and install preview also say
 The list note `More extension folders exist than are loaded.` and folder
 diagnostics such as an invalid folder name, a missing or invalid manifest, or a
 folder name that differs from the manifest id reach the window but are not
-shown in this version. Turning an
-extension off hides its themes at once; a window using one of them falls back to
+shown in this version. Turning a separately installed extension off hides its
+themes at once; a window using one of them falls back to
 the built-in theme of the same type. Turning it on shows them again. Remove
-deletes an installed extension's folder. An extension included with the app is
-always on, cannot be removed, and is not listed. Installed extensions' task and
+deletes a separately installed extension's folder. An extension included with
+the app is always on, cannot be removed, and is not listed. Installed extensions' task and
 page-script commands do not run, and their `menus` entries are ignored; only
 included extensions run tasks and page scripts or contribute menu entries.
 
 Install from file opens a file picker for a package. The window first shows what
 the package holds: its id, its version, its themes, and `Replaces version <v>.`
-when an installed extension has the same id. Install puts the extension in
-place; Cancel throws the package away and installs nothing. Installing a
-package with the id of an installed extension replaces it. The web client has no
-install; it shows none of these controls.
+when a separately installed extension has the same id. Install puts the
+extension in place; Cancel throws the package away and installs nothing.
+Installing a package with the id of a separately installed extension replaces
+it. The web client has no install; it shows none of these controls.
 
-Extensions are kept in `machine/desktop/extensions/<id>` under the home, and
-which of them are off in `machine/desktop/extensions.json`. Included extensions
-ship in the app and are not copied there; an included id in that file is ignored.
+Separately installed extensions are kept in `machine/desktop/extensions/<id>`
+under the home, and which of them are off in `machine/desktop/extensions.json`.
+Included extensions ship in the app and are not copied there; an included id
+in that file is ignored.
+
+Plugin desktop extensions stay in the plugin folder and follow the plugin's
+on or off state. Their row's switch and Remove refuse and name the plugin
+command to use instead. Use `/plugin enable <name>` or `/plugin disable <name>`
+in the terminal, and `vera plugin remove <name>` to remove the plugin. A new
+extension list reads the current plugin state; reload the desktop extensions or
+restart the app to replace running extension code. A plugin desktop extension
+has the same worker commands, keybindings and themes as a separately installed
+extension, while tasks, page commands and menu entries remain included-only.
+After the desktop store is migrated, desktop extension installs and VS Code
+theme imports stay separately installed, with their own switch and Remove.
+An included extension takes precedence over a plugin extension with the same
+id. A plugin extension takes precedence over a separately installed extension
+with the same id, including while the plugin is off.
+
+The plugin record names its desktop extension id. If the installed manifest
+names a different id, the desktop skips the part and records a diagnostic with
+both ids. Reinstall the plugin from its source to restore the part. If existing
+plugins share a desktop id, the first plugin by name keeps it and the others
+are reported.
+
+When a plugin declares a desktop folder outside its package, discovery reports
+the path and uses `dev.vera/desktop/` if that folder is present.
 
 ### The manifest
 

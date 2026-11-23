@@ -41,7 +41,7 @@ function includedImporter(): string {
 
 // Every task reaches the importer as a copy and keeps nothing between runs, as it does in its own process.
 function commandsOver(home: string, roots: string[], onChange?: () => void): Commands {
-    const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)), includedImporter());
+    const store = new ExtensionStore(home, new ExtensionStateStore(extensionStatePath(home)), includedImporter());
     const themes = new ThemeService(store, themesDirectory(home), onChange);
     const sent: CommandTask[] = [];
     const dialog: { path: string | undefined } = { path: undefined };
@@ -180,7 +180,7 @@ test("a theme that has gone missing since the list was made is reported", async 
 
 test("a command that is missing, or whose extension is not included, runs nothing", async () => {
     const home = scratchDirectory();
-    const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)));
+    const store = new ExtensionStore(home, new ExtensionStateStore(extensionStatePath(home)));
     const themes = new ThemeService(store, themesDirectory(home));
     const host: CommandHost = {
         target: (command) => store.commandTarget(command),
@@ -229,7 +229,7 @@ async function converted(...names: string[]): Promise<ImportedTheme[]> {
 }
 
 function themeServiceOver(home: string): ThemeService {
-    return new ThemeService(new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home))), themesDirectory(home));
+    return new ThemeService(new ExtensionStore(home, new ExtensionStateStore(extensionStatePath(home))), themesDirectory(home));
 }
 
 test("@core each theme a task sends back is installed as its own extension, and a refusal installs nothing", async () => {
@@ -247,7 +247,7 @@ test("@core each theme a task sends back is installed as its own extension, and 
 
 test("@core a refusal from the task reaches the window as its reason, and nothing is installed", async () => {
     const home = scratchDirectory();
-    const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)), includedImporter());
+    const store = new ExtensionStore(home, new ExtensionStateStore(extensionStatePath(home)), includedImporter());
     const host: CommandHost = {
         target: (command) => store.commandTarget(command),
         run: async () => ({ kind: "refused", reason: "The file is not valid JSON." }),

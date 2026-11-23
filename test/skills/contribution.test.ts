@@ -34,8 +34,20 @@ test("a large catalog is bounded and reports omitted skills", () => {
     expect(content).toContain("additional skill(s) omitted");
 });
 
+test("plugin warnings stay out of the prompt catalog", () => {
+    const content = renderSkillCatalog({
+        ...catalog([skill("consult", "Compare two independent answers.")]),
+        pluginWarnings: [
+            "Plugins: Plugin registry at /home/.vera/machine/plugins.json is not valid JSON",
+        ],
+    });
+
+    expect(content).not.toContain("plugins.json");
+    expect(content).not.toContain("Plugins:");
+});
+
 function catalog(skills: SkillCatalog["skills"]): SkillCatalog {
-    return { skills, disabledSkills: [], warnings: [] };
+    return { skills, disabledSkills: [], warnings: [], pluginWarnings: [] };
 }
 
 function skill(

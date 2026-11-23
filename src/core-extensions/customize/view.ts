@@ -1,6 +1,6 @@
 import type { VeraClientExtensionApi } from "../../sdk/extensions.ts";
 import type { CustomizationSource, SourceCategory } from "../../customize/types.ts";
-import { CATEGORIES, sourceStatus, sourceWasLoaded } from "./model.ts";
+import { CATEGORIES, sourceScope, sourceStatus, sourceWasLoaded } from "./model.ts";
 
 // "back" means the user pressed Esc on the loaded list, so the caller can reopen its own page.
 export type SourceBrowserExit = "back" | "closed";
@@ -40,7 +40,7 @@ export function registerSourceBrowser(vera: VeraClientExtensionApi): {
                     : `Customize › ${CATEGORIES.find((item) => item.id === category)!.name}`;
                 const rows = sources.map((source, index) => ({
                     id: `source-${index}`, label: source.name,
-                    description: `${source.scope} · ${sourceStatus(source, snapshot)} · ${source.description} ${source.path ?? ""}`,
+                    description: `${sourceScope(source)} · ${sourceStatus(source, snapshot)} · ${source.description} ${source.path ?? ""}`,
                 }));
                 const notices = catalog.warnings.length === 0 ? undefined : catalog.warnings.join("\n");
                 const choice = await vera.ui.requestPicker({
@@ -96,5 +96,5 @@ export function registerSourceBrowser(vera: VeraClientExtensionApi): {
 
 export function sourceDocument(source: CustomizationSource, status: string): string {
     const empty = source.content === "" ? "\n\n(Empty file)" : "";
-    return `Scope: ${source.scope}\n\nStatus: ${status}\n\nSource: ${source.path ?? "Provided by an extension"}${empty}`;
+    return `Scope: ${sourceScope(source)}\n\nStatus: ${status}\n\nSource: ${source.path ?? (source.plugin === undefined ? "Provided by an extension" : "Provided by a plugin")}${empty}`;
 }

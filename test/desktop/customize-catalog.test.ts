@@ -103,7 +103,7 @@ test("an extension failure is not repeated when its manifest is also listed", ()
 
 test("kind counts cover every item and each kind", () => {
     const counts = kindCounts(fixture());
-    expect(counts).toEqual({ all: 8, skills: 2, agents: 2, extensions: 2, instructions: 1, memory: 1 });
+    expect(counts).toEqual({ all: 8, skills: 2, agents: 2, extensions: 2, instructions: 1, memory: 1, plugins: 0 });
 });
 
 test("the query matches names and descriptions and the kind filter narrows the list", () => {

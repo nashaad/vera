@@ -75,6 +75,42 @@ test("customization sources are cut to the catalog limit and their text is cappe
     expect(reply.sources[0]?.content.length).toBe(20_000);
 });
 
+test("@core plugin catalogs name the plugin on skills, agents and sources", () => {
+    const skills = parseCatalogLine(frame({
+        type: "skill_catalog",
+        requestId: "s",
+        skills: [{ name: "plunder", description: "Takes the cargo", disableModelInvocation: false, plugin: "sea-chest" }],
+        warnings: [],
+    }));
+    if (skills?.type !== "skills") throw new Error("expected skills");
+    expect(skills.skills[0]?.plugin).toBe("sea-chest");
+
+    const agents = parseCatalogLine(frame({
+        type: "agent_catalog",
+        requestId: "a",
+        selected: "default",
+        agents: [{ name: "lookout", scope: "plugin", writable: false, plugin: "sea-chest" }],
+        notices: [],
+    }));
+    if (agents?.type !== "agents") throw new Error("expected agents");
+    expect(agents.agents[0]).toMatchObject({ scope: "plugin", writable: false, plugin: "sea-chest" });
+
+    const sources = parseCatalogLine(frame({
+        type: "customization_sources",
+        requestId: "c",
+        catalog: {
+            sources: [
+                { id: "plugins:sea-chest", category: "plugins", name: "sea-chest", description: "skills:1", scope: "plugin", content: "", editable: false, status: "enabled", plugin: "sea-chest" },
+                { id: "skills:plunder", category: "skills", name: "plunder", description: "Takes the cargo", scope: "plugin sea-chest", content: "", editable: false, plugin: "sea-chest" },
+            ],
+            warnings: [],
+        },
+    }));
+    if (sources?.type !== "sources") throw new Error("expected sources");
+    expect(sources.sources[0]).toMatchObject({ category: "plugins", plugin: "sea-chest" });
+    expect(sources.sources[1]).toMatchObject({ category: "skills", plugin: "sea-chest" });
+});
+
 test("agent selection replies carry the name or the reason", () => {
     expect(parseCatalogLine(frame({ type: "agent_selected", requestId: "x", name: "planner", notice: "" })))
         .toEqual({ type: "agent_selected", requestId: "x", name: "planner" });

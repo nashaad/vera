@@ -13,6 +13,11 @@ import {
     tokenizeExtensionManagerArguments,
     type ExtensionManagerCommand,
 } from "../../src/extensions/manager-command.ts";
+import {
+    parsePluginManagerCommand,
+    tokenizePluginManagerArguments,
+    type PluginManagerCommand,
+} from "../../src/plugins/command.ts";
 import type { SettingsDestination } from "../../src/engine/settings-destination.ts";
 import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
 import { tuiKeyHint } from "./keymap.ts";
@@ -180,6 +185,11 @@ export interface ManageExtensionsTuiCommandAction {
     readonly command: Exclude<ExtensionManagerCommand, { readonly operation: "list" }>;
 }
 
+export interface ManagePluginsTuiCommandAction {
+    readonly type: "manage_plugins";
+    readonly command: PluginManagerCommand;
+}
+
 export interface ShowDoctorTuiCommandAction {
     readonly type: "show_doctor";
 }
@@ -267,6 +277,7 @@ export type TuiCommandAction =
     | ShowDiagnosticsTuiCommandAction
     | ShowExtensionsTuiCommandAction
     | ManageExtensionsTuiCommandAction
+    | ManagePluginsTuiCommandAction
     | ShowDoctorTuiCommandAction
     | OpenUsageTuiCommandAction
     | RunUpdateTuiCommandAction
@@ -330,6 +341,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "show_diagnostics":
         case "show_extensions":
         case "manage_extensions":
+        case "manage_plugins":
         case "show_doctor":
         case "open_usage":
         case "run_update":
@@ -579,6 +591,12 @@ const EXTENSION_COMMAND = {
     usage: "/extension <op> …",
 } as const satisfies TuiCommandCatalogEntry;
 
+const PLUGIN_COMMAND = {
+    name: "plugin",
+    description: "Install, enable, disable, show, or remove a plugin",
+    usage: "/plugin <op> …",
+} as const satisfies TuiCommandCatalogEntry;
+
 const DOCTOR_COMMAND = {
     name: "doctor",
     description: "Check resident hosts and Vera process health",
@@ -637,6 +655,7 @@ export const BUILTIN_COMMANDS = [
     DIAGNOSTICS_COMMAND,
     EXTENSIONS_COMMAND,
     EXTENSION_COMMAND,
+    PLUGIN_COMMAND,
     DOCTOR_COMMAND,
     USAGE_COMMAND,
     UPDATE_COMMAND,
@@ -1665,6 +1684,37 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Extensions",
             slashName: "extension",
             action: { type: "prefill_composer", text: "/extension " },
+        },
+    });
+    registry.registerCommand({
+        ...PLUGIN_COMMAND,
+        parse: (argumentsText) => {
+            const tokenized = tokenizePluginManagerArguments(argumentsText);
+            if ("error" in tokenized) {
+                return { type: "command_error", message: tokenized.error };
+            }
+            const parsed = parsePluginManagerCommand([
+                "plugin",
+                ...tokenized.words,
+            ]);
+            if (parsed === undefined) {
+                return {
+                    type: "command_error",
+                    message: `Usage: ${PLUGIN_COMMAND.usage}`,
+                };
+            }
+            if ("error" in parsed) {
+                return { type: "command_error", message: parsed.error };
+            }
+            return { type: "manage_plugins", command: parsed.command };
+        },
+        palette: {
+            name: "plugin",
+            label: "Manage plugins",
+            description: "install or change plugin state",
+            group: "Extensions",
+            slashName: "plugin",
+            action: { type: "prefill_composer", text: "/plugin " },
         },
     });
     registry.registerCommand({

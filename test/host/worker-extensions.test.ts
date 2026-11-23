@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,12 @@ import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import type { VeraExtensionConfig } from "../../src/config.ts";
 import { loadExtensionManifest } from "../../src/extensions/manifest.ts";
 import { workerExtensionConfigs } from "../../src/extensions/host-set.ts";
+import { emptyPluginSnapshot, readPluginSnapshot } from "../../src/plugins/catalog.ts";
+import { installPlugin } from "../../src/plugins/manager.ts";
+import { AGENT_PLUGIN_SCHEMA } from "../../src/plugins/naming.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
+import { defaultHostLogPath } from "../../src/host/host-log.ts";
+import { startWorkerExtensions } from "../../src/host/worker/extensions.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import {
     emptyUsage,
@@ -113,7 +118,7 @@ test("the worker set keeps model middleware and drops other included extensions"
     const configs = workerExtensionConfigs({
         disabled_included_extensions: [],
         extensions: [],
-    });
+    }, emptyPluginSnapshot());
     const ids = configs.map((config) =>
         loadExtensionManifest(config.path).manifest.id
     );
@@ -124,7 +129,7 @@ test("the worker set keeps model middleware and drops other included extensions"
     const withoutBudget = workerExtensionConfigs({
         disabled_included_extensions: ["vera.budget"],
         extensions: [],
-    });
+    }, emptyPluginSnapshot());
     expect(withoutBudget.map((config) =>
         loadExtensionManifest(config.path).manifest.id
     )).not.toContain("vera.budget");
@@ -140,10 +145,101 @@ test("the worker set keeps model middleware and drops other included extensions"
         const withConfigured = workerExtensionConfigs({
             disabled_included_extensions: [],
             extensions: [enabled(configured)],
-        });
+        }, emptyPluginSnapshot());
         expect(withConfigured.some((config) => config.path === configured))
             .toBe(true);
     } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("@core model-turn workers skip replaced plugin packages and warn once per host", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-plugin-replaced-"));
+    const veraHome = join(root, ".vera");
+    const marker = join(root, "replacement-imported");
+    const previousExtensions = process.env.VERA_WORKER_EXTENSIONS;
+    process.env.VERA_WORKER_EXTENSIONS = "1";
+    async function source(name: string, id: string): Promise<string> {
+        const directory = join(root, name);
+        const extension = join(directory, "dev.vera", "host");
+        await mkdir(extension, { recursive: true });
+        await writeFile(join(directory, "plugin.json"), JSON.stringify({
+            $schema: AGENT_PLUGIN_SCHEMA, name,
+        }));
+        await writeFile(join(extension, "vera.extension.json"), JSON.stringify({
+            id, version: "1.0.0", sdk: "1", entrypoint: "extension.ts",
+            capabilities: ["hooks.model_middleware"],
+        }));
+        await writeFile(join(extension, "extension.ts"),
+            "export function activate(vera) { vera.hooks.registerModelMiddleware((adapter) => adapter); }\n");
+        return directory;
+    }
+    let agents: AgentRegistry | undefined;
+    let worker: Awaited<ReturnType<typeof startWorkerExtensions>> | undefined;
+    try {
+        const replaced = await source("sea-chest", "crow.replace");
+        const missing = await source("crow-gone", "crow.gone");
+        const unchanged = await source("crow-keep", "crow.keep");
+        installPlugin(replaced, { home: root });
+        installPlugin(missing, { home: root });
+        installPlugin(unchanged, { home: root });
+        const snapshot = readPluginSnapshot({ veraHome });
+        const paths = new Map(snapshot.host_extensions.map((part) => [part.plugin, part.directory]));
+        const configured = {
+            extensions: [{ path: paths.get("sea-chest")!, enabled: true, config: {} }],
+        };
+        agents = new AgentRegistry({
+            createAdapter: () => new FauxAdapter([]),
+            workerExtensions: () => workerExtensionConfigs(configured, snapshot),
+            model: "faux/test",
+            approvalMode: "full_access",
+        });
+        const initial = agents.workerExtensions()!;
+        for (const path of paths.values()) expect(initial.some((entry) => entry.path === path)).toBe(true);
+
+        await writeFile(join(replaced, "dev.vera", "host", "vera.extension.json"), JSON.stringify({
+            id: "crow.replace", version: "2.0.0", sdk: "1", entrypoint: "replacement.ts",
+            capabilities: ["hooks.model_middleware"],
+        }));
+        await writeFile(join(replaced, "dev.vera", "host", "replacement.ts"), `
+            import { writeFileSync } from "node:fs";
+            writeFileSync(${JSON.stringify(marker)}, "imported");
+            export function activate(vera) { vera.hooks.registerModelMiddleware((adapter) => adapter); }
+        `);
+        installPlugin(replaced, { home: root });
+        await rm(join(veraHome, "plugins", "crow-gone"), { recursive: true, force: true });
+
+        const selected = agents.workerExtensions()!;
+        expect(selected.some((entry) => entry.path === paths.get("sea-chest"))).toBe(false);
+        expect(selected.some((entry) => entry.path === paths.get("crow-gone"))).toBe(false);
+        expect(selected.some((entry) => entry.path === paths.get("crow-keep"))).toBe(true);
+        const pluginPaths = new Set(paths.values());
+        worker = await startWorkerExtensions(
+            selected.filter((entry) => pluginPaths.has(entry.path)),
+            veraHome,
+        );
+        expect(worker.activationFailure).toBeUndefined();
+        expect(worker.registry?.modelMiddleware().map((entry) => entry.extensionId)).toEqual(["crow.keep"]);
+        expect(existsSync(marker)).toBe(false);
+
+        agents.workerExtensions();
+        const logs = readFileSync(defaultHostLogPath(veraHome), "utf8").trim().split("\n")
+            .map((line) => JSON.parse(line) as { type: string; message?: string })
+            .filter((entry) => entry.type === "host_startup_plugin_warning");
+        expect(logs.map((entry) => entry.message)).toEqual([
+            "plugin crow-gone: the installed package changed or is unavailable; restart the host to load the new version",
+            "plugin sea-chest: the installed package changed or is unavailable; restart the host to load the new version",
+        ]);
+        const callbackWarnings: string[] = [];
+        const anotherHost = { ...snapshot };
+        workerExtensionConfigs(configured, anotherHost, (message) => callbackWarnings.push(message));
+        workerExtensionConfigs(configured, anotherHost, (message) => callbackWarnings.push(message));
+        expect(callbackWarnings).toEqual(logs.map((entry) => entry.message!));
+    } finally {
+        await worker?.registry?.close();
+        await agents?.close();
+        if (previousExtensions === undefined) delete process.env.VERA_WORKER_EXTENSIONS;
+        else process.env.VERA_WORKER_EXTENSIONS = previousExtensions;
         await rm(root, { recursive: true, force: true });
     }
 });

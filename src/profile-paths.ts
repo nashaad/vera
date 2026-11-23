@@ -2,6 +2,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { isPortablePluginName } from "./plugins/naming.ts";
+
 export const VERA_HOME_ENV = "VERA_HOME";
 
 export const DEFAULT_PROFILE_NAME = "default";
@@ -95,6 +97,32 @@ export function assertProfileLayout(home?: string): void {
 }
 
 export const EXTENSION_DATA_DIRECTORY = "extension-data";
+export const PLUGINS_DIRECTORY = "plugins";
+export const PLUGIN_REGISTRY_FILENAME = "plugins.json";
+
+export function pluginsDirectoryIn(veraHome: string): string {
+    return join(veraHome, PLUGINS_DIRECTORY);
+}
+
+export function pluginRegistryPathIn(veraHome: string): string {
+    return join(veraMachineDirectoryIn(veraHome), PLUGIN_REGISTRY_FILENAME);
+}
+
+export function pluginDirectoryIn(veraHome: string, name: string): string {
+    assertPluginEntryName(name);
+    return join(pluginsDirectoryIn(veraHome), name);
+}
+
+export function pluginDataDirectoryIn(veraHome: string, name: string): string {
+    assertPluginEntryName(name);
+    return join(pluginsDirectoryIn(veraHome), ".data", name);
+}
+
+function assertPluginEntryName(name: string): void {
+    if (!isPortablePluginName(name)) {
+        throw new Error(`Invalid plugin name: ${name}`);
+    }
+}
 
 export const HOME_OWNED_ROOT_ENTRIES = [
     "machine",
@@ -111,6 +139,7 @@ export const HOME_OWNED_ROOT_ENTRIES = [
     "standing-nudges.json",
     "extensions",
     "extensions.json",
+    PLUGINS_DIRECTORY,
     "skills",
     "hooks",
     "memory",

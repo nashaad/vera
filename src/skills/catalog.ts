@@ -19,12 +19,14 @@ import {
     resolveSkillSources,
     type ExtensionSkillRoot,
 } from "./sources.ts";
+import type { PluginCatalog, PluginRoot } from "../plugins/catalog.ts";
 
-export type SkillScope = "system" | "extension" | "user" | "project";
+export type SkillScope = "system" | "extension" | "plugin" | "user" | "project";
 
 export interface CatalogSkill extends LoadedSkillPackage {
     readonly scope: SkillScope;
     readonly extensionId?: string;
+    readonly plugin?: string;
 }
 
 export interface SkillCatalog {
@@ -32,17 +34,22 @@ export interface SkillCatalog {
     // Matched by `disabled_skills`; absent from every other use of the catalog.
     readonly disabledSkills: readonly CatalogSkill[];
     readonly warnings: readonly string[];
+    // Warnings that name a plugin or a path inside one. They stay out of the
+    // prompt contribution and surface in the catalog and plugin views.
+    readonly pluginWarnings: readonly string[];
 }
 
 export interface LoadSkillCatalogOptions {
-    // Without a project root only built-in, extension and user skills load.
+    // Without a project root only system, extension, plugin and user skills load.
     readonly projectRoot?: string;
     readonly systemDirectory?: string;
     readonly userDirectory?: string;
-    // Both default to the home config and enabled extensions. The project's
-    // own disabled_skills is always added on top.
+    // These default to the home config, enabled extensions and enabled plugins.
+    // The project's own disabled_skills is always added on top.
     readonly disabledSkills?: readonly string[];
     readonly extensionRoots?: readonly ExtensionSkillRoot[];
+    readonly pluginRoots?: readonly PluginRoot[];
+    readonly pluginCatalog?: PluginCatalog;
 }
 
 export function bundledSkillDirectory(): string {
@@ -61,13 +68,21 @@ export async function loadSkillCatalog(
     options: LoadSkillCatalogOptions,
 ): Promise<SkillCatalog> {
     const warnings: string[] = [];
+    const pluginWarnings: string[] = [];
     let disabledPatterns = options.disabledSkills;
     let extensionRoots = options.extensionRoots;
-    if (disabledPatterns === undefined || extensionRoots === undefined) {
-        const sources = resolveSkillSources();
+    let pluginRoots = options.pluginRoots;
+    if (options.pluginCatalog !== undefined) {
+        pluginWarnings.push(...options.pluginCatalog.warnings);
+        pluginRoots ??= options.pluginCatalog.skill_roots;
+    }
+    if (disabledPatterns === undefined || extensionRoots === undefined || pluginRoots === undefined) {
+        const sources = resolveSkillSources(options.pluginCatalog);
         disabledPatterns ??= sources.disabledSkills;
         extensionRoots ??= sources.extensionRoots;
+        pluginRoots ??= sources.pluginRoots;
         warnings.push(...sources.warnings);
+        pluginWarnings.push(...sources.pluginWarnings);
     }
     if (options.projectRoot !== undefined) {
         const project = readProjectSkillSettings(options.projectRoot);
@@ -78,6 +93,7 @@ export async function loadSkillCatalog(
         readonly scope: SkillScope;
         readonly path: string;
         readonly extensionId?: string;
+        readonly plugin?: string;
     }[] = [
         {
             scope: "system",
@@ -87,6 +103,11 @@ export async function loadSkillCatalog(
             scope: "extension" as const,
             path: root.path,
             extensionId: root.extensionId,
+        })),
+        ...pluginRoots.map((root) => ({
+            scope: "plugin" as const,
+            path: root.path,
+            plugin: root.plugin,
         })),
         {
             scope: "user",
@@ -100,16 +121,23 @@ export async function loadSkillCatalog(
     const byName = new Map<string, CatalogSkill>();
 
     for (const root of roots) {
-        const packages = await loadRoot(root.path, root.scope, warnings);
+        const rootWarnings = root.scope === "plugin" ? pluginWarnings : warnings;
+        const packages = await loadRoot(root.path, root.scope, rootWarnings);
         for (const loaded of packages) {
-            const skill: CatalogSkill = root.extensionId === undefined
-                ? loaded
-                : { ...loaded, extensionId: root.extensionId };
+            const skill: CatalogSkill = {
+                ...loaded,
+                ...(root.extensionId === undefined ? {} : { extensionId: root.extensionId }),
+                ...(root.plugin === undefined ? {} : { plugin: root.plugin }),
+            };
             const previous = byName.get(skill.metadata.name);
             if (previous !== undefined) {
-                warnings.push(
-                    `${skill.metadata.name} from ${skill.directory} overrides ${previous.directory}`,
-                );
+                const override =
+                    `${skill.metadata.name} from ${skill.directory} overrides ${previous.directory}`;
+                if (skill.plugin !== undefined || previous.plugin !== undefined) {
+                    pluginWarnings.push(override);
+                } else {
+                    warnings.push(override);
+                }
             }
             byName.set(skill.metadata.name, skill);
         }
@@ -126,6 +154,7 @@ export async function loadSkillCatalog(
             isSkillDisabled(skill.metadata.name, disabledPatterns)
         ),
         warnings,
+        pluginWarnings: [...new Set(pluginWarnings)],
     };
 }
 

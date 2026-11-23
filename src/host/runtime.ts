@@ -207,7 +207,7 @@ import { subagentPoolPolicy } from "./subagent-policy.ts";
 
 import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "./session-host.ts";
 import type { SessionHostServices } from "./session-host/types.ts";
-import { inProcessWorkerSocket, prepareInProcessWorker, type InProcessWorker } from "./pool/in-process.ts";
+import { inProcessWorkerSocket, prepareInProcessWorker, workerSessionOptions, type InProcessWorker } from "./pool/in-process.ts";
 import type { SessionShard } from "./shard.ts";
 import { prepareProcessWorker } from "./pool/process-worker.ts";
 import { controlSocketPath } from "./pool/supervisor.ts";
@@ -225,6 +225,7 @@ const MAX_SCHEDULE_WORK_ROWS = 50;
 
 export interface StartResidentHostOptions {
     readonly config: VeraConfig;
+    readonly pluginWorkerExtensions?: import("../plugins/catalog.ts").PluginWorkerExtensions;
     readonly onHostClaimed?: () => void | Promise<void>;
     readonly inProcessWorker?: boolean;
     readonly processWorker?: boolean;
@@ -780,6 +781,9 @@ async function startHostRuntime(
     const sessionOptions: StartSessionHostOptions = {
         sessions: "all",
         ...(workerReservations === undefined ? {} : { sessionWorker: true }),
+        ...(workerReservations === undefined || options.pluginWorkerExtensions === undefined
+            ? {}
+            : { pluginWorkerExtensions: options.pluginWorkerExtensions }),
         ...(options.processWorker === true ? { disableTurnWorker: true } : {}),
         ...(workerGlobals === undefined ? {} : { workerGlobals }),
         ...(processObservations === undefined ? {} : { processObservations }),
@@ -1336,7 +1340,7 @@ async function startHostRuntime(
         sessionHost.startStorage(workerSocket === undefined ? undefined : { scan: false });
         if (workerSocket !== undefined) {
             const workerOptions = {
-                host: sessionHost, sessionOptions, hostSocket: socketPath,
+                host: sessionHost, sessionOptions: workerSessionOptions(sessionOptions, sessionHost), hostSocket: socketPath,
                 workerSocket, lockPath, buildId: options.buildId ?? thisProcessBuildId(),
                 capabilities: HOST_CAPABILITIES,
             };

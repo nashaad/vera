@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { loadAgentCatalog } from "../../src/agents/catalog.ts";
 import { loadCustomizationCatalog } from "../../src/customize/catalog.ts";
 import { includedExtensionIds } from "../../src/extensions/included.ts";
+import { installPlugin } from "../../src/plugins/manager.ts";
+import { AGENT_PLUGIN_SCHEMA } from "../../src/plugins/naming.ts";
 
 const originalHome = process.env.VERA_HOME;
 const roots: string[] = [];
@@ -12,6 +14,56 @@ afterEach(async () => {
     if (originalHome === undefined) process.env.VERA_HOME = process.env.VERA_TEST_HOME!;
     else process.env.VERA_HOME = originalHome;
     for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+});
+
+test("@core plugin skills and agents keep their plugin name in the catalog", async () => {
+    const root = await mkdtemp(join(tmpdir(), "customize-plugin-")); roots.push(root);
+    const home = join(root, "home"); const workspace = join(root, "project");
+    process.env.VERA_HOME = home;
+    await mkdir(workspace, { recursive: true });
+    const source = join(root, "plugin-source");
+    await mkdir(join(source, "skills", "plunder"), { recursive: true });
+    await mkdir(join(source, "dev.vera", "agents"), { recursive: true });
+    await writeFile(join(source, "plugin.json"), JSON.stringify({
+        $schema: AGENT_PLUGIN_SCHEMA,
+        name: "fixture-plugin",
+        version: "1.0.0",
+    }));
+    await writeFile(
+        join(source, "skills", "plunder", "SKILL.md"),
+        "---\nname: plunder\ndescription: Takes the cargo\n---\nPlunder the hold.\n",
+    );
+    await writeFile(
+        join(source, "dev.vera", "agents", "plugin-agent.md"),
+        "---\ndescription: Sails with the plugin\n---\nSail with the plugin.\n",
+    );
+    installPlugin(source);
+
+    const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
+    const catalog = await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
+
+    expect(catalog.sources).toContainEqual(expect.objectContaining({
+        id: "plugins:fixture-plugin",
+        category: "plugins",
+        scope: "plugin",
+        plugin: "fixture-plugin",
+        status: "enabled",
+        editable: false,
+    }));
+    expect(catalog.sources).toContainEqual(expect.objectContaining({
+        id: "skills:plunder",
+        category: "skills",
+        scope: "plugin fixture-plugin",
+        plugin: "fixture-plugin",
+        editable: false,
+    }));
+    expect(catalog.sources).toContainEqual(expect.objectContaining({
+        id: "agents:plugin-agent",
+        category: "agents",
+        scope: "plugin",
+        plugin: "fixture-plugin",
+        editable: false,
+    }));
 });
 
 test("catalog uses winning definitions, keeps source bodies, and reports invalid files", async () => {
@@ -45,6 +97,23 @@ async function writeExtension(directory: string, id: string): Promise<void> {
     }));
     await writeFile(join(directory, "extension.ts"), "export default {};\n");
 }
+
+test("@core the Customize plugin row shows a different host extension id", async () => {
+    const root = await mkdtemp(join(tmpdir(), "customize-plugin-id-")); roots.push(root);
+    process.env.VERA_HOME = join(root, "home");
+    const source = join(root, "extension");
+    await writeExtension(source, "crow_bridge");
+    installPlugin(source);
+
+    const agents = await loadAgentCatalog({ permissionModes: ["readonly"], interactive: true });
+    const catalog = await loadCustomizationCatalog({ agents });
+    const plugin = catalog.sources.find((item) => item.id === "plugins:crow-bridge");
+    expect(plugin).toMatchObject({
+        name: "crow-bridge",
+        plugin: "crow-bridge",
+        description: "skills:0 agents:0 mcp:0 host:crow_bridge",
+    });
+});
 
 test("@core included and core extensions are not listed, installed and configured ones are", async () => {
     const root = await mkdtemp(join(tmpdir(), "customize-batteries-")); roots.push(root);

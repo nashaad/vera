@@ -69,3 +69,11 @@ Values supplied through environment references do not trigger that warning.
 
 Only the exact lowercase `{env:NAME}` form resolves. Malformed forms such as
 `{env:}` or `{ENV:NAME}` remain literal text.
+
+## Plugin MCP servers
+
+A plugin's MCP servers take literal `env` and `headers`. A server with
+`{env:NAME}` anywhere in its configuration is skipped, because the host would
+expand the reference from its own environment, and a server that declares
+OAuth fields is skipped. Put a credential in the home `vera.mcp` configuration
+to keep the reference support described above.

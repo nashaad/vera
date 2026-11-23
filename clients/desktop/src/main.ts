@@ -157,7 +157,7 @@ let hiddenCommands: ReadonlySet<string> = hiddenCommandsFor(flagsStore.read());
 const assignmentTasks = new TaskRunner(() => startTaskProcess<AssignmentTask>(ASSIGNMENT_TASK_FILE, ASSIGNMENT_TASK_SERVICE), parseAssignmentTaskReply);
 const assignments = new AssignmentService(selectedVeraHome(), (task) => assignmentTasks.run(task));
 const extensionStore = new ExtensionStore(
-    extensionsDirectory(selectedVeraHome()),
+    selectedVeraHome(),
     new ExtensionStateStore(extensionStatePath(selectedVeraHome())),
     includedExtensionsDirectory(import.meta.dirname),
 );

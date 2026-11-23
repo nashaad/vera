@@ -1,12 +1,13 @@
 import { includedExtensions } from "../../../src/extensions/included.ts";
 import { extensionServesHost, loadExtensionManifest } from "../../../src/extensions/manifest.ts";
 import {
-    listExtensions,
     removeExtension,
     setAnyExtensionEnabled,
     type ExtensionListEntry,
 } from "../../../src/extensions/manager.ts";
 import { renderExtensionMutation } from "../../../src/extensions/manager-command.ts";
+import { listPlugins, type PluginListEntry } from "../../../src/plugins/manager.ts";
+import { loadPluginPackage } from "../../../src/plugins/manifest.ts";
 import {
     clientExtensionReloadFailed,
     clientExtensionReloadStarted,
@@ -281,7 +282,7 @@ function reloadClientExtensionsForList(rt: TuiRuntime): void {
 }
 
 function readExtensionEntries(rt: TuiRuntime): readonly ExtensionListEntry[] {
-    const entries = [...listExtensions()];
+    const entries: ExtensionListEntry[] = [];
     const clientEnabled = new Map<string, boolean>();
     for (const config of rt.configuredClientExtensions) {
         try {
@@ -307,7 +308,41 @@ function readExtensionEntries(rt: TuiRuntime): readonly ExtensionListEntry[] {
                 ?? !rt.disabledIncludedExtensions.includes(manifest.id), managed: false,
             path: included.path, source: included.core ? "Core" : "Included", capabilities: manifest.capabilities });
     }
+    for (const entry of pluginExtensionEntries(listPlugins().plugins)) {
+        if (!entries.some((included) => included.id === entry.id)) entries.push(entry);
+    }
     return entries.map((entry) => withHostLoadFailure(rt, entry));
+}
+
+
+export function pluginExtensionEntries(plugins: readonly PluginListEntry[]): readonly ExtensionListEntry[] {
+    const entries: ExtensionListEntry[] = [];
+    for (const plugin of plugins) {
+        const parts = [
+            { kind: "host" as const, id: plugin.record.components.host_extension },
+            { kind: "desktop" as const, id: plugin.record.components.desktop_extension },
+        ];
+        let pkg: ReturnType<typeof loadPluginPackage> | undefined;
+        let problem: string | undefined;
+        try { pkg = loadPluginPackage(plugin.path); } catch (error) {
+            problem = error instanceof Error ? error.message : String(error);
+        }
+        for (const part of parts) {
+            if (part.id === null || entries.some((entry) => entry.id === part.id)) continue;
+            const component = part.kind === "host" ? pkg?.components.host_extension : pkg?.components.desktop_extension;
+            const error = problem ?? (component?.id === part.id ? undefined : "Plugin extension is missing");
+            entries.push({
+                id: part.id, enabled: plugin.record.enabled, managed: false,
+                path: component?.directory ?? plugin.path, source: `Plugin ${plugin.record.name}`,
+                ...(component === null || component === undefined ? {} : { version: component.version }),
+                ...(part.kind !== "host" || pkg?.components.host_extension === null
+                    || pkg?.components.host_extension === undefined
+                    ? {} : { capabilities: pkg.components.host_extension.capabilities }),
+                ...(error === undefined ? {} : { error }),
+            });
+        }
+    }
+    return entries;
 }
 
 function withHostLoadFailure(rt: TuiRuntime, entry: ExtensionListEntry): ExtensionListEntry {
@@ -318,10 +353,24 @@ function withHostLoadFailure(rt: TuiRuntime, entry: ExtensionListEntry): Extensi
     return failure === undefined ? entry : { ...entry, error: failure.message };
 }
 
+export function applyPluginExtensionStates(
+    state: TuiExtensionsListState,
+    plugins: readonly PluginListEntry[],
+): TuiExtensionsListState {
+    const byName = new Map(plugins.map(({ record }) => [record.name, record]));
+    return { ...state, rows: state.rows.map((row) => {
+        const plugin = row.source?.startsWith("Plugin ") ? byName.get(row.source.slice(7)) : undefined;
+        if (plugin === undefined) return row;
+        return { ...row, settingsCommands: [],
+            ...(row.error !== undefined ? {} : { status: plugin.enabled ? "enabled" as const : "disabled" as const }) };
+    }) };
+}
+
 function withSettingsCommands(rt: TuiRuntime, state: TuiExtensionsListState): TuiExtensionsListState {
     const commands = rt.clientExtensionRegistry?.commands() ?? [];
-    return { ...state, rows: state.rows.map((row) => ({ ...row,
-        settingsCommands: row.loaded ? commands
+    const pluginState = applyPluginExtensionStates(state, listPlugins().plugins);
+    return { ...pluginState, rows: pluginState.rows.map((row) => ({ ...row,
+        settingsCommands: row.source?.startsWith("Plugin ") !== true && row.loaded ? commands
             .filter((command) => command.source === row.id && command.palette?.group === "Settings" && (command.isAvailable?.() ?? true))
             .map((command) => ({ name: command.name, label: command.palette!.label })) : [],
     })) };

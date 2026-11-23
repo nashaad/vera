@@ -9,7 +9,6 @@ import { desktopExtensions, setDesktopExtensions, subscribeDesktopExtensions } f
 import { DESKTOP_ENGINE } from "../../clients/ui/src/extensions/manifest.ts";
 import type { WorkerLink } from "../../clients/ui/src/extensions/runtime.ts";
 import { ExtensionService } from "../../clients/desktop/src/extensions/service.ts";
-import { extensionsDirectory } from "../../clients/desktop/src/extensions/paths.ts";
 import { ExtensionStateStore } from "../../clients/desktop/src/extensions/state.ts";
 import { ExtensionStore } from "../../clients/desktop/src/extensions/store.ts";
 import { ThemeService } from "../../clients/desktop/src/theme-service.ts";
@@ -35,7 +34,7 @@ afterEach(() => {
 test("theme import replaces an active imported extension and silently cancels its runs", async () => {
     const home = join(scratch, "home");
     const extensionId = "imported.pirate-crow";
-    const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(join(home, "machine", "desktop-extensions.json")));
+    const store = new ExtensionStore(home, new ExtensionStateStore(join(home, "machine", "desktop-extensions.json")));
     const themes = new ThemeService(store, themesDirectory(home));
     const service = new ExtensionService(store, themes, async (task) => {
         const parsed = parseInstallTask(structuredClone(task));

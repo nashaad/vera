@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -13,11 +16,19 @@ import {
 } from "../../extensions/mcp/extension.ts";
 import { contentText, McpServerClient } from "../../extensions/mcp/client.ts";
 import { startExtensionRegistry } from "../../src/extensions/registry.ts";
+import { hostExtensionConfigSet } from "../../src/extensions/host-set.ts";
 import { executeToolHandler } from "../../src/tools/execute.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import {
     decideToolPermission,
 } from "../../src/engine/permissions.ts";
+import type { VeraExtensionConfig } from "../../src/config.ts";
+import { loadPluginPackage } from "../../src/plugins/manifest.ts";
+import { emptyPluginSnapshot } from "../../src/plugins/catalog.ts";
+import {
+    mapPluginMcpServers,
+    type PluginMcpServer,
+} from "../../src/plugins/mcp.ts";
 
 const FIXTURE_SERVER = fileURLToPath(
     new URL("./fixtures/mcp-stdio-server.ts", import.meta.url),
@@ -277,5 +288,179 @@ test("registry activates the bridge and the model-facing tool round-trips", asyn
         expect(prompt.body).toEqual({ kind: "text", text: "Hello, Nash!" });
     } finally {
         await registry.close();
+    }
+});
+
+function pluginMcpPackage(
+    root: string,
+    servers: Record<string, unknown>,
+): {
+    readonly directory: string;
+    readonly config: VeraExtensionConfig["config"];
+    readonly servers: readonly PluginMcpServer[];
+} {
+    const directory = join(root, "plugin");
+    mkdirSync(join(directory, ".claude-plugin"), { recursive: true });
+    writeFileSync(
+        join(directory, ".claude-plugin", "plugin.json"),
+        JSON.stringify({ name: "plugin-mcp" }),
+    );
+    writeFileSync(
+        join(directory, ".mcp.json"),
+        JSON.stringify({ mcpServers: servers }),
+    );
+    const loaded = loadPluginPackage(directory);
+    const mapped = mapPluginMcpServers({
+        plugin: loaded.install_name,
+        directory,
+        dataDirectory: join(root, "home", "plugins", ".data", loaded.install_name),
+        entries: loaded.components.mcp_servers,
+    });
+    expect(mapped.skipped).toEqual([]);
+    return {
+        directory,
+        config: {
+            servers: Object.fromEntries(
+                mapped.servers.map((server) => [server.name, server.config]),
+            ),
+        } as VeraExtensionConfig["config"],
+        servers: mapped.servers,
+    };
+}
+
+test("@core one failing plugin MCP server does not stop the others", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-plugin-mcp-run-"));
+    const logged: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+        logged.push(args.map(String).join(" "));
+    };
+    let registry: Awaited<ReturnType<typeof startExtensionRegistry>> | undefined;
+    try {
+        writeFileSync(join(root, "bad.ts"), "process.exit(1);\n");
+        const plugin = pluginMcpPackage(root, {
+            bad: {
+                command: "bun",
+                args: [join(root, "bad.ts")],
+            },
+            good: {
+                command: "bun",
+                args: [FIXTURE_SERVER],
+            },
+        });
+        registry = await startExtensionRegistry({
+            extensions: [{
+                path: EXTENSION_DIRECTORY,
+                enabled: true,
+                config: plugin.config,
+            }],
+            onFailure: (failure) => {
+                throw new Error(failure.message);
+            },
+        });
+        const names = registry.tools().map((tool) => tool.definition.name);
+        expect(names).toContain("mcp_good_echo");
+        expect(names.some((name) => name.startsWith("mcp_bad_"))).toBe(false);
+        expect(logged.some((line) =>
+            line.startsWith("[vera.mcp] skipping server bad:")
+        )).toBe(true);
+    } finally {
+        console.error = original;
+        await registry?.close();
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("@core a plugin prompt that collides with a home prompt is skipped, not fatal", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-plugin-mcp-prompt-"));
+    const logged: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+        logged.push(args.map(String).join(" "));
+    };
+    let registry: Awaited<ReturnType<typeof startExtensionRegistry>> | undefined;
+    try {
+        const plugin = pluginMcpPackage(root, {
+            a_b: { command: "bun", args: [FIXTURE_SERVER] },
+        });
+        const set = hostExtensionConfigSet(
+            {
+                disabled_included_extensions: [],
+                extensions: [{
+                    path: EXTENSION_DIRECTORY,
+                    enabled: true,
+                    config: {
+                        servers: {
+                            "a-b": { command: ["bun", FIXTURE_SERVER] },
+                        },
+                    } as VeraExtensionConfig["config"],
+                }],
+            },
+            {
+                ...emptyPluginSnapshot(),
+                mcp_servers: plugin.servers,
+            },
+        );
+        expect(set.warnings).toEqual([]);
+        registry = await startExtensionRegistry({
+            extensions: set.extensions,
+            onFailure: (failure) => {
+                throw new Error(failure.message);
+            },
+        });
+        expect(registry.commands().map((command) => command.name)
+            .filter((name) => name.startsWith("mcp-")))
+            .toEqual(["mcp-a-b-greet"]);
+        expect(logged.some((line) =>
+            line.includes(
+                "[vera.mcp] server a_b: prompt greet was skipped: "
+                    + "Duplicate extension command: mcp-a-b-greet",
+            )
+            && line.includes("(server a-b already bridges mcp-a-b-greet)")
+        )).toBe(true);
+    } finally {
+        console.error = original;
+        await registry?.close();
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("@core two plugin servers that bridge tools alike keep the first and log the second", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-plugin-mcp-collide-"));
+    const logged: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+        logged.push(args.map(String).join(" "));
+    };
+    let registry: Awaited<ReturnType<typeof startExtensionRegistry>> | undefined;
+    try {
+        const plugin = pluginMcpPackage(root, {
+            "a-b": { command: "bun", args: [TOOL_NAMES_SERVER] },
+            a_b: { command: "bun", args: [TOOL_NAMES_SERVER] },
+        });
+        registry = await startExtensionRegistry({
+            extensions: [{
+                path: EXTENSION_DIRECTORY,
+                enabled: true,
+                config: plugin.config,
+            }],
+            onFailure: (failure) => {
+                throw new Error(failure.message);
+            },
+        });
+        const names = registry.tools()
+            .map((tool) => tool.definition.name)
+            .filter((name) => name === "mcp_a_b_perch");
+        expect(names.length).toBe(1);
+        expect(logged.some((line) =>
+            line.includes(
+                "tool perch was skipped: "
+                    + "Duplicate extension tool: mcp_a_b_perch",
+            )
+        )).toBe(true);
+    } finally {
+        console.error = original;
+        await registry?.close();
+        rmSync(root, { recursive: true, force: true });
     }
 });

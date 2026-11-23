@@ -21,6 +21,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera inspect <session-path>", docs: "programmatic-use.md", description: "Inspect the latest model request" },
     { usage: "vera configure", docs: "config-reference.md", description: "Open Vera's config file in your editor" },
     { usage: "vera extension list|install|enable|disable|remove", docs: "extensions.md", description: "Manage home or project extensions" },
+    { usage: "vera plugin list|show|install|enable|disable|remove|migrate", docs: "plugins.md", description: "Manage installed plugins" },
     { usage: "vera abort <agent-id>", description: "Stop a live agent's active turn; the agent stays live and keeps its queued prompts" },
     { usage: "vera close <agent-id>", description: "End a live agent for good: discard its queued prompts and stop its work; the session is kept and can be resumed" },
     { usage: "vera block <agent-id> [--reason <text>]", docs: "sessions.md", description: "Stop a session and every session it started, and keep them from starting turns until unblocked; asks you to confirm" },

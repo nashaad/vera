@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+    cpSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
@@ -26,6 +27,8 @@ import {
     setExtensionEnabled,
 } from "../../src/extensions/manager.ts";
 import { includedExtensionIds } from "../../src/extensions/included.ts";
+import { writeManagedMarker } from "../../src/extensions/managed-registry.ts";
+import { listPlugins, pluginStorePaths, setPluginEnabled } from "../../src/plugins/manager.ts";
 
 function temporaryExtension(id = "sample-extension"): {
     readonly root: string;
@@ -44,6 +47,22 @@ function temporaryExtension(id = "sample-extension"): {
     writeFileSync(join(source, "extension.ts"), "export default {};\n");
     writeFileSync(join(source, "README.txt"), "local extension\n");
     return { root, source };
+}
+
+
+function seedLegacyExtension(source: string, home: string): void {
+    const manifest = JSON.parse(readFileSync(join(source, "vera.extension.json"), "utf8"));
+    const directory = extensionDirectoryFor({ home });
+    const destination = join(directory, manifest.id);
+    mkdirSync(directory, { recursive: true });
+    cpSync(source, destination, { recursive: true });
+    const record = {
+        id: manifest.id, version: manifest.version, source: { kind: "local" as const, path: source },
+        digest: digestExtensionDirectory(destination), directory: `extensions/${manifest.id}`,
+        enabled: true, installedAt: "2026-01-01T00:00:00.000Z",
+    };
+    writeManagedMarker(directory, record);
+    writeFileSync(extensionRegistryPathFor({ home }), JSON.stringify({ schema_version: 1, extensions: [record] }));
 }
 
 test("install dry-run previews a local extension without writing state", () => {
@@ -69,51 +88,22 @@ test("install dry-run previews a local extension without writing state", () => {
     }
 });
 
-test("managed install records source and digest, and disabled copies stay on disk", () => {
+test("extension install records a plugin and disabling it preserves its files", () => {
     const { root, source } = temporaryExtension();
     const home = join(root, "home");
     try {
-            const result = installExtension(source, { home });
-        const directory = extensionDirectoryFor({ home });
-        const installed = join(directory, "sample-extension");
-
-        expect(result.record).toMatchObject({
-            id: "sample-extension",
-            version: "1.2.3",
-            source: { kind: "local", path: source },
-            digest: result.preview.digest,
-            directory: "extensions/sample-extension",
-            enabled: true,
-        });
-        expect(existsSync(installed)).toBe(true);
-        expect(readFileSync(join(installed, "extension.ts"), "utf8"))
-            .toContain("export default");
-        expect(readdirSync(directory).some((name) => name.startsWith(".staging-")))
-            .toBe(false);
-
-        const disabled = setExtensionEnabled("sample-extension", false, { home });
-        expect(disabled.enabled).toBe(false);
-        expect(managedExtensionConfigs(directory)).toEqual([{
-            path: installed,
-            enabled: false,
-            config: {},
-        }]);
-        expect(listExtensions({ home })).toEqual([expect.objectContaining({
-            id: "sample-extension",
-            enabled: false,
-            managed: true,
-            digest: result.preview.digest,
-        })]);
-
-        const enabled = setExtensionEnabled("sample-extension", true, { home });
-        expect(enabled.enabled).toBe(true);
-        expect(removeExtension("sample-extension", { home }).id)
-            .toBe("sample-extension");
-        expect(existsSync(installed)).toBe(false);
-        expect(listExtensions({ home })).toEqual([]);
-    } finally {
-        rmSync(root, { recursive: true, force: true });
-    }
+        const result = installExtension(source, { home });
+        const plugin = listPlugins({ home }).plugins[0]!;
+        expect(result.record?.id).toBe("sample-extension");
+        expect(plugin.record.source.path).toBe(source);
+        expect(plugin.record.digest).toBe(result.preview.digest);
+        expect(plugin.record.components.host_extension).toBe("sample-extension");
+        setPluginEnabled("sample-extension", false, { home });
+        expect(listPlugins({ home }).plugins[0]?.record.enabled).toBe(false);
+        expect(existsSync(join(plugin.path, "extension.ts"))).toBe(true);
+        expect(removeExtension("sample-extension", { home }).id).toBe("sample-extension");
+        expect(listPlugins({ home }).plugins).toEqual([]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("config loading uses the managed enabled state", () => {
@@ -127,7 +117,7 @@ test("config loading uses the managed enabled state", () => {
             provider: "openrouter",
             model: "test/model",
         }));
-        installExtension(source, { home });
+        seedLegacyExtension(source, home);
 
         setExtensionEnabled("config-extension", false, { home });
         expect(loadVeraConfig({ path: configPath }).extensions).toEqual([{
@@ -143,7 +133,7 @@ test("registry paths are exact and cannot rename the whole extensions tree", () 
     const { root, source } = temporaryExtension("safe-extension");
     const home = join(root, "home");
     try {
-        installExtension(source, { home });
+        seedLegacyExtension(source, home);
         const registryPath = extensionRegistryPathFor({ home });
         const registry = JSON.parse(readFileSync(registryPath, "utf8")) as {
             extensions: Array<Record<string, unknown>>;
@@ -167,7 +157,7 @@ test("managed markers preserve disabled state when the central registry disappea
     const { root, source } = temporaryExtension("marker-extension");
     const home = join(root, "home");
     try {
-        installExtension(source, { home });
+        seedLegacyExtension(source, home);
         setExtensionEnabled("marker-extension", false, { home });
         rmSync(extensionRegistryPathFor({ home }));
         expect(managedExtensionConfigs(extensionDirectoryFor({ home })))
@@ -188,7 +178,7 @@ test("managed disabled state wins over an explicit config entry for the same pat
     const configPath = join(home, ".vera", "config.json");
     try {
         mkdirSync(join(home, ".vera"), { recursive: true });
-        installExtension(source, { home });
+        seedLegacyExtension(source, home);
         writeFileSync(configPath, JSON.stringify({
             schema_version: 1,
             provider: "openrouter",
@@ -211,7 +201,7 @@ test("stale managed records can be removed and reinstalled", () => {
     const { root, source } = temporaryExtension("stale-extension");
     const home = join(root, "home");
     try {
-        installExtension(source, { home });
+        seedLegacyExtension(source, home);
         rmSync(join(extensionDirectoryFor({ home }), "stale-extension"), {
             recursive: true,
         });
@@ -239,12 +229,12 @@ test("source symlinks are rejected", () => {
 test("extension mutations refuse a live registry lock and reclaim a dead one", () => {
     const { root, source } = temporaryExtension("locked-extension");
     const home = join(root, "home");
-    const lockPath = `${extensionRegistryPathFor({ home })}.lock`;
+    const lockPath = `${pluginStorePaths({ home }).registry_path}.lock`;
     try {
-        mkdirSync(join(home, ".vera"), { recursive: true });
+        mkdirSync(join(home, ".vera", "machine"), { recursive: true });
         writeFileSync(lockPath, JSON.stringify({ pid: process.pid }));
         expect(() => installExtension(source, { home }))
-            .toThrow("Another extension operation");
+            .toThrow("Another operation is using");
         writeFileSync(lockPath, JSON.stringify({ pid: 999_999 }));
         expect(installExtension(source, { home }).record?.id)
             .toBe("locked-extension");

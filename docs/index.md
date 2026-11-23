@@ -82,6 +82,7 @@ your first conversation.
 - [Inspect context usage](context-usage.md)
 - [Context limits and compaction](context-levers.md)
 - [Manage extensions](extensions.md)
+- [Plugins](plugins.md)
 - [Included extensions](included-extensions.md)
 - [Extension credentials](extension-credentials.md)
 - [Extension APIs](extension-apis.md)

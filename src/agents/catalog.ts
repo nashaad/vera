@@ -1,4 +1,3 @@
-
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -10,14 +9,20 @@ import {
     type ParseAgentOptions,
 } from "./definition.ts";
 import { veraProfileDirectory } from "../profile-paths.ts";
+import {
+    readPluginCatalog,
+    type PluginCatalog,
+    type PluginRoot,
+} from "../plugins/catalog.ts";
 
-export type AgentScope = "project" | "user" | "extension";
+export type AgentScope = "project" | "user" | "extension" | "plugin";
 
 export interface CatalogAgent {
     readonly definition: AgentDefinition;
     readonly scope: AgentScope;
     readonly path?: string;
     readonly writable: boolean;
+    readonly plugin?: string;
 }
 
 export interface AgentCatalog {
@@ -34,11 +39,13 @@ export function projectAgentDirectory(projectRoot: string): string {
 }
 
 export interface LoadAgentCatalogOptions extends ParseAgentOptions {
-    // Without a project root only extension and user agents load.
+    // Without a project root only extension, plugin and user agents load.
     readonly projectRoot?: string;
     readonly userDirectory?: string;
     readonly projectDirectory?: string;
     readonly registered?: readonly AgentDefinition[];
+    readonly pluginRoots?: readonly PluginRoot[];
+    readonly pluginCatalog?: PluginCatalog;
 }
 
 export async function loadAgentCatalog(
@@ -53,6 +60,23 @@ export async function loadAgentCatalog(
             scope: "extension",
             writable: false,
         });
+    }
+    const pluginCatalog = options.pluginCatalog
+        ?? (options.pluginRoots === undefined ? readPluginCatalog() : undefined);
+    notices.push(...(pluginCatalog?.warnings ?? []));
+    for (const root of options.pluginRoots ?? pluginCatalog?.agent_roots ?? []) {
+        for (const agent of await readRoot(root.path, "plugin", notices, options, {
+            plugin: root.plugin,
+            writable: false,
+        })) {
+            const previous = byName.get(agent.definition.name);
+            if (previous !== undefined) {
+                notices.push(
+                    `agent ${agent.definition.name}: plugin ${root.plugin} definition shadows the ${previous.scope} one`,
+                );
+            }
+            byName.set(agent.definition.name, agent);
+        }
     }
     const projectPath = options.projectDirectory
         ?? (options.projectRoot === undefined
@@ -72,8 +96,11 @@ export async function loadAgentCatalog(
         for (const agent of await readRoot(root.path, root.scope, notices, options)) {
             const previous = byName.get(agent.definition.name);
             if (previous !== undefined) {
+                const previousLabel = previous.plugin === undefined
+                    ? previous.scope
+                    : `plugin ${previous.plugin}`;
                 notices.push(
-                    `agent ${agent.definition.name}: ${root.scope} definition shadows the ${previous.scope} one`,
+                    `agent ${agent.definition.name}: ${root.scope} definition shadows the ${previousLabel} one`,
                 );
             }
             byName.set(agent.definition.name, agent);
@@ -107,6 +134,7 @@ async function readRoot(
     scope: AgentScope,
     notices: string[],
     options: ParseAgentOptions,
+    extra: { readonly plugin?: string; readonly writable?: boolean } = {},
 ): Promise<readonly CatalogAgent[]> {
     let names: readonly string[];
     try {
@@ -127,7 +155,8 @@ async function readRoot(
                 ),
                 scope,
                 path,
-                writable: true,
+                writable: extra.writable ?? true,
+                ...(extra.plugin === undefined ? {} : { plugin: extra.plugin }),
             });
         } catch (error) {
             notices.push(

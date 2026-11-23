@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { filterSources, sourceStatus, sourceWasLoaded } from "../../src/core-extensions/customize/model.ts";
+import { CATEGORIES, filterSources, sourceScope, sourceStatus, sourceWasLoaded } from "../../src/core-extensions/customize/model.ts";
 import { sourceDocument } from "../../src/core-extensions/customize/view.ts";
 import type { CustomizationSource } from "../../src/customize/types.ts";
 import type { VeraClientContextSnapshot } from "../../src/sdk/context.ts";
@@ -33,6 +33,35 @@ test("catalog availability does not claim loading before a measurement", () => {
     expect(sourceStatus({ ...source, category: "skills", status: "disabled", contextIds: [] }, measured)).toBe("disabled by disabled_skills");
 });
 
+
+test("the TUI catalog has a Plugins section and reports plugin rows and labels", () => {
+    expect(CATEGORIES).toContainEqual({ id: "plugins", name: "Plugins" });
+    const plugin: CustomizationSource = {
+        id: "plugins:sea-chest", category: "plugins", name: "sea-chest",
+        description: "skills:1 agents:0 mcp:0", scope: "plugin",
+        plugin: "sea-chest", content: "", editable: false, status: "enabled",
+        contextIds: [],
+    };
+    expect(sourceStatus(plugin, { availability: "unavailable" })).toBe("enabled");
+    expect(sourceStatus({ ...plugin, status: "disabled" }, { availability: "unavailable" }))
+        .toBe("disabled");
+    expect(filterSources([plugin], "sea-chest", "plugins")).toEqual([plugin]);
+
+    const pluginSkill: CustomizationSource = {
+        ...source, id: "skills:plunder", category: "skills", name: "plunder",
+        scope: "plugin sea-chest", content: "Takes the cargo", editable: false,
+        contextIds: [],
+    };
+    expect(filterSources([pluginSkill], "sea-chest", "skills")).toEqual([pluginSkill]);
+
+    const pluginAgent: CustomizationSource = {
+        ...source, id: "agents:lookout", category: "agents", name: "lookout",
+        scope: "plugin", plugin: "sea-chest", content: "Watch the horizon",
+        editable: false, contextIds: [],
+    };
+    expect(sourceScope(pluginAgent)).toBe("plugin sea-chest");
+    expect(filterSources([pluginAgent], "sea-chest", "agents")).toEqual([pluginAgent]);
+});
 
 test("source previews keep the file out of the header and mark an empty file", () => {
     const header = sourceDocument({
