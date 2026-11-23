@@ -65,6 +65,7 @@
     "tree-sitter-bash": "0.25.1",
     "undici": "6.21.3",
     "unpdf": "^1.8.0",
-    "web-tree-sitter": "0.25.10"
+    "web-tree-sitter": "0.25.10",
+    "yaml": "^2.8.1"
   }
 }

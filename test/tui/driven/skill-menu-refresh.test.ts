@@ -23,7 +23,7 @@ import { startTuiTestSession } from "../../support/tui-harness.ts";
 // decision to ask again is under test.
 let skillEnabled = true;
 
-test("closing /customize leaves a skill turned off out of the / menu", async () => {
+test("closing /plugins or /customize leaves a skill turned off out of the / menu", async () => {
     skillEnabled = true;
     const home = mkdtempSync(join(tmpdir(), "vera-tui-skill-menu-"));
     const session = await startTuiTestSession({
@@ -40,10 +40,10 @@ test("closing /customize leaves a skill turned off out of the / menu", async () 
         session.sendKey("Escape");
         await session.settle(100);
 
-        // Turned off while /customize is open, then /customize closes.
-        session.sendText("/customize");
+        // Turned off while /plugins is open, then /plugins closes.
+        session.sendText("/plugins");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Customize");
+        await session.waitForVisiblePane("Plugins");
         skillEnabled = false;
         session.sendKey("Escape");
         await session.settle(500);
@@ -60,7 +60,7 @@ test("closing /customize leaves a skill turned off out of the / menu", async () 
         // Turned back on, it returns the same way.
         session.sendText("/customize");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Customize");
+        await session.waitForVisiblePane("Plugins");
         skillEnabled = true;
         session.sendKey("Escape");
         await session.settle(500);

@@ -314,15 +314,45 @@ test("extension manager slash commands are application-owned actions", () => {
     });
 });
 
-test("plugin manager slash commands are application-owned actions", () => {
+test("plugin manager slash commands use /plugins and preserve aliases", () => {
     const registry = createBuiltinTuiCommandRegistry();
 
+    expect(registry.dispatch("/plugins")).toEqual({
+        type: "run_extension",
+        command: "plugins",
+        argumentsText: "",
+        source: "vera.customize",
+        origin: "client",
+        invocationCommand: "plugins-source-browser",
+    });
+    for (const alias of ["/plugin", "/customize"]) {
+        expect(registry.dispatch(alias)).toMatchObject({
+            type: "run_extension",
+            command: "plugins",
+            argumentsText: "",
+            source: "vera.customize",
+            origin: "client",
+            invocationCommand: "plugins-source-browser",
+        });
+    }
+    expect(registry.dispatch("/plugins list")).toEqual({
+        type: "manage_plugins",
+        command: { operation: "list" },
+    });
     expect(registry.dispatch("/plugin list")).toEqual({
         type: "manage_plugins",
         command: { operation: "list" },
     });
+    expect(registry.dispatch("/customize list")).toEqual({
+        type: "manage_plugins",
+        command: { operation: "list" },
+    });
+    expect(registry.dispatch("/plugins unknown")).toMatchObject({
+        type: "command_error",
+        message: "Unknown plugin operation 'unknown'. Usage: /plugins list|show|install|enable|disable|remove|migrate <…>",
+    });
     expect(registry.dispatch(
-        `/plugin install "/tmp/My Plugin" --dry-run`,
+        `/plugins install "/tmp/My Plugin" --dry-run`,
     )).toEqual({
         type: "manage_plugins",
         command: {
@@ -331,18 +361,40 @@ test("plugin manager slash commands are application-owned actions", () => {
             dry_run: true,
         },
     });
-    expect(registry.dispatch("/plugin show sample")).toEqual({
+    expect(registry.dispatch("/plugins show sample")).toEqual({
         type: "manage_plugins",
         command: { operation: "show", name: "sample" },
     });
-    expect(registry.dispatch("/plugin disable sample")).toEqual({
+    expect(registry.dispatch("/plugins disable sample")).toEqual({
         type: "manage_plugins",
         command: { operation: "disable", name: "sample" },
     });
-    expect(registry.dispatch("/plugin remove sample --purge")).toEqual({
+    expect(registry.dispatch("/plugins remove sample --purge")).toEqual({
         type: "manage_plugins",
         command: { operation: "remove", name: "sample", purge: true },
     });
+    expect(registry.registeredCommands().map((command) => command.name))
+        .toContain("plugins");
+    const registeredNames = registry.registeredCommands().map(
+        (command) => command.name,
+    );
+    expect(registeredNames).not.toContain("plugin");
+    expect(registeredNames).not.toContain("customize");
+});
+
+test("plugin manager usage keeps the TUI label without rewriting user input", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    for (const command of ["/plugins", "/plugin", "/customize"]) {
+        expect(registry.dispatch(`${command} show`)).toEqual({
+            type: "command_error",
+            message: "Usage: /plugins show <name>",
+        });
+        expect(registry.dispatch(`${command} \"vera plugin\"`)).toEqual({
+            type: "command_error",
+            message: "Unknown plugin operation 'vera plugin'. Usage: /plugins list|show|install|enable|disable|remove|migrate <…>",
+        });
+    }
 });
 
 test("doctor is an application-owned client action", () => {
@@ -458,6 +510,28 @@ test("compact mode drops the group column and description to a heading and bare 
     // the gap count the box sizes itself from has to grow to match.
     const lineCount = compact.split("\n").length;
     expect(lineCount).toBe(commands.length + tuiSuggestionGaps(commands, true, true));
+});
+
+test("typing slash exposes one canonical plugins command and operation completion", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    const names = registry.suggestions("/").map((command) => command.name);
+    expect(names.filter((name) => name === "plugins")).toHaveLength(1);
+    expect(names).not.toContain("plugin");
+    expect(names).not.toContain("customize");
+    expect(registry.completion("/plu")).toBe("/plugins");
+    expect(registry.argumentPrefix("/plugins li")).toEqual({
+        kind: "plugin-operation",
+        prefix: "li",
+    });
+    expect(registry.argumentPrefix("/plugin li")).toEqual({
+        kind: "plugin-operation",
+        prefix: "li",
+    });
+    expect(registry.argumentPrefix("/customize li")).toEqual({
+        kind: "plugin-operation",
+        prefix: "li",
+    });
 });
 
 test("typing slash exposes the built-in rewind command", () => {
@@ -1055,6 +1129,7 @@ test("compatibility aliases reserve their names and leave with their command", (
     registry.registerCommand(command);
     expect(registry.dispatch("/shortlist")).toEqual(registry.dispatch("/library"));
     expect(registry.commandNames()).toEqual(["library"]);
+    expect(registry.reservedCommandNames()).toEqual(["library", "shortlist"]);
     expect(() => registry.registerCommand({ ...command, name: "shortlist", aliases: [] })).toThrow("Duplicate TUI command");
     registry.unregisterCommand("library");
     expect(registry.hasCommand("shortlist")).toBe(false);

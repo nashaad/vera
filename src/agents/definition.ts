@@ -1,5 +1,6 @@
 
 import { basename } from "node:path";
+import { parseYaml } from "../yaml.ts";
 
 const MAX_AGENT_BYTES = 256 * 1024;
 const MAX_DESCRIPTION_CHARACTERS = 1024;
@@ -179,7 +180,7 @@ function definitionFieldsIn(text: string): string[] {
     }
     let value: unknown;
     try {
-        value = Bun.YAML.parse(text);
+        value = parseYaml(text);
     } catch {
         return [...keys];
     }
@@ -315,7 +316,7 @@ function parseFrontmatter(
 ): Record<string, unknown> {
     let value: unknown;
     try {
-        value = Bun.YAML.parse(text);
+        value = parseYaml(text);
     } catch (error) {
         throw new Error(
             `Agent ${name} has invalid frontmatter: ${

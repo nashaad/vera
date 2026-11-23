@@ -1,5 +1,6 @@
 import { listProvidersThroughHost, loginProviderThroughHost, saveProviderThroughHost, selectProviderModelThroughHost } from "../../../src/host/provider-sign-in-client.ts";
 import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell, type WebContents } from "electron";
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { extname, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -23,6 +24,8 @@ import type {
     FilePreview,
     FolderListing,
     OpenSidekickResult,
+    PluginInstallPreviewResult,
+    PluginInstallResult,
     SyncSidekickResult,
 } from "../../ui/src/protocol/bridge.ts";
 import { NO_PINS } from "../../ui/src/protocol/pins.ts";
@@ -46,6 +49,7 @@ import { watchSettled } from "./package-watch.ts";
 import { DESKTOP_RELAUNCH_KEY, DesktopRelaunch } from "./relaunch.ts";
 import { CATALOG_TASK_FILE, CATALOG_TASK_SERVICE, parseCatalogReply, type CatalogTask } from "./extension-catalog/task-protocol.ts";
 import { EXTENSION_TASK_FILE, EXTENSION_TASK_SERVICE, parseInstallReply, type InstallTask } from "./extension-install/task-protocol.ts";
+import { PLUGIN_INSTALL_TASK_FILE, PLUGIN_INSTALL_TASK_SERVICE, parsePluginInstallTaskReply, type PluginInstallTask } from "./plugin-install/task-protocol.ts";
 import { catalogAddress } from "./extensions/catalog-address.ts";
 import { ExtensionCatalogService } from "./extensions/catalog-service.ts";
 import { registerExtensionHandlers } from "./extensions/ipc.ts";
@@ -175,6 +179,9 @@ const EXTENSION_FRAME_URL = pathToFileURL(join(import.meta.dirname, "renderer", 
 const MAX_EXTENSION_LOG_CHARS = 8_192;
 const themeService = new ThemeService(extensionStore, themesDirectory(selectedVeraHome()), () => installMenu());
 const installTasks = new TaskRunner(() => startTaskProcess<InstallTask>(EXTENSION_TASK_FILE, EXTENSION_TASK_SERVICE), parseInstallReply);
+const pluginInstallTasks = new TaskRunner(() => startTaskProcess<PluginInstallTask>(PLUGIN_INSTALL_TASK_FILE, PLUGIN_INSTALL_TASK_SERVICE), parsePluginInstallTaskReply);
+const pluginInstallSources = new Map<string, { readonly source: string; readonly expiresAt: number }>();
+const PLUGIN_INSTALL_TOKEN_TTL_MS = 10 * 60_000;
 const extensionService = new ExtensionService(extensionStore, themeService, (task) => installTasks.run(task), () => installMenu());
 const catalogTasks = new TaskRunner(() => startTaskProcess<CatalogTask>(CATALOG_TASK_FILE, CATALOG_TASK_SERVICE), parseCatalogReply);
 const extensionCatalog = new ExtensionCatalogService(catalogAddress(), extensionStore, extensionService, (task) => catalogTasks.run(task));
@@ -572,6 +579,34 @@ ipcMain.handle(CHANNELS.extensionCommand, async (event, command: unknown, pick: 
     return extensionCommands.run(command, pick);
 });
 registerExtensionHandlers({ service: extensionService, catalog: extensionCatalog, window: () => window, fromWindow });
+ipcMain.handle(CHANNELS.pluginInstallPreview, async (event): Promise<PluginInstallPreviewResult> => {
+    if (!fromWindow(event) || window === undefined) return { ok: false, reason: "That window cannot install plugins." };
+    const picked = await dialog.showOpenDialog(window, { properties: ["openDirectory", "createDirectory"] });
+    const source = picked.filePaths[0];
+    if (picked.canceled || source === undefined) return { ok: false, cancelled: true };
+    pluginInstallSources.clear();
+    try {
+        const reply = await pluginInstallTasks.run({ kind: "preview", source });
+        if (!reply.ok) return reply;
+        const token = randomUUID();
+        pluginInstallSources.set(token, { source, expiresAt: Date.now() + PLUGIN_INSTALL_TOKEN_TTL_MS });
+        return { ok: true, token, preview: reply.preview };
+    } catch {
+        return { ok: false, reason: "Vera could not read that plugin folder." };
+    }
+});
+ipcMain.handle(CHANNELS.pluginInstallConfirm, async (event, token: unknown): Promise<PluginInstallResult> => {
+    if (!fromWindow(event) || typeof token !== "string" || token.length !== 36) return { ok: false, reason: "That plugin preview is no longer available. Choose the folder again." };
+    const pending = pluginInstallSources.get(token);
+    pluginInstallSources.delete(token);
+    if (pending === undefined || pending.expiresAt <= Date.now()) return { ok: false, reason: "That plugin preview is no longer available. Choose the folder again." };
+    try {
+        const reply = await pluginInstallTasks.run({ kind: "install", source: pending.source });
+        return reply.ok && reply.result !== undefined ? { ok: true, result: reply.result } : { ok: false, reason: reply.ok ? "Vera could not install that plugin." : reply.reason };
+    } catch {
+        return { ok: false, reason: "Vera could not install that plugin." };
+    }
+});
 registerUpdateHandlers({ service: updates, fromWindow });
 // A mode name the host can look up; anything else starts the session with the host default.
 const APPROVAL_MODE_PATTERN = /^[a-z][a-z0-9_-]{0,63}$/;
@@ -773,6 +808,10 @@ ipcMain.handle(CHANNELS.sessionsSearch, (event, request: unknown) => {
 ipcMain.handle(CHANNELS.folderReveal, async (event, folder: unknown): Promise<boolean> => {
     if (!fromWindow(event) || typeof folder !== "string" || !isAbsolute(folder)) return false;
     return (await shell.openPath(folder)) === "";
+});
+ipcMain.handle(CHANNELS.fileOpen, async (event, path: unknown): Promise<boolean> => {
+    if (!fromWindow(event) || typeof path !== "string" || !isAbsolute(path)) return false;
+    return (await shell.openPath(path)) === "";
 });
 ipcMain.handle(CHANNELS.extensionFailures, (event) =>
     fromWindow(event) ? readExtensionFailures(hostSocketPath) : { ok: false, reason: "The host is not running." });

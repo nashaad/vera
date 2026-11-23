@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { CATALOG_TASK_FILE } from "./src/extension-catalog/task-protocol.ts";
 import { DESKTOP_MANIFEST_FILENAME, parseDesktopManifest } from "../ui/src/extensions/manifest.ts";
 import { EXTENSION_TASK_FILE } from "./src/extension-install/task-protocol.ts";
+import { PLUGIN_INSTALL_TASK_FILE } from "./src/plugin-install/task-protocol.ts";
 import { releaseBuildId } from "../../src/release/build-id.ts";
 import { DESKTOP_BUILD_ID_SYMBOL } from "./src/client-build.ts";
 import { extensionFramePage } from "./extension-frame-page.ts";
@@ -61,6 +62,7 @@ if (!preload.success) fail(preload.logs);
 const TASKS = [
     { entry: join(root, "src", "model-assignments", "worker.ts"), file: ASSIGNMENT_TASK_FILE },
     { entry: join(root, "src", "extension-install", "worker.ts"), file: EXTENSION_TASK_FILE },
+    { entry: join(root, "src", "plugin-install", "worker.ts"), file: PLUGIN_INSTALL_TASK_FILE },
     { entry: join(root, "src", "extension-catalog", "worker.ts"), file: CATALOG_TASK_FILE },
     { entry: join(root, "src", "update", "worker.ts"), file: UPDATE_TASK_FILE },
     { entry: join(root, "src", "git", "worker.ts"), file: GIT_TASK_FILE },

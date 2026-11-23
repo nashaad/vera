@@ -3,7 +3,7 @@ import { registerSourceBrowser } from "../../src/core-extensions/customize/view.
 import type { VeraClientExtensionApi, VeraClientPickerRequest } from "../../src/sdk/extensions.ts";
 import type { VeraExperimentalTuiDocument } from "../../src/sdk/experimental-tui.ts";
 
-test("preview Escape returns to its list and category through shared surfaces", async () => {
+test("the /plugins browser preview Escape returns through its shared surfaces", async () => {
     const requests: VeraClientPickerRequest[] = [];
     const documents: VeraExperimentalTuiDocument[] = [];
     const answers = [
@@ -34,10 +34,10 @@ test("preview Escape returns to its list and category through shared surfaces", 
     } as unknown as VeraClientExtensionApi;
     await registerSourceBrowser(api).open(new AbortController().signal);
     expect(requests.map((request) => request.title)).toEqual([
-        "Customize", "Customize › Agents", "Customize › Agents", "Customize",
+        "Plugins", "Plugins › Agents", "Plugins › Agents", "Plugins",
     ]);
     expect(requests[1]?.searchable).toBe(true);
-    expect(documents[0]?.title).toBe("Customize › Agents › reader");
+    expect(documents[0]?.title).toBe("Plugins › Agents › reader");
     expect(documents[0]?.editorPath).toBe("/project/reader.md");
     expect(documents[0]?.markdown).toContain("Source: /project/reader.md");
     expect(documents[0]?.markdown).not.toContain("Read notes.");

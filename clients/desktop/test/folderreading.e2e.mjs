@@ -1,5 +1,5 @@
 // Folder reading test for the desktop shell. Run with: node clients/desktop/test/folderreading.e2e.mjs
-// Customize and Settings > Agents list what a folder loads from the host while its session is stopped:
+// Plugins and Settings > Agents list what a folder loads from the host while its session is stopped:
 // a project skill and a project agent show up, nothing offers Start session, and no message is sent.
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -81,18 +81,20 @@ try {
     if (!closed.ok) throw new Error(`The host would not close the session: ${JSON.stringify(closed)}`);
     await until("the row to show the session stopped", async () => (await row.getAttribute("data-live")) === "false", 30_000);
 
-    // Customize lists the project's skill and agent with no session running.
+    // Plugins lists the project's skill and agent with no session running. Built in starts collapsed.
     await page.locator("[data-page=\"customize\"]").first().click();
     await page.waitForSelector("main[data-page=\"customize\"]", { timeout: 10_000 });
-    await page.locator(".customize-card[data-kind=\"skills\"][data-name=\"nest-check\"]").waitFor({ timeout: 30_000 });
-    await page.locator(".customize-card[data-kind=\"agents\"][data-name=\"plan\"]").waitFor({ timeout: 10_000 });
-    await page.locator(".customize-card[data-kind=\"skills\"][data-name=\"vera-help\"]").waitFor({ timeout: 10_000 });
-    if (await page.locator("main[data-page=\"customize\"] [data-start-session]").count() !== 0) throw new Error("Customize offered Start session.");
-    if (await page.locator(".empty-state", { hasText: "No session in this folder" }).count() !== 0) throw new Error("Customize says the folder has no session.");
+    await page.locator("[data-plugin-section-toggle=\"builtin\"]").click();
+    await page.locator(".plugin-section[data-section=\"builtin\"] .plugin-row[data-kind=\"skills\"][data-name=\"vera-help\"]").waitFor({ timeout: 10_000 });
+    await page.locator(".plugin-section[data-section=\"folder\"] .plugin-row[data-kind=\"skills\"][data-name=\"nest-check\"]").waitFor({ timeout: 30_000 });
+    await page.locator(".plugins-kinds button[data-kind=\"agents\"]").click();
+    await page.locator(".plugin-row[data-kind=\"agents\"][data-name=\"plan\"]").waitFor({ timeout: 10_000 });
+    if (await page.locator("main[data-page=\"customize\"] [data-start-session]").count() !== 0) throw new Error("Plugins offered Start session.");
+    if (await page.locator(".empty-state", { hasText: "No session in this folder" }).count() !== 0) throw new Error("Plugins says the folder has no session.");
 
     // Reload reads again and keeps the list.
     await page.getByRole("button", { name: "Reload" }).click();
-    await page.locator(".customize-card[data-kind=\"skills\"][data-name=\"nest-check\"]").waitFor({ timeout: 30_000 });
+    await page.locator(".plugin-row[data-kind=\"agents\"][data-name=\"plan\"]").waitFor({ timeout: 30_000 });
 
     // Settings > Agents lists the same agent.
     await press(app, ",", [MODIFIER]);

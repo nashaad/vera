@@ -357,6 +357,7 @@ test("@core the main process loads no task code; each task process loads its own
     expect(inImporter(main.files)).toEqual([]);
     expect(inDesktop(main.files, "model-assignments")).toEqual(["model-assignments/task-protocol.ts"]);
     expect(inDesktop(main.files, "extension-install")).toEqual(["extension-install/task-protocol.ts"]);
+    expect(inDesktop(main.files, "plugin-install")).toEqual(["plugin-install/task-protocol.ts"]);
     expect(inDesktop(main.files, "extension-catalog")).toEqual(["extension-catalog/task-protocol.ts"]);
     expect(inDesktop(main.files, "update")).toEqual(["update/task-protocol.ts"]);
     expect(inDesktop(main.files, "git")).toEqual(["git/task-protocol.ts"]);
@@ -384,6 +385,13 @@ test("@core the main process loads no task code; each task process loads its own
     expect(install.files).not.toContain(join(REPOSITORY, "src", "config.ts"));
     expect(install.packages.has("electron")).toBe(false);
 
+    const plugins = reachable(join(DESKTOP_SOURCE, "plugin-install", "worker.ts"));
+    expect(inDesktop(plugins.files, "plugin-install")).toContain("plugin-install/run-task.ts");
+    expect(plugins.files).toContain(join(REPOSITORY, "src", "plugins", "manager.ts"));
+    expect(inDesktop(plugins.files, "extension-install")).toEqual([]);
+    expect(inImporter(plugins.files)).toEqual([]);
+    expect(plugins.packages.has("electron")).toBe(false);
+
     const catalog = reachable(join(DESKTOP_SOURCE, "extension-catalog", "worker.ts"));
     for (const file of ["extension-catalog/fetch.ts", "extension-catalog/parse-catalog.ts", "extension-catalog/run-task.ts"]) {
         expect(inDesktop(catalog.files, "extension-catalog")).toContain(file);
@@ -408,7 +416,7 @@ test("@core the main process loads no task code; each task process loads its own
     expect(inDesktop(update.files, "model-assignments")).toEqual([]);
     expect(inImporter(update.files)).toEqual([]);
     expect(update.packages.has("electron")).toBe(false);
-    for (const worker of [themes, assignments, install, catalog, update, git]) expect(worker.files).not.toContain(join(DESKTOP_SOURCE, "main.ts"));
+    for (const worker of [themes, assignments, install, plugins, catalog, update, git]) expect(worker.files).not.toContain(join(DESKTOP_SOURCE, "main.ts"));
 });
 
 function sourcesUnder(directory: string): string[] {

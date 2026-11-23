@@ -199,7 +199,7 @@ disable-model-invocation: true
         placement: 'home',
         summary: 'Existing memory files. Loading and writing are disabled.',
         loads: 'Never loaded into requests.',
-        detail: 'Existing files may appear in `/customize` under Memory. Vera does not recall them into new requests.',
+        detail: 'Existing files may appear in `/plugins` under Memory. Vera does not recall them into new requests.',
         documentedIn: 'config-reference',
     },
     {

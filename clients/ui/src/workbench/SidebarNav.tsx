@@ -25,7 +25,7 @@ const ENTRIES: readonly NavEntry[] = [
     { page: "home", title: "New Chat", command: NAVIGATION_COMMANDS.newChat, Icon: ComposeIcon },
     { page: "search", title: "Search", command: NAVIGATION_COMMANDS.search, Icon: SearchIcon, flag: "search" },
     { page: "work", title: "Work", command: NAVIGATION_COMMANDS.work, Icon: BellIcon, flag: "work" },
-    { page: "customize", title: "Customize", command: NAVIGATION_COMMANDS.customize, Icon: BlocksIcon, flag: "customize" },
+    { page: "customize", title: "Plugins", command: NAVIGATION_COMMANDS.customize, Icon: BlocksIcon, flag: "customize" },
 ];
 
 // The pages of the main area; they stay above the sidebar's view containers wherever those move.

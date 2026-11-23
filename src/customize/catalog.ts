@@ -12,7 +12,7 @@ import { listExtensions } from "../extensions/manager.ts";
 import { homeSkillConfig } from "../skills/sources.ts";
 import { loadExtensionManifest } from "../extensions/manifest.ts";
 import { withoutPluginExtensionPaths } from "../extensions/plugin-paths.ts";
-import { selectedVeraHome } from "../profile-paths.ts";
+import { pluginDirectoryIn, selectedVeraHome } from "../profile-paths.ts";
 import { readPluginCatalog, type PluginCatalog } from "../plugins/catalog.ts";
 import { pluginSummaryLine } from "../plugins/components.ts";
 import type { CustomizationCatalog, CustomizationSource } from "./types.ts";
@@ -32,7 +32,14 @@ export async function loadCustomizationCatalog(options: {
     readonly pluginCatalog?: PluginCatalog;
 }): Promise<CustomizationCatalog> {
     const pluginCatalog = options.pluginCatalog ?? readPluginCatalog();
-    const sources: CustomizationSource[] = [];
+    const home = selectedVeraHome();
+    const sources: CustomizationSource[] = pluginCatalog.plugins.map((record) => ({
+        id: `plugins:${record.name}`, category: "plugins",
+        name: record.name, description: pluginSummaryLine(record.components),
+        scope: "plugin", plugin: record.name, path: pluginDirectoryIn(home, record.name),
+        content: "", editable: false, contextIds: [],
+        status: record.enabled ? "enabled" : "disabled",
+    }));
     const warnings: string[] = [...options.agents.notices];
     async function add(source: CustomizationSource): Promise<void> {
         if (source.path === undefined) {
@@ -145,16 +152,7 @@ export async function loadCustomizationCatalog(options: {
     }
     // Extensions included with Vera are not listed; /extensions turns them on and off.
     // The skills catalog above already warned if config.json did not load.
-    for (const record of pluginCatalog.plugins) {
-        sources.push({
-            id: `plugins:${record.name}`, category: "plugins",
-            name: record.name, description: pluginSummaryLine(record.components),
-            scope: "plugin", plugin: record.name, content: "", editable: false,
-            contextIds: [], status: record.enabled ? "enabled" : "disabled",
-        });
-    }
     const config = homeSkillConfig();
-    const home = selectedVeraHome();
     const entries: { path: string; enabled: boolean; id: string }[] = withoutPluginExtensionPaths(listExtensions(), home).map((row) => ({
         path: row.path, enabled: row.enabled, id: row.id,
     }));

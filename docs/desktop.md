@@ -77,8 +77,8 @@ and closing the last window when that closes the app.
 ## Pages
 
 The main area shows one page at a time. Its title is in the main header. The
-pages are New Chat, Search, Work, Customize, Settings, Devices, Tour, Coverage, a
-workspace and a session. Search, Work, Customize, Devices, Tour and Coverage are
+pages are New Chat, Search, Work, Plugins, Settings, Devices, Tour, Coverage, a
+workspace and a session. Search, Work, Plugins, Devices, Tour and Coverage are
 parts of the window that Settings > Show can hide; see Showing parts of the
 window.
 
@@ -122,27 +122,38 @@ window.
   reload restores the open session page when that session still exists;
   otherwise it opens New Chat. Other main-area pages start at New Chat after a
   window reload.
-- Customize shows what Vera loads for a session in one folder: skills, agents,
-  extensions, instruction files and memory files. A menu picks the folder; it
-  starts on the folder of the session last open, stays on it until you pick
-  another, and lists no chats. The page
-  asks the host to read the folder, so it needs no session: a stopped session is
-  not started and no message is sent. With no folder picked it lists what a new
-  chat loads from the home: skills, agents, extensions, rules and memory files,
-  and no project items.
-  If the host was started before this request existed, the page says `Vera needs
-  a restart to read what this folder loads.` with Retry. Pills filter by kind
-  with a count on each, a search box matches names and
-  descriptions, and Reload reads again while the current list stays on screen. Items are grouped as This folder, Your
-  home, Extensions, Built in and Other. Extensions included with Vera are not
-  listed; their skills and agents are. A card shows the name, the description, the kind
-  and badges such as Current for the agent a new session starts on, Manual only for a skill
-  Vera does not load on its own, and an extension's state. An extension the host
-  could not load shows its error. Picking a card opens a sheet with its facts
-  and the file's text, and Show in Finder (Open folder on other platforms) when
-  the item has a file. Customize does not add, remove, install or edit those
-  items. Above them, Yours lists the desktop extensions that add to this app,
-  with a switch, Remove and Install from file; see Desktop extensions.
+- Plugins shows what Vera loads for a session in one folder: skills, agents,
+  extensions, instruction files and memory files. The folder menu picks the
+  folder; it starts on the folder of the session last open, stays on it until
+  you pick another, and lists no chats. The page asks the host to read the
+  folder, so it needs no session: a stopped session is not started and no
+  message is sent. With no folder picked it lists what a new chat loads from the
+  home: skills, agents, extensions, rules and memory files, and no project
+  items. If the host was started before this request existed, the page says
+  `Vera needs a restart to read what this folder loads.` with Retry.
+  The toolbar has a search box, a kind control with a count on each kind, the
+  folder menu and Reload. Reload reads again while the current list stays on
+  screen. Items are grouped under In this folder, Your home and Built in, with
+  a count on each section. The first six items in each section show in two
+  columns; a line naming the next items opens the rest. A row shows the kind's
+  icon, the name, a one-line description and the command or path. A check marks
+  an item that is present, and the three-dot button opens the row menu.
+  Picking a row opens a sheet. Overview shows the file rendered as Markdown
+  beside Location, Scope, Loads in, Command and Files. Files shows the one file
+  that was read, with a switch between the rendered file and its numbered
+  source. The menu has Open in editor, Show in Finder (Open folder on other
+  platforms), Copy Markdown and Copy path. Skills also have Try now, which
+  opens a new chat with the skill's command in the composer and does not send
+  it.
+  Extensions included with Vera are not listed; their skills and agents are. An
+  extension the host could not load shows its error. The Plugins kind lists
+  installed plugin packages. Packages and their skills and agents are listed
+  under Built in, although they do not ship with Vera, and are read-only.
+  The Extensions kind lists the desktop
+  extensions you installed, and a disabled one shows Off with a dimmed icon.
+  An extension's sheet has a switch that turns it on or off and an Uninstall
+  button. Add on this kind opens a menu with Install from file; see Desktop
+  extensions.
   Yours and Discover switch the page's view; it opens on Yours, which is
   everything above. Discover lists the themes in the extension catalog and
   installs one after a preview; see The theme catalog. The web client has no
@@ -193,7 +204,7 @@ window.
   - Agents has the Suggest keeping notes switch, on by default, and lists the
     agents a session in the folder of the last open session can run as, or a new
     chat when there is none, with their scope and description, read from the
-    host the same way as Customize, with or without a session. The list does
+    host the same way as Plugins, with or without a session. The list does
     not change them; Choose Agent does. With the switch on, each session the
     window creates is told to offer to keep notes once, when a conversation
     produces something worth keeping. A session keeps the choice it was created
@@ -230,7 +241,7 @@ window.
     removed. The row needs a host that knows the request: an older host shows
     Needs a newer Vera host and Manage is disabled.
 
-The sidebar's top rows are the page rows: New Chat, Search, Work and Customize.
+The sidebar's top rows are the page rows: New Chat, Search, Work and Plugins.
 New Chat is always there; the others show when their part of the window is shown.
 A page an extension gives a pane adds a row under these. The row of the current
 page is filled. Work shows a count of sessions waiting on
@@ -244,8 +255,8 @@ History holds the last 50 pages. Opening a page other than the current one drops
 the forward pages, as a browser does, and opening the current page adds nothing.
 
 Cmd+N opens New Chat, Cmd+[ goes back, Cmd+] goes forward and Cmd+, opens
-Settings and focuses its search. The Go menu holds New Chat, Back, Forward, Search, Work, Customize,
-Devices, Settings, Tour and Coverage. Search, Work, Customize, Devices, Tour and
+Settings and focuses its search. The Go menu holds New Chat, Back, Forward, Search, Work, Plugins,
+Devices, Settings, Tour and Coverage. Search, Work, Plugins, Devices, Tour and
 Coverage have no shortcut; the command palette reaches them. The menus leave out
 the entries of parts that are off. On other platforms the modifier is Ctrl.
 
@@ -290,8 +301,8 @@ Escape, its close button or a click outside it.
   list, extensions and providers from what this window knows, with Run again.
   For a full check it suggests `vera doctor` in a terminal and copies it.
 - Extensions lists the extensions the host could not load, with each error, and
-  opens Customize. Turning those extensions on or off and installing them is not
-  available from the window. Desktop extensions are managed in Customize.
+  opens Plugins. Turning those extensions on or off and installing them is not
+  available from the window. Desktop extensions are managed in Plugins.
 - Configuration Files lists Vera's configuration files and what each holds, and
   shows the Vera home in Finder. Editing them is done with `/configure` in the
   terminal UI.
@@ -568,7 +579,7 @@ Auto shows a part once it has something to show:
 
 - Search, once the host lists a session.
 - Work, once the host lists two sessions.
-- Customize, once the window has connected to the host.
+- Plugins, once the window has connected to the host.
 - Review, once the open session has changed files.
 - Changes, in a session that has a folder.
 - Plan, once the open session has a checklist.
@@ -1608,7 +1619,7 @@ The desktop app imports a VS Code color theme from:
 The importer is an included desktop extension, `vera.vscode-theme-import`. Its
 source and manifest are in `extensions/vscode-theme-import/` in the repository,
 and the desktop build copies the manifest and bundles its task into the app. It
-is always on, and Customize does not list it. The app has no code of its own for
+is always on, and Plugins does not list it. The app has no code of its own for
 it: the commands, the rows in Settings and the View > Theme item come from the
 manifest (see Commands and menus below). Start an
 import from Settings > Appearance > Import a VS Code theme > Import…, from
@@ -1732,11 +1743,11 @@ is a folder with a `vera.desktop.json` manifest. A plugin can also contain a
 desktop extension. The terminal UI does not use desktop extensions and keeps
 its own themes.
 
-Customize > Yours lists them above its skills, agents and other items. The
-section note reads `Desktop extensions add to this app, such as themes. They
-apply to every session.` A row shows the extension's id and version, the themes
-it adds, a switch, and Remove. When it contributes a task, a command naming a
-task or page script, or a menu entry, the row and install preview also say
+The Extensions kind on Plugins lists them. A row shows the extension's id and
+version and the themes it adds. Selecting it opens
+its sheet, which has a switch and Uninstall. When it contributes a task, a
+command naming a task or page script, or a menu entry, the sheet and install
+preview also say
 `Some task, page, or menu contributions are not loaded by this version of Vera.`
 The list note `More extension folders exist than are loaded.` and folder
 diagnostics such as an invalid folder name, a missing or invalid manifest, or a
@@ -1749,7 +1760,8 @@ the app is always on, cannot be removed, and is not listed. Installed extensions
 page-script commands do not run, and their `menus` entries are ignored; only
 included extensions run tasks and page scripts or contribute menu entries.
 
-Install from file opens a file picker for a package. The window first shows what
+Add on the Extensions kind opens a menu with Install from file, which opens a
+file picker for a package. The window first shows what
 the package holds: its id, its version, its themes, and `Replaces version <v>.`
 when a separately installed extension has the same id. Install puts the
 extension in place; Cancel throws the package away and installs nothing.
@@ -1971,7 +1983,7 @@ Staging folders left by a closed window are cleared the next time the app starts
 
 ### The theme catalog
 
-Customize > Discover lists the themes in a catalog. A card shows the theme's
+Plugins > Discover lists the themes in a catalog. A card shows the theme's
 name, its version, five swatches of its colors and Install. A theme the catalog
 has withdrawn, or one built for another version of Vera, is not listed. A theme
 already installed at the listed version shows Installed instead of Install.
@@ -2306,7 +2318,7 @@ It stops the host it started.
 The pages test finds a session by a word said in it from Search, watches a slow
 turn finish in Work while another page is open, opens a folder's Workspace page
 from the sidebar and checks its session count, checks Devices, reads Vera's help
-skill on Customize and opens its detail, checks that Discover says the catalog
+skill on Plugins and opens its detail, checks that Discover says the catalog
 is not available in this build, goes from Tour to Coverage and back and opens the session
 from its Tour card, runs Settings from the command palette, counts the session
 in Settings > Data, finds the palette's keys in Settings > Keyboard and the

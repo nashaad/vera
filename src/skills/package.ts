@@ -10,6 +10,7 @@ import {
     relative,
     sep,
 } from "node:path";
+import { parseYaml } from "../yaml.ts";
 
 export const SKILL_FILENAME = "SKILL.md";
 
@@ -97,7 +98,7 @@ export function parseSkillSource(source: string): {
 
     let value: unknown;
     try {
-        value = Bun.YAML.parse(match[1] ?? "");
+        value = parseYaml(match[1] ?? "");
     } catch (error) {
         throw new Error(`Invalid Vera skill frontmatter: ${errorMessage(error)}`);
     }

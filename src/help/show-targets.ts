@@ -54,15 +54,18 @@ export const SHOW_TARGETS: readonly ShowTarget[] = [
     page("work", "Work", true),
     page("search", "Search", true),
     page("devices", "Devices", false),
-    page("customize", "Customize", false),
+    page("customize", "Plugins", false),
     page("settings", "Settings", true),
     page("coverage", "Coverage", false),
 ];
 
 const BY_ID = new Map(SHOW_TARGETS.map((target) => [target.id, target]));
+const ALIASES = new Map([["page.plugins", "page.customize"]]);
 
 export function findShowTarget(id: unknown): ShowTarget | undefined {
-    return typeof id === "string" ? BY_ID.get(id) : undefined;
+    return typeof id === "string"
+        ? BY_ID.get(ALIASES.get(id) ?? id)
+        : undefined;
 }
 
 export type ShowSurface = "window" | "terminal";

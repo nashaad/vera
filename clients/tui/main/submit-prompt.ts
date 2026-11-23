@@ -3,6 +3,7 @@ import { prepareTuiFileText, tuiFileLocation } from "../file-preparation.ts";
 import { fileErrorMessage } from "../../../src/attachments/files.ts";
 import { filePathMentions } from "../file-paths.ts";
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
+import { PLUGIN_BROWSER_COMMAND, PLUGIN_BROWSER_EXTENSION } from "../../../src/core-extensions/customize/commands.ts";
 import { invokeDirectClientExtensionCommand } from "../../../src/extensions/client.ts";
 import { renderExtensionInstallPreview, renderExtensionMutation } from "../../../src/extensions/manager-command.ts";
 import { installExtension, removeExtension, setAnyExtensionEnabled } from "../../../src/extensions/manager.ts";
@@ -10,7 +11,7 @@ import { diagnoseVeraProcesses, renderVeraDoctor } from "../../process-doctor.ts
 import { diagnoseProviders, renderProviderDoctor } from "../../provider-doctor.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
 import { clientExtensionReloadFailed, clientExtensionReloadStarted, clientExtensionReloadSucceeded, reloadTuiClientExtensions } from "../client-extension-reload.ts";
-import { extensionCommandResultText, tuiCommandScope } from "../commands.ts";
+import { extensionCommandResultText, isPluginBrowserAction, tuiCommandScope } from "../commands.ts";
 import { startTuiHelp } from "../help.ts";
 import { disarmQuit } from "./notices.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
@@ -46,8 +47,8 @@ import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { PromptRejectedError } from "../../../src/host/attached-client.ts";
 
-// Skill files are editable from /customize, so closing it refreshes the catalog.
-const SKILL_CATALOG_EDITING_COMMANDS = new Set(["customize"]);
+// Skill files are editable from /plugins, so closing it refreshes the catalog.
+const SKILL_CATALOG_EDITING_COMMANDS = new Set(["plugins", "customize"]);
 
 export function submitPrompt(rt: TuiRuntime, 
     interceptedText?: string,
@@ -677,13 +678,15 @@ export function submitPrompt(rt: TuiRuntime,
         return;
     }
     if (commandAction?.type === "run_extension") {
+        const pluginBrowser = isPluginBrowserAction(commandAction);
         if (isHomeClient(rt.client)) {
             if (
-                commandAction.origin !== "host"
-                || !rt.hostExtensionCommands.some((command) =>
-                    command.name === commandAction.command
-                    && command.source === commandAction.source
-                )
+                !pluginBrowser
+                && (commandAction.origin !== "host"
+                    || !rt.hostExtensionCommands.some((command) =>
+                        command.name === commandAction.command
+                        && command.source === commandAction.source
+                    ))
             ) {
                 rt.state = appendTuiNotice(
                     rt.state,
@@ -748,7 +751,11 @@ export function submitPrompt(rt: TuiRuntime,
             (commandAction.origin === "direct"
                 && directExtension === undefined)
             || (commandAction.origin === "client"
-                && rt.clientExtensionRegistry === undefined)
+                && (rt.clientExtensionRegistry === undefined
+                    || (pluginBrowser && !rt.clientExtensionRegistry.commands().some((command) =>
+                        command.source === PLUGIN_BROWSER_EXTENSION
+                        && command.name === PLUGIN_BROWSER_COMMAND
+                    ))))
             || (commandAction.origin === "host"
                 && rt.client.runExtensionCommand === undefined)
         ) {
@@ -773,7 +780,7 @@ export function submitPrompt(rt: TuiRuntime,
             : commandAction.origin === "client"
             ? rt.extensionAgentTarget.run(extensionInvocation, () =>
                 rt.clientExtensionRegistry!.invokeCommand(
-                    commandAction.command,
+                    commandAction.invocationCommand ?? commandAction.command,
                     commandAction.argumentsText,
                     rt.client.workspace ?? process.cwd(),
                     undefined,

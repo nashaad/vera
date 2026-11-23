@@ -21,6 +21,8 @@ import type {
     ExtensionFailuresResult,
     FolderCustomizationsResult,
     NewSessionAgentsResult,
+    PluginInstallPreviewResult,
+    PluginInstallResult,
     FilePreview,
     FolderListing,
     HostModelsResult,
@@ -87,6 +89,8 @@ const bridge: DesktopBridge = {
     installDesktopExtension: async (token: string) =>
         (await ipcRenderer.invoke(CHANNELS.desktopExtensionInstall, token)) as ExtensionChangeResult,
     cancelDesktopExtension: (token: string) => ipcRenderer.send(CHANNELS.desktopExtensionCancel, token),
+    previewPluginInstall: async () => (await ipcRenderer.invoke(CHANNELS.pluginInstallPreview)) as PluginInstallPreviewResult,
+    installPlugin: async (token: string) => (await ipcRenderer.invoke(CHANNELS.pluginInstallConfirm, token)) as PluginInstallResult,
     setDesktopExtensionEnabled: async (id: string, enabled: boolean) =>
         (await ipcRenderer.invoke(CHANNELS.desktopExtensionEnable, id, enabled)) as ExtensionChangeResult,
     removeDesktopExtension: async (id: string) =>
@@ -209,6 +213,7 @@ const bridge: DesktopBridge = {
     browser: async (command: string, value?: string | number | boolean | null | BrowserBounds | BrowserHandoffAnswer | BrowserToolsApproval) =>
         (await ipcRenderer.invoke(CHANNELS.browser, command, value)) as BrowserState,
     revealFolder: async (folder: string) => (await ipcRenderer.invoke(CHANNELS.folderReveal, folder)) === true,
+    openFile: async (path: string) => (await ipcRenderer.invoke(CHANNELS.fileOpen, path)) === true,
     onEvent: (listener: (event: DesktopEvent) => void) => {
         const handler = (_event: unknown, payload: DesktopEvent): void => listener(payload);
         ipcRenderer.on(CHANNELS.event, handler);

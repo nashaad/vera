@@ -114,3 +114,23 @@ test("a stray file in the old folder is left alone with its folder", () => {
     migrateSavedThemes(storeFor(home), themesDirectory(home));
     expect(readdirSync(themesDirectory(home))).toEqual(["notes.txt"]);
 });
+
+test("a legacy theme with sparse colors migrates into an extension", () => {
+    const home = scratchDirectory();
+    const file = join(themesDirectory(home), "legacy-crow.json");
+    writeText(file, JSON.stringify({
+        version: 1,
+        slug: "legacy-crow",
+        name: "Legacy Crow",
+        type: "dark",
+        source: "Extension crow.pack",
+        colors: { surface: "#202830" },
+        values: {},
+        tokenColors: [],
+        semanticTokenColors: {},
+    }));
+    const store = storeFor(home);
+    expect(migrateSavedThemes(store, themesDirectory(home))).toEqual({ moved: 1, kept: 0 });
+    expect(store.entries().map((entry) => entry.id)).toEqual(["imported.legacy-crow"]);
+    expect(existsSync(file)).toBe(false);
+});

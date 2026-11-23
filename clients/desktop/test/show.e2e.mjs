@@ -89,7 +89,7 @@ try {
     const first = await boot();
     const { app, page } = first;
 
-    // Under Auto a window with no sessions shows no Search or Work. New Chat is always there, and Customize once the host attaches.
+    // Under Auto a window with no sessions shows no Search or Work. New Chat is always there, and Plugins once the host attaches.
     await page.waitForSelector(".nav-row[data-page=\"home\"]", { timeout: 10_000 });
     await page.waitForSelector(".nav-row[data-page=\"customize\"]", { timeout: 10_000 });
     for (const kind of ["search", "work"]) {

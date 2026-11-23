@@ -45,12 +45,15 @@ export function tokenizePluginManagerArguments(
     return tokenizeCommandArguments(text, "plugin command");
 }
 
+const DEFAULT_PLUGIN_COMMAND_LABEL = "vera plugin";
+
 export function parsePluginManagerCommand(
     args: readonly string[],
+    commandLabel = DEFAULT_PLUGIN_COMMAND_LABEL,
 ): { readonly command: PluginManagerCommand } | { readonly error: string } | undefined {
     if (args[0] !== "plugin") return undefined;
     const operation = args[1];
-    if (operation === undefined) return { error: pluginManagerUsage() };
+    if (operation === undefined) return { error: pluginManagerUsage(commandLabel) };
     const words = args.slice(2);
     const dryRun = words.includes("--dry-run");
     const purge = words.includes("--purge");
@@ -59,25 +62,25 @@ export function parsePluginManagerCommand(
     );
 
     if (operation === "migrate") {
-        if (words.length !== 0) return { error: "Usage: vera plugin migrate" };
+        if (words.length !== 0) return { error: `Usage: ${commandLabel} migrate` };
         return { command: { operation: "migrate" } };
     }
     if (operation === "list") {
         if (dryRun || purge || positional.length > 0) {
-            return { error: "Usage: vera plugin list" };
+            return { error: `Usage: ${commandLabel} list` };
         }
         return { command: { operation: "list" } };
     }
     if (operation === "show") {
         if (dryRun || purge || positional.length !== 1) {
-            return { error: "Usage: vera plugin show <name>" };
+            return { error: `Usage: ${commandLabel} show <name>` };
         }
         return { command: { operation: "show", name: positional[0]! } };
     }
     if (operation === "install") {
         if (purge || positional.length !== 1) {
             return {
-                error: "Usage: vera plugin install <path> [--dry-run]",
+                error: `Usage: ${commandLabel} install <path> [--dry-run]`,
             };
         }
         return {
@@ -90,25 +93,25 @@ export function parsePluginManagerCommand(
     }
     if (operation === "enable" || operation === "disable") {
         if (dryRun || purge || positional.length !== 1) {
-            return { error: `Usage: vera plugin ${operation} <name>` };
+            return { error: `Usage: ${commandLabel} ${operation} <name>` };
         }
         return { command: { operation, name: positional[0]! } };
     }
     if (operation === "remove") {
         if (dryRun || positional.length !== 1) {
-            return { error: "Usage: vera plugin remove <name> [--purge]" };
+            return { error: `Usage: ${commandLabel} remove <name> [--purge]` };
         }
         return {
             command: { operation: "remove", name: positional[0]!, purge },
         };
     }
     return {
-        error: `Unknown plugin operation '${operation}'. ${pluginManagerUsage()}`,
+        error: `Unknown plugin operation '${operation}'. ${pluginManagerUsage(commandLabel)}`,
     };
 }
 
-export function pluginManagerUsage(): string {
-    return "Usage: vera plugin list|show|install|enable|disable|remove|migrate <…>";
+export function pluginManagerUsage(commandLabel = DEFAULT_PLUGIN_COMMAND_LABEL): string {
+    return `Usage: ${commandLabel} list|show|install|enable|disable|remove|migrate <…>`;
 }
 
 export function renderPluginInstallPreview(preview: PluginInstallPreview): string {

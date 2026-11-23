@@ -1,4 +1,5 @@
 import type { LayoutState } from "../layout/model.ts";
+import type { PluginInstallPreview, PluginInstallResult as InstalledPluginResult } from "./plugin-install.ts";
 import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWriteResult } from "./assignments.ts";
 import type { IncludedExtensionsResult } from "./included-extensions.ts";
 import type { DesktopFlags, FlagPatch } from "../state/desktopFlags.ts";
@@ -303,6 +304,15 @@ export interface FeedbackSaveRequest {
 }
 export type FeedbackSaveResult = { readonly ok: true; readonly path: string } | { readonly ok: false; readonly reason: string };
 
+export type PluginInstallPreviewResult =
+    | { readonly ok: true; readonly token: string; readonly preview: PluginInstallPreview }
+    | { readonly ok: false; readonly cancelled: true }
+    | { readonly ok: false; readonly reason: string };
+
+export type PluginInstallResult =
+    | { readonly ok: true; readonly result: InstalledPluginResult }
+    | { readonly ok: false; readonly reason: string };
+
 export interface DesktopBridge {
     captureFeedback(): Promise<string | undefined>;
     saveFeedback(request: FeedbackSaveRequest): Promise<FeedbackSaveResult>;
@@ -388,6 +398,8 @@ export interface DesktopBridge {
     browser(command: string, value?: string | number | boolean | null | BrowserBounds | BrowserHandoffAnswer | BrowserToolsApproval): Promise<BrowserState>;
     // Opens a folder in the system file manager; false when it could not be opened.
     revealFolder(folder: string): Promise<boolean>;
+    // Opens a file with the system default application; false when it could not be opened.
+    openFile(path: string): Promise<boolean>;
     // The given absolute paths that exist as directories, at most MAX_FOLDER_CHECKS of them.
     existingFolders(folders: readonly string[]): Promise<readonly string[]>;
     // Opens the native folder picker; undefined when cancelled.
@@ -431,6 +443,10 @@ export interface DesktopBridge {
     installDesktopExtension(token: string): Promise<ExtensionChangeResult>;
     // Deletes the unpacked package the preview named.
     cancelDesktopExtension(token: string): void;
+    // Opens a native folder picker and previews the chosen plugin; the token cannot select another path.
+    previewPluginInstall(): Promise<PluginInstallPreviewResult>;
+    // Installs only the source folder retained for the preview token.
+    installPlugin(token: string): Promise<PluginInstallResult>;
     setDesktopExtensionEnabled(id: string, enabled: boolean): Promise<ExtensionChangeResult>;
     // Deletes an installed extension. An extension included with Vera is refused.
     removeDesktopExtension(id: string): Promise<ExtensionChangeResult>;

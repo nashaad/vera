@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 
-import { DesktopExtensionsView } from "../../clients/ui/src/customize/DesktopExtensions.tsx";
 import {
     CHANGE_FAILED,
     installExtension,
@@ -13,9 +10,8 @@ import {
     removeExtension,
     toggleExtension,
 } from "../../clients/ui/src/customize/desktop-extensions.ts";
-import type { DesktopExtensionsState } from "../../clients/ui/src/customize/useDesktopExtensions.ts";
 import type { DesktopBridge } from "../../clients/ui/src/protocol/bridge.ts";
-import type { DesktopExtensionEntry, ExtensionChangeResult, ExtensionPreview } from "../../clients/ui/src/protocol/extensions.ts";
+import type { DesktopExtensionEntry, ExtensionChangeResult } from "../../clients/ui/src/protocol/extensions.ts";
 import { importedThemes, setImportedThemes } from "../../clients/ui/src/theme/imported-registry.ts";
 import type { ImportedThemeSummary } from "../../clients/ui/src/theme/imported.ts";
 import { storeTheme, readStoredTheme, readThemeCache } from "../../clients/ui/src/theme/storage.ts";
@@ -184,89 +180,4 @@ test("reading the list does not touch the theme", async () => {
     expect(page.attributes.size).toBe(0);
 });
 
-function state(overrides: Partial<DesktopExtensionsState>): DesktopExtensionsState {
-    const none = (): void => undefined;
-    return {
-        list: { phase: "ready", extensions: [] },
-        preview: undefined,
-        report: undefined,
-        busy: false,
-        choose: none,
-        confirm: none,
-        cancel: none,
-        toggle: none,
-        remove: none,
-        ...overrides,
-    };
-}
 
-function render(overrides: Partial<DesktopExtensionsState>): string {
-    return renderToStaticMarkup(createElement(DesktopExtensionsView, { state: state(overrides) }));
-}
-
-test("the section lists each installed extension with its switch and a remove button", () => {
-    const html = render({
-        list: {
-            phase: "ready",
-            extensions: [
-                entry("crow.pack", { themes: ["Crow Night", "Crow Day"] }),
-                entry("crow.off", { enabled: false }),
-            ],
-        },
-    });
-    expect(html).toContain("Desktop extensions");
-    expect(html).toContain("Themes: Crow Night, Crow Day");
-    expect(html).toContain("Install from file");
-    expect(html).not.toContain("Included");
-    expect(html).toContain('data-desktop-extension-remove="crow.pack"');
-    expect(html).toContain('data-desktop-extension-remove="crow.off"');
-    expect(html).toMatch(/aria-checked="true"[^>]*data-desktop-extension-switch="crow.pack"|data-desktop-extension-switch="crow.pack"[^>]*aria-checked="true"/);
-    expect(html).toMatch(/aria-checked="false"[^>]*data-desktop-extension-switch="crow.off"|data-desktop-extension-switch="crow.off"[^>]*aria-checked="false"/);
-    expect(html).toContain('<span class="section-count">2</span>');
-});
-
-test("@core an extension included with Vera is not listed or counted, so it has no switch to turn off", () => {
-    const importer = entry("vera.vscode-theme-import", { themes: [], hasMain: true, hasCommands: true, hasUnavailableContributions: true, included: true });
-    const html = render({ list: { phase: "ready", extensions: [importer, entry("crow.pack", { hasMain: true, hasCommands: true, hasUnavailableContributions: true })] } });
-    expect(html).not.toContain("vera.vscode-theme-import");
-    expect(html).not.toContain("Included");
-    expect(html).toContain('data-desktop-extension="crow.pack"');
-    expect(html).toContain('<span class="section-count">1</span>');
-    expect(html.split("Some task, page, or menu contributions are not loaded by this version of Vera.")).toHaveLength(2);
-
-    const only = render({ list: { phase: "ready", extensions: [importer] } });
-    expect(only).not.toContain("data-desktop-extension=");
-    expect(only).not.toContain("data-desktop-extension-switch");
-    expect(only).toContain('<span class="section-count">0</span>');
-    expect(only).toContain("No desktop extensions are installed.");
-});
-
-test("an empty list, a failed list and a report each say so", () => {
-    expect(render({})).toContain("No desktop extensions are installed.");
-    expect(render({ list: { phase: "failed", reason: LIST_FAILED } })).toContain(LIST_FAILED);
-    const reported = render({ report: { ok: false, message: "The package is larger than 8 MiB." } });
-    expect(reported).toContain("The package is larger than 8 MiB.");
-    expect(reported).toContain('data-tone="danger"');
-    expect(render({ report: { ok: true, message: 'Installed "crow.pack".' } })).not.toContain('data-tone="danger"');
-});
-
-test("a preview shows what the package holds before anything is installed", () => {
-    const preview: ExtensionPreview = {
-        token: "t",
-        id: "crow.pack",
-        version: "2.0.0",
-        themes: ["Crow Night"],
-        hasMain: true,
-        hasCommands: true,
-        hasUnavailableContributions: true,
-        replaces: "1.0.0",
-    };
-    const html = render({ preview });
-    expect(html).toContain('data-desktop-extension-preview="crow.pack"');
-    expect(html).toContain("Replaces version 1.0.0.");
-    expect(html).toContain("Some task, page, or menu contributions are not loaded by this version of Vera.");
-    expect(html).toContain("data-desktop-extension-confirm");
-    expect(html).toContain("data-desktop-extension-cancel");
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*data-desktop-extension-install/);
-    expect(render({ preview: { ...preview, replaces: undefined, hasMain: false, hasCommands: false, hasUnavailableContributions: false } })).not.toContain("not loaded");
-});

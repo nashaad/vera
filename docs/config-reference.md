@@ -10,7 +10,7 @@ Project-specific customization lives with the project. The installed
 application is separate from both.
 
 For most changes, use the relevant settings screen. `/configure` opens
-configuration files in your editor, and `/customize` browses instructions,
+configuration files in your editor, and `/plugins` browses instructions,
 definitions, skills, and extensions.
 
 <div data-widget="directory-explorer"></div>
@@ -22,7 +22,7 @@ definitions, skills, and extensions.
 | Connect a provider or change credentials | [Configure providers](first-run-setup.md) |
 | Choose or assign a model | [Models and defaults](models.md) |
 | Edit a home or project setting | [Configuration files](configuration-files.md) |
-| Inspect instructions or a skill | [Customize](customize.md) |
+| Inspect instructions or a skill | [Plugins](customize.md) |
 | Change keyboard shortcuts | [Keybindings](keybindings.md) |
 | Return to saved work | [Saved conversations](sessions.md) |
 
@@ -97,7 +97,7 @@ Vera screen or command to manage them.
 | `memory/` | Existing memory files; loading and writing are disabled. |
 
 One resident host owns a home's runtime directory. Clients attached to it
-share live conversations. Existing memory files may appear in Customize but
+share live conversations. Existing memory files may appear in Plugins but
 are not recalled into requests.
 
 ## Use a separate development home

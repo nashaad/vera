@@ -180,7 +180,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
             partial("/resume asks whether to stop or keep the one on screen", "In the window, /resume opens Go to Session and stops nothing"),
             inWindow("/clone duplicates the conversation", "Clone Session in the palette"),
             inWindow("/close parks a live conversation and keeps its saved file", "Close Session in the palette"),
-            inWindow("A parked conversation is resumed without sending a message", "Start session on the page, the context pill, Plan, Review and Customize"),
+            inWindow("A parked conversation is resumed without sending a message", "Start session on the page, the context pill, Plan, Review and Plugins"),
             inTerminal("Ctrl+Shift+Left and Right cycle live conversations", "Cmd+[ and Cmd+] move back and forward in the window"),
         ],
     },
@@ -222,7 +222,7 @@ export const COVERAGE: readonly CoveragePhase[] = [
             inTerminal("/extension install <path> installs from the composer", "The window does not install"),
             inTerminal("A host-side extension change notes that a restart is needed", "The window has no extension controls"),
             partial("Installed skills and extensions add commands to /help", "The slash menu lists them; the window has no /help"),
-            partial("Browse extensions and skills that are not installed", "Customize > Discover lists catalog themes only, in a build that names a catalog"),
+            partial("Browse extensions and skills that are not installed", "Plugins > Discover lists catalog themes only, in a build that names a catalog"),
         ],
     },
     {

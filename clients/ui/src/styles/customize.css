@@ -1,4 +1,4 @@
-/* The Customize page: the folder menu, kind pills, scope groups and the card grid. */
+/* The Discover theme list and the controls it shares with the Plugins page. */
 
 main[data-page="customize"] .section-title {
     margin: 0 0 calc(var(--vera-space) * 3);
@@ -10,38 +10,6 @@ main[data-page="customize"] section {
 
 main[data-page="customize"] .toolbar {
     margin-bottom: calc(var(--vera-space) * 3);
-}
-
-main[data-page="customize"] .customize-toolbar {
-    margin-bottom: calc(var(--vera-space) * 5);
-}
-
-.customize-toolbar .ghost-btn,
-.customize-toolbar .search-field,
-.customize-seg button {
-    height: calc(var(--vera-space) * 7.5);
-}
-
-.customize-toolbar .search-field {
-    flex-basis: calc(var(--vera-space) * 52);
-    min-width: 0;
-    max-width: 100%;
-}
-
-.customize-toolbar .search-field svg {
-    flex-shrink: 0;
-}
-
-.customize-filters {
-    display: block;
-    text-wrap: balance;
-}
-
-.customize-filters .filter-pill {
-    gap: var(--vera-space);
-    height: calc(var(--vera-space) * 6.5);
-    margin: 0 calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 1.5) 0;
-    padding: 0 calc(var(--vera-space) * 2);
 }
 
 .customize-folder {
@@ -105,37 +73,6 @@ main[data-page="customize"] .customize-toolbar {
     cursor: default;
 }
 
-button.customize-card {
-    cursor: pointer;
-}
-
-button.customize-card:hover {
-    background: var(--vera-surface-hover);
-    border-color: var(--vera-border-input);
-}
-
-.customize-card:focus-visible {
-    outline: thin solid var(--vera-focus);
-    outline-offset: calc(var(--vera-space) / -2);
-}
-
-.customize-glyph {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    width: calc(var(--vera-space) * 8.5);
-    height: calc(var(--vera-space) * 8.5);
-    color: var(--vera-text-dim);
-    background: var(--vera-surface-raised);
-    border-radius: var(--vera-radius);
-}
-
-.customize-glyph-icon {
-    width: calc(var(--vera-space) * 4);
-    height: calc(var(--vera-space) * 4);
-}
-
 .customize-card-body {
     display: flex;
     flex: 1 1 auto;
@@ -149,17 +86,6 @@ button.customize-card:hover {
     font-size: var(--vera-font-size-body);
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.customize-card-desc {
-    display: -webkit-box;
-    margin-top: calc(var(--vera-space) / 2);
-    overflow: hidden;
-    color: var(--vera-text-dim);
-    font-size: var(--vera-font-size);
-    line-height: 1.5;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
 }
 
 .customize-card-meta {
@@ -189,50 +115,14 @@ button.customize-card:hover {
     font-family: var(--vera-font-code);
 }
 
-.customize-facts {
-    display: grid;
-    grid-template-columns: max-content minmax(0, 1fr);
-    gap: calc(var(--vera-space) * 2) calc(var(--vera-space) * 3);
-    margin: 0;
-    font-size: var(--vera-font-size-label);
-}
-
-.customize-facts dt {
-    color: var(--vera-text-muted);
-}
-
-.customize-facts dd {
-    margin: 0;
-    color: var(--vera-text);
-    overflow-wrap: anywhere;
-}
-
-.customize-facts dd.customize-code {
-    font-family: var(--vera-font-code);
-}
-
-.customize-content {
-    max-height: calc(var(--vera-space) * 90);
-    margin: calc(var(--vera-space) * 3) 0 0;
-    padding: calc(var(--vera-space) * 3);
-    overflow: auto;
-    color: var(--vera-text-dim);
-    font-family: var(--vera-font-code);
-    font-size: var(--vera-font-size-code);
-    line-height: 1.5;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    background: var(--vera-surface-code);
-    border-radius: var(--vera-radius);
-}
-
-/* Customize: the Yours / Discover control in the toolbar. */
+/* The Yours / Discover control in the page header. */
 .customize-seg {
     display: inline-flex;
     gap: calc(var(--vera-space) * 0.5);
 }
 
 .customize-seg button {
+    height: calc(var(--vera-space) * 7.5);
     padding: 0 calc(var(--vera-space) * 2.5);
     color: var(--vera-text-dim);
     font: inherit;
@@ -262,44 +152,20 @@ button.customize-card:hover {
     flex: 0 0 auto;
     gap: calc(var(--vera-space) * 2);
     align-items: center;
+    margin-left: auto;
 }
 
-[data-desktop-extensions] .customize-grid {
-    grid-template-columns: minmax(0, 1fr);
-}
-
-[data-desktop-extension],
-.customize-preview,
 [data-catalog-theme] {
     flex-wrap: wrap;
 }
 
-[data-desktop-extension] .customize-card-body,
-.customize-preview .customize-card-body,
 [data-catalog-theme] .customize-card-body {
     flex-basis: calc(var(--vera-space) * 52);
 }
 
-[data-desktop-extension] .customize-card-name,
-.customize-preview .customize-card-name,
 [data-catalog-theme] .customize-card-name {
     overflow-wrap: anywhere;
     white-space: normal;
-}
-
-[data-desktop-extension] .customize-card-desc,
-.customize-preview .customize-card-desc {
-    display: block;
-    overflow: visible;
-    overflow-wrap: anywhere;
-}
-
-.customize-card-actions {
-    margin-left: auto;
-}
-
-.customize-preview {
-    margin: 0 0 calc(var(--vera-space) * 3);
 }
 
 .catalog-swatches {

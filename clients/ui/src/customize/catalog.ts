@@ -27,13 +27,13 @@ export interface ScopeSection {
 
 export const FOLDER_LIMIT = 50;
 
-export const KIND_ORDER: readonly CustomizeKind[] = ["skills", "agents", "extensions", "instructions", "memory"];
+export const KIND_ORDER: readonly CustomizeKind[] = ["skills", "agents", "extensions", "instructions", "memory", "plugins"];
 const SCOPE_ORDER: readonly ScopeGroup[] = ["This folder", "Your home", "Extensions", "Built in", "Other"];
 
 // Maps the scope strings the host sends (project, user, extension, extension <id>, system).
 export function scopeGroup(scope: string | undefined): ScopeGroup {
     if (scope === "project") return "This folder";
-    if (scope === "user") return "Your home";
+    if (scope === "user" || scope === "plugin" || scope?.startsWith("plugin ") === true) return "Your home";
     if (scope === "extension" || scope?.startsWith("extension ") === true) return "Extensions";
     if (scope === "system") return "Built in";
     return "Other";
@@ -58,7 +58,7 @@ export function buildItems(
             kind: "skills",
             name: skill.name,
             description: skill.description || source?.description || "",
-            group: scopeGroup(source?.scope),
+            group: skill.plugin === undefined ? scopeGroup(source?.scope) : "Your home",
             failed: false,
             current: false,
             skill,
@@ -71,7 +71,7 @@ export function buildItems(
             kind: "agents",
             name: agent.name,
             description: agent.description ?? source?.description ?? "",
-            group: scopeGroup(agent.scope),
+            group: agent.plugin === undefined ? scopeGroup(agent.scope) : "Your home",
             failed: false,
             current: agent.name === reading.startsOn,
             agent,
@@ -141,7 +141,7 @@ export function kindCounts(items: readonly CustomizeItem[]): Readonly<Record<Kin
 }
 
 // The query matches names and descriptions, ignoring case and outer spaces.
-export function visibleItems(items: readonly CustomizeItem[], kind: KindFilter, query: string): CustomizeItem[] {
+export function visibleItems<T extends CustomizeItem>(items: readonly T[], kind: KindFilter, query: string): T[] {
     const needle = query.trim().toLowerCase();
     return items.filter((item) => {
         if (kind !== "all" && item.kind !== kind) return false;

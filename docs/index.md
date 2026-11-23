@@ -71,9 +71,9 @@ your first conversation.
 
 </div>
 
-## Customize
+## Plugins
 
-- [Browse and edit customization sources](customize.md)
+- [Browse and edit plugin sources](customize.md)
 - [Agents and delegated work](agents.md)
 - [Use and write skills](skills.md)
 - [Standing instructions](standing-nudges.md)

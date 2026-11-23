@@ -272,7 +272,7 @@ with `config.json could not be read:` and gives the reason. Assigning a model
 while the file is broken is refused with the same reason, and the page stays
 open. Fix the file; each page reads it again when it opens.
 
-Skills and `/customize` keep the last settings that loaded too. See
+Skills and `/plugins` keep the last settings that loaded too. See
 [Turn a skill off](skills.md#turn-a-skill-off).
 
 ## auth.json was written by a newer Vera

@@ -203,12 +203,24 @@ test("@core the tools run for the Help agent: guide pages, unknown sections, and
         expect(await call("help_show", { target: "dialog.rudder" })).toMatchObject({ isError: true });
         expect(shown).toHaveLength(1);
 
+        for (const target of ["page.plugins", "page.customize"]) {
+            expect(await call("help_show", { target })).toMatchObject({
+                isError: false,
+                output: "Opened Plugins in the window.",
+            });
+        }
+        expect(shown).toEqual([
+            "session-1=dialog.themes",
+            "session-1=page.customize",
+            "session-1=page.customize",
+        ]);
+
         runtime.agentName = "chat";
         expect(await call("help_show", { target: "dialog.themes" })).toMatchObject({
             isError: true,
             output: "The agent you are wearing does not offer the help_show tool.",
         });
-        expect(shown).toHaveLength(1);
+        expect(shown).toHaveLength(3);
     } finally {
         await registry.close();
     }

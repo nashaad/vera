@@ -490,6 +490,15 @@ export function EyeIcon({ className }: IconProps) {
     );
 }
 
+export function CodeIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M8.5 8 4.5 12l4 4" />
+            <path d="M15.5 8l4 4-4 4" />
+        </Icon>
+    );
+}
+
 export function DiffIcon({ className }: IconProps) {
     return (
         <Icon className={className}>

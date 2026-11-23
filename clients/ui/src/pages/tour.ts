@@ -141,7 +141,7 @@ export function pageCards(newestFolder: string | undefined, visible: Visibility 
         page("search", "Search", "Find a session by name or text", { kind: "search" }),
         workspace,
         page("devices", "Devices", "This machine and the clients attached to the host", { kind: "devices" }),
-        page("customize", "Customize", "Skills, agents, extensions and instructions a folder loads", { kind: "customize" }),
+        page("customize", "Plugins", "Skills, agents, extensions and instructions a folder loads", { kind: "customize" }),
         page("settings", "Settings", `${SETTINGS_SECTIONS.length} sections`, { kind: "settings" }),
         page("coverage", "Coverage", "What this window does at each step of a session", { kind: "coverage" }),
     ].filter((card) => {

@@ -19,7 +19,7 @@ const AUTO = "Auto shows";
 export const SHOW_ROWS: readonly ShowRow[] = [
     { key: "search", name: "Search", description: `The Search page, its sidebar entry and its command. ${AUTO} them once a session exists.` },
     { key: "work", name: "Work", description: `The Work page, its sidebar entry and its command. ${AUTO} them once there are two sessions.` },
-    { key: "customize", name: "Customize", description: `The Customize page, its sidebar entry and its command. ${AUTO} them once a folder has a session.` },
+    { key: "customize", name: "Plugins", description: `The Plugins page, its sidebar entry and its command. ${AUTO} them once a folder has a session.` },
     { key: "review", name: "Review", description: `The Review pane and the Review button in a session. ${AUTO} them once the open session has changed files.` },
     { key: "changes", name: "Changes", description: `The Changes pane and its menu entry. ${AUTO} it in a session that has a folder.` },
     { key: "plan", name: "Plan", description: `The Plan pane. ${AUTO} it once the open session has a checklist.` },

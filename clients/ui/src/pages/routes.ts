@@ -91,7 +91,7 @@ export const PAGE_TITLES: Readonly<Record<PageKind, string>> = {
     home: "New Chat",
     search: "Search",
     work: "Work",
-    customize: "Customize",
+    customize: "Plugins",
     settings: "Settings",
     devices: "Devices",
     tour: "Tour",

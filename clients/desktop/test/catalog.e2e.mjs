@@ -164,11 +164,12 @@ try {
     expectEqual(hits.length, 0, "the requests made by launching");
     await catalogProcessGone(app, 0);
 
-    // Customize and its Yours view do not fetch the catalog.
+    // Plugins and its Yours view do not fetch the catalog.
     await page.locator("[data-page=\"customize\"]").first().click();
     await page.waitForSelector("main[data-page=\"customize\"]", { timeout: 10_000 });
-    await page.locator("[data-desktop-extension-install]").waitFor({ timeout: 10_000 });
-    expectEqual(hits.length, 0, "the requests made by opening Customize");
+    await page.locator(".plugins-kinds button[data-kind=\"extensions\"]").click();
+    await page.locator(".plugins-add").waitFor({ timeout: 10_000 });
+    expectEqual(hits.length, 0, "the requests made by opening Plugins");
 
     // Discover lists the catalog's themes: withdrawn entries and entries for another engine are left out.
     const opened = Date.now();
