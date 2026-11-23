@@ -627,13 +627,8 @@ export class SandboxManager implements CommandSandbox, SandboxInspector {
         this.recoveryResolve = undefined;
         resolve?.();
         this.recoveryAbort?.abort();
-        if (this.state === "ready") {
-            try {
-                await Srt.reset();
-            } catch {
-                // Nothing is left to report to: the process is shutting down.
-            }
-            await stopStrayMonitors();
+        if (this.state === "ready" || this.state === "starting") {
+            await Promise.allSettled([Srt.reset(), stopStrayMonitors()]);
         }
         this.state = "idle";
     }
@@ -757,7 +752,9 @@ export class SandboxManager implements CommandSandbox, SandboxInspector {
                     undefined,
                     true,
                 );
+                if (this.disposed) return;
                 const monitor = await this.awaitViolationMonitor();
+                if (this.disposed) return;
                 this.state = "ready";
                 this.log({
                     type: "sandbox_started",
@@ -787,12 +784,14 @@ export class SandboxManager implements CommandSandbox, SandboxInspector {
                     });
                 }
             } catch (error) {
-                this.goUnavailable({
-                    ok: false,
-                    reason: messageOf(error),
-                    errors: [messageOf(error)],
-                    warnings: availability.warnings,
-                });
+                if (!this.disposed) {
+                    this.goUnavailable({
+                        ok: false,
+                        reason: messageOf(error),
+                        errors: [messageOf(error)],
+                        warnings: availability.warnings,
+                    });
+                }
             } finally {
                 this.starting = undefined;
             }

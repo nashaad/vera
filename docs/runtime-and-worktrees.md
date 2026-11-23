@@ -52,6 +52,9 @@ time if it does not need the host. Requests that need the host fail until a new
 host starts. A host of the same build reconnects to the waiting session
 processes and their conversations. If no host starts in time, the session
 process stops its running turns and exits; send an interrupted prompt again.
+In a single-process host (`host.workers` is `0`), a conversation turn can run
+in a resident agent worker (`vera-worker`). If the host is lost, that worker
+stops its turn and its command groups and exits within about 2 seconds.
 
 When a development instance has to start its own host, that host and the
 worker and supervisor processes it starts run this checkout's code: the

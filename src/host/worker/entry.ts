@@ -3,6 +3,7 @@ import { createInProcessChannel } from "../../engine/message-channel.ts";
 import { runHeadlessLoop } from "../../engine/run-turn.ts";
 import { sessionScratchDir } from "../../session-scratch.ts";
 import type { InboundCommandRouter } from "../../engine/inbound-command-router.ts";
+import type { ManagedProcessRegistry } from "../../tools/process-runtime.ts";
 import { clearCutHaltWhenIdle } from "../cut-release.ts";
 import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
@@ -32,10 +33,12 @@ import {
     type SessionBlockLatch,
 } from "../session-block-latch.ts";
 
+const HOST_LOSS_CLEANUP_GRACE_MS = 2_000;
+
 export async function runWorker(
     input: NodeJS.ReadableStream,
     output: NodeJS.WritableStream,
-): Promise<void> {
+): Promise<"finished" | "disconnected"> {
     let start: ((message: WorkerStartNotification) => void) | undefined;
     const started = new Promise<WorkerStartNotification>((resolve) => {
         start = resolve;
@@ -79,201 +82,261 @@ export async function runWorker(
         },
     });
 
-    const options = await started;
-    const hostLog: HostLog = createHostLogger({
-        path: defaultHostLogPath(options.home),
-    });
-    const readConfig = createLastGoodVeraConfigReader({
-        path: defaultVeraConfigPath(options.home),
-    });
-    const readWorkerConfig = (): VeraConfig | undefined => readConfig().config;
-    const sandbox = new SandboxManager({
-        config: () => {
-            const config = readWorkerConfig();
-            return config === undefined
-                ? DEFAULT_SANDBOX_CONFIG
-                : sandboxConfigOf(config);
-        },
-        permissionRules: () => readWorkerConfig()?.permission_rules ?? [],
-        log: hostLog,
-    });
-    let failure: string | undefined;
-    let failureError: Error | undefined;
     let inbound: InboundCommandRouter | undefined;
-    const extensionStart = await startWorkerExtensions(
-        options.extensions,
-        options.home,
-    );
-    const extensions = extensionStart.registry;
-    const activationFailure = extensionStart.activationFailure;
-    if (extensionStart.startFailure !== undefined) {
-        failureError = extensionStart.startFailure;
-        failure = failureError.message.trim() || "Resident agent stopped unexpectedly";
-    }
-    let replicaDiverged: (error: Error) => void = () => {};
-    const replicaFailure = new Promise<never>((_resolve, reject) => {
-        replicaDiverged = reject;
+    let cleanupSandbox: SandboxManager | undefined;
+    let cleanupExtensions: (() => Promise<void>) | undefined;
+    let hasPendingExtensionActivation: (() => boolean) | undefined;
+    let startingExtensions: ReturnType<typeof startWorkerExtensions> | undefined;
+    let cleanupProcesses: ManagedProcessRegistry | undefined;
+    let hostDisconnected = false;
+    const cleanupOnDisconnect = pipe.closed.then(async () => {
+        hostDisconnected = true;
+        const pendingActivation = hasPendingExtensionActivation?.() === true;
+        await Promise.allSettled([
+            () => inbound?.halt("The host disconnected"),
+            () => blockLatch?.close(),
+            () => cleanupProcesses?.close(),
+            () => cleanupExtensions?.(),
+            () => startingExtensions?.then(() => undefined),
+            () => pendingActivation
+                ? new Promise<void>((resolve) => setTimeout(resolve, HOST_LOSS_CLEANUP_GRACE_MS))
+                : undefined,
+            () => cleanupSandbox?.dispose(),
+        ].map((close) => Promise.resolve().then(close)));
     });
-    replicaFailure.catch(() => {});
-    if (failure === undefined) {
-        try {
-        const adapter = activationFailure === undefined
-            ? await loadAdapter(options.adapter)
-            : failingWorkerAdapter(activationFailure, options.model);
-        const sessionId = options.session.header.id;
-        if (
-            options.blockedDirectory !== undefined
-            && typeof sessionId === "string"
-        ) {
-            blockLatch = createSessionBlockLatch({
-                directory: options.blockedDirectory,
-                sessionId,
-                onLatched: (reason) => inbound?.halt(reason),
-                onReleased: () => inbound?.clearHalt(),
-            });
-        }
-        const latch = blockLatch;
-        // The engine asks before each step; a cut holds until its turn has ended.
-        let cutHold: string | undefined;
-        const haltCheck = (): string | undefined => latch?.check() ?? cutHold;
-        const remote = createRemoteHostBoundary({
-            pipe,
-            sandbox,
-            haltCheck,
-            onReplicaDiverged: (error) => replicaDiverged(error),
-            session: options.session,
-            offers: options.offers,
-            capabilities: options.capabilities,
-            state: options.state,
-            ...(extensions === undefined
-                ? {}
-                : { localExtensionTools: extensions.tools() }),
-            ...(options.extensionToolDefinitions === undefined
-                ? {}
-                : {
-                    extensionToolDefinitions:
-                        options.extensionToolDefinitions,
-                }),
-            ...(options.compaction === undefined
-                ? {}
-                : { compaction: options.compaction }),
-            ...(options.toolResults === undefined
-                ? {}
-                : { toolResults: options.toolResults }),
-            onInboundReady: (ready) => {
-                inbound = ready;
-                const reason = latch?.check();
-                if (reason !== undefined) ready.halt(reason);
-            },
+
+    const run = async (): Promise<void> => {
+        const options = await started;
+        if (hostDisconnected) return;
+        const hostLog: HostLog = createHostLogger({
+            path: defaultHostLogPath(options.home),
         });
-        blockControl = (body: unknown): void => {
-            const message = body as {
-                readonly method: string;
-                readonly requestId: string;
-                readonly reason?: unknown;
-                readonly stopCause?: unknown;
-            };
-            if (message.method === "session.confirmBlock") {
-                pipe.notify({
-                    method: "session.latched",
-                    requestId: message.requestId,
-                    latched: latch !== undefined && latch.check() !== undefined,
-                });
-                return;
-            }
-            if (message.method === "session.cut") {
-                // A held block keeps its own halt; clearing it here would release the session.
-                const held = latch !== undefined && latch.check() !== undefined;
-                const router = inbound;
-                const reason = message.reason;
-                const stopCause = message.stopCause;
-                const ok = router !== undefined
-                    && !held
-                    && typeof reason === "string"
-                    && (stopCause === undefined || isStopCause(stopCause));
-                if (ok) {
-                    cutHold = reason;
-                    router.halt(reason, stopCause);
-                    void clearCutHaltWhenIdle(router, () => latch?.check() !== undefined)
-                        .then(() => {
-                            cutHold = undefined;
-                        });
-                }
-                pipe.notify({ method: "session.cutAck", requestId: message.requestId, ok });
-                return;
-            }
-            latch?.release();
-            pipe.notify({
-                method: "session.released",
-                requestId: message.requestId,
-            });
-        };
-        for (const body of pendingBlockControl.splice(0)) {
-            blockControl(body);
+        const readConfig = createLastGoodVeraConfigReader({
+            path: defaultVeraConfigPath(options.home),
+        });
+        const readWorkerConfig = (): VeraConfig | undefined => readConfig().config;
+        const sandbox = new SandboxManager({
+            config: () => {
+                const config = readWorkerConfig();
+                return config === undefined
+                    ? DEFAULT_SANDBOX_CONFIG
+                    : sandboxConfigOf(config);
+            },
+            permissionRules: () => readWorkerConfig()?.permission_rules ?? [],
+            log: hostLog,
+        });
+        cleanupSandbox = sandbox;
+        let failure: string | undefined;
+        let failureError: Error | undefined;
+        startingExtensions = startWorkerExtensions(
+            options.extensions,
+            options.home,
+            (close, hasPendingActivation) => {
+                cleanupExtensions = close;
+                hasPendingExtensionActivation = hasPendingActivation;
+            },
+        );
+        const extensionStart = await startingExtensions;
+        const extensions = extensionStart.registry;
+        if (hostDisconnected) {
+            await extensions?.close();
+            return;
         }
-        acceptHostNotification = remote.acceptNotification;
-        for (const body of pendingHost.splice(0)) {
-            acceptHostNotification(body);
-        }
-
-        const channel = createInProcessChannel();
-        const client = channel.client as unknown as {
-            send(message: EngineCommand): void;
-        };
-        deliverCommand = (command: EngineCommand): void => {
-            client.send(command);
-        };
-        for (const command of pending.splice(0)) {
-            deliverCommand(command);
-        }
-        forwardUpdates(channel.client as unknown as {
-            receive(): Promise<AgentUpdate>;
-        }, pipe);
-
-        await Promise.race([
-            runHeadlessLoop(
-                channel.engine as never,
-                activationFailure === undefined
-                    ? workerAdapterWithMiddleware(
-                        adapter,
-                        extensions?.modelMiddleware() ?? [],
-                        {
-                            session: options.session,
-                            provider: workerProvider(options.adapter),
-                            events: remote.boundary.owned.eventBus,
-                            inbound: () => inbound,
-                        },
-                    )
-                    : adapter,
-                options.model,
-                options.reasoningEffort,
-                options.data,
-                { scratchDir: sessionScratchDir(remote.boundary.owned.sessionStore!.header.id, options.home) },
-                remote.boundary,
-            ),
-            replicaFailure,
-        ]);
-        } catch (error) {
-            failureError = error instanceof Error ? error : new Error(String(error));
+        const activationFailure = extensionStart.activationFailure;
+        if (extensionStart.startFailure !== undefined) {
+            failureError = extensionStart.startFailure;
             failure = failureError.message.trim() || "Resident agent stopped unexpectedly";
         }
-    }
-    blockLatch?.close();
-    await extensions?.close();
-    await sandbox.dispose();
-    if (failure !== undefined && failureError !== undefined) {
-        hostLog({
-            type: "resident_agent_failed",
-            level: "error",
-            session_id: options.session.header.id,
-            message: failure,
-            stack: failureError.stack ?? new Error(failure).stack,
+        let replicaDiverged: (error: Error) => void = () => {};
+        const replicaFailure = new Promise<never>((_resolve, reject) => {
+            replicaDiverged = reject;
         });
+        replicaFailure.catch(() => {});
+        if (failure === undefined) {
+            try {
+                const adapter = activationFailure === undefined
+                    ? await loadAdapter(options.adapter)
+                    : failingWorkerAdapter(activationFailure, options.model);
+                if (hostDisconnected) return;
+                const sessionId = options.session.header.id;
+                if (
+                    options.blockedDirectory !== undefined
+                    && typeof sessionId === "string"
+                ) {
+                    blockLatch = createSessionBlockLatch({
+                        directory: options.blockedDirectory,
+                        sessionId,
+                        onLatched: (reason) => inbound?.halt(reason),
+                        onReleased: () => inbound?.clearHalt(),
+                    });
+                }
+                const latch = blockLatch;
+                // The engine asks before each step; a cut holds until its turn has ended.
+                let cutHold: string | undefined;
+                const haltCheck = (): string | undefined => latch?.check() ?? cutHold;
+                const remote = createRemoteHostBoundary({
+                    pipe,
+                    sandbox,
+                    haltCheck,
+                    onReplicaDiverged: (error) => replicaDiverged(error),
+                    session: options.session,
+                    offers: options.offers,
+                    capabilities: options.capabilities,
+                    state: options.state,
+                    ...(extensions === undefined
+                        ? {}
+                        : { localExtensionTools: extensions.tools() }),
+                    ...(options.extensionToolDefinitions === undefined
+                        ? {}
+                        : {
+                            extensionToolDefinitions:
+                                options.extensionToolDefinitions,
+                        }),
+                    ...(options.compaction === undefined
+                        ? {}
+                        : { compaction: options.compaction }),
+                    ...(options.toolResults === undefined
+                        ? {}
+                        : { toolResults: options.toolResults }),
+                    onInboundReady: (ready) => {
+                        inbound = ready;
+                        if (hostDisconnected) {
+                            ready.halt("The host disconnected");
+                            return;
+                        }
+                        const reason = latch?.check();
+                        if (reason !== undefined) ready.halt(reason);
+                    },
+                });
+                cleanupProcesses = remote.boundary.owned.processRegistry;
+                blockControl = (body: unknown): void => {
+                    const message = body as {
+                        readonly method: string;
+                        readonly requestId: string;
+                        readonly reason?: unknown;
+                        readonly stopCause?: unknown;
+                    };
+                    if (message.method === "session.confirmBlock") {
+                        pipe.notify({
+                            method: "session.latched",
+                            requestId: message.requestId,
+                            latched: latch !== undefined && latch.check() !== undefined,
+                        });
+                        return;
+                    }
+                    if (message.method === "session.cut") {
+                        // A held block keeps its own halt; clearing it here would release the session.
+                        const held = latch !== undefined && latch.check() !== undefined;
+                        const router = inbound;
+                        const reason = message.reason;
+                        const stopCause = message.stopCause;
+                        const ok = router !== undefined
+                            && !held
+                            && typeof reason === "string"
+                            && (stopCause === undefined || isStopCause(stopCause));
+                        if (ok) {
+                            cutHold = reason;
+                            router.halt(reason, stopCause);
+                            void clearCutHaltWhenIdle(router, () => latch?.check() !== undefined)
+                                .then(() => {
+                                    cutHold = undefined;
+                                });
+                        }
+                        pipe.notify({ method: "session.cutAck", requestId: message.requestId, ok });
+                        return;
+                    }
+                    latch?.release();
+                    pipe.notify({
+                        method: "session.released",
+                        requestId: message.requestId,
+                    });
+                };
+                for (const body of pendingBlockControl.splice(0)) {
+                    blockControl(body);
+                }
+                acceptHostNotification = remote.acceptNotification;
+                for (const body of pendingHost.splice(0)) {
+                    acceptHostNotification(body);
+                }
+
+                const channel = createInProcessChannel();
+                const client = channel.client as unknown as {
+                    send(message: EngineCommand): void;
+                };
+                deliverCommand = (command: EngineCommand): void => {
+                    client.send(command);
+                };
+                for (const command of pending.splice(0)) {
+                    deliverCommand(command);
+                }
+                forwardUpdates(channel.client as unknown as {
+                    receive(): Promise<AgentUpdate>;
+                }, pipe);
+
+                await Promise.race([
+                    runHeadlessLoop(
+                        channel.engine as never,
+                        activationFailure === undefined
+                            ? workerAdapterWithMiddleware(
+                                adapter,
+                                extensions?.modelMiddleware() ?? [],
+                                {
+                                    session: options.session,
+                                    provider: workerProvider(options.adapter),
+                                    events: remote.boundary.owned.eventBus,
+                                    inbound: () => inbound,
+                                },
+                            )
+                            : adapter,
+                        options.model,
+                        options.reasoningEffort,
+                        options.data,
+                        { scratchDir: sessionScratchDir(remote.boundary.owned.sessionStore!.header.id, options.home) },
+                        remote.boundary,
+                    ),
+                    replicaFailure,
+                ]);
+            } catch (error) {
+                failureError = error instanceof Error ? error : new Error(String(error));
+                failure = failureError.message.trim() || "Resident agent stopped unexpectedly";
+            }
+        }
+        blockLatch?.close();
+        await extensions?.close();
+        await sandbox.dispose();
+        if (failure !== undefined && failureError !== undefined) {
+            hostLog({
+                type: "resident_agent_failed",
+                level: "error",
+                session_id: options.session.header.id,
+                message: failure,
+                stack: failureError.stack ?? new Error(failure).stack,
+            });
+        }
+        pipe.notify({
+            method: "worker.finished",
+            ...(failure === undefined ? {} : { error: failure }),
+        });
+    };
+
+    const result = await Promise.race([
+        run().then(() => "finished" as const),
+        pipe.closed.then(() => "disconnected" as const),
+    ]);
+    if (result === "finished") return result;
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        await Promise.race([
+            cleanupOnDisconnect,
+            new Promise<void>((resolve) => {
+                timer = setTimeout(resolve, HOST_LOSS_CLEANUP_GRACE_MS);
+            }),
+        ]);
+    } finally {
+        if (timer !== undefined) clearTimeout(timer);
     }
-    pipe.notify({
-        method: "worker.finished",
-        ...(failure === undefined ? {} : { error: failure }),
-    });
+    return "disconnected";
 }
 
 function forwardUpdates(
@@ -306,10 +369,12 @@ async function loadAdapter(spec: WorkerAdapterSpec): Promise<ModelAdapter> {
 
 export async function runWorkerEntrypoint(): Promise<void> {
     installLiveProcess("worker");
-    await runWorker(process.stdin, process.stdout);
-    await new Promise<void>((resolve) => {
-        process.stdout.write("", () => resolve());
-    });
+    const result = await runWorker(process.stdin, process.stdout);
+    if (result === "finished") {
+        await new Promise<void>((resolve) => {
+            process.stdout.write("", () => resolve());
+        });
+    }
     process.exit(0);
 }
 
