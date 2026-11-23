@@ -109,6 +109,11 @@ import {
     PromptHistoryTracker,
 } from "./prompt-history-drift.ts";
 import { projectModelRequest, type ModelRequestSnapshot } from "./model-request.ts";
+import {
+    recordTurnMessage,
+    setTurnMessageAnchorRecorder,
+    takeTurnMessage,
+} from "./turn-message-slot.ts";
 import { formatScratchTodo, readScratchTodo } from "./scratch-state.ts";
 import { createToolResultSpill } from "./tool-result-spill.ts";
 import { dropMessagesBehindLiveContext } from "./live-context.ts";
@@ -740,6 +745,10 @@ export async function runHeadlessLoop(
         handleTimelineCommand: (ownerId, command) =>
             timeline.handle(ownerId, command),
         detachTimelineOwner: (ownerId) => timeline.detachOwner(ownerId),
+    });
+    setTurnMessageAnchorRecorder(inbound, async (text, afterMessageId) => {
+        await store.appendHarnessMessage(text, "soft", undefined, afterMessageId);
+        protocol.checkpoint(messages, store.activeMessageStamps());
     });
     router.onInboundReady?.(inbound);
     const instructionRoot: InstructionRoot = data.instructionRoot
@@ -2108,6 +2117,26 @@ export async function runTurn(
                 );
                 await commitMessage(state, assistantMessage);
                 break;
+            }
+            const turnMessage = turn.signal.aborted
+                ? undefined
+                : takeTurnMessage(state.inbound);
+            if (turnMessage !== undefined) {
+                const precedingMessage = state.messages.at(-1);
+                const precedingMessageId = precedingMessage === undefined
+                    || !(state.store instanceof SessionStore)
+                    ? null
+                    : state.store.activeMessageStamps().get(precedingMessage)?.id ?? null;
+                await commitMessage(state, {
+                    role: "user",
+                    internal: true,
+                    content: [{ type: "text", text: turnMessage.text }],
+                });
+                await recordTurnMessage(
+                    state.inbound,
+                    turnMessage.transcript,
+                    precedingMessageId,
+                );
             }
             const joined = turn.signal.aborted
                 ? []

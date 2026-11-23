@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { offerTurnMessage } from "../../engine/turn-message-slot.ts";
 import { sessionScratchPath } from "../../session-scratch.ts";
 
 import { isStopCause } from "../../model/types.ts";
@@ -240,6 +241,16 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
             reason,
             isStopCause(stopCause) ? stopCause : undefined,
         ),
+        offerWrapUp: async (id, text, transcript) => {
+            const entry = host.registry.agents.get(id);
+            if (entry?.blockHeld?.() === true) return false;
+            if (entry?.worker !== undefined) {
+                return await entry.worker.offerTurnMessage?.({ text, transcript }, 2_000) ?? false;
+            }
+            return entry?.inbound === undefined
+                ? false
+                : offerTurnMessage(entry.inbound, { text, transcript });
+        },
         stopWaitTargets: async () => host.registry.stopWaitTargets(),
         runningSubagents: async (parentId) => [...host.registry.agents.values()].filter((entry) =>
             entry.kind === "background" && entry.parentId === parentId && entry.failure === undefined

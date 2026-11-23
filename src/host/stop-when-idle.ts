@@ -69,6 +69,30 @@ export type CutStopWaitResult =
     }
     | { readonly status: "refused"; readonly reason: "no_wait"; readonly message: string };
 
+export type WrapUpStopWaitResult =
+    | { readonly status: "done"; readonly offered: readonly string[] }
+    | { readonly status: "refused"; readonly reason: "no_wait"; readonly message: string };
+
+export interface StopWaitWrapUpMessage {
+    readonly text: string;
+    readonly transcript: string;
+}
+
+export function stopWaitWrapUpMessage(kind: StopCause, notes?: string): StopWaitWrapUpMessage {
+    const text = kind === "update"
+        ? "Vera is waiting to restart for an update, and this turn is holding it up. Finish the step you are on, start nothing new, and end your turn with a short note of what is left, so it can be picked up after the restart."
+        : "Vera is waiting to stop, and this turn is holding it up. Finish the step you are on, start nothing new, and end your turn with a short note of what is left, so it can be picked up later.";
+    const transcriptNotes = notes?.replace(/[\r\n]+/g, " ");
+    return {
+        text: notes === undefined || notes.length === 0
+            ? text
+            : `${text}\nNote from the user: ${notes}`,
+        transcript: transcriptNotes === undefined || transcriptNotes.length === 0
+            ? "Asked to wrap up."
+            : `Asked to wrap up. Note from the user: ${transcriptNotes}`,
+    };
+}
+
 export interface StopWhenIdleControl {
     request(
         listener: StopWhenIdleListener,
@@ -78,6 +102,7 @@ export interface StopWhenIdleControl {
     // Calls the observer with the current wait, if one is announced, then with each change.
     observe(observer: StopWaitObserver): () => void;
     cutWait(requester?: HostRequester): Promise<CutStopWaitResult>;
+    askToWrapUp(notes?: string): Promise<WrapUpStopWaitResult>;
 }
 
 export interface StopWhenIdleOptions {
@@ -91,6 +116,7 @@ export interface StopWhenIdleOptions {
     readonly targetProblem?: (buildId: string) => string | undefined;
     // Runs once nothing waits, before "stopped" is sent. A message abandons the stop and turns resume.
     readonly prepare?: (buildId: string | null) => string | undefined;
+    readonly offerWrapUp?: (sessionId: string, kind: StopCause, notes: string | undefined) => Promise<boolean>;
     // Halts one session and clears the halt again. False when the session did not confirm.
     readonly cutSession?: (
         sessionId: string,
@@ -124,6 +150,8 @@ export class StopWhenIdle implements StopWhenIdleControl {
     private announced: Extract<StopWaitEvent, { type: "wait" }> | undefined;
     // One record per session per wait; a repeat cut in the same wait still halts the session.
     private readonly recordedThisWait = new Set<string>();
+    private readonly offeredWrapUpThisWait = new Set<string>();
+    private waitGeneration = 0;
     private checks: Promise<void> = Promise.resolve();
     private holdChange: Promise<void> = Promise.resolve();
 
@@ -158,7 +186,11 @@ export class StopWhenIdle implements StopWhenIdleControl {
         const newWait = this.pending === undefined;
         this.pending = buildId;
         this.held = true;
-        if (newWait) this.requester = requestOptions.requester;
+        if (newWait) {
+            this.requester = requestOptions.requester;
+            this.offeredWrapUpThisWait.clear();
+            this.waitGeneration += 1;
+        }
         else if (requestOptions.cutFirst === true) this.forcedBy = requestOptions.requester;
         if (requestOptions.cutFirst === true) this.forced = true;
         if (newWait && this.options.setTurnsHeld !== undefined) {
@@ -241,6 +273,33 @@ export class StopWhenIdle implements StopWhenIdleControl {
             if (recorded !== undefined) await recorded;
         }
         return { status: "done", cut, failed };
+    }
+
+    async askToWrapUp(notes?: string): Promise<WrapUpStopWaitResult> {
+        if (this.finished || this.pending === undefined) {
+            return { status: "refused", reason: "no_wait", message: "No stop is waiting, so there is nothing to ask." };
+        }
+        const generation = this.waitGeneration;
+        const pending = this.pending;
+        const kind: StopCause = pending === null ? "stop" : "update";
+        const waiting = this.options.waitingOnAsync === undefined
+            ? this.options.waitingOn() : await this.options.waitingOnAsync();
+        if (!this.isCurrentWait(generation, pending)) return { status: "done", offered: [] };
+        const offered: string[] = [];
+        for (const target of waiting) {
+            if (!this.isCurrentWait(generation, pending)) break;
+            if (target.status !== "working" || this.offeredWrapUpThisWait.has(target.session_id)) continue;
+            this.offeredWrapUpThisWait.add(target.session_id);
+            try {
+                if (await this.options.offerWrapUp?.(target.session_id, kind, notes)) offered.push(target.session_id);
+            } catch {
+            }
+        }
+        return { status: "done", offered };
+    }
+
+    private isCurrentWait(generation: number, pending: string | null | undefined): boolean {
+        return !this.finished && this.waitGeneration === generation && this.pending === pending;
     }
 
     // A failed write does not undo the cut or the stop.
@@ -346,7 +405,9 @@ export class StopWhenIdle implements StopWhenIdleControl {
             return;
         }
         this.finished = true;
+        this.waitGeneration += 1;
         this.recordedThisWait.clear();
+        this.offeredWrapUpThisWait.clear();
         this.clearTimer();
         const announced = this.announced !== undefined;
         this.announced = undefined;
@@ -378,6 +439,7 @@ export class StopWhenIdle implements StopWhenIdleControl {
     // Turns resume and the next request starts a new stop.
     private async abandon(message: string): Promise<void> {
         this.recordedThisWait.clear();
+        this.offeredWrapUpThisWait.clear();
         this.clearTimer();
         try {
             await this.options.setTurnsHeld?.(false);
@@ -385,6 +447,7 @@ export class StopWhenIdle implements StopWhenIdleControl {
         }
         this.held = false;
         this.pending = undefined;
+        this.waitGeneration += 1;
         this.forced = false;
         this.requester = undefined;
         this.forcedBy = undefined;

@@ -136,13 +136,21 @@ the app must be replaced, the shell archive, then stops without switching
 anything. `vera update` afterwards switches without downloading again.
 
 When a host is running on another build, `vera update` waits for its running
-sessions to finish before it switches. It prints `Waiting for <titles> to finish
-before updating (up to 30 minutes). Press Ctrl-C to stop waiting.` Ctrl-C, or
-SIGTERM, while it waits stops the update with nothing changed. If sessions are
-still running at the limit, nothing is changed and the message names them:
-`Vera is still busy after 30 minutes: <titles>. Nothing was changed. Run the
-update again when the sessions have finished.` Once the switch has begun,
-signals are ignored and it finishes.
+sessions to finish before it switches. The command prints `Waiting for <titles>
+to finish before updating (up to 30 minutes). Press Ctrl-C to stop waiting.`
+Ctrl-C, or SIGTERM, while it waits stops the update with nothing changed. If
+sessions are still running at the limit, nothing is changed and the message
+names them: `Vera is still busy after 30 minutes: <titles>. Nothing was changed.
+Run the update again when the sessions have finished.` Once the switch has
+begun, signals are ignored and it finishes.
+
+In the TUI, the waiting card offers `Keep waiting`, `Ask them to wrap up`, and
+`Stop them now`. The wrap-up request can include optional notes, reaches each
+working session after its current step without cancelling that step, and does
+not end the wait. The card stays open and marks the request as sent when a
+running turn accepts it. If none accepts, the card says so and allows another
+request. `Keep waiting` closes the card but leaves the wait open; `Stop them
+now` cancels running turns and drops queued prompts.
 
 An interrupted `vera update`, whether the terminal closed, the process was
 killed or the machine lost power, leaves either the whole previous pair of host

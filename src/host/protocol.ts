@@ -350,6 +350,12 @@ export interface CutStopWaitRequest {
     readonly requester?: HostRequester;
 }
 
+export interface AskStopWaitWrapUpRequest {
+    readonly type: "ask_stop_wait_wrap_up";
+    readonly notes?: string;
+    readonly requester?: HostRequester;
+}
+
 export interface CreateAgentRequest {
     readonly type: "create_agent";
     // Omitted for a chat: the host creates the session's own folder and works in it.
@@ -969,6 +975,19 @@ export interface CutStopWaitRefusedResponse {
 
 export type CutStopWaitResponse = CutStopWaitDoneResponse | CutStopWaitRefusedResponse;
 
+export interface AskStopWaitWrapUpDoneResponse {
+    readonly type: "ask_stop_wait_wrap_up_done";
+    readonly offered: readonly string[];
+}
+
+export interface AskStopWaitWrapUpRefusedResponse {
+    readonly type: "ask_stop_wait_wrap_up_refused";
+    readonly reason: "no_wait";
+    readonly message: string;
+}
+
+export type AskStopWaitWrapUpResponse = AskStopWaitWrapUpDoneResponse | AskStopWaitWrapUpRefusedResponse;
+
 // The host kept running: the move to the target build could not start.
 export interface StopHostAbandonedResponse {
     readonly type: "stop_host_abandoned";
@@ -1119,6 +1138,7 @@ export type HostRequest =
     | BlockSessionRequest
     | UnblockSessionRequest
     | CutStopWaitRequest
+    | AskStopWaitWrapUpRequest
     | RenameSessionRequest
     | SetSessionArchivedRequest
     | MoveSessionRequest
@@ -1497,6 +1517,14 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     }
     if (value?.type === "cut_stop_wait" && validRequester) {
         return { type: "cut_stop_wait", ...(requester === undefined ? {} : { requester }) };
+    }
+    if (value?.type === "ask_stop_wait_wrap_up" && validRequester
+        && (value.notes === undefined || (typeof value.notes === "string" && value.notes.length <= 2_000))) {
+        return {
+            type: "ask_stop_wait_wrap_up",
+            ...(typeof value.notes === "string" ? { notes: value.notes } : {}),
+            ...(requester === undefined ? {} : { requester }),
+        };
     }
     if (
         (value?.type === "shutdown_if_idle"

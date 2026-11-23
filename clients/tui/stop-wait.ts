@@ -44,7 +44,9 @@ export function nextPlannedHostStop(
 }
 
 export const STOP_WAIT_CARD_REQUEST_ID = "tui-local:stop-wait";
+export const STOP_WAIT_WRAP_UP_NOTES_LIMIT = 2_000;
 export const STOP_WAIT_KEEP_CHOICE = "keep";
+export const STOP_WAIT_WRAP_UP_CHOICE = "wrap_up";
 export const STOP_WAIT_STOP_CHOICE = "stop";
 
 // Shows the card for the wait it opened for. A new wait (new kind or build) opens it again.
@@ -52,6 +54,9 @@ export interface TuiStopWaitCard {
     readonly key: string;
     readonly open: boolean;
     readonly requestId: string;
+    readonly wrapUpSent?: boolean;
+    readonly wrapUpPending?: boolean;
+    readonly wrapUpMessage?: string;
 }
 
 export function stopWaitKey(wait: TuiStopWait): string {
@@ -92,18 +97,27 @@ export function stopWaitCardUpdate(
     if (wait === undefined || card === undefined || !card.open) return undefined;
     return {
         type: "ui_request",
-        requestId: card.requestId,
+        requestId: card.wrapUpSent
+            ? `${card.requestId}:wrap-up-sent`
+            : card.wrapUpMessage === undefined
+            ? card.requestId
+            : `${card.requestId}:wrap-up-empty`,
         seq: 0,
         request: {
             type: "user_question",
             question: stopWaitCardTitle(wait),
             allowCustom: false,
-            allowNotes: false,
+            allowNotes: true,
             choices: [
                 {
                     id: STOP_WAIT_KEEP_CHOICE,
                     label: "Keep waiting",
                     description: "It stops when they finish.",
+                },
+                {
+                    id: STOP_WAIT_WRAP_UP_CHOICE,
+                    label: card.wrapUpSent ? "Asked them to wrap up" : "Ask them to wrap up",
+                    description: `${card.wrapUpMessage === undefined ? "" : `${card.wrapUpMessage}. `}${card.wrapUpSent ? "Sent. " : ""}Each one finishes its current step, says what is left, and ends its turn.`,
                 },
                 {
                     id: STOP_WAIT_STOP_CHOICE,

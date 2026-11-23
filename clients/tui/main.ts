@@ -3,6 +3,10 @@ import { openUrl } from "../../src/url-opener.ts";
 import type { SaveProviderInput } from "../../src/providers/save-provider.ts";
 import type { ProviderSignInStatus } from "../../src/providers/provider-sign-in.ts";
 import { cutStopWaitThroughHost, type CutStopWaitOutcome } from "../../src/host/stop-wait-cut-client.ts";
+import {
+    requestStopWaitWrapUp,
+    type RequestStopWaitWrapUpOutcome,
+} from "../../src/host/stop-wait-wrap-up-client.ts";
 import { hostRequester } from "../../src/host/requester.ts";
 import { forgetProviderThroughHost } from "../../src/host/provider-forget-client.ts";
 import { setProviderEnabledThroughHost, type ProviderEnabledOutcome } from "../../src/host/provider-set-enabled-client.ts";
@@ -583,6 +587,7 @@ export interface TuiDependencies {
     readonly setProviderEnabled?: (provider: string, enabled: boolean, workspace?: string) => Promise<ProviderEnabledOutcome>;
     /** Ends one session's turn through the host. Used by the stop-now action. */
     readonly cutStopWait?: (sessionId?: string) => Promise<CutStopWaitOutcome>;
+    readonly askStopWaitWrapUp?: (notes?: string) => Promise<RequestStopWaitWrapUpOutcome>;
     /** Set only under a relaunch-capable launcher; leaves the TUI for the launcher to restart. */
     readonly relaunchTui?: (request: TuiRelaunchRequest) => Promise<void>;
     readonly clientBuildId?: string;
@@ -914,6 +919,9 @@ export async function startConfiguredTui(
             setProviderEnabled: async (provider, enabled, workspace) => setProviderEnabledThroughHost(await pairedSocket(), provider, enabled, workspace),
             cutStopWait: async (sessionId) => cutStopWaitThroughHost(
                 await pairedSocket(), hostRequester("tui", "cut stop wait", { id: sessionId }),
+            ),
+            askStopWaitWrapUp: async (notes) => requestStopWaitWrapUp(
+                await pairedSocket(), notes, hostRequester("tui", "ask stop wait wrap up"),
             ),
             operateModels: async (operation, onResult, workspace, onStep) => operateModelsThroughHost(await pairedSocket(), operation, onResult, workspace, onStep),
             readHostModelSettings: async (workspace) =>

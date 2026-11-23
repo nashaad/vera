@@ -1061,6 +1061,10 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
         return this.extensionOperation(id, (endpoint) => endpoint.cut(id, reason, stopCause));
     }
 
+    offerWrapUp(id: string, text: string, transcript: string): Promise<boolean> {
+        return this.extensionOperation(id, async (endpoint) => await endpoint.offerWrapUp?.(id, text, transcript) ?? false);
+    }
+
     async stopWaitTargets(): Promise<readonly StopWaitTarget[]> {
         return (await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.stopWaitTargets()))).flat();
     }

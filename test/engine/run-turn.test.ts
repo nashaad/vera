@@ -42,6 +42,10 @@ import {
     type InProcessChannel,
 } from "../../src/engine/message-channel.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
+import {
+    offerTurnMessage,
+    setTurnMessageAnchorRecorder,
+} from "../../src/engine/turn-message-slot.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import {
     ProviderFailureError,
@@ -61,6 +65,7 @@ import { ModelFailureLedger, readModelFailures } from "../../src/store/model-fai
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
+import { historyPageFromStore } from "../../src/host/history-page.ts";
 import type {
     SessionMessageStore,
     StoredMessage,
@@ -286,6 +291,169 @@ test("successful replies automatically run FIFO follow-ups and persist separate 
     ]);
     expect(reopened.messages()).toEqual(state.messages);
     expect(readFileSync(sessionPath, "utf8").split("\n").filter((line) => line.includes('"type":"turn_start"'))).toHaveLength(3);
+});
+
+test("@core wrap-up reaches the next model request after a running tool batch", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "wrapup-tool-"));
+    temporaryWorkspaces.push(workspace);
+    const sessionPath = join(workspace, "session.jsonl");
+    const store = await SessionStore.create(sessionPath, {
+        sessionId: "wrap-up-tool",
+        cwd: workspace,
+    });
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder(
+        { send: (update) => updates.push(update) },
+        undefined,
+        () => store.projectedHarnessMessages(),
+    );
+    events.subscribe(protocol);
+    const requests: ModelRequest[] = [];
+    const offered = { text: "exact next-step message", transcript: "Asked to wrap up.\nNote from the user: leave a short handoff" };
+    const toolStartedPath = join(workspace, "tool-started");
+    const faux = new FauxAdapter([
+        toolResponse("call_wrap", "bash", {
+            command: `printf started > '${toolStartedPath}'; sleep 0.1; printf tool-finished`,
+        }),
+        assistantText("the remaining work is documented"),
+    ]);
+    let didOffer = false;
+    let transcriptAppendedAfterTool = false;
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push({ ...request, messages: structuredClone(request.messages) });
+            return faux.stream(request);
+        },
+    };
+    const router = new InboundCommandRouter(channel.engine, events, {
+        appendHarnessMessage: async () => {},
+
+    });
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: router,
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "full_access",
+    };
+    setTurnMessageAnchorRecorder(router, async (text, afterMessageId) => {
+        expect(store.messages().some((message) => message.role === "tool_result")).toBe(true);
+        transcriptAppendedAfterTool = true;
+        await store.appendHarnessMessage(text, "soft", undefined, afterMessageId);
+        protocol.checkpoint(state.messages, store.activeMessageStamps());
+    });
+
+    channel.client.send({ type: "prompt", content: "inspect the workspace" });
+    const turn = runTurn(adapter, "test", state);
+    const toolStartDeadline = Date.now() + 2_000;
+    while (!existsSync(toolStartedPath) && Date.now() < toolStartDeadline) {
+        await Bun.sleep(1);
+    }
+    expect(existsSync(toolStartedPath)).toBe(true);
+    didOffer = offerTurnMessage(router, offered);
+    await turn;
+
+    expect(didOffer).toBe(true);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.messages.slice(0, requests[0]?.messages.length)).toEqual([
+        ...(requests[0]?.messages ?? []),
+    ]);
+    expect(requests[1]?.messages.slice(-2)).toEqual([
+        {
+            role: "tool_result",
+            toolCallId: "call_wrap",
+            toolName: "bash",
+            isError: false,
+            content: [{ type: "text", text: "tool-finished" }],
+        },
+        { role: "user", content: [{ type: "text", text: offered.text }], internal: true },
+    ]);
+    expect(transcriptAppendedAfterTool).toBe(true);
+    expect(requests[0]?.signal?.aborted).toBe(false);
+    expect(requests[1]?.signal?.aborted).toBe(false);
+    expect(updates.filter((update) => update.type === "turn_finished")).toHaveLength(1);
+    expect(readFileSync(sessionPath, "utf8").split("\n").some((line) => {
+        const record = JSON.parse(line) as { type?: string; text?: string };
+        return record.type === "harness_message" && record.text === offered.transcript;
+    })).toBe(true);
+    expect(store.projectedHarnessMessages().map((message) => message.text)).toEqual([offered.transcript]);
+    expect(projectTranscript(store.messages(), undefined, store.activeMessageStamps(), store.projectedHarnessMessages())
+        .map((entry) => entry.kind)).toContain("harness");
+    const historyPage = await historyPageFromStore(store);
+    expect(historyPage.kind).toBe("page");
+    if (historyPage.kind !== "page") throw new Error("Expected a history page");
+    expect(historyPage.entries).toContainEqual(expect.objectContaining({
+        kind: "harness",
+        text: offered.transcript,
+    }));
+    const liveHistory = updates.filter((update) => update.type === "history").at(-1);
+    expect(liveHistory?.type).toBe("history");
+    if (liveHistory?.type !== "history") throw new Error("Expected a live history checkpoint");
+    expect(liveHistory.entries).toContainEqual(expect.objectContaining({
+        kind: "harness",
+        text: offered.transcript,
+    }));
+    expect(projectTranscript(store.messages()).map((entry) => entry.kind)).toContain("tool_result");
+    const reopened = await SessionStore.open(sessionPath);
+    expect(reopened.projectedHarnessMessages().map((message) => message.text)).toEqual([offered.transcript]);
+    expect(reopened.messages()).toEqual(state.messages);
+});
+
+test("@core wrap-up offered before a final answer is dropped without starting another turn", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "wrapup-final-"));
+    temporaryWorkspaces.push(workspace);
+    const sessionPath = join(workspace, "session.jsonl");
+    const store = await SessionStore.create(sessionPath, {
+        sessionId: "wrap-up-final",
+        cwd: workspace,
+    });
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const updates: AgentUpdate[] = [];
+    events.subscribe(createProtocolEncoder({ send: (update) => updates.push(update) }));
+    const router = new InboundCommandRouter(channel.engine, events, {
+        appendHarnessMessage: (text, tone) => store.appendHarnessMessage(text, tone).then(() => undefined),
+    });
+    setTurnMessageAnchorRecorder(router, async (text, afterMessageId) => {
+        await store.appendHarnessMessage(text, "soft", undefined, afterMessageId);
+    });
+    const requests: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            expect(offerTurnMessage(router, { text: "finish current step", transcript: "Asked to wrap up" })).toBe(true);
+            return new FauxAdapter([assistantText("done")]).stream(request);
+        },
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: router,
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "finish the task" });
+    await runTurn(adapter, "test", state);
+
+    expect(requests).toHaveLength(1);
+    expect(state.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+    expect(store.projectedHarnessMessages()).toEqual([]);
+    expect(updates.filter((update) => update.type === "history")
+        .flatMap((update) => update.type === "history" ? update.entries : [])
+        .some((entry) => entry.kind === "harness")).toBe(false);
+    expect(updates.filter((update) => update.type === "turn_finished")).toHaveLength(1);
+    const idle = router.startTurn();
+    expect(await Promise.race([idle.then(() => "started"), Bun.sleep(10).then(() => "idle")])).toBe("idle");
+    channel.client.send({ type: "prompt", content: "next task" });
+    expect((await idle).prompt.content).toBe("next task");
+    router.finishTurn();
 });
 
 test("a prompt queued during a tool batch joins the turn before the next request", async () => {

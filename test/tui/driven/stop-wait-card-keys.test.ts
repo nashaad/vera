@@ -12,6 +12,8 @@ let cuts = 0;
 let cutSession: string | undefined;
 let sent: string[] = [];
 let emitStopWait: ((event: HostStopWaitEvent) => void) | undefined;
+let wrapUpRequests = 0;
+let wrapUpOffered = ["s1"];
 
 function createStopWaitDependencies(): TuiDependencies {
     const base = createTuiChildDependencies();
@@ -43,6 +45,10 @@ function createStopWaitDependencies(): TuiDependencies {
         abortAgent: async () => {
             cuts += 1;
         },
+        askStopWaitWrapUp: async () => {
+            wrapUpRequests += 1;
+            return { type: "ask_stop_wait_wrap_up_done" as const, offered: wrapUpOffered };
+        },
     };
     return dependencies;
 }
@@ -63,16 +69,24 @@ async function until(check: () => boolean, label: string): Promise<void> {
     }
 }
 
-async function startWithQueuedPrompt(name: string) {
+async function startWithQueuedPrompt(
+    name: string,
+    onFocus?: (read: () => string | undefined) => void,
+) {
     cuts = 0;
     cutSession = undefined;
     sent = [];
+    wrapUpRequests = 0;
+    wrapUpOffered = ["s1"];
     const home = mkdtempSync(join(tmpdir(), name));
     const session = await startTuiTestSession({
         home,
         width: 100,
         height: 31,
-        dependencies: () => createStopWaitDependencies(),
+        dependencies: (renderer) => {
+            onFocus?.(() => renderer.currentFocusedRenderable?.id);
+            return createStopWaitDependencies();
+        },
     });
     await session.waitForVisiblePane("Start a conversation");
     session.sendText("start streaming");
@@ -84,16 +98,18 @@ async function startWithQueuedPrompt(name: string) {
     return session;
 }
 
-test("Down then Enter on the stop-wait card cuts once and releases nothing", async () => {
+test("Down twice then Enter on the stop-wait card cuts once and releases nothing", async () => {
     const session = await startWithQueuedPrompt("vera-tui-card-down-");
     try {
         openCard();
         const pane = await session.waitForVisiblePane("Vera is shutting down");
         expect(pane).toContain("1. Keep waiting");
-        expect(pane).toContain("2. Stop them now");
+        expect(pane).toContain("2. Ask them to wrap up");
+        expect(pane).toContain("3. Stop them now");
         expect(pane).not.toContain("recommended");
         expect(pane).not.toContain("Other");
         const before = sent.length;
+        session.sendKey("Down");
         session.sendKey("Down");
         session.sendKey("Enter");
         await until(() => cuts === 1, "one cut");
@@ -163,6 +179,7 @@ test("Stop them now with a draft cuts once and leaves the draft in the composer"
         await session.waitForVisiblePane("Vera is shutting down");
         const before = sent.length;
         session.sendKey("Down");
+        session.sendKey("Down");
         session.sendKey("Enter");
         await until(() => cuts === 1, "one cut");
         await session.waitForVisiblePaneWhere(
@@ -174,6 +191,63 @@ test("Stop them now with a draft cuts once and leaves the draft in the composer"
         expect(sent.slice(before)).not.toContain("prompt");
         expect(sent.slice(before)).not.toContain("release_queued_prompts");
         expect(session.captureVisiblePane()).toContain("draft text");
+    } finally {
+        await session.close();
+    }
+}, 20_000);
+
+test("an empty wrap-up offer reports the exact message and allows retry", async () => {
+    const session = await startWithQueuedPrompt("vera-tui-card-wrap-up-empty-");
+    try {
+        wrapUpOffered = [];
+        openCard();
+        await session.waitForVisiblePane("Vera is shutting down");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        let pane = await session.waitForVisiblePane("No running turn took the wrap-up request");
+        expect(pane).toContain("2. Ask them to wrap up");
+        expect(wrapUpRequests).toBe(1);
+
+        wrapUpOffered = ["s1"];
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        pane = await session.waitForVisiblePane("Asked them to wrap up");
+        expect(pane).toContain("2. Asked them to wrap up");
+        expect(wrapUpRequests).toBe(2);
+    } finally {
+        await session.close();
+    }
+}, 20_000);
+
+test("a sent wrap-up row stays visible and focused when selected again", async () => {
+    let focusedRenderable: () => string | undefined = () => undefined;
+    const session = await startWithQueuedPrompt(
+        "vera-tui-card-wrap-up-focus-",
+        (read) => { focusedRenderable = read; },
+    );
+    try {
+        openCard();
+        await session.waitForVisiblePane("Vera is shutting down");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        let pane = await session.waitForVisiblePane("Asked them to wrap up");
+        expect(pane).toContain("2. Asked them to wrap up");
+        expect(wrapUpRequests).toBe(1);
+
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        pane = await session.waitForVisiblePane("2. Asked them to wrap up");
+        await session.settle(100);
+        expect(pane).toContain("Vera is shutting down");
+        expect(focusedRenderable()).toBe("question-details");
+        expect(wrapUpRequests).toBe(1);
+
+        session.sendKey("Up");
+        session.sendKey("Enter");
+        await session.waitForVisiblePaneWhere(
+            (text) => !text.includes("Vera is shutting down"),
+            "Keep waiting closes the card",
+        );
     } finally {
         await session.close();
     }

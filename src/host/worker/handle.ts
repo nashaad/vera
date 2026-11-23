@@ -87,14 +87,16 @@ export interface WorkerHandle {
     releaseBlock(timeoutMs: number): Promise<boolean>;
     // Resolves true only when the worker halted and cleared the halt before the timeout.
     cutWait(reason: string, timeoutMs: number, stopCause?: StopCause): Promise<boolean>;
+    offerTurnMessage?(message: { readonly text: string; readonly transcript: string }, timeoutMs: number): Promise<boolean>;
     kill(): void;
 }
 
-type AckMethod = "session.latched" | "session.released" | "session.cutAck";
+type AckMethod = "session.latched" | "session.released" | "session.cutAck" | "session.turnMessageAck";
 
 function ackValue(ack: SessionBlockAck): boolean {
     if (ack.method === "session.released") return true;
     if (ack.method === "session.cutAck") return ack.ok;
+    if (ack.method === "session.turnMessageAck") return ack.accepted;
     return ack.latched;
 }
 
@@ -205,6 +207,14 @@ export async function startWorker(
         method === "session.confirmBlock" ? "session.latched" : "session.released",
         timeoutMs,
         (requestId) => pipe.notify({ method, requestId }),
+    );
+    const askTurnMessage = (
+        message: { readonly text: string; readonly transcript: string },
+        timeoutMs: number,
+    ): Promise<boolean> => ackWaiters.ask(
+        "session.turnMessageAck",
+        timeoutMs,
+        (requestId) => pipe.notify({ method: "session.offerTurnMessage", requestId, message }),
     );
     const askCut = (
         reason: string,
@@ -364,6 +374,7 @@ export async function startWorker(
         releaseBlock: (timeoutMs: number) => askBlock("session.release", timeoutMs),
         cutWait: (reason: string, timeoutMs: number, stopCause?: StopCause) =>
             askCut(reason, timeoutMs, stopCause),
+        offerTurnMessage: (message, timeoutMs) => askTurnMessage(message, timeoutMs),
         kill(): void {
             supervisor?.killNow();
             const result = signalVerifiedProcessGroup({ pid, started_at: startedAt }, "SIGKILL");

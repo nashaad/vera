@@ -906,6 +906,7 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
             }))).some(Boolean);
         },
         cutSession: (id, reason, stopCause) => routed.router.cut(id, reason, stopCause),
+        offerWrapUp: (id, text, transcript) => routed.router.offerWrapUp(id, text, transcript),
         async clearProviderSelection(provider) {
             await Promise.all(slots.filter((slot) => slot.ready)
                 .map((slot) => requestWorker<void>(slot, "worker.clearProviderSelection", [provider])));
