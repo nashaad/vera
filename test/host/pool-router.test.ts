@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { HostRouter, SessionTransferReservationsChanged, type RoutedSession, type SessionEndpoint, type SessionResumeOptions } from "../../src/host/pool/router.ts";
+import { HostRouter, ROSTER_ENDPOINT_DEADLINE_MS, SessionTransferReservationsChanged, type RoutedSession, type SessionEndpoint, type SessionResumeOptions } from "../../src/host/pool/router.ts";
 import { RoutedSnapshots } from "../../src/host/pool/snapshots.ts";
 import { mergeRoster } from "../../src/host/pool/roster.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
@@ -176,6 +176,72 @@ test("@core overlapping roster refreshes share a trailing snapshot without delay
         second.resolve();
         await snapshots.wait();
     }
+});
+
+test("@core a rejected worker snapshot keeps the answering worker list", async () => {
+    const host = endpoint(new Map());
+    const slowWorker = endpoint(new Map());
+    const answeringWorker = endpoint(new Map());
+    const row: RegisteredAgentSummary = {
+        id: "answering", live: true, workspace: "/work", session_path: "/sessions/answering.jsonl",
+        kind: "interactive", status: "idle",
+    };
+    slowWorker.snapshot = async () => { throw new Error("worker snapshot failed"); };
+    answeringWorker.snapshot = async () => ({
+        residents: [], summaries: [row], work: [], unreadSources: [],
+    });
+    const snapshots = new RoutedSnapshots(host, [
+        { id: "w0", endpoint: slowWorker, socket: "/w0.sock", generation: () => 1, ready: () => true },
+        { id: "w1", endpoint: answeringWorker, socket: "/w1.sock", generation: () => 1, ready: () => true },
+    ], () => 0, () => {});
+    expect(await snapshots.refreshAndList()).toEqual([row]);
+    expect(await snapshots.refreshAndListWithAvailability()).toMatchObject({ unavailableWorkers: ["w0"] });
+});
+
+test("@core a stalled worker snapshot times out while answering workers remain listed", async () => {
+    const host = endpoint(new Map());
+    const stalledWorker = endpoint(new Map());
+    const answeringWorker = endpoint(new Map());
+    const row: RegisteredAgentSummary = {
+        id: "answering", live: true, workspace: "/work", session_path: "/sessions/answering.jsonl",
+        kind: "interactive", status: "idle",
+    };
+    stalledWorker.snapshot = () => new Promise(() => {});
+    answeringWorker.snapshot = async () => ({
+        residents: [], summaries: [row], work: [], unreadSources: [],
+    });
+    const snapshots = new RoutedSnapshots(host, [
+        { id: "w0", endpoint: stalledWorker, socket: "/w0.sock", generation: () => 1, ready: () => true },
+        { id: "w1", endpoint: answeringWorker, socket: "/w1.sock", generation: () => 1, ready: () => true },
+    ], () => 0, () => {});
+    const started = performance.now();
+    const result = await snapshots.refreshAndListWithAvailability();
+    expect(performance.now() - started).toBeLessThan(ROSTER_ENDPOINT_DEADLINE_MS + 300);
+    expect(result.agents).toEqual([row]);
+    expect(result.unavailableWorkers).toEqual(["w0"]);
+});
+
+test("@core a stalled snapshot refresh retains last-known rows and reports the worker unavailable", async () => {
+    const host = endpoint(new Map());
+    const worker = endpoint(new Map());
+    const row: RegisteredAgentSummary = {
+        id: "crow", live: true, workspace: "/work", session_path: "/sessions/crow.jsonl",
+        kind: "interactive", status: "idle",
+    };
+    let stall = false;
+    worker.snapshot = async () => {
+        if (stall) return new Promise(() => {});
+        return { residents: [], summaries: [row], work: [], unreadSources: [] };
+    };
+    const snapshots = new RoutedSnapshots(host, [{
+        id: "w0", endpoint: worker, socket: "/w0.sock", generation: () => 1, ready: () => true,
+    }], () => 0, () => {});
+
+    expect(await snapshots.refreshAndList()).toEqual([row]);
+    stall = true;
+    const result = await snapshots.refreshAndListWithAvailability();
+    expect(result.agents).toEqual([row]);
+    expect(result.unavailableWorkers).toEqual(["w0"]);
 });
 
 test("@core a failed snapshot refresh returns the cached list and recovers", async () => {
@@ -1009,6 +1075,25 @@ test("a search fails when either owner cannot answer", async () => {
     });
     const error = await router.search({ query: "map" }).then(() => undefined, (failure: Error) => failure.message);
     expect(error).toBe("worker unavailable");
+});
+
+test("@core a slow worker times out without hiding the host roster", async () => {
+    const host = endpoint(new Map());
+    const worker = endpoint(new Map());
+    const row: RegisteredAgentSummary = {
+        id: "responsive", live: true, workspace: "/work", session_path: "/sessions/responsive.jsonl",
+        kind: "interactive", status: "idle",
+    };
+    host.list = async () => [row];
+    worker.list = () => new Promise<RegisteredAgentSummary[]>(() => {});
+    const router = new HostRouter({
+        host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test",
+    });
+    const started = performance.now();
+    const result = await router.listWithAvailability();
+    expect(performance.now() - started).toBeLessThan(ROSTER_ENDPOINT_DEADLINE_MS + 300);
+    expect(result.agents.map((agent) => agent.id)).toEqual(["responsive"]);
+    expect(result.unavailableWorkers).toEqual(["w0"]);
 });
 
 test("the roster prefers each owner and omits stale copies", () => {

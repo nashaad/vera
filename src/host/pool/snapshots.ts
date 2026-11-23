@@ -1,12 +1,12 @@
 import type { RegisteredAgentSummary } from "../agent-registry.ts";
 import { buildWorkIndex, EMPTY_WORK_INDEX, type WorkIndexSnapshot } from "../work-index.ts";
 import { mergeRosters, type SessionOwner } from "./roster.ts";
-import type { RouterWorker } from "./router.ts";
+import { ROSTER_ENDPOINT_DEADLINE_MS, type RouterWorker, type RoutedAgentList } from "./router.ts";
 import type { SessionEndpoint, SessionSnapshot } from "./session-endpoint.ts";
 
 interface SnapshotWaiter {
     readonly target: number;
-    readonly resolve: () => void;
+    readonly resolve: (result: RoutedAgentList) => void;
 }
 
 export class RoutedSnapshots {
@@ -18,6 +18,7 @@ export class RoutedSnapshots {
     private summaries: readonly RegisteredAgentSummary[] = [];
     private index: WorkIndexSnapshot = EMPTY_WORK_INDEX;
     private readonly lastWorkers = new Map<SessionOwner, SessionSnapshot>();
+    private completedResult: RoutedAgentList = { agents: [], unavailableWorkers: [] };
 
     constructor(
         private readonly host: SessionEndpoint,
@@ -26,39 +27,68 @@ export class RoutedSnapshots {
         private readonly observe: (owner: SessionOwner, snapshot: SessionSnapshot, revision: number) => void,
     ) {}
 
-    refresh(): void {
+    refresh(): number {
         this.requested += 1;
-        if (this.running) return;
-        this.running = true;
-        void this.refreshLoop();
+        if (!this.running) {
+            this.running = true;
+            void this.refreshLoop();
+        }
+        return this.requested;
     }
 
     private async refreshLoop(): Promise<void> {
         while (this.completed < this.requested) {
             const target = this.requested;
-            try { await this.refreshOnce(); } catch {}
+            let result: RoutedAgentList = { agents: [...this.summaries], unavailableWorkers: [] };
+            try { result = await this.refreshOnce(); } catch {}
+            this.completedResult = result;
             this.completed = target;
             for (let index = this.waiters.length - 1; index >= 0; index -= 1) {
                 const waiter = this.waiters[index]!;
                 if (waiter.target > target) continue;
                 this.waiters.splice(index, 1);
-                waiter.resolve();
+                waiter.resolve(result);
             }
         }
         this.running = false;
     }
 
-    private async refreshOnce(): Promise<void> {
+    private async refreshOnce(): Promise<RoutedAgentList> {
         const revision = this.revision();
         const owners: Array<[SessionOwner, SessionEndpoint]> = [
             ["host", this.host], ...this.workers.filter((worker) => worker.ready()).map((worker): [SessionOwner, SessionEndpoint] => [worker.id, worker.endpoint]),
         ];
         const generations = new Map(this.workers.map((worker) => [worker.id, worker.generation()]));
-        const snapshots = await Promise.all(owners.map(([, endpoint]) => endpoint.snapshot()));
-        const current: Array<{ owner: SessionOwner; snapshot: SessionSnapshot; cached?: true }> = owners.flatMap(([owner], index) =>
-            owner === "host" || this.workers.some((worker) => worker.id === owner && worker.ready()
-                && worker.generation() === generations.get(worker.id))
-                ? [{ owner, snapshot: snapshots[index]! }] : []
+        const results = await Promise.all(owners.map(async ([owner, endpoint]) => {
+            if (owner === "host") return { owner, snapshot: await endpoint.snapshot() };
+            const worker = this.workers.find((entry) => entry.id === owner)!;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+                const result = await Promise.race([
+                    endpoint.snapshot().then(
+                        (snapshot) => ({ snapshot }),
+                        () => ({ timedOut: true as const }),
+                    ),
+                    new Promise<{ timedOut: true }>((resolve) => {
+                        timer = setTimeout(() => resolve({ timedOut: true }), ROSTER_ENDPOINT_DEADLINE_MS);
+                    }),
+                ]);
+                if ("timedOut" in result || !worker.ready() || worker.generation() !== generations.get(owner)) {
+                    return { owner, timedOut: true as const };
+                }
+                return { owner, snapshot: result.snapshot };
+            } finally {
+                if (timer !== undefined) clearTimeout(timer);
+            }
+        }));
+        const timedOut = new Set<SessionOwner>([
+            ...results.flatMap((result) => "timedOut" in result ? [result.owner] : []),
+            ...this.workers.filter((worker) => !worker.ready()).map((worker) => worker.id),
+        ]);
+        const current: Array<{ owner: SessionOwner; snapshot: SessionSnapshot; cached?: true }> = results.flatMap((result) =>
+            "snapshot" in result && result.snapshot !== undefined
+                ? [{ owner: result.owner, snapshot: result.snapshot }]
+                : []
         );
         for (const entry of current) {
             if (entry.owner === "host") continue;
@@ -76,7 +106,7 @@ export class RoutedSnapshots {
             this.lastWorkers.set(entry.owner, entry.snapshot);
         }
         for (const worker of this.workers) {
-            if (worker.ready()) continue;
+            if (worker.ready() && !timedOut.has(worker.id)) continue;
             const snapshot = this.lastWorkers.get(worker.id);
             if (snapshot !== undefined) current.push({ owner: worker.id, snapshot, cached: true });
         }
@@ -95,18 +125,27 @@ export class RoutedSnapshots {
         for (const listener of [...this.listeners]) {
             try { listener(); } catch {}
         }
+        return { agents: [...this.summaries], unavailableWorkers: [...timedOut] };
+    }
+
+    private waitFor(target: number): Promise<RoutedAgentList> {
+        if (target <= this.completed) return Promise.resolve(this.completedResult);
+        return new Promise<RoutedAgentList>((resolve) => this.waiters.push({ target, resolve }));
     }
 
     wait(): Promise<void> {
-        const target = this.requested;
-        if (target <= this.completed) return Promise.resolve();
-        return new Promise<void>((resolve) => this.waiters.push({ target, resolve }));
+        return this.waitFor(this.requested).then(() => undefined);
     }
 
     async refreshAndList(): Promise<readonly RegisteredAgentSummary[]> {
-        this.refresh();
-        await this.wait();
-        return this.list();
+        const target = this.refresh();
+        const result = await this.waitFor(target);
+        return result.agents;
+    }
+
+    async refreshAndListWithAvailability(): Promise<RoutedAgentList> {
+        const target = this.refresh();
+        return this.waitFor(target);
     }
 
     list(): readonly RegisteredAgentSummary[] { return this.summaries; }

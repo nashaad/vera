@@ -47,7 +47,7 @@ export function useHostConnection(log: OutputLog): HostConnection {
         }
     };
 
-    const refresh = (client: HostProtocolClient, generation: number): void => {
+    const refresh = (client: HostProtocolClient, generation: number, poll = false): void => {
         const current = (): boolean => generationRef.current === generation;
         client.hostIdentity().then((identity) => {
             if (!current()) return;
@@ -67,7 +67,9 @@ export function useHostConnection(log: OutputLog): HostConnection {
             log.append("warning", `Connection lost: ${messageOf(error)}`);
             dispatch({ type: "lost", reason: messageOf(error) });
         });
-        client.listAgents({ limit: SESSIONS_PAGE_SIZE, order: "recent" }).then((list) => {
+        const options = { limit: SESSIONS_PAGE_SIZE, order: "recent" } as const;
+        const listing = poll ? client.pollAgents(options) : client.listAgents(options);
+        listing?.then((list) => {
             if (current()) dispatch({ type: "sessions", count: sessionCount(list), rows: sessionRows(list) });
         }).catch((error: unknown) => {
             if (!current()) return;
@@ -134,7 +136,7 @@ export function useHostConnection(log: OutputLog): HostConnection {
         if (state.phase !== "attached") return;
         const timer = setInterval(() => {
             const client = clientRef.current;
-            if (client !== undefined) refresh(client, generationRef.current);
+            if (client !== undefined) refresh(client, generationRef.current, true);
         }, HOST_POLL_MS);
         return () => clearInterval(timer);
     }, [state.phase]);

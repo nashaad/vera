@@ -263,6 +263,10 @@ export interface StartHostServerOptions {
     readonly listAgents?: () =>
         | readonly RegisteredAgentSummary[]
         | Promise<readonly RegisteredAgentSummary[]>;
+    readonly listAgentsWithAvailability?: () => Promise<{
+        readonly agents: readonly RegisteredAgentSummary[];
+        readonly unavailableWorkers: readonly string[];
+    }>;
     readonly readModelSettings?: (
         workspace?: string,
     ) => ModelTurnSettings | undefined;
@@ -599,6 +603,7 @@ async function startListener(
             options.forwardHostRequest,
             options.routeRequest,
             options.listAgents ?? (() => []),
+            options.listAgentsWithAvailability,
             options.readSessionFacts ?? ((sessions) => Promise.resolve(sessions)),
             options.listBackgroundAgents ?? (() => {
                 const agents = options.listAgents?.();
@@ -884,6 +889,7 @@ function receiveConnection(
     listAgents: () =>
         | readonly RegisteredAgentSummary[]
         | Promise<readonly RegisteredAgentSummary[]>,
+    listAgentsWithAvailability: StartHostServerOptions["listAgentsWithAvailability"],
     readSessionFacts: (
         sessions: readonly RegisteredAgentSummary[],
         include: readonly SessionFactName[],
@@ -2001,7 +2007,10 @@ function receiveConnection(
             clearDeadline();
             finished = true;
             const listRequest = request;
-            void Promise.resolve().then(listAgents).then(async (agents) => {
+            void Promise.resolve().then(async () => {
+                if (listAgentsWithAvailability !== undefined) return await listAgentsWithAvailability();
+                return { agents: await listAgents(), unavailableWorkers: readUnavailableWorkers?.() ?? [] };
+            }).then(async ({ agents, unavailableWorkers }) => {
                 const archive = createSessionArchiveIndex(agents);
                 const page = pageSessionListing(agents, listRequest);
                 const pageAgents = page.agents.map((agent) => ({
@@ -2011,7 +2020,6 @@ function receiveConnection(
                 const rows = listRequest.include === undefined
                     ? pageAgents
                     : await readSessionFacts(pageAgents, listRequest.include);
-                const unavailableWorkers = readUnavailableWorkers?.() ?? [];
                 return send({
                     type: "agent_list",
                     agents: rows,

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { listAgentPageThroughHost, listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
+import { HostRouter, type SessionEndpoint } from "../../src/host/pool/router.ts";
 import { startHostServer } from "../../src/host/server.ts";
 import { socketTest } from "../support/socket-probe.ts";
 
@@ -63,6 +64,45 @@ socketTest(
         }
     },
 );
+
+socketTest("agent list reports a worker whose router roster misses its deadline", async () => {
+    mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
+    const root = await mkdtemp(join(tmpdir(), "vera-dev", "hs9-list-slow-"));
+    const hostRows = [{
+        id: "responsive", workspace: "/work", session_path: "/sessions/responsive.jsonl",
+        kind: "interactive" as const, status: "idle" as const, live: true,
+    }];
+    const hostEndpoint = {
+        list: async () => hostRows,
+        residents: async () => [],
+    } as unknown as SessionEndpoint;
+    const stalled = new Promise<never>(() => {});
+    const workerEndpoint = {
+        list: () => stalled,
+        residents: () => stalled,
+    } as unknown as SessionEndpoint;
+    const router = new HostRouter({
+        host: hostEndpoint,
+        worker: workerEndpoint,
+        hostSocket: join(root, "host.sock"),
+        workerSocket: join(root, "worker.sock"),
+        buildId: "test",
+    });
+    const host = await startHostServer({
+        socketPath: join(root, "host.sock"),
+        lockPath: join(root, "host.json"),
+        listAgents: () => [],
+        listAgentsWithAvailability: () => router.listWithAvailability(),
+    });
+    try {
+        expect(await listAgentPageThroughHost(host.socketPath)).toMatchObject({
+            agents: [{ id: "responsive" }], unavailableWorkers: ["w0"],
+        });
+    } finally {
+        await host.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
 
 socketTest("agent listing carries unavailable session process ids", async () => {
     mkdirSync(join(tmpdir(), "vera-dev"), { recursive: true });
