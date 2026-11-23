@@ -244,7 +244,7 @@
 }
 
 .group-head[data-kind="pinned"] {
-    padding-left: 0;
+    padding-left: calc(var(--vera-space) * 2);
 }
 
 /* A folder heading is full size, bold, and starts a column in from the edge. */
@@ -399,6 +399,12 @@
 }
 
 .session-line:hover { background: var(--vera-surface-hover); }
+
+/* Rows without a heading guide take the same inset, so the highlight clears the text. */
+.session-group[data-kind="pinned"] .session-line,
+.session-group[data-kind="flat"] .session-line {
+    padding-left: calc(var(--vera-space) * 2);
+}
 .session-line-spacer { flex: 1 1 auto; }
 
 /* The folder guide and the tree's branch columns, drawn at the left of a row. */

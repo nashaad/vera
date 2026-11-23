@@ -223,7 +223,7 @@ function Section({ section, open, rows, expanded, pins, now, onToggleSection, on
     const active = route.kind === "workspace" && section.kind === "folder" && route.folder === section.workspace;
     const heading = section.title !== "" && !section.folderRow;
     return (
-        <section className="session-group" data-group={section.key} data-workspace={section.workspace} data-open={open} data-heading={heading ? "true" : "false"}>
+        <section className="session-group" data-group={section.key} data-kind={section.kind} data-workspace={section.workspace} data-open={open} data-heading={heading ? "true" : "false"}>
             {!heading ? null : section.kind === "pinned" ? (
                 <div className="group-head" data-kind="pinned">
                     <span className="group-title" data-kind="pinned">{section.title}</span>
