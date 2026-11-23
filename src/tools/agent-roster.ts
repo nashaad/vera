@@ -7,8 +7,9 @@ export const agentRosterTool: RegisteredTool = {
     definition: {
         name: "agent_roster",
         description: [
-            "Return your own participant ID and list the other currently live",
-            "vera participants in the current workspace. self_participant_id",
+            "Return your own participant ID and list the other vera participants",
+            "in the current workspace, including ones parked in the last 10 days",
+            "(live: false), which agent_send can still reach. self_participant_id",
             "is always the caller; participants never includes the caller.",
             "The compact default returns the identity and status needed for",
             "messaging. Match what the user calls a conversation against",

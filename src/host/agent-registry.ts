@@ -84,7 +84,7 @@ import * as registrySettings from "./agent-registry/settings.ts";
 import * as registrySelect from "./agent-registry/select.ts";
 import { listFolderCustomizations, type FolderCustomizations } from "./agent-registry/folder-customizations.ts";
 import * as registryRoster from "./agent-registry/roster.ts";
-import type { PeerCaller, PeerRosterEntry, PeerSessionServices } from "./agent-registry/peer-services.ts";
+import type { PeerCaller, PeerRosterEntry, PeerSessionServices, StoredPeerSessions } from "./agent-registry/peer-services.ts";
 import type { SubagentAdmission, SubagentSessionServices } from "./agent-registry/subagent-services.ts";
 import * as registrySubagent from "./agent-registry/subagent.ts";
 import { trustNoticeSubscriber } from "./trust-notice.ts";
@@ -106,6 +106,7 @@ export * from "./agent-registry/helpers.ts";
 
 export class AgentRegistry {
     peerSessions: PeerSessionServices | undefined;
+    storedPeers: StoredPeerSessions | undefined;
     subagentSessions: SubagentSessionServices | undefined;
     subagentAdmission: SubagentAdmission | undefined;
     openGuard: RegistryOpenGuard | undefined;
@@ -699,7 +700,8 @@ export class AgentRegistry {
             | "hop_limit"
             | "rate_limit"
             | "unavailable"
-            | "admission";
+            | "admission"
+            | "blocked";
     }> {
         return registryRoster.wakeForPeerMessage(this, caller, recipient, seq);
     }

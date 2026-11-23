@@ -533,25 +533,59 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
 
     async peerRoster(callerId: string, workspace: string, details: boolean): Promise<readonly PeerRosterEntry[]> {
         this.requireAllWorkers();
-        const rosters = await Promise.all([...this.endpoints.values()].map((endpoint) => endpoint.peerRoster(callerId, workspace, details)));
-        return rosters.flat().sort((left, right) => left.participant_id.localeCompare(right.participant_id));
+        const endpoints = [...this.endpoints.values()];
+        const [rosters, residents] = await Promise.all([
+            Promise.all(endpoints.map((endpoint) => endpoint.peerRoster(callerId, workspace, true))),
+            this.allResidents(),
+        ]);
+        const residentIds = new Set(residents.map(({ session }) => session.id));
+        const rows = new Map<string, PeerRosterEntry>();
+        for (const row of rosters.flat()) {
+            if (row.status === "parked" && residentIds.has(row.participant_id)) continue;
+            const previous = rows.get(row.participant_id);
+            const activity = typeof row.last_activity === "string" ? row.last_activity : "";
+            const previousActivity = typeof previous?.last_activity === "string" ? previous.last_activity : "";
+            if (previous === undefined || (row.live === true && previous.live !== true)
+                || (row.live === previous.live && activity > previousActivity)) rows.set(row.participant_id, row);
+        }
+        const live = [...rows.values()].filter((row) => row.status !== "parked" && (details || row.live === true))
+            .sort((left, right) => left.participant_id.localeCompare(right.participant_id));
+        const parked = [...rows.values()].filter((row) => row.status === "parked")
+            .sort((left, right) => String(right.last_activity ?? "").localeCompare(String(left.last_activity ?? ""))
+                || left.participant_id.localeCompare(right.participant_id)).slice(0, 20);
+        const result = [...live, ...parked];
+        if (details) return result;
+        return result.map((row) => ({
+            participant_id: row.participant_id,
+            ...(row.name === undefined ? {} : { name: row.name }),
+            ...(row.title === undefined ? {} : { title: row.title }),
+            status: row.status,
+            live: row.live,
+        }));
     }
 
-    async peerSend(caller: PeerCaller, effect: AgentSendEffect): Promise<ToolOutput> {
-        return this.relatedOperation(caller.id, effect.to, (endpoint) => endpoint.peerSend(caller, effect));
+    peerSend(caller: PeerCaller, effect: AgentSendEffect): Promise<ToolOutput> {
+        return this.relatedOperation(caller.id, effect.to, (endpoint) => endpoint.peerSend(caller, effect), false, true);
     }
 
-    private async relatedOperation<T>(callerId: string, targetId: string, run: (endpoint: SessionEndpoint) => Promise<T>, waitForStore = false): Promise<T> {
-        const ids = [...new Set([callerId, targetId])];
-        const owner = await this.serial(async () => {
-            const assigned = await this.claimOwner(targetId, waitForStore);
+    private async relatedOperation<T>(
+        callerId: string, targetId: string, run: (endpoint: SessionEndpoint) => Promise<T>,
+        waitForStore = false, reserveTargetOnlyWhenResident = false,
+    ): Promise<T> {
+        const route = await this.serial(async () => {
+            const residents = reserveTargetOnlyWhenResident
+                ? (await this.allResidents()).filter((entry) => entry.session.id === targetId)
+                : undefined;
+            if (residents !== undefined && residents.length > 1) throw new Error("Session is resident on multiple hosts");
+            const ids = [...new Set(residents !== undefined && residents.length === 0 ? [callerId] : [callerId, targetId])];
+            const owner = await this.claimOwner(targetId, waitForStore);
             for (const id of ids) this.startOperation(id);
-            return assigned;
+            return { owner, ids };
         });
         try {
-            return await run(this.endpoint(owner));
+            return await run(this.endpoint(route.owner));
         } finally {
-            for (const id of ids) this.finishOperation(id);
+            for (const id of route.ids) this.finishOperation(id);
         }
     }
 
