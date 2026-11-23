@@ -357,9 +357,15 @@ page its limit, a notice opens nothing and shows no dot.
 
 Seven views ship with the app:
 
-- Sessions, in the sidebar, lists the first 50 sessions of the home, most recent
-  first. It opens as one plain list under Group by None. The filter button at the
-  right of the view's header opens a menu with `Group by` and the current choice,
+- Sessions, in the sidebar, lists the latest 50 sessions of the home, most recent
+  first. When more sessions exist, `Show more` at the end of the list adds 50 older
+  sessions at a time, with no maximum. The note and button disappear when the
+  end of the listing is reached. Background
+  refreshes update the latest sessions and keep older rows, whose details can be
+  stale until reconnect. Reconnecting keeps the rows shown. Restarting the window
+  starts with the latest 50 sessions. It opens as one plain list under Group by None.
+  The filter button at the right of the view's header opens a menu with
+  `Group by` and the current choice,
   then `Folder` and `None`; the chosen one has a check. Folder groups the list by
   folder. The choice is kept per home in `machine/desktop/sidebar.json` and
   survives a restart.
@@ -397,10 +403,11 @@ Seven views ship with the app:
   visible rows, Right expands a row or moves into its children, and Left
   collapses it or moves to its parent.
 
-  While the first list loads, the window can show the last saved rows for this
-  home, dimmed until the host answers. The saved rows may be out of date. If no
-  saved list is available, the view says `Loading sessions.` The host can return
-  a list with last-known rows when a session process does not answer in time.
+  While the first list loads, the window can show the last saved first 50 rows
+  for this home, dimmed until the host answers. The saved rows may be out of
+  date. If no saved list is available, the view says `Loading sessions.` The host
+  can return a list with last-known rows when a session process does not answer in
+  time.
 
   A session's title is its name, whether you gave it or Vera's automatic titles
   did, or else the start of its first prompt, the same as in the terminal UI.

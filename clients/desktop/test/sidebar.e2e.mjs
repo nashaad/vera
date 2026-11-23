@@ -61,6 +61,13 @@ const other = startTrial();
 let failed = false;
 let page;
 
+async function rowInset(line) {
+    const space = await line.evaluate((element) => Number.parseFloat(getComputedStyle(element).getPropertyValue("--vera-space")));
+    const [lineBox, nameBox] = await Promise.all([line.boundingBox(), line.locator(".session-name").boundingBox()]);
+    if (lineBox === null || nameBox === null) throw new Error("A sidebar row has no box.");
+    return { inset: nameBox.x - lineBox.x, space, nameX: nameBox.x };
+}
+
 async function appOn(which) {
     const app = await which.launch();
     const window = await app.firstWindow();
@@ -86,6 +93,10 @@ try {
     if (!(await pinned.innerText()).includes("Usage audit")) throw new Error("Pinned does not list Usage audit.");
     if (await page.locator(`.session-row[data-session="${SAMPLE.trace}"]`).count() !== 1) throw new Error("Trace missing usage is not in the ordinary list.");
     if (await page.locator(".sidebar-foot-state").count() !== 1) throw new Error("The footer does not show one connection state.");
+    const pinnedRow = await rowInset(pinned.locator(".session-line").first());
+    if (!(pinnedRow.inset >= pinnedRow.space * 2 - 0.5)) throw new Error("The pinned row's title touches the left edge of its highlight.");
+    const pinnedTitle = await pinned.locator(".group-title").boundingBox();
+    if (pinnedTitle === null || Math.abs(pinnedTitle.x - pinnedRow.nameX) > 0.5) throw new Error("The Pinned heading does not line up with its rows' titles.");
 
     // 2. Group by Folder writes the workspace name once; usechart keeps a heading for its two
     // top-level sessions, while a sole same-named session shares one folder row.
@@ -178,6 +189,8 @@ try {
         page.locator(".sessions-view > .session-group:first-child > .session-list > .session-item:first-child .session-line").boundingBox(),
     ]);
     if (headerBox === null || firstRowBox === null || firstRowBox.y < headerBox.y + headerBox.height - 0.5) throw new Error("The floating header overlaps the first flat row.");
+    const flatRow = await rowInset(page.locator(".sessions-view > .session-group:first-child > .session-list > .session-item:first-child .session-line"));
+    if (!(flatRow.inset >= flatRow.space * 2 - 0.5)) throw new Error("The flat row's title touches the left edge of its highlight.");
     await setSidebarGrouping(page, "folder");
 
     // 7. Pin again, relaunch, and read the settings back; a second home has its own pins.
