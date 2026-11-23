@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { writeProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
 import { knownReasoningEfforts } from "../../src/model/catalog-view.ts";
 import { emptyUsage, type AssistantMessage, type ModelRequest } from "../../src/model/types.ts";
 import { Vera } from "../../src/sdk/agent.ts";
@@ -9,6 +10,16 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
 const inputRoot = process.argv[2];
 if (inputRoot === undefined) throw new Error("Missing test directory");
 const root: string = inputRoot;
+
+writeProviderCatalogSnapshot({
+    schema_version: 2,
+    provider: "openrouter",
+    models: [{
+        id: "not-a-verified-model",
+        label: "Not verified",
+        levels: [{ id: "low", label: "Low" }],
+    }],
+});
 
 async function run(model: string, index: number) {
     const workspace = join(root, `workspace-${index}`);

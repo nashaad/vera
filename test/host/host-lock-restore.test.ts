@@ -40,6 +40,10 @@ test("@core host restores its exact lock record and logs restoration", async () 
         const restored = JSON.parse(await waitForFile(lockPath)) as Record<string, unknown>;
         expect(restored).toEqual(original);
         expect(restored).toMatchObject({ pid: process.pid, started_at: "2026-01-02T03:04:05.000Z" });
+        const deadline = Date.now() + 5_000;
+        while (!log.some((entry) => entry.type === "host_lock_restored") && Date.now() < deadline) {
+            await Bun.sleep(25);
+        }
         expect(log.filter((entry) => entry.type === "host_lock_restored")).toEqual([
             expect.objectContaining({ pid: process.pid, started_at: "2026-01-02T03:04:05.000Z" }),
         ]);

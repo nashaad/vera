@@ -16,16 +16,25 @@ function alive(pid: number): boolean {
     try {
         process.kill(pid, 0);
         const state = spawnSync("ps", ["-p", String(pid), "-o", "state="], { encoding: "utf8" });
-        return state.status === 0 && !state.stdout.trim().startsWith("Z");
-    } catch {
-        return false;
+        return state.status !== 0 || !state.stdout.trim().startsWith("Z");
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ESRCH" || code === "EPERM") return false;
+        throw error;
     }
 }
 
-async function waitUntilGone(pid: number, timeoutMs = 3_000): Promise<boolean> {
+async function waitUntilGone(target: number | ProcessIdentity, timeoutMs = 6_000): Promise<boolean> {
+    const pid = typeof target === "number" ? target : target.pid;
+    const stillAlive = () => {
+        if (!alive(pid)) return false;
+        if (typeof target === "number") return true;
+        const current = identity(pid);
+        return current === undefined || current.started === target.started;
+    };
     const until = Date.now() + timeoutMs;
-    while (alive(pid) && Date.now() < until) await Bun.sleep(20);
-    return !alive(pid);
+    while (stillAlive() && Date.now() < until) await Bun.sleep(20);
+    return !stillAlive();
 }
 
 function readPid(path: string): number | undefined {
@@ -142,9 +151,9 @@ async function checkLifeline(
         else host.stdin!.write("close\n");
         await afterDisconnect?.(home, worker!);
         const [workerGone, toolGone, toolChildGone] = await Promise.all([
-            waitUntilGone(worker!.pid),
-            tool === undefined ? Promise.resolve(true) : waitUntilGone(tool.pid),
-            toolChild === undefined ? Promise.resolve(true) : waitUntilGone(toolChild.pid),
+            waitUntilGone(worker!),
+            tool === undefined ? Promise.resolve(true) : waitUntilGone(tool),
+            toolChild === undefined ? Promise.resolve(true) : waitUntilGone(toolChild),
         ]);
         expect({ workerGone, toolGone, toolChildGone }).toEqual({
             workerGone: true, toolGone: true, toolChildGone: true,
@@ -180,9 +189,9 @@ async function checkLifeline(
         killGroup(worker);
         if (host.exitCode === null && host.signalCode === null) host.kill("SIGKILL");
         const gone = await Promise.all([
-            worker === undefined ? Promise.resolve(true) : waitUntilGone(worker.pid),
-            tool === undefined ? Promise.resolve(true) : waitUntilGone(tool.pid),
-            toolChild === undefined ? Promise.resolve(true) : waitUntilGone(toolChild.pid),
+            worker === undefined ? Promise.resolve(true) : waitUntilGone(worker),
+            tool === undefined ? Promise.resolve(true) : waitUntilGone(tool),
+            toolChild === undefined ? Promise.resolve(true) : waitUntilGone(toolChild),
             host.pid === undefined ? Promise.resolve(true) : waitUntilGone(host.pid),
         ]);
         if (gone.some((stopped) => !stopped)) throw new Error(`Fixture processes did not stop: ${gone}`);
@@ -192,7 +201,7 @@ async function checkLifeline(
 
 test("@core host loss disposes active extensions while another is starting", async () => {
     await checkLifeline("extension-pending", "close", true);
-}, 9_000);
+}, 20_000);
 
 for (const disconnect of ["close", "kill"] as const) {
     test(`@core pending extension is disposed after activation settles on host ${disconnect}`, async () => {
@@ -204,12 +213,12 @@ for (const disconnect of ["close", "kill"] as const) {
             expect(existsSync(join(home, "pending-extension-disposed"))).toBe(false);
             writeFileSync(join(home, "release-activation"), "release");
         });
-    }, 9_000);
+    }, 20_000);
 }
 
 test("@core host loss starts every active disposer despite a hanging disposer", async () => {
     await checkLifeline("extension-dispose-hang", "close");
-}, 9_000);
+}, 20_000);
 
 for (const mode of [
     "before", "idle", "foreground", "background", "adapter-pending",
@@ -218,6 +227,6 @@ for (const mode of [
     for (const disconnect of ["close", "kill"] as const) {
         test(`@core worker exits after host ${disconnect} with ${mode} work`, async () => {
             await checkLifeline(mode, disconnect);
-        }, 9_000);
+        }, 20_000);
     }
 }

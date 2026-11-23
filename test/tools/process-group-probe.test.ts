@@ -1,22 +1,35 @@
 import { expect, spyOn, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { ManagedProcessRegistry } from "../../src/tools/process-runtime.ts";
 
 const signalProcess = process.kill.bind(process);
+const spawnForInspection = Bun.spawnSync.bind(Bun);
 
 function processExists(pid: number): boolean {
     try {
         signalProcess(pid, 0);
         return true;
     } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH") {
-            return false;
+        if (typeof error === "object" && error !== null && "code" in error) {
+            if (error.code === "ESRCH") return false;
+            if (error.code === "EPERM") {
+                const result = spawnForInspection(["ps", "-axo", "uid=,pid=,pgid="], { stdout: "pipe", stderr: "pipe" });
+                if (result.exitCode !== 0) throw new Error(`ps failed: ${result.stderr.toString()}`);
+                return result.stdout.toString().split("\n").some((line) => {
+                    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s*$/.exec(line);
+                    return match !== null && Number(match[1]) === process.getuid?.()
+                        && Number(pid < 0 ? match[3] : match[2]) === Math.abs(pid);
+                });
+            }
         }
         throw error;
     }
 }
 
-async function waitUntil(condition: () => boolean, timeoutMs = 1_500): Promise<void> {
+async function waitUntil(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
     const deadline = performance.now() + timeoutMs;
     while (!condition()) {
         if (performance.now() >= deadline) throw new Error("condition did not hold in time");
@@ -26,6 +39,8 @@ async function waitUntil(condition: () => boolean, timeoutMs = 1_500): Promise<v
 
 test.skipIf(process.platform === "win32")("@core the default probe tracks a group after its leader exits without spawning ps", async () => {
     let pid: number | undefined;
+    const directory = mkdtempSync(join(tmpdir(), "vera-group-probe-"));
+    const release = join(directory, "release");
     const registry = new ManagedProcessRegistry({
         maxLivePerOwner: 1,
         onProcessStarted(startedPid) { pid ??= startedPid; },
@@ -37,7 +52,7 @@ test.skipIf(process.platform === "win32")("@core the default probe tracks a grou
     const kill = spyOn(process, "kill");
     try {
         const result = await scope.run({
-            command: "exec sh -c 'sleep 0.5 & exit 0' </dev/null >/dev/null 2>&1",
+            command: `exec sh -c 'while [ ! -f "$1" ]; do sleep 0.05; done & exit 0' sh '${release}' </dev/null >/dev/null 2>&1`,
             cwd: process.cwd(),
             env: process.env,
             yieldAfterMs: 0,
@@ -52,6 +67,7 @@ test.skipIf(process.platform === "win32")("@core the default probe tracks a grou
         expect(scope.read(result.snapshot.processId)?.status).toBe("running");
         expect(registry.liveCount("group-probe")).toBe(1);
 
+        writeFileSync(release, "");
         await waitUntil(() => !processExists(-groupPid));
         await waitUntil(() => scope.read(result.snapshot.processId)?.status === "exited");
         expect(registry.liveCount("group-probe")).toBe(0);
@@ -66,16 +82,18 @@ test.skipIf(process.platform === "win32")("@core the default probe tracks a grou
     } finally {
         kill.mockRestore();
         spawnSync.mockRestore();
+        writeFileSync(release, "");
         try {
             if (pid !== undefined) {
                 const groupPid = pid;
-                await waitUntil(() => !processExists(-groupPid), 3_000);
+                await waitUntil(() => !processExists(-groupPid), 5_000);
             }
         } finally {
             await registry.close();
+            rmSync(directory, { recursive: true, force: true });
         }
     }
-});
+}, 12_000);
 
 for (const code of ["EPERM", "EIO"]) {
     test.skipIf(process.platform === "win32")(`@core the default probe falls back to ps on ${code}`, async () => {

@@ -1,9 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { cacheBuildId } from "../../src/release/cache-build-id.ts";
 
 interface RecordedRequest {
     readonly model: string;
@@ -21,18 +19,6 @@ interface RunResult {
 test("@core SDK classifier effort uses only bundled verified levels", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-sdk-reviewer-fallback-"));
     const home = join(root, "home");
-    const cache = join(home, "runtime", "cache");
-    await mkdir(cache, { recursive: true });
-    await writeFile(join(cache, "openrouter.json"), JSON.stringify({
-        schema_version: 2,
-        build_id: cacheBuildId(),
-        provider: "openrouter",
-        models: [{
-            id: "not-a-verified-model",
-            label: "Not verified",
-            levels: [{ id: "low", label: "Low" }],
-        }],
-    }));
     const { VERA_POOL_FILE: _poolFile, ...environment } = process.env;
     const child = Bun.spawn({
         cmd: [process.execPath, join(import.meta.dir, "reviewer-fallback-sdk-run.ts"), root],
