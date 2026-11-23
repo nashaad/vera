@@ -327,6 +327,10 @@ export class ManagedProcessRegistry {
             return { kind: "rejected", reason: preparation.refusal };
         }
         const prepared = preparation.prepared;
+        if (this.closed) {
+            if (prepared !== undefined) this.sandbox?.commandEnded(prepared);
+            return { kind: "rejected", reason: "Process registry is closed." };
+        }
         if (options.observation !== undefined
             && (this.unsettledObservations.get(ownerId) ?? 0) >= this.maxRetainedPerOwner) {
             if (prepared !== undefined) this.sandbox?.commandEnded(prepared);

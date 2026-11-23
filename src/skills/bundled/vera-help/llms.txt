@@ -49,6 +49,7 @@ Run `bun run desktop:bench` from a checkout worktree to measure the desktop app'
 By default, the host runs conversations in one session process; set `host.workers` to `0` in Home config to use a single-process host.
 Unless `host.workers` is `0`, the host replaces a failed session process and an interrupted prompt can be sent again.
 Unless `host.workers` is `0`, a session process keeps its clients for 30 seconds after the host crashes and can finish a turn that does not need the host.
+A resident agent worker stops its turn and commands and exits when the host that started it is lost. Manual: `docs/runtime-and-worktrees.md`.
 An interrupted inbox, schedule, or watch wake stays unread and appears when you next attach.
 A later entry can wake the conversation normally.
 A resident host runs from its Vera home folder, not the folder a client was started in, and its environment is `machine/env` in the home, not the launching shell; the first start writes that file from the shell, and later changes need an edit and a host restart. Manual: `docs/runtime-and-worktrees.md`.
