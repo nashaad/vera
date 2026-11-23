@@ -59,6 +59,7 @@ export const CHANNELS = {
     providerSignIn: "vera:provider-sign-in",
     providerSignInCancel: "vera:provider-sign-in-cancel",
     providerForget: "vera:provider-forget",
+    providerSetEnabled: "vera:provider-set-enabled",
     modelOperate: "vera:model-operate",
     assignmentsRead: "vera:assignments-read",
     includedExtensionsRead: "vera:included-extensions-read",

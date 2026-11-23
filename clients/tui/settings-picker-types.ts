@@ -195,6 +195,8 @@ export interface TuiSettingsPickerOption {
     readonly refreshable?: boolean;
     readonly group?: string;
     readonly hasCredential?: boolean;
+    readonly connected?: boolean;
+    readonly enabled?: boolean;
     readonly answerState?: ProviderAnswerState;
     readonly signingIn?: boolean;
     readonly action?: boolean;
@@ -253,6 +255,8 @@ export interface TuiProviderRow {
     readonly group: TuiProviderGroup;
     readonly hint?: string;
     readonly hasCredential: boolean;
+    readonly connected?: boolean;
+    readonly enabled?: boolean;
     readonly answerState?: ProviderAnswerState;
     readonly signingIn?: boolean;
     readonly refreshable?: boolean;
@@ -566,6 +570,7 @@ export interface TuiSettingsPickerTransition {
     };
     readonly openProviders?: boolean;
     readonly forgetProvider?: string;
+    readonly toggleProviderEnabled?: { readonly provider: string; readonly enabled: boolean };
     readonly declareProvider?: boolean;
     readonly refreshCatalog?: string;
     readonly refreshCatalogScope?: boolean;

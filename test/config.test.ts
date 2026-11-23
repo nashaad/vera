@@ -1304,6 +1304,39 @@ function temporaryConfigPath(): string {
     return join(mkdtempSync(join(tmpdir(), "vera-config-")), "config.json");
 }
 
+test("disabled providers load and toggle without touching their declaration", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        providers: {
+            "test-gateway": { protocol: "openai-chat", base_url: "http://127.0.0.1:1/v1" },
+        },
+        disabled_providers: [" ollama "],
+    }));
+    expect(loadVeraConfig({ path }).disabled_providers).toEqual(["ollama"]);
+
+    updateVeraConfigDefaults({ provider_enabled: { id: "test-gateway", enabled: false } }, { path });
+    expect(loadVeraConfig({ path }).disabled_providers).toEqual(["ollama", "test-gateway"]);
+    expect(loadVeraConfig({ path }).providers?.["test-gateway"]).toBeDefined();
+
+    updateVeraConfigDefaults({ provider_enabled: { id: "ollama", enabled: true } }, { path });
+    expect(loadVeraConfig({ path }).disabled_providers).toEqual(["test-gateway"]);
+});
+
+test("Vera config rejects a malformed disabled provider list", () => {
+    for (const disabled_providers of ["ollama", [""], [42], ["ollama", "ollama"]]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "example/example-model",
+            disabled_providers,
+        }));
+        expect(() => loadVeraConfig({ path })).toThrow("not a Vera config");
+    }
+});
+
 test("Vera config loads disabled prompt contribution ids", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({

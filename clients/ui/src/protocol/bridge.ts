@@ -119,6 +119,8 @@ export interface HostModelsAnswer {
     readonly ok: true;
     // The host's `model_settings`; the page parses it.
     readonly settings: unknown;
+    // The change landed but the provider's model list could not be read.
+    readonly warning?: string;
 }
 
 export type HostModelsResult = HostModelsAnswer | HostRequestFailure;
@@ -271,6 +273,7 @@ export interface ProviderStatus {
     readonly methods: readonly ("key" | "browser")[];
     readonly connected: boolean;
     readonly catalog_connected: boolean;
+    readonly enabled: boolean;
     readonly connected_by?: "key" | "browser" | "environment" | "none";
     readonly endpoint?: string;
     readonly protocol?: "openai-chat" | "anthropic-messages";
@@ -346,6 +349,8 @@ export interface DesktopBridge {
     refreshCatalog(provider: string, workspace?: string): Promise<HostModelsResult>;
     // Removes a provider's saved connection and what Vera learned about its models.
     forgetProvider(provider: string, workspace?: string): Promise<HostModelsResult>;
+    // Keeps a provider's setup but stops new use, or uses it again and reads its models.
+    setProviderEnabled(provider: string, enabled: boolean, workspace?: string): Promise<HostModelsResult>;
     // Adds a model to the shortlist, removes it, or probes it with a live request.
     operateModel(operation: ModelOperationKind, provider: string, model: string, workspace?: string): Promise<ModelOperationResult>;
     // The home's model assignments, read from its config.json by the shell rather than the host.

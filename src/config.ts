@@ -281,6 +281,8 @@ export interface VeraConfig {
     readonly extensions?: readonly VeraExtensionConfig[];
     readonly hooks?: readonly VeraHookConfig[];
     readonly disabled_included_extensions?: readonly string[];
+    // Provider ids kept connected but left out of discovery, pickers and refreshes.
+    readonly disabled_providers?: readonly string[];
     // Skill names; a trailing `*` matches a prefix, so `["*"]` turns skills off.
     readonly disabled_skills?: readonly string[];
     readonly disabled_prompt_contributions?: readonly string[];
@@ -431,6 +433,11 @@ export interface VeraConfigDefaultsPatch {
     readonly provider?: VeraProviderId;
     /** Adds the id to `disabled_included_extensions`, or takes it off. */
     readonly included_extension?: {
+        readonly id: string;
+        readonly enabled: boolean;
+    };
+    /** Adds the id to `disabled_providers`, or takes it off. */
+    readonly provider_enabled?: {
         readonly id: string;
         readonly enabled: boolean;
     };
@@ -933,6 +940,14 @@ export function updateVeraConfigDefaults(
                 disabled_included_extensions: patchedDisabledIncluded(
                     current.disabled_included_extensions ?? [],
                     patch.included_extension,
+                ),
+            }),
+        ...(patch.provider_enabled === undefined
+            ? {}
+            : {
+                disabled_providers: patchedDisabledIncluded(
+                    current.disabled_providers ?? [],
+                    patch.provider_enabled,
                 ),
             }),
         ...(patch.compaction === undefined
@@ -1447,6 +1462,11 @@ function parseVeraConfigValue(value: unknown): VeraConfig | undefined {
         "disabled_included_extensions",
     );
     if (disabledIncludedExtensions === undefined) return undefined;
+    const disabledProviders = parseStringList(
+        config.disabled_providers,
+        "disabled_providers",
+    );
+    if (disabledProviders === undefined) return undefined;
     const disabledPromptContributions = parseStringList(
         config.disabled_prompt_contributions,
         "disabled_prompt_contributions",
@@ -1630,6 +1650,9 @@ function parseVeraConfigValue(value: unknown): VeraConfig | undefined {
             : {
                 disabled_included_extensions: disabledIncludedExtensions,
             }),
+        ...(config.disabled_providers === undefined
+            ? {}
+            : { disabled_providers: disabledProviders }),
         ...(config.disabled_prompt_contributions === undefined
             ? {}
             : {

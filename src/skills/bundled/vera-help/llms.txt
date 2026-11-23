@@ -89,6 +89,7 @@ A failed save names the cause and preserves the input. Endpoints must use HTTP o
 Open Switch model, type to search the connected models, then press Enter on one to open a conversation.
 Outrider guided setup is hidden by default; enable `experimental.outrider_onboarding` in Home config through `/configure` to offer it.
 A provider marked `unverified` has no verified model response; opening Configure providers does not test its connection.
+Turn a connected provider off to keep its setup and stop new use. Turn it on again to read its models; sessions already running on its models finish. If that read fails, it says the model list could not be refreshed and keeps the saved list.
 Manual: `docs/first-run-setup.md`.
 
 ## Models and providers

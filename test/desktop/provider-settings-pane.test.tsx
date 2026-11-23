@@ -2,18 +2,24 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "bun:test";
 
-import { ProviderCards, ProviderForgetConfirmation } from "../../clients/ui/src/pages/settings/ProviderCards.tsx";
+import {
+    ConnectedProviderRowView,
+    ProviderCards,
+    ProviderForgetConfirmation,
+    providerEnabledNotice,
+} from "../../clients/ui/src/pages/settings/ProviderCards.tsx";
 import type { DesktopBridge, ProviderStatus } from "../../clients/ui/src/protocol/bridge.ts";
 
 const providers: readonly ProviderStatus[] = [
-    { id: "anthropic", name: "Anthropic", methods: ["key"], connected: true, catalog_connected: true, connected_by: "key", custom: false },
-    { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: false, catalog_connected: false, custom: false },
-    { id: "browser", name: "BrowserCo", methods: ["browser"], connected: true, catalog_connected: true, connected_by: "browser", custom: false },
-    { id: "signin", name: "SignInCo", methods: ["browser"], connected: false, catalog_connected: false, custom: false },
-    { id: "env", name: "EnvCo", methods: ["key"], connected: true, catalog_connected: true, connected_by: "environment", custom: false },
-    { id: "local", name: "Local", methods: [], connected: false, catalog_connected: false, custom: false },
-    { id: "custom", name: "Custom Endpoint", methods: ["key"], connected: true, catalog_connected: true, connected_by: "key", custom: true, endpoint: "https://api.example.test/v1" },
-    { id: "unknown", name: "UnknownCo", methods: ["key"], connected: true, catalog_connected: true, custom: false },
+    { id: "anthropic", name: "Anthropic", methods: ["key"], connected: true, catalog_connected: true, enabled: true, connected_by: "key", custom: false },
+    { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: false, catalog_connected: false, enabled: true, custom: false },
+    { id: "browser", name: "BrowserCo", methods: ["browser"], connected: true, catalog_connected: true, enabled: true, connected_by: "browser", custom: false },
+    { id: "signin", name: "SignInCo", methods: ["browser"], connected: false, catalog_connected: false, enabled: true, custom: false },
+    { id: "env", name: "EnvCo", methods: ["key"], connected: true, catalog_connected: true, enabled: true, connected_by: "environment", custom: false },
+    { id: "local", name: "Local", methods: [], connected: false, catalog_connected: false, enabled: true, custom: false },
+    { id: "custom", name: "Custom Endpoint", methods: ["key"], connected: true, catalog_connected: true, enabled: true, connected_by: "key", custom: true, endpoint: "https://api.example.test/v1" },
+    { id: "unknown", name: "UnknownCo", methods: ["key"], connected: true, catalog_connected: true, enabled: true, custom: false },
+    { id: "paused", name: "PausedCo", methods: ["key"], connected: true, catalog_connected: true, enabled: false, connected_by: "key", custom: false },
 ];
 
 function renderCards(): string {
@@ -39,6 +45,11 @@ describe("Settings provider cards", () => {
         expect(html).toContain('<span class="provider-card-label">Custom</span>');
         expect(html).toContain("api.example.test");
         expect(html).toContain('<span class="provider-card-label">In use</span>');
+        expect(html).toContain("PausedCo</span><span class=\"provider-card-label\">Stored key</span><span class=\"provider-card-label\">Off</span>");
+        expect(html).toContain(">Turn off</button>");
+        expect(html).toContain(">Turn on</button>");
+        expect(html).toContain("Turn a provider off to keep its setup and stop new use.");
+        expect(html).toContain("Sessions already running on its models finish.");
         expect(html).not.toContain("provider-card-icon");
         expect(html).toContain("role=\"group\" aria-label=\"Anthropic\"");
     });
@@ -52,6 +63,60 @@ describe("Settings provider cards", () => {
         expect(html).toContain("Custom provider");
         expect(html).toContain("Any OpenAI-compatible endpoint by its base URL.");
         expect(html).toContain("Connect");
+    });
+
+    test("shows the host's refusal beside the provider control", () => {
+        const refusal = "Anthropic is assigned to eco. Reassign that work before turning it off.";
+        const html = renderToStaticMarkup(createElement(ConnectedProviderRowView, {
+            provider: providers[0]!,
+            inUse: false,
+            busy: false,
+            confirming: false,
+            failure: refusal,
+            onOpen: () => undefined,
+            onToggle: () => undefined,
+            onForget: () => undefined,
+            onConfirmForget: () => undefined,
+            onCancel: () => undefined,
+        }));
+        expect(html).toContain("role=\"group\" aria-label=\"Anthropic\"");
+        expect(html).toContain(">Turn off</button>");
+        expect(html).toContain(`<p role="alert">${refusal}</p>`);
+    });
+
+    test("@core a successful Turn on shows the host's warning and Turn off clears it", () => {
+        const warning = "OpenRouter is on, but its model list could not be refreshed. The saved list stands.";
+        expect(providerEnabledNotice(true, warning)).toBe(warning);
+        expect(providerEnabledNotice(false, warning)).toBeUndefined();
+        expect(providerEnabledNotice(true, undefined)).toBeUndefined();
+
+        const shown = renderToStaticMarkup(createElement(ConnectedProviderRowView, {
+            provider: providers[0]!,
+            inUse: false,
+            busy: false,
+            confirming: false,
+            notice: warning,
+            onOpen: () => undefined,
+            onToggle: () => undefined,
+            onForget: () => undefined,
+            onConfirmForget: () => undefined,
+            onCancel: () => undefined,
+        }));
+        expect(shown).toContain(`<p role="status">${warning}</p>`);
+        expect(shown).not.toContain("role=\"alert\"");
+
+        const cleared = renderToStaticMarkup(createElement(ConnectedProviderRowView, {
+            provider: providers[0]!,
+            inUse: false,
+            busy: false,
+            confirming: false,
+            onOpen: () => undefined,
+            onToggle: () => undefined,
+            onForget: () => undefined,
+            onConfirmForget: () => undefined,
+            onCancel: () => undefined,
+        }));
+        expect(cleared).not.toContain("role=\"status\"");
     });
 
     test("renders the existing inline Forget confirmation actions", () => {

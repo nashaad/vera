@@ -190,7 +190,7 @@ test("host saves a custom provider into the real stores without returning its ke
 
 test("provider status decoder refuses malformed rows and drops extra fields", async () => {
     const { parseProviderSignInStatus } = await import("../../src/host/provider-sign-in-client.ts");
-    const status = { id: "faux-0", name: "Faux", methods: ["key"] as const, connected: true, catalog_connected: true, custom: true };
+    const status = { id: "faux-0", name: "Faux", methods: ["key"] as const, connected: true, catalog_connected: true, enabled: true, custom: true };
     expect(parseProviderSignInStatus({ ...status, token: "fake-token" })).toEqual(status);
     expect(parseProviderSignInStatus({ ...status, methods: ["other"] })).toBeUndefined();
     expect(parseProviderSignInStatus({ ...status, connected: "yes" })).toBeUndefined();

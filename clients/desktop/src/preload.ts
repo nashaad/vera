@@ -169,6 +169,8 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.catalogRefresh, provider, workspace)) as HostModelsResult,
     forgetProvider: async (provider: string, workspace?: string) =>
         (await ipcRenderer.invoke(CHANNELS.providerForget, provider, workspace)) as HostModelsResult,
+    setProviderEnabled: async (provider: string, enabled: boolean, workspace?: string) =>
+        (await ipcRenderer.invoke(CHANNELS.providerSetEnabled, provider, enabled, workspace)) as HostModelsResult,
     operateModel: async (operation: ModelOperationKind, provider: string, model: string, workspace?: string) =>
         (await ipcRenderer.invoke(CHANNELS.modelOperate, operation, provider, model, workspace)) as ModelOperationResult,
     readAssignments: async () => (await ipcRenderer.invoke(CHANNELS.assignmentsRead)) as AssignmentsResult,

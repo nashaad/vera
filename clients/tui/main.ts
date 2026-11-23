@@ -5,6 +5,7 @@ import type { ProviderSignInStatus } from "../../src/providers/provider-sign-in.
 import { cutStopWaitThroughHost, type CutStopWaitOutcome } from "../../src/host/stop-wait-cut-client.ts";
 import { hostRequester } from "../../src/host/requester.ts";
 import { forgetProviderThroughHost } from "../../src/host/provider-forget-client.ts";
+import { setProviderEnabledThroughHost, type ProviderEnabledOutcome } from "../../src/host/provider-set-enabled-client.ts";
 import { operateModelsThroughHost } from "../../src/host/model-operation-client.ts";
 import type { ModelOperation, ModelOperationResult, ModelOperationStep } from "../../src/model/model-operations.ts";
 import { BoxRenderable, CliRenderEvents, decodePasteBytes, MarkdownRenderable, ScrollBoxRenderable, stripAnsiSequences, TextRenderable, createCliRenderer, KeyEvent, type PasteEvent, RGBA, type CliRenderer, type Selection, type MouseEvent } from "@opentui/core";
@@ -578,6 +579,7 @@ export interface TuiDependencies {
     readonly saveProvider?: (input: SaveProviderInput & { readonly custom: boolean }) => Promise<ProviderSignInStatus>;
     readonly saveProviderKey?: (provider: string, key: string) => Promise<void>;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
+    readonly setProviderEnabled?: (provider: string, enabled: boolean, workspace?: string) => Promise<ProviderEnabledOutcome>;
     /** Ends one session's turn through the host. Used by the stop-now action. */
     readonly cutStopWait?: (sessionId?: string) => Promise<CutStopWaitOutcome>;
     /** Set only under a relaunch-capable launcher; leaves the TUI for the launcher to restart. */
@@ -905,6 +907,7 @@ export async function startConfiguredTui(
                 });
             },
             forgetProvider: async (provider, workspace) => forgetProviderThroughHost(await pairedSocket(), provider, workspace),
+            setProviderEnabled: async (provider, enabled, workspace) => setProviderEnabledThroughHost(await pairedSocket(), provider, enabled, workspace),
             cutStopWait: async (sessionId) => cutStopWaitThroughHost(
                 await pairedSocket(), hostRequester("tui", "cut stop wait", { id: sessionId }),
             ),

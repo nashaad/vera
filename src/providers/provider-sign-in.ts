@@ -4,6 +4,7 @@ import { createAuthStorage, type AuthStorage } from "./auth-storage.ts";
 import { loginOpenAICodex } from "./openai-codex-oauth.ts";
 import { isSafeProviderId } from "./provider-id.ts";
 import { providerEndpointError } from "./read-model-catalog.ts";
+import { providerEnabled } from "./provider-enabled.ts";
 import { configuredProviders, findConfiguredProvider } from "./registry.ts";
 import { saveProvider, type SaveProviderInput } from "./save-provider.ts";
 
@@ -13,6 +14,7 @@ export interface ProviderSignInStatus {
     readonly methods: readonly ("key" | "browser")[];
     readonly connected: boolean;
     readonly catalog_connected: boolean;
+    readonly enabled: boolean;
     readonly connected_by?: "key" | "browser" | "environment" | "none";
     readonly endpoint?: string;
     readonly protocol?: "openai-chat" | "anthropic-messages";
@@ -52,6 +54,7 @@ export function createProviderSignInService(options: ProviderSignInOptions = {})
                 id: provider.id, name: provider.label, methods,
                 connected: connectedBy !== undefined && (connectedBy !== "none" || connected.has(provider.id)),
                 catalog_connected: connected.has(provider.id),
+                enabled: providerEnabled(config, provider.id),
                 ...(connectedBy === undefined || (connectedBy === "none" && !connected.has(provider.id)) ? {} : { connected_by: connectedBy }),
                 ...(safeEndpoint(provider.baseUrl) === undefined ? {} : { endpoint: safeEndpoint(provider.baseUrl) }),
                 ...(provider.credential === "oauth" ? {} : { protocol: provider.protocol === "anthropic-messages" ? "anthropic-messages" as const : "openai-chat" as const }),

@@ -101,7 +101,7 @@ test("@core the show tool lists every target and words each outcome", () => {
 
 test("@core the checks word provider status and load failures within their caps", () => {
     const provider = (id: string, connected: boolean, connected_by?: "key" | "browser" | "environment" | "none") => ({
-        id, name: id.toUpperCase(), methods: ["key" as const], connected, catalog_connected: connected, custom: false,
+        id, name: id.toUpperCase(), methods: ["key" as const], connected, catalog_connected: connected, enabled: true, custom: false,
         ...(connected_by === undefined ? {} : { connected_by }),
     });
     expect(describeProviders({

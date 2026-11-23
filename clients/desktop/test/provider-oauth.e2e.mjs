@@ -17,9 +17,9 @@ let deepseekRefreshed = false;
 let holdProviderLists = false;
 const heldProviderLists = [];
 let deepseek = { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: true,
-    catalog_connected: true, connected_by: "key", custom: false };
+    catalog_connected: true, enabled: true, connected_by: "key", custom: false };
 const provider = () => ({ id: "openai-codex", name: "OpenAI Codex", methods: ["browser"], connected,
-    catalog_connected: connected, ...(connected ? { connected_by: "browser" } : {}), custom: false });
+    catalog_connected: connected, enabled: true, ...(connected ? { connected_by: "browser" } : {}), custom: false });
 const settings = (providerId = "openai-codex") => ({ provider: providerId,
     model: providerId === "deepseek" ? "deepseek-chat" : "crow-0",
     availableModels: [{ provider: "deepseek", model: "deepseek-chat", label: "DeepSeek Chat", levels: [] },
@@ -60,7 +60,7 @@ const host = createSocketServer((socket) => {
         }
         if (request.type === "catalog_refresh" && request.provider === "deepseek") deepseekRefreshed = true;
         if (request.type === "provider_forget" && request.provider === "deepseek") {
-            deepseek = { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: false, catalog_connected: false, custom: false };
+            deepseek = { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: false, catalog_connected: false, enabled: true, custom: false };
             reply(socket, { type: "model_operation_complete" });
             socket.end();
             return;
