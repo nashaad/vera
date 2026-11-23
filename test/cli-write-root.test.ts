@@ -72,7 +72,7 @@ test("--write-root needs a value", async () => {
 
 test("help names the write-root launch flag", () => {
     const help = renderCliHelp(120);
-    expect(help).toContain("vera [--write-root <dir>] [--bare|--prompt-only]");
+    expect(help).toContain("vera [--write-root <dir>] [--read-root <dir>] [--bare|--prompt-only]");
 });
 
 function capture() {

@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
     SandboxManager as Srt,
     type SandboxRuntimeConfig,
@@ -108,6 +109,11 @@ export interface SandboxAvailability {
 
 type Availability = SandboxAvailability;
 
+type PolicyRequest = Pick<
+    SandboxCommandRequest,
+    "workspace" | "scratchDir" | "readRoots"
+>;
+
 /**
  * One srt runtime per process. Each command is wrapped with the policy
  * compiled for it, so two sessions never share one.
@@ -165,7 +171,7 @@ export class SandboxManager implements CommandSandbox, SandboxInspector {
         if (!config.enabled) return NO_SANDBOX_PREPARATION;
         const commandId = commandIdFor(request);
         if (request.approvalMode === "full_access") {
-            this.notePolicy(request.workspace, request.scratchDir, config, []);
+            this.notePolicy(request, config, []);
             return {
                 unwrapped: {
                     sessionId: request.sessionId,
@@ -188,16 +194,11 @@ export class SandboxManager implements CommandSandbox, SandboxInspector {
                 refusal: `Sandbox could not scan this workspace for protected paths: ${scan.reason}.`,
             };
         }
-        this.notePolicy(request.workspace, request.scratchDir, config, scan.paths);
+        this.notePolicy(request, config, scan.paths);
         if (!await this.ensureStarted(config)) {
             return this.unavailablePreparation(request, commandId);
         }
-        const policy = this.policyFor(
-            request.workspace,
-            request.scratchDir,
-            config,
-            scan.paths,
-        );
+        const policy = this.policyFor(request, config, scan.paths);
         try {
             const wrapped = await Srt.wrapWithSandboxArgv(
                 request.command,
@@ -707,11 +708,11 @@ export class SandboxManager implements CommandSandbox, SandboxInspector {
     }
 
     private policyFor(
-        workspace: string,
-        scratchDir: string | undefined,
+        request: PolicyRequest,
         config: SandboxConfig,
         scanned: readonly string[],
     ): SandboxPolicy {
+        const { workspace, scratchDir, readRoots } = request;
         const sharedGitDir = linkedWorktreeSharedDirectory(workspace);
         return compileSandboxPolicy({
             workspace,
@@ -719,6 +720,11 @@ export class SandboxManager implements CommandSandbox, SandboxInspector {
             protectedFiles: DANGEROUS_FILES,
             protectedDirectories: getDangerousDirectories(),
             ...(scratchDir === undefined ? {} : { scratchDir }),
+            ...(readRoots === undefined ? {} : { readRoots }),
+            runtimeReadable: runtimeReadable(
+                this.platform,
+                this.options.home ?? homedir(),
+            ),
             home: this.options.home,
             otherCheckouts: otherCheckoutRoots(workspace),
             ...(sharedGitDir === undefined ? {} : { sharedGitDir }),
@@ -768,6 +774,7 @@ export class SandboxManager implements CommandSandbox, SandboxInspector {
                         this.currentPolicy?.filesystem.allowWrite ?? [],
                     ),
                     deny_read: this.currentPolicy?.filesystem.denyRead ?? [],
+                    allow_read: this.currentPolicy?.filesystem.allowRead ?? [],
                     deny_write: this.currentPolicy?.filesystem.denyWrite ?? [],
                     network: config.network,
                     allowed_hosts: config.allowed_domains.length,
@@ -887,12 +894,11 @@ export class SandboxManager implements CommandSandbox, SandboxInspector {
     }
 
     private notePolicy(
-        workspace: string,
-        scratchDir: string | undefined,
+        request: PolicyRequest,
         config: SandboxConfig,
         scanned: readonly string[],
     ): void {
-        const policy = this.policyFor(workspace, scratchDir, config, scanned);
+        const policy = this.policyFor(request, config, scanned);
         this.currentPolicy = policy;
         const key = JSON.stringify([policy, config.network]);
         if (this.lastPolicyKey === undefined) {
@@ -905,6 +911,7 @@ export class SandboxManager implements CommandSandbox, SandboxInspector {
             type: "sandbox_policy_changed",
             writable: effectiveWritable(policy.filesystem.allowWrite),
             deny_read: policy.filesystem.denyRead,
+            allow_read: policy.filesystem.allowRead,
             deny_write: policy.filesystem.denyWrite,
             network: config.network,
             allowed_hosts: config.allowed_domains.length,
@@ -1078,6 +1085,7 @@ function baseConfig(): unknown {
 
 interface CommandFilesystemConfig {
     denyRead: string[];
+    allowRead: string[];
     allowWrite: string[];
     denyWrite: string[];
 }
@@ -1091,6 +1099,7 @@ function perCommandConfig(policy: SandboxPolicy): CommandConfig {
     return {
         filesystem: {
             denyRead: [...policy.filesystem.denyRead],
+            allowRead: [...policy.filesystem.allowRead],
             allowWrite: [...policy.filesystem.allowWrite],
             denyWrite: [...policy.filesystem.denyWrite],
         },
@@ -1108,6 +1117,40 @@ function perCommandConfig(policy: SandboxPolicy): CommandConfig {
 /** The writable list as srt sees it: the policy's folders plus srt's own. */
 function effectiveWritable(allowWrite: readonly string[]): readonly string[] {
     return [...new Set([...allowWrite, ...getDefaultWritePaths()])];
+}
+
+/**
+ * What srt reads to run a fenced command: its own write paths outside the
+ * home folder (its TMPDIR, which macOS does not make readable by writing) and,
+ * on Linux, the folder of its seccomp helper, which the namespace executes.
+ */
+function runtimeReadable(
+    platform: NodeJS.Platform,
+    home: string,
+): readonly string[] {
+    const own = getDefaultWritePaths().filter((path) =>
+        path !== home && !path.startsWith(`${home}/`));
+    if (platform !== "linux") return own;
+    return [...own, ...seccompHelperDirectories()];
+}
+
+function seccompHelperDirectories(): readonly string[] {
+    const explicit = seccompApplyPath();
+    if (explicit !== undefined) return [dirname(explicit)];
+    try {
+        const packageRoot = join(
+            dirname(fileURLToPath(
+                import.meta.resolve("@anthropic-ai/sandbox-runtime"),
+            )),
+            "..",
+        );
+        return [
+            join(packageRoot, "vendor", "seccomp"),
+            join(packageRoot, "dist", "vendor", "seccomp"),
+        ].filter((path) => existsSync(path));
+    } catch {
+        return [];
+    }
 }
 
 // A compiled release bundles srt into the executable, so import.meta.url no

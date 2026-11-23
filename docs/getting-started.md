@@ -25,6 +25,10 @@ To let Vera's file tools write in another folder without asking, start with
 `vera --write-root <dir>`, once per folder. See
 [Permission modes and rules](permission-rules.md).
 
+To keep reads to chosen folders, add a rule that asks about reads outside the
+workspace and start with `vera --read-root <dir>`, once per folder. See
+[Limit reads to some folders](permission-rules.md#limit-reads-to-some-folders).
+
 ## Connect a provider
 
 1. Choose **Connect a provider** on Home.

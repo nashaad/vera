@@ -42,6 +42,7 @@ import type { PermissionInputSpec } from "../tools/types.ts";
 import type { RegisteredTool } from "../tools/types.ts";
 import {
     canonicalPermissionPath,
+    type PlacementRoots,
     placeInWorkspace,
 } from "./workspace-scope.ts";
 import {
@@ -109,6 +110,8 @@ export interface PermissionRequest {
     readonly realShellTargets?: ReadonlyMap<string, string>;
     // Canonical roots; only file-tool writes use them.
     readonly writeRoots?: readonly string[];
+    // Canonical roots; only reads of a path use them.
+    readonly readRoots?: readonly string[];
 }
 
 export interface PermissionPredicate {
@@ -199,6 +202,8 @@ export interface DecideToolPermissionOptions {
     readonly realShellTargets?: ReadonlyMap<string, string>;
     // Canonical roots from the session header; only file-tool writes match them.
     readonly writeRoots?: readonly string[];
+    // Canonical roots from the session header; only reads of a path match them.
+    readonly readRoots?: readonly string[];
 }
 
 const SECRET_FILE_HYGIENE_DENY_GLOBS: readonly string[] = [
@@ -712,6 +717,10 @@ export function decideToolPermission(
         || options.writeRoots.length === 0
         ? undefined
         : options.writeRoots.map(canonicalPermissionPath);
+    const readRoots = options.readRoots === undefined
+        || options.readRoots.length === 0
+        ? undefined
+        : options.readRoots.map(canonicalPermissionPath);
     const decisions = extractPermissionActions({
         toolCall,
         workspace,
@@ -720,6 +729,7 @@ export function decideToolPermission(
             ? {}
             : { realShellTargets: options.realShellTargets }),
         ...(writeRoots === undefined ? {} : { writeRoots }),
+        ...(readRoots === undefined ? {} : { readRoots }),
     }, options.extensionTools).map((action) =>
         rescopeScratchAction(action, options.scratchDir)
     ).map((action) =>
@@ -1013,7 +1023,12 @@ export function extractPermissionActions(
         ? request.writeRoots
         : undefined;
     const inputActions = declaredInputs.map((spec) =>
-        structuredInputAction(toolCall, spec, workspace, writeRoots)
+        structuredInputAction(
+            toolCall,
+            spec,
+            workspace,
+            placementRoots(spec.verb, writeRoots, request.readRoots),
+        )
     );
     const urlIndexes = declaredInputs.flatMap((spec, index) =>
         spec.kind === "url" ? [index] : []
@@ -1168,7 +1183,7 @@ function structuredInputAction(
     toolCall: HookToolCall,
     spec: PermissionInputSpec,
     workspace: string,
-    writeRoots?: readonly string[],
+    roots: PlacementRoots,
 ): PermissionAction {
     const raw = toolCall.input[spec.field];
     if (typeof raw !== "string") {
@@ -1192,8 +1207,22 @@ function structuredInputAction(
         tool: toolCall.name,
         verb: spec.verb,
         path,
-        ...pathPlacement(path, workspace, writeRoots),
+        ...pathPlacement(path, workspace, roots),
     };
+}
+
+// A read root only places a read inside the workspace and a write root only
+// lifts a write, so each action sees one list. A shell read action has no path,
+// so read roots never reach one.
+function placementRoots(
+    verb: PermissionVerb,
+    writeRoots: readonly string[] | undefined,
+    readRoots: readonly string[] | undefined,
+): PlacementRoots {
+    if (verb === "read") {
+        return readRoots === undefined ? {} : { readRoots };
+    }
+    return writeRoots === undefined ? {} : { writeRoots };
 }
 
 // The bash write and delete targets as the shell would open them, unnormalized,
@@ -1884,12 +1913,12 @@ function rescopeScratchAction(
 function pathPlacement(
     path: string,
     workspace: string,
-    writeRoots?: readonly string[],
+    roots: PlacementRoots = {},
 ): Pick<PermissionAction, "scope" | "otherWorktree" | "writeRoot"> {
     const { scope, otherWorktree, writeRoot } = placeInWorkspace(
         path,
         workspace,
-        writeRoots,
+        roots,
     );
     return {
         scope,

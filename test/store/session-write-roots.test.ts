@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { MAX_SESSION_WRITE_ROOTS } from "../../src/store/session-write-roots.ts";
+import { MAX_SESSION_ROOTS } from "../../src/store/session-roots.ts";
 import { createSessionBranch } from "../../src/store/session-branch.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 
@@ -79,7 +79,7 @@ test("@core the header parser refuses the filesystem root and non-canonical root
         42,
         [["/tmp"]],
         Array.from(
-            { length: MAX_SESSION_WRITE_ROOTS + 1 },
+            { length: MAX_SESSION_ROOTS + 1 },
             (_, index) => join(directory, `root-${index}`),
         ),
     ];

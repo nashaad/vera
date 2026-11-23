@@ -3,6 +3,7 @@ import { join, resolve, sep } from "node:path";
 
 import type { PermissionRule } from "../../src/engine/permissions.ts";
 import { compileSandboxPolicy } from "../../src/sandbox/policy.ts";
+import { fencesReads, fixedReadable } from "../../src/sandbox/read-fence.ts";
 
 const workspace = "/work/repo";
 const scratch = "/state/scratch";
@@ -344,4 +345,159 @@ test("@core sandbox policy expands ~ and .. in rules the way permission_rules do
     ]);
     expect(compiled.filesystem.denyRead).toEqual([join(home, "plunder")]);
     expect(compiled.filesystem.denyWrite).toContain(resolve("/data/../booty"));
+});
+
+const FENCE = rule({ scope: "outside_workspace", verb: "read" }, "ask");
+
+function fenced(
+    rules: readonly PermissionRule[],
+    platform: NodeJS.Platform = "darwin",
+    extra: { readRoots?: readonly string[]; runtimeReadable?: readonly string[] } = {},
+) {
+    return compileSandboxPolicy({
+        workspace,
+        platform,
+        protectedFiles: [],
+        protectedDirectories: [],
+        scratchDir: scratch,
+        tempDir: temp,
+        home,
+        otherCheckouts: [],
+        config: { enabled: true, network: "open", allowed_domains: [] },
+        permissionRules: rules,
+        ...extra,
+    });
+}
+
+test("@core sandbox policy holds no read fence without a rule that asks for one", () => {
+    for (const rules of [
+        [],
+        [rule({ scope: "outside_workspace", verb: "write" }, "deny")],
+        [rule({ scope: "outside_workspace", verb: "read" }, "allow")],
+        [rule({ scope: "workspace", verb: "read" }, "deny")],
+        [rule({ path: "/data/secret", scope: "outside_workspace", verb: "read" }, "deny")],
+        [rule({ tool: "read" }, "deny")],
+    ]) {
+        const compiled = fenced(rules, "darwin", { readRoots: ["/other"] });
+        expect(compiled.filesystem.denyRead).not.toContain("/");
+        expect(compiled.filesystem.allowRead).toEqual([]);
+    }
+});
+
+test("@core sandbox policy fences reads on a deny or ask of a read outside the workspace", () => {
+    for (const then of ["deny", "ask"] as const) {
+        for (const when of [
+            { scope: "outside_workspace", verb: "read" },
+            { scope: "outside_workspace" },
+            { scope: "outside_workspace", verb: "read", tool: "read" },
+        ] as const) {
+            const compiled = fenced([rule(when, then)]);
+            expect(compiled.filesystem.denyRead).toContain("/");
+            expect(compiled.filesystem.allowRead.length).toBeGreaterThan(0);
+        }
+    }
+    expect(fencesReads([FENCE])).toBe(true);
+    expect(fencesReads([])).toBe(false);
+});
+
+test("@core sandbox policy lets a fenced command read the session folders and read roots", () => {
+    const compiled = fenced([FENCE], "darwin", {
+        readRoots: ["/other/docs", "/more/data/../notes"],
+    });
+    expect(compiled.filesystem.allowRead).toEqual(
+        expect.arrayContaining([
+            workspace,
+            scratch,
+            resolve(temp),
+            "/other/docs",
+            "/more/notes",
+        ]),
+    );
+    for (const folder of compiled.filesystem.allowWrite) {
+        expect(compiled.filesystem.allowRead).toContain(folder);
+    }
+});
+
+test("@core sandbox policy adds the runtime's own folders to a fenced allow list", () => {
+    const compiled = fenced([FENCE], "linux", {
+        runtimeReadable: ["/opt/vera/node_modules/srt/vendor/seccomp"],
+    });
+    expect(compiled.filesystem.allowRead).toContain(
+        "/opt/vera/node_modules/srt/vendor/seccomp",
+    );
+});
+
+test("@core sandbox policy keeps a path deny inside an allowed folder", () => {
+    const compiled = fenced(
+        [FENCE, rule({ path: join(workspace, "secrets"), verb: "read" }, "deny")],
+        "darwin",
+        { readRoots: ["/other/docs"] },
+    );
+    expect(compiled.filesystem.denyRead).toEqual(
+        expect.arrayContaining(["/", join(workspace, "secrets")]),
+    );
+    expect(compiled.filesystem.allowRead).toContain(workspace);
+});
+
+test("@core sandbox policy gives a fenced macOS command the system folders and the home toolchains", () => {
+    const allow = fenced([FENCE], "darwin").filesystem.allowRead;
+    expect(allow).toEqual(
+        expect.arrayContaining([
+            "/bin",
+            "/usr",
+            "/System",
+            "/Library",
+            "/private/etc",
+            "/private/var",
+            "/dev",
+            "/et[c]",
+            "/tm[p]",
+            "/va[r]",
+            "/privat[e]",
+            join(home, ".bun"),
+            join(home, ".gitconfig"),
+            join(home, "Library", "Caches"),
+            join(home, ".CFUserTextEncoding"),
+        ]),
+    );
+    for (const closed of ["/Users", "/Volumes", "/private", "/private/tmp", home]) {
+        expect(allow).not.toContain(closed);
+    }
+});
+
+test("@core sandbox policy gives a fenced Linux command the system folders and the home toolchains", () => {
+    const allow = fenced([FENCE], "linux").filesystem.allowRead;
+    expect(allow).toEqual(
+        expect.arrayContaining([
+            "/bin",
+            "/usr",
+            "/lib",
+            "/lib64",
+            "/etc",
+            "/proc",
+            "/sys",
+            "/dev",
+            "/run",
+            "/var",
+            join(home, ".cargo"),
+            join(home, ".config", "git"),
+        ]),
+    );
+    for (const closed of ["/home", "/root", home]) {
+        expect(allow).not.toContain(closed);
+    }
+    expect(allow).not.toContain(join(home, "Library", "Caches"));
+});
+
+test("@core sandbox policy keeps the macOS only entries out of the Linux list", () => {
+    expect(fixedReadable("linux", home).some((path) => path.includes("["))).toBe(false);
+    expect(fixedReadable("linux", home).some((path) => path.includes("*"))).toBe(false);
+});
+
+test("@core sandbox policy still denies writes a fence leaves readable", () => {
+    const compiled = fenced([FENCE, rule({ path: "/data/ask", verb: "write" }, "ask")]);
+    expect(compiled.filesystem.denyWrite).toContain("/data/ask");
+    expect(compiled.filesystem.allowWrite).toEqual(
+        expect.arrayContaining([workspace, scratch, resolve(temp)]),
+    );
 });

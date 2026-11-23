@@ -76,6 +76,7 @@ export type ManagedProcessRunResult =
 export interface SandboxCommandIdentity {
     readonly sessionId: string;
     readonly scratchDir?: string;
+    readonly readRoots?: readonly string[];
     readonly toolCallId?: string;
     readonly approvalMode?: string;
 }
@@ -596,6 +597,9 @@ export class ManagedProcessRegistry {
             ...(identity.scratchDir === undefined
                 ? {}
                 : { scratchDir: identity.scratchDir }),
+            ...(identity.readRoots === undefined
+                ? {}
+                : { readRoots: identity.readRoots }),
             sessionId: identity.sessionId,
             toolCallId: identity.toolCallId ?? processId,
             ...(identity.approvalMode === undefined

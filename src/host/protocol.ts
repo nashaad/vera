@@ -32,7 +32,7 @@ import type {
     SessionSearchResults,
 } from "../store/session-search.ts";
 import { isStartupProfile, type StartupProfile } from "../startup-profile.ts";
-import { MAX_SESSION_WRITE_ROOTS } from "../store/session-write-roots.ts";
+import { MAX_SESSION_ROOTS } from "../store/session-roots.ts";
 import type { HostRequester } from "./requester.ts";
 import {
     isStorageAgeDays,
@@ -361,6 +361,8 @@ export interface CreateAgentRequest {
     readonly notes_offer?: boolean;
     // Absolute directories the session may write to beyond its workspace. Fixed for the life of the session.
     readonly write_roots?: readonly string[];
+    // Absolute directories the session may read as if they were inside its workspace. Fixed for the life of the session.
+    readonly read_roots?: readonly string[];
 }
 
 export interface ResumeAgentRequest {
@@ -1271,6 +1273,18 @@ function parseOptionalFolder(workspace: unknown): { readonly workspace?: string 
     return { workspace };
 }
 
+function isCreateRequestRoots(value: unknown): value is readonly string[] {
+    return Array.isArray(value)
+        && value.length <= MAX_SESSION_ROOTS
+        && value.every((root: unknown) =>
+            typeof root === "string"
+            && root.length > 0
+            && root.length <= 4_096
+            && !root.includes("\0")
+            && isAbsolute(root)
+        );
+}
+
 function validProviderRequestId(value: unknown): value is string {
     return typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f]/u.test(value);
 }
@@ -1518,15 +1532,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && (value.notes_offer === undefined
             || typeof value.notes_offer === "boolean")
         && (value.write_roots === undefined
-            || (Array.isArray(value.write_roots)
-                && value.write_roots.length <= MAX_SESSION_WRITE_ROOTS
-                && value.write_roots.every((root: unknown) =>
-                    typeof root === "string"
-                    && root.length > 0
-                    && root.length <= 4_096
-                    && !root.includes("\0")
-                    && isAbsolute(root)
-                )))
+            || isCreateRequestRoots(value.write_roots))
+        && (value.read_roots === undefined
+            || isCreateRequestRoots(value.read_roots))
     ) {
         return {
             type: "create_agent",
@@ -1546,6 +1554,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             ...(value.write_roots === undefined
                 ? {}
                 : { write_roots: value.write_roots as readonly string[] }),
+            ...(value.read_roots === undefined
+                ? {}
+                : { read_roots: value.read_roots as readonly string[] }),
         };
     }
     if (

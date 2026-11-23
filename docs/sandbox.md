@@ -40,7 +40,9 @@ Sandbox: on, network open
 ## What a command can do
 
 It can read every file your account can read, except a path a
-`permission_rules` deny or ask rule names for reads.
+`permission_rules` deny or ask rule names for reads. A rule that asks about or
+denies reads outside the workspace narrows this to a short list of folders; see
+[Fence shell reads](#fence-shell-reads).
 
 It can write:
 
@@ -85,6 +87,54 @@ outside the workspace, add a `permission_rules` allow for that path. A path
 named by an ask rule is blocked from commands even after you allow the prompt,
 because an ask rule is also a write deny for the sandbox. The file tools still
 write it.
+
+## Fence shell reads
+
+A shell read carries no path at the permission check, so a rule that limits
+reads to the workspace does not see `cat ~/rum/cellar.md`. With the sandbox on,
+the same rule can fence commands at the OS level. Add a home `permission_rules`
+entry that asks about or denies reads outside the workspace, with no `path`:
+
+```json
+"permission_rules": [
+  { "when": { "verb": "read", "path_scope": "outside_workspace" }, "then": "deny" }
+]
+```
+
+The `verb` is `read` or left out, and `then` is `ask` or `deny`. A rule that
+names a `path` does not turn the fence on. See
+[Limit reads to some folders](permission-rules.md#limit-reads-to-some-folders)
+for the rule and the file tools.
+
+With the fence on, a command can read only:
+
+- the session's workspace;
+- the session's read roots, from `--read-root`;
+- the session's scratch folder and the temp folder;
+- in a linked worktree, the repository's shared git folder;
+- each folder a `permission_rules` allow makes writable;
+- the folders in this table, which commands need to start and run.
+
+| Where | Readable |
+|---|---|
+| macOS | `/bin`, `/sbin`, `/usr`, `/System`, `/Library`, `/Applications`, `/opt`, `/private/etc`, `/private/var`, `/dev`, and the `/etc`, `/tmp`, `/var` and `/private` entries themselves (not what `/private/tmp` holds) |
+| Linux | `/bin`, `/sbin`, `/usr`, `/lib`, `/lib32`, `/lib64`, `/libx32`, `/etc`, `/opt`, `/proc`, `/sys`, `/dev`, `/run`, `/var`, `/nix`, `/snap` |
+| Your home, macOS and Linux | `~/.bun`, `~/.cargo`, `~/.rustup`, `~/.nvm`, `~/.volta`, `~/.fnm`, `~/.pyenv`, `~/.rbenv`, `~/.asdf`, `~/.deno`, `~/go`, `~/.local/bin`, `~/.local/share/mise`, `~/.local/share/uv`, `~/.npm`, `~/.cache`, `~/.gitconfig`, `~/.config/git` |
+| Your home, macOS only | `~/Library/Caches`, `~/.CFUserTextEncoding`, `~/Library/Preferences/.GlobalPreferences*`, `~/Library/Preferences/ByHost/.GlobalPreferences.*` |
+| The sandbox itself | its own temp folder outside your home, and on Linux the folder of its seccomp helper |
+
+Everything else is refused: the rest of your home folder and, on macOS,
+`/private/tmp`, `/Users` and `/Volumes`, apart from the folders listed above.
+
+A deny or ask rule that names a path still blocks reads inside the folders in
+the table. A blocked read fails inside the command with `Operation not
+permitted`. It does not ask, and answering another prompt does not widen the
+fence. To let commands read a folder, start the session with `--read-root` for
+it.
+
+The fence needs the sandbox to be running. With the sandbox off or
+unavailable, and in `full_access`, commands read as before and the fence does
+not apply. The file tools follow the rule as usual in every case.
 
 ## Network
 
@@ -145,18 +195,19 @@ unsandboxed` until the missing piece is installed and Vera restarts.
 ## full_access
 
 In `full_access` the sandbox is not applied. Commands run directly, so long
-operations are not slowed by wrapping. `/permissions` says
-`Sandbox: on, not applied in full_access`.
+operations are not slowed by wrapping, and the read fence does not apply.
+`/permissions` says `Sandbox: on, not applied in full_access`.
 
 ## Where it is logged
 
 The host log (`host.log`) records:
 
 - `sandbox_started`: the platform, the `srt` version, the dependency check,
-  the writable list, the read and write deny lists, and the network mode;
+  the writable list, the read and write deny lists, the readable list when
+  reads are fenced, and the network mode;
 - `sandbox_unavailable`: the reason, the errors, and what to install;
-- `sandbox_policy_changed`: the new writable and deny lists after a config
-  change;
+- `sandbox_policy_changed`: the new writable, deny and readable lists after a
+  config change;
 - `sandbox_command`: for each command, the session ID, tool call ID, command
   ID, whether it was wrapped and why not, the wrap error, the exit code, and
   the violation count;

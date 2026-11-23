@@ -7,6 +7,7 @@ import {
     projectRulesDirectory,
     projectVeraConfigPath,
 } from "../project-paths.ts";
+import { fencesReads, fixedReadable } from "./read-fence.ts";
 
 export interface SandboxPolicyInput {
     readonly workspace: string;
@@ -42,12 +43,21 @@ export interface SandboxPolicyInput {
      * not from the command's workspace.
      */
     readonly scannedWriteDenies?: readonly string[];
+    /** The session's read roots: absolute folders reads may reach beyond the workspace. */
+    readonly readRoots?: readonly string[];
+    /**
+     * Paths the sandbox runtime reads to run a command, such as its own
+     * helper binary. Readable when reads are fenced; unused otherwise.
+     */
+    readonly runtimeReadable?: readonly string[];
     readonly config: SandboxConfig;
     readonly permissionRules: readonly PermissionRule[];
 }
 
 export interface SandboxFilesystemPolicy {
     readonly denyRead: readonly string[];
+    /** Readable inside a denied tree; empty unless reads are fenced. */
+    readonly allowRead: readonly string[];
     readonly allowWrite: readonly string[];
     readonly denyWrite: readonly string[];
 }
@@ -66,6 +76,9 @@ export interface SandboxPolicy {
 /**
  * One command's sandbox policy. The lists hold literal paths, except the deny
  * lists, where macOS takes a `*` suffix and Linux takes the literal path.
+ *
+ * A deny or ask rule on reads outside the workspace fences reads: the whole
+ * disk is denied, and the folders the command needs stay readable.
  */
 export function compileSandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
     const home = input.home ?? homedir();
@@ -151,9 +164,21 @@ export function compileSandboxPolicy(input: SandboxPolicyInput): SandboxPolicy {
         if (isUnder(checkout, [...allowWrite])) denyWrite.add(checkout);
     }
 
+    const fenced = fencesReads(input.permissionRules);
+    const allowRead = new Set<string>();
+    if (fenced) {
+        denyRead.add("/");
+        allowRead.add(workspace);
+        for (const root of input.readRoots ?? []) allowRead.add(resolve(root));
+        for (const folder of allowWrite) allowRead.add(folder);
+        for (const path of fixedReadable(input.platform, home)) allowRead.add(path);
+        for (const path of input.runtimeReadable ?? []) allowRead.add(resolve(path));
+    }
+
     const policy: SandboxPolicy = {
         filesystem: {
             denyRead: [...denyRead],
+            allowRead: [...allowRead],
             allowWrite: [...allowWrite],
             denyWrite: [...denyWrite],
         },

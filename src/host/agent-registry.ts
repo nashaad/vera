@@ -1176,6 +1176,7 @@ export class AgentRegistry {
             loadOptionalContext: startupProfile === "default",
             ...(store.header.contextAssemblyMode === undefined
                     && store.header.writeRoots === undefined
+                    && store.header.readRoots === undefined
                 ? {}
                 : {
                     sessionMetadata: {
@@ -1188,6 +1189,9 @@ export class AgentRegistry {
                         ...(store.header.writeRoots === undefined
                             ? {}
                             : { writeRoots: store.header.writeRoots }),
+                        ...(store.header.readRoots === undefined
+                            ? {}
+                            : { readRoots: store.header.readRoots }),
                     },
                 }),
             ...(this.options.readPool === undefined

@@ -55,6 +55,11 @@ export class AgentBranchCommitError extends Error {
     }
 }
 
+export interface AgentStartRoots {
+    readonly writeRoots?: readonly string[] | undefined;
+    readonly readRoots?: readonly string[] | undefined;
+}
+
 export function createAgentThroughHost(
     socketPath: string,
     workspace: string | undefined,
@@ -62,8 +67,9 @@ export function createAgentThroughHost(
     lifetime?: "ephemeral" | "durable",
     startupProfile: StartupProfile = "default",
     notesOffer?: boolean,
-    writeRoots?: readonly string[],
+    roots: AgentStartRoots = {},
 ): Promise<ReadyAgent> {
+    const { writeRoots, readRoots } = roots;
     return requestAgentStart(socketPath, {
         type: "create_agent",
         ...(workspace === undefined ? {} : { workspace }),
@@ -78,6 +84,9 @@ export function createAgentThroughHost(
         ...(writeRoots === undefined || writeRoots.length === 0
             ? {}
             : { write_roots: writeRoots }),
+        ...(readRoots === undefined || readRoots.length === 0
+            ? {}
+            : { read_roots: readRoots }),
     });
 }
 
@@ -249,6 +258,7 @@ interface CreateAgentMessage {
     readonly startup_profile?: StartupProfile;
     readonly notes_offer?: true;
     readonly write_roots?: readonly string[];
+    readonly read_roots?: readonly string[];
 }
 
 interface ResumeAgentMessage {

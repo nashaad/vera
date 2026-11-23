@@ -11,6 +11,13 @@ export interface WorkspacePlacement {
     readonly writeRoot: boolean;
 }
 
+// Canonical roots a placement may honor. Each list applies to one verb, so the
+// caller passes only the list for the action it is placing.
+export interface PlacementRoots {
+    readonly writeRoots?: readonly string[];
+    readonly readRoots?: readonly string[];
+}
+
 interface Checkout {
     readonly root: string;
     readonly repository: string;
@@ -75,13 +82,17 @@ export function otherCheckoutRoots(workspace: string): readonly string[] {
 
 // A checkout of the same repository other than the workspace's is outside it,
 // even nested under the root. A nested clone or submodule stays inside.
-// Write roots are compared in canonical form, so a symlink under a root that
-// points elsewhere does not take the root's authority.
+// Roots are compared in canonical form, so a symlink under a root that
+// points elsewhere does not take the root's authority. A read root counts as
+// inside, including one under another checkout of the repository.
 export function placeInWorkspace(
     path: string,
     workspace: string,
-    writeRoots: readonly string[] = [],
+    roots: PlacementRoots = {},
 ): WorkspacePlacement {
+    if (underRoots(path, roots.readRoots)) {
+        return { scope: "workspace", otherWorktree: false, writeRoot: false };
+    }
     const root = resolve(workspace);
     const otherWorktree = inOtherWorktree(path, root);
     const inside = path === root || path.startsWith(`${root}${sep}`);
@@ -93,7 +104,7 @@ export function placeInWorkspace(
         otherWorktree,
         writeRoot: scope === "outside_workspace"
             && !otherWorktree
-            && underWriteRoot(path, writeRoots),
+            && underRoots(path, roots.writeRoots),
     };
 }
 
@@ -116,13 +127,13 @@ export function canonicalPermissionPath(path: string): string {
     }
 }
 
-function underWriteRoot(
+function underRoots(
     path: string,
-    writeRoots: readonly string[],
+    roots: readonly string[] | undefined,
 ): boolean {
-    if (writeRoots.length === 0) return false;
+    if (roots === undefined || roots.length === 0) return false;
     const canonical = canonicalPermissionPath(path);
-    return writeRoots.some((root) =>
+    return roots.some((root) =>
         canonical === root || canonical.startsWith(`${root}${sep}`)
     );
 }

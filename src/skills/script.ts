@@ -287,6 +287,9 @@ async function prepareSandboxedScript(
         ...(identity.scratchDir === undefined
             ? {}
             : { scratchDir: identity.scratchDir }),
+        ...(identity.readRoots === undefined
+            ? {}
+            : { readRoots: identity.readRoots }),
         sessionId: identity.sessionId,
         toolCallId: identity.toolCallId ?? options.scriptPath,
         ...(identity.approvalMode === undefined

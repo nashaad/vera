@@ -354,6 +354,129 @@ test("@core git add and commit work in a linked worktree while its shared hooks 
     await sandbox.dispose();
 });
 
+test("@core a fenced sandbox reads the workspace and read roots and denies the rest of the disk", async () => {
+    if (!mac) return;
+    // /private/tmp is not on the fixed readable list, unlike the system temp folder.
+    const base = mkdtempSync("/private/tmp/vera-read-fence-");
+    directories.push(base);
+    const inside = join(base, "in");
+    const outside = join(base, "out");
+    mkdirSync(inside);
+    mkdirSync(outside);
+    writeFileSync(join(inside, "note.txt"), "inside note\n");
+    writeFileSync(join(inside, "secret.txt"), "inside secret\n");
+    writeFileSync(join(outside, "note.txt"), "outside note\n");
+    const workspace = directory("vera-sandbox-live-");
+    writeFileSync(join(workspace, "own.txt"), "workspace note\n");
+    const fence: PermissionRule = {
+        name: "fence",
+        when: { verb: "read", scope: "outside_workspace" },
+        then: "ask",
+    };
+    const secretDeny: PermissionRule = {
+        name: "no-secret",
+        when: { path: join(inside, "secret.txt"), verb: "read" },
+        then: "deny",
+    };
+    let rules: readonly PermissionRule[] = [];
+    const sandbox = new SandboxManager({
+        config: () => ({
+            enabled: true,
+            network: "open",
+            allowed_domains: [],
+        }),
+        permissionRules: () => rules,
+        log: () => {},
+    });
+    const scope = new ManagedProcessRegistry({ sandbox }).scope("live");
+    const run = async (
+        active: readonly PermissionRule[],
+        command: string,
+        readRoots?: readonly string[],
+    ) => {
+        rules = active;
+        const result = await scope.run({
+            command,
+            cwd: workspace,
+            env: { ...process.env },
+            interactive: false,
+            sandbox: {
+                sessionId: "live",
+                toolCallId: "call-1",
+                ...(readRoots === undefined ? {} : { readRoots }),
+            },
+        });
+        expect(result.kind).toBe("exited");
+        if (result.kind !== "exited") throw new Error("did not exit");
+        return result.snapshot;
+    };
+
+    const open = await run([], `cat ${shellPath(join(outside, "note.txt"))}`);
+    expect(open.exitCode).toBe(0);
+    expect(open.output).toContain("outside note");
+
+    const roots = [inside];
+    const own = await run([fence], "cat own.txt", roots);
+    expect(own.exitCode).toBe(0);
+    expect(own.output).toContain("workspace note");
+    const root = await run([fence], `cat ${shellPath(join(inside, "note.txt"))}`, roots);
+    expect(root.exitCode).toBe(0);
+    expect(root.output).toContain("inside note");
+    const sibling = await run([fence], `cat ${shellPath(join(outside, "note.txt"))}`, roots);
+    expect(sibling.exitCode).not.toBe(0);
+    expect(sibling.output).not.toContain("outside note");
+    const listing = await run([fence], `ls ${shellPath(outside)}`, roots);
+    expect(listing.exitCode).not.toBe(0);
+    const grep = await run([fence], `grep -r note ${shellPath(inside)}`, roots);
+    expect(grep.exitCode).toBe(0);
+    expect(grep.output).toContain("inside note");
+    const parent = await run([fence], `grep -r note ${shellPath(base)}`, roots);
+    expect(parent.exitCode).not.toBe(0);
+    expect(parent.output).not.toContain("outside note");
+    const tools = await run(
+        [fence],
+        "/usr/bin/true && git --version && cat <<EOF\nhere\nEOF",
+        roots,
+    );
+    expect(tools.exitCode).toBe(0);
+    expect(tools.output).toContain("git version");
+    expect(tools.output).toContain("here");
+    // /etc, /tmp and /var are links at the root of macOS and must stay readable.
+    const links = await run(
+        [fence],
+        "cat /etc/hosts | head -1 && cd /tmp && echo made > \"$TMPDIR/fence-probe\" && cat \"$TMPDIR/fence-probe\"",
+        roots,
+    );
+    expect(links.exitCode).toBe(0);
+    expect(links.output).toContain("made");
+    expect(links.output).not.toContain("Blocked by sandbox");
+    const privateTemp = await run([fence], "ls /private/tmp", roots);
+    expect(privateTemp.exitCode).not.toBe(0);
+
+    const denied = await run(
+        [fence, secretDeny],
+        `cat ${shellPath(join(inside, "secret.txt"))}`,
+        roots,
+    );
+    expect(denied.exitCode).not.toBe(0);
+    expect(denied.output).not.toContain("inside secret");
+    const kept = await run(
+        [fence, secretDeny],
+        `cat ${shellPath(join(inside, "note.txt"))}`,
+        roots,
+    );
+    expect(kept.exitCode).toBe(0);
+    expect(kept.output).toContain("inside note");
+
+    const writeOnly = await run(
+        [{ ...fence, when: { verb: "write", scope: "outside_workspace" } }],
+        `cat ${shellPath(join(outside, "note.txt"))}`,
+        roots,
+    );
+    expect(writeOnly.exitCode).toBe(0);
+    await sandbox.dispose();
+});
+
 test("@core a real sandbox blocks a denied read reached through a variable path", async () => {
     if (!mac) return;
     const workspace = directory("vera-sandbox-live-");

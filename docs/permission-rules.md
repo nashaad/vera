@@ -164,11 +164,74 @@ session launched with it has roots: `vera -p`, `vera -c`, `resume`, `attach`,
 and commands refuse the flag, and a conversation started inside the TUI or
 the desktop app has none.
 
+## Limit reads to some folders
+
+Reads run without asking in every built-in mode, so the crow may read
+anywhere on the ship. To keep it to the charts and the logbook, add a
+[home rule](#write-a-home-rule) that asks about reads outside the workspace,
+then start the session with `--read-root <dir>` for each folder the crow may
+read freely. In Home `config.json`:
+
+```json
+"permission_rules": [
+  { "when": { "verb": "read", "path_scope": "outside_workspace" }, "then": "ask" }
+]
+```
+
+```sh
+vera --read-root ~/charts --read-root ~/logbook
+```
+
+In ask and auto, reads in the workspace and under `~/charts` and `~/logbook`
+run without asking, and a read anywhere else asks. With `"then": "deny"`, a
+read anywhere else is refused, in every mode. The prompt from an ask offers only
+Yes, this time and No.
+
+A read root on its own changes nothing in the built-in modes, because they
+already run reads without asking. It matters with a rule like the one above.
+
+Repeat the flag for more folders, up to 16. The folder rules are the same as for
+`--write-root`: each one must already exist and be a directory, and Vera records
+its real path, so a symlink and a path with `..` name the folder they reach. It
+refuses the filesystem root, your home directory, a folder that contains your
+home directory, and a folder that contains Vera's home at `~/.vera` or sits
+inside it.
+
+A read under a root counts as inside the workspace for every rule, so a rule
+with `path_scope: outside_workspace` does not match it. That covers the file
+tools. A root inside another worktree of the session's repository counts as
+inside for reads too.
+
+A shell read such as `cat ~/rum/cellar.md` carries no path, so at the
+permission check a `path_scope` rule does not see it and it follows the mode.
+With the [sandbox](sandbox.md) on, the same rule also fences commands at the OS
+level: they can read the workspace, the read roots and the folders listed in
+[Fence shell reads](sandbox.md#fence-shell-reads), and any other read fails with
+`Operation not permitted` instead of asking. With the sandbox off, or in
+`full_access`, shell reads are not fenced.
+
+Everything else about a root is unchanged. Writes, deletes and every other
+action under it follow the mode as before, and a root adds no write access. A
+rule that names a path still matches inside a root, so a deny on `~/.aws` still
+refuses a read there. The built-in refusal to read `.env`, `*.pem` and `id_rsa`
+still applies. A read root adds no write access to the [sandbox](sandbox.md);
+its folder is one of the folders commands may read under the fence.
+
+Read roots and write roots are independent, and one folder can be both.
+
+The roots are fixed when the session is created. `resume`, `vera -c`, a
+branch, and a subagent keep them. The flag starts the session, so only a
+session launched with it has roots: `vera -p`, `vera -c`, `resume`, `attach`,
+and commands refuse the flag, and a conversation started inside the TUI or
+the desktop app has none.
+
 ## Write a home rule
 
 `permission_rules` in Home `config.json` holds rules that apply beside
-whichever mode is selected. Here a read of the cloud credentials is always
-refused, and reads under the logs folder are allowed:
+whichever mode is selected. A `when` takes the same fields as a rule in a
+custom mode, including `path_scope`; see [Rule fields](#rule-fields). Here a
+read of the cloud credentials is always refused, and reads under the logs
+folder are allowed:
 
 ```json
 "permission_rules": [
@@ -283,7 +346,7 @@ A `when` must name at least one field, and every field it names must match.
 | `path` | That absolute path or anything under it. |
 | `path_glob` | The file name; `*` matches any run of characters. |
 | `host` | The website a URL points at, such as `github.com`. `*.github.com` matches its subdomains but not `github.com` itself. |
-| `path_scope` | `workspace` or `outside_workspace`. A write under a declared write root counts as `outside_workspace`. |
+| `path_scope` | `workspace` or `outside_workspace`. A write under a declared write root counts as `outside_workspace`. A read under a declared read root counts as `workspace`. |
 | `operation` | An operation such as `git.push`, or a prefix ending in `*` such as `git.*`. |
 | `executable` | A shell command name, such as `make`. |
 

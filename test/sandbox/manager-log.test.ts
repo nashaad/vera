@@ -2,14 +2,19 @@ import { expect, test } from "bun:test";
 import { join } from "node:path";
 
 import type { SandboxConfig } from "../../src/config/sandbox.ts";
+import type { PermissionRule } from "../../src/engine/permissions.ts";
 import type { HostLogEntry } from "../../src/host/host-log.ts";
 import { SandboxManager } from "../../src/sandbox/manager.ts";
 
-function manager(config: () => SandboxConfig, entries: HostLogEntry[]) {
+function manager(
+    config: () => SandboxConfig,
+    entries: HostLogEntry[],
+    rules: () => readonly PermissionRule[] = () => [],
+) {
     return new SandboxManager({
         home: "/Users/me",
         config,
-        permissionRules: () => [],
+        permissionRules: rules,
         log: (entry) => entries.push(entry),
         scanProtected: () => ({ ok: true, paths: [] }),
         readDependencies: () => ({
@@ -110,11 +115,32 @@ test("@core the sandbox logs a policy change", async () => {
         allowed_hosts: 1,
         writable: expect.arrayContaining([join("/work/repo")]),
         deny_read: [],
+        allow_read: [],
     });
     // The protected set comes from the runtime; Vera only anchors it.
     const denyWrite = (changed[0] as { deny_write?: string[] }).deny_write ?? [];
     expect(denyWrite).toContain(join("/work/repo", ".git/hooks"));
     expect(denyWrite).toContain(join("/work/repo", ".git/config"));
+});
+
+test("@core the sandbox logs the read fence and the session read roots", async () => {
+    const entries: HostLogEntry[] = [];
+    const fence: PermissionRule = {
+        name: "fence",
+        when: { scope: "outside_workspace", verb: "read" },
+        then: "ask",
+    };
+    const sandbox = manager(() => enabled, entries, () => [fence]);
+    await sandbox.prepare({ ...request(), readRoots: ["/first/docs"] });
+    await sandbox.prepare({ ...request(), readRoots: ["/other/docs"] });
+    const changed = entries.filter((entry) => entry.type === "sandbox_policy_changed");
+    expect(changed).toHaveLength(1);
+    const entry = changed[0] as { deny_read?: string[]; allow_read?: string[] };
+    expect(entry.deny_read).toContain("/");
+    expect(entry.allow_read).toEqual(
+        expect.arrayContaining(["/work/repo", "/other/docs"]),
+    );
+    expect(entry.allow_read).not.toContain("/first/docs");
 });
 
 test("@core a Linux protected-path scan failure refuses the command and is logged", async () => {

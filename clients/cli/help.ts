@@ -9,7 +9,7 @@ export interface CliCommandHelp {
 }
 
 export const CLI_COMMANDS: readonly CliCommandHelp[] = [
-    { usage: "vera [--write-root <dir>] [--bare|--prompt-only]", docs: "getting-started.md", description: "Start a new agent in the current directory" },
+    { usage: "vera [--write-root <dir>] [--read-root <dir>] [--bare|--prompt-only]", docs: "getting-started.md", description: "Start a new agent in the current directory" },
     { usage: "vera -c", docs: "sessions.md", description: "Continue the most recent session" },
     { usage: "vera -p \"prompt\" [flags]", docs: "programmatic-use.md", description: "Run one bounded turn and print the final reply" },
     { usage: "vera ls [--all]", description: "List this workspace's agents, or every one" },
