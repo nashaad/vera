@@ -6,8 +6,10 @@ description: "Connect an API, subscription, or local server and make its models 
 # Connect and manage providers
 
 In the window, choose a provider on first run, enter its key or sign in in the
-browser, then search for a model and choose **Check and use**. The back arrow
-and Escape return to the previous screen, or close setup from the provider list.
+browser, then search for a model and choose **Check and use**. New Chat shows
+the selected model and effort when the host's settings are available. The back
+arrow and Escape return to the previous screen, or close setup from the provider
+list.
 Open the same window later from Settings > Providers or the Models browser. A
 provider setup request can open it from the conversation. Settings > Providers
 lists connected providers and connections to add. Select a connected provider to
@@ -28,7 +30,14 @@ on Home.
    endpoint. Custom providers also let you choose a protocol and whether a key
    is required.
 3. Press Enter to save. Vera reads the catalog and reports how many models it
-   found.
+   found. When a key is checked through the provider's models endpoint, Vera
+   says the key works.
+
+DeepSeek checks the key against its models endpoint and lists the models bundled
+with Vera rather than the endpoint's list. The desktop shows the confirmation on
+its model step; the terminal shows it in the wizard or key prompt. With Vera's
+shipped recommendations and no existing selection, the model step starts on
+DeepSeek V4.1 Flash 1017 with High effort. You can choose DeepSeek V4 Pro instead.
 
 Endpoints can use HTTP or HTTPS. Connecting a provider makes its catalog
 available; it does not select, favorite, verify, or assign a default model.

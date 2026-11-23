@@ -121,7 +121,9 @@ All connected. Click its header scope chip or press Ctrl+G to switch to
 Favorites; typing searches every connected model while no favorites exist.
 Once you have a favorite, the saved scope is restored when Switch model opens.
 Recommended in `/models` shows Vera's curated picks for the connected
-providers.
+providers. A provider's catalog lists its recommended models in curated order
+unless the catalog assigns an explicit order. Your chosen picker sort and saved
+favorite order still apply.
 
 Favoriting saves a shortcut. It does not switch the conversation or make a
 verification request. Removing a favorite keeps its verification results and
@@ -202,6 +204,9 @@ what they cost: `off` is fastest and cheapest, `xhigh` is slower and costs more,
 and `max` is slowest and costs the most. When a provider publishes its own
 wording for a level, Vera shows that instead. `/effort <level>` sets one
 directly. Levels differ by model, and not every model has an off setting.
+DeepSeek's bundled `deepseek-v4-pro` and `deepseek-flash` both offer `max`,
+`high`, and `off`, with `high` as the default. Vera sends the selected effort
+to DeepSeek.
 
 The `▌` bar marks the level Enter will select. Use Up/Down to move it.
 Switching to a model with effort levels always asks which level to run, with

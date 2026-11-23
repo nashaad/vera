@@ -14,6 +14,8 @@ import {
     effectiveCatalog,
     loadDiscoveryCatalog,
 } from "../../src/model/catalog.ts";
+import { curatedSeed } from "../../src/model/curated-models.ts";
+import { refreshDeepSeekCatalog } from "../../src/model/deepseek-catalog.ts";
 
 function withDiscovery(
     discovery: unknown,
@@ -112,6 +114,91 @@ test("orders defined values first and breaks ties by label", () => {
             ).toEqual(["one", "three", "alpha", "zulu"]);
         },
     );
+});
+
+test("recommended models follow the curated picks without moving other rows", () => {
+    withDiscovery(
+        snapshot([
+            { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+            { id: "zulu", label: "Zulu" },
+            { id: "middle", label: "DeepSeek V4 Q" },
+            { id: "deepseek-flash", label: "DeepSeek V4.1 Flash 1017" },
+            { id: "alpha", label: "Alpha" },
+        ]),
+        (cacheDir) => {
+            const flash = { make: "DeepSeek", model: "deepseek-v4.1-flash" };
+            const pro = { make: "DeepSeek", model: "deepseek-v4-pro" };
+            const flashFirst = effectiveCatalog("test", { cacheDir, curated: [flash, pro] }).models;
+            const proFirst = effectiveCatalog("test", { cacheDir, curated: [pro, flash] }).models;
+
+            expect(flashFirst.map((model) => model.id)).toEqual([
+                "alpha", "deepseek-flash", "middle", "deepseek-v4-pro", "zulu",
+            ]);
+            expect(proFirst.map((model) => model.id)).toEqual([
+                "alpha", "deepseek-v4-pro", "middle", "deepseek-flash", "zulu",
+            ]);
+            for (const models of [flashFirst, proFirst]) {
+                expect(models.filter((model) => model.recommended).map((model) => model.id))
+                    .toHaveLength(2);
+                expect(models.filter((model) => !model.recommended).map((model) => model.id))
+                    .toEqual(["alpha", "middle", "zulu"]);
+            }
+        },
+    );
+});
+
+test("the earliest curated pick wins when several picks map to one model", () => {
+    withDiscovery(
+        snapshot([
+            { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+            { id: "deepseek-flash", label: "DeepSeek V4.1 Flash 1017" },
+        ]),
+        (cacheDir) => {
+            const models = effectiveCatalog("test", {
+                cacheDir,
+                curated: [
+                    { make: "DeepSeek", model: "deepseek-v4.1-flash-1017" },
+                    { make: "DeepSeek", model: "deepseek-v4-pro" },
+                    { make: "DeepSeek", model: "deepseek-flash" },
+                ],
+            }).models;
+            expect(models.map((model) => model.id)).toEqual(["deepseek-flash", "deepseek-v4-pro"]);
+            expect(models.every((model) => model.recommended)).toBe(true);
+        },
+    );
+});
+
+test("catalog order takes precedence over the curated order", () => {
+    withDiscovery(
+        snapshot([
+            { id: "deepseek-flash", label: "DeepSeek V4.1 Flash 1017", order: 3 },
+            { id: "middle", label: "Middle", order: 2 },
+            { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", order: 1 },
+        ]),
+        (cacheDir) => {
+            const models = effectiveCatalog("test", {
+                cacheDir,
+                curated: [
+                    { make: "DeepSeek", model: "deepseek-v4.1-flash" },
+                    { make: "DeepSeek", model: "deepseek-v4-pro" },
+                ],
+            }).models;
+            expect(models.map((model) => model.id)).toEqual([
+                "deepseek-v4-pro", "middle", "deepseek-flash",
+            ]);
+            expect(models.filter((model) => model.recommended).map((model) => model.id))
+                .toEqual(["deepseek-v4-pro", "deepseek-flash"]);
+        },
+    );
+});
+
+test("the bundled DeepSeek catalog starts with the bundled curated Flash pick", () => {
+    withDiscovery(undefined, (cacheDir) => {
+        refreshDeepSeekCatalog({ cacheDir });
+        const models = effectiveCatalog("deepseek", { cacheDir, curated: curatedSeed() }).models;
+        expect(models.filter((model) => model.recommended).map((model) => model.id))
+            .toEqual(["deepseek-flash", "deepseek-v4-pro"]);
+    });
 });
 
 test("drops model entries without a usable id", () => {

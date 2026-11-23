@@ -59,7 +59,7 @@ export function rowPointer(rt: TuiRuntime,
     };
 }
 
-export function requestAgentSettings(rt: TuiRuntime, target: TuiAgentClient): void {
+export function requestAgentSettings(rt: TuiRuntime, target: TuiAgentClient, requestId = randomUUID()): void {
     if (target.failed === true) {
         return;
     }
@@ -67,7 +67,6 @@ export function requestAgentSettings(rt: TuiRuntime, target: TuiAgentClient): vo
     if (target.viewOnly === true && !home) {
         return;
     }
-    const requestId = randomUUID();
     const reconnectProbe = target === rt.client
         && !home
         && rt.hostReconnectAttempted

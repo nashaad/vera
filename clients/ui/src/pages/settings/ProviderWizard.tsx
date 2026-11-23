@@ -8,10 +8,19 @@ import { loadProviderModels } from "./provider-wizard/load-models.ts";
 import { ModelStep } from "./provider-wizard/ModelStep.tsx";
 import { ProviderStep } from "./provider-wizard/ProviderStep.tsx";
 import { ProviderWizardFooter } from "./provider-wizard/ProviderWizardFooter.tsx";
+import { selectProviderModel } from "./provider-wizard/select-model.ts";
 import "../../styles/provider-cards.css";
 import "../../styles/provider-setup.css";
 
 type ProviderWizardStep = "provider" | "key" | "model";
+
+export function keySaveConfirmation(providerName: string, submittedKey: string, saved: boolean): string | undefined {
+    return saved && submittedKey.trim().length > 0 ? `${providerName} key works` : undefined;
+}
+
+export function KeySaveConfirmation({ message }: { readonly message: string }) {
+    return <p className="provider-wizard-success" role="status">{message}</p>;
+}
 
 interface ProviderWizardProps {
     readonly onClose: () => void;
@@ -40,6 +49,7 @@ export function ProviderWizard({ onClose, onComplete, initialProvider, initialPr
     const [providerQuery, setProviderQuery] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | undefined>();
+    const [keyConfirmation, setKeyConfirmation] = useState<string | undefined>();
     const requestVersion = useRef(0);
     const sheet = useRef<HTMLDivElement>(null);
 
@@ -122,6 +132,7 @@ export function ProviderWizard({ onClose, onComplete, initialProvider, initialPr
         setEndpoint(provider.endpoint ?? "");
         setKey("");
         setError(undefined);
+        setKeyConfirmation(undefined);
         setStep("key");
     }
 
@@ -133,6 +144,7 @@ export function ProviderWizard({ onClose, onComplete, initialProvider, initialPr
         setEndpoint("");
         setKey("");
         setError(undefined);
+        setKeyConfirmation(undefined);
         setStep("key");
     }
 
@@ -161,8 +173,10 @@ export function ProviderWizard({ onClose, onComplete, initialProvider, initialPr
     async function connect(): Promise<void> {
         if (bridge === undefined || busy) return;
         const version = ++requestVersion.current;
+        const submittedKey = key;
         setBusy(true);
         setError(undefined);
+        setKeyConfirmation(undefined);
         try {
             if (selected?.methods.includes("browser")) {
                 const result = await bridge.signInProvider(selected.id);
@@ -180,6 +194,7 @@ export function ProviderWizard({ onClose, onComplete, initialProvider, initialPr
                 if (!result.ok) { setError(result.reason); return; }
                 setSelected(result.provider);
                 setKey("");
+                setKeyConfirmation(keySaveConfirmation(result.provider.name, submittedKey, true));
                 await loadModels(result.provider.id, version);
             }
         } catch { if (requestVersion.current === version) setError("Could not connect the provider."); }
@@ -218,7 +233,7 @@ export function ProviderWizard({ onClose, onComplete, initialProvider, initialPr
         setBusy(true);
         setError(undefined);
         try {
-            const result = await bridge.selectProviderModel(selected?.id ?? id, model);
+            const result = await selectProviderModel(bridge, selected?.id ?? id, model, () => requestVersion.current === version);
             if (requestVersion.current !== version) return;
             if (!result.ok) { setError(result.reason); return; }
             onComplete?.();
@@ -271,6 +286,7 @@ export function ProviderWizard({ onClose, onComplete, initialProvider, initialPr
                         </div> : null}
                         {step === "key" ? <KeyStep provider={selected} custom={custom} id={id} endpoint={endpoint} apiKey={key} replacing={replacing} busy={busy} onIdChange={setId} onEndpointChange={setEndpoint} onKeyChange={setKey} onReplace={() => { setReplacing(true); setKey(""); }} /> : null}
                         {step === "model" ? <ModelStep models={models} model={model} query={query} onModelChange={setModel} onQueryChange={setQuery} /> : null}
+                        {step === "model" && keyConfirmation !== undefined ? <KeySaveConfirmation message={keyConfirmation} /> : null}
                         {error === undefined ? null : <p className="provider-wizard-error" role="alert">{error}</p>}
                     </div>
                     <ProviderWizardFooter step={step} provider={selected} replacing={replacing} busy={busy} id={id} apiKey={key} model={model} />

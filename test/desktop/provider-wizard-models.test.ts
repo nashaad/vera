@@ -5,10 +5,10 @@ import type { DesktopBridge } from "../../clients/ui/src/protocol/bridge.ts";
 
 const models = {
     provider: "deepseek",
-    model: "deepseek-chat",
+    model: "deepseek-flash",
     availableModels: [
-        { provider: "deepseek", model: "deepseek-chat" },
-        { provider: "deepseek", model: "deepseek-reasoner" },
+        { provider: "deepseek", model: "deepseek-flash", label: "DeepSeek V4.1 Flash 1017", recommended: true, levels: [{ id: "max" }, { id: "high" }, { id: "off" }], defaultLevel: "high" },
+        { provider: "deepseek", model: "deepseek-v4-pro", label: "DeepSeek V4 Pro", recommended: true, levels: [{ id: "max" }, { id: "high" }, { id: "off" }], defaultLevel: "high", pricing: { input: 0.27, output: 1.1 } },
     ],
 };
 
@@ -22,7 +22,12 @@ test("fixed provider models are shown without a refresh request", async () => {
         },
     };
     const result = await loadProviderModels(bridge, "deepseek");
-    expect(result.rows.map((row) => row.model)).toEqual(["deepseek-chat", "deepseek-reasoner"]);
+    expect(result.rows.map((row) => row.model)).toEqual(["deepseek-flash", "deepseek-v4-pro"]);
+    expect(result.rows.map((row) => row.levels.map((level) => level.id))).toEqual([[
+        "max", "high", "off",
+    ], ["max", "high", "off"]]);
+    expect(result.rows.map((row) => row.defaultLevel)).toEqual(["high", "high"]);
+    expect(result.rows[1]?.pricing).toEqual({ input: 0.27, output: 1.1 });
     expect(result.failure).toBeUndefined();
     expect(refreshes).toBe(0);
 });
@@ -37,7 +42,7 @@ test("a failed or malformed refresh retains the stored catalog and reports the f
             refreshCatalog: async () => response,
         };
         const result = await loadProviderModels(bridge, "deepseek");
-        expect(result.rows.map((row) => row.model)).toEqual(["deepseek-chat", "deepseek-reasoner"]);
+        expect(result.rows.map((row) => row.model)).toEqual(["deepseek-flash", "deepseek-v4-pro"]);
         expect(result.failure).toBeDefined();
     }
 });

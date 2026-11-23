@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { cacheBuildId } from "../../src/release/cache-build-id.ts";
+import { curatedSeed } from "../../src/model/curated-models.ts";
+import { refreshDeepSeekCatalog } from "../../src/model/deepseek-catalog.ts";
 
 import {
     availableModelsWithLevels,
@@ -68,6 +70,65 @@ test("available models carry the catalog levels and default level", () => {
             levels: [],
         },
     ]);
+});
+
+test("available models carry bundled DeepSeek recommendation order to clients", () => {
+    const options = fixture();
+    refreshDeepSeekCatalog({ cacheDir: options.cacheDir });
+    const models = availableModelsWithLevels([
+        suggested("deepseek", "deepseek-v4-pro"),
+        suggested("test", "no-levels"),
+        suggested("deepseek", "deepseek-flash"),
+    ], { ...options, curated: curatedSeed() });
+
+    expect(models.map((model) => `${model.provider}/${model.model}`)).toEqual([
+        "deepseek/deepseek-flash", "test/no-levels", "deepseek/deepseek-v4-pro",
+    ]);
+    expect(models.filter((model) => model.provider === "deepseek").every((model) => model.recommended))
+        .toBe(true);
+    expect(models[0]?.defaultLevel).toBe("high");
+});
+
+test("available model order responds to changed curated picks", () => {
+    const options = fixture();
+    writeFileSync(join(options.cacheDir, "test.json"), JSON.stringify({
+        schema_version: 2,
+        build_id: cacheBuildId(),
+        provider: "test",
+        models: [
+            { id: "pro", label: "Pro", order: 1 },
+            { id: "other", label: "Other" },
+            { id: "flash", label: "Flash", order: 1 },
+        ],
+    }));
+    const source = [suggested("test", "pro"), suggested("test", "other"), suggested("test", "flash")];
+    const pro = { make: "Test", model: "pro" };
+    const flash = { make: "Test", model: "flash" };
+    const ids = (curated: readonly typeof pro[]) =>
+        availableModelsWithLevels(source, { ...options, curated }).map((model) => model.model);
+    expect(ids([flash, pro])).toEqual(["flash", "other", "pro"]);
+    expect(ids([pro, flash])).toEqual(["pro", "other", "flash"]);
+    expect(ids([])).toEqual(["pro", "other", "flash"]);
+});
+
+test("available recommendations retain explicit catalog order", () => {
+    const options = fixture();
+    writeFileSync(join(options.cacheDir, "test.json"), JSON.stringify({
+        schema_version: 2,
+        build_id: cacheBuildId(),
+        provider: "test",
+        models: [
+            { id: "pro", label: "Pro", order: 1 },
+            { id: "flash", label: "Flash", order: 2 },
+        ],
+    }));
+    const models = availableModelsWithLevels([
+        suggested("test", "flash"), suggested("test", "pro"),
+    ], {
+        ...options,
+        curated: [{ make: "Test", model: "flash" }, { make: "Test", model: "pro" }],
+    });
+    expect(models.map((model) => model.model)).toEqual(["pro", "flash"]);
 });
 
 test("the identity reconciles the spellings two routes use for one model", () => {

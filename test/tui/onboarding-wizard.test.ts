@@ -93,6 +93,19 @@ test("the key step names the provider and says where the key goes", () => {
     expect(text).toContain("esc back");
 });
 
+test("a saved key confirmation is visible above the model choices", () => {
+    const text = screenText({
+        ...newWizardSession("model"),
+        chosen: "deepseek",
+        confirmation: "DeepSeek key works",
+        models: [{ id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" }],
+    });
+    expect(text).toContain("DeepSeek key works");
+    expect(text.indexOf("DeepSeek key works")).toBeLessThan(
+        text.indexOf("DeepSeek V4 Pro"),
+    );
+});
+
 test("a refusal shows the provider's own words on the key step", () => {
     const text = screenText({
         ...newWizardSession("key"),

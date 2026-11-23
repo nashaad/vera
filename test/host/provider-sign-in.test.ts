@@ -7,6 +7,13 @@ import { createProviderSignInService } from "../../src/providers/provider-sign-i
 import { connectHost } from "../../src/host/connection.ts";
 import { parseHostRequest } from "../../src/host/protocol.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { providerCatalogCachePath, readProviderCatalogSnapshot, writeProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
+import { curatedSeed } from "../../src/model/curated-models.ts";
+import { configuredCatalog, discoveredDeepSeekModels } from "../../src/host/runtime.ts";
+import { modelsFromConnectedCatalogs } from "../../src/providers/catalog-state.ts";
+import { settingsForClient } from "../../src/host/agent-registry/helpers.ts";
+import { loadOptionalVeraConfig, type VeraConfig } from "../../src/config.ts";
+import { selectOnboardingModel } from "../../src/providers/select-onboarding-model.ts";
 
 test("provider requests validate their wire shape", () => {
     expect(parseHostRequest(JSON.stringify({ type: "provider_save", request_id: "1", provider: "../bad", key: "fake", credential: "api_key", endpoint: "https://example.invalid", protocol: "openai-chat", custom: true }))).toBeUndefined();
@@ -186,6 +193,153 @@ test("host saves a custom provider into the real stores without returning its ke
             expect(JSON.stringify(edited)).not.toContain("fake-key");
         } finally { edit.close(); }
     } finally { connection.close(); await host.close(); provider.stop(true); await rm(root, { recursive: true, force: true }); }
+});
+
+test("@core DeepSeek save validates the key without replacing its bundled catalog or client settings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-deepseek-save-rpc-"));
+    const socketPath = join(root, "host.sock");
+    const cacheDir = join(root, "cache");
+    const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+        if (request.headers.get("authorization") !== "Bearer fake-key") {
+            return Response.json({ error: { message: "Invalid API key" } }, { status: 401 });
+        }
+        return Response.json({ data: [{ id: "deepseek-chat" }, { id: "deepseek-reasoner" }] });
+    } });
+    const service = createProviderSignInService({ env: {}, configPath: join(root, "config.json"), cacheDir,
+        authStorage: createAuthStorage({ path: join(root, "auth.json") }) });
+    const host = await startHostServer({ socketPath, lockPath: join(root, "host.json"), providerSignIn: service });
+    const connection = await connectHost({ socketPath });
+    try {
+        await connection.send({ type: "provider_save", request_id: "save", provider: "deepseek", key: "fake-key", credential: "api_key",
+            endpoint: `http://127.0.0.1:${provider.port}/v1`, protocol: "openai-chat", custom: false });
+        const result = await connection.receive() as { type: string };
+        expect(result.type).toBe("provider_save_result");
+
+        const savedConfig = loadOptionalVeraConfig({ path: join(root, "config.json") })!;
+        const cached = readProviderCatalogSnapshot("deepseek", { cacheDir });
+        expect(cached?.models.map((model) => ({ id: model.id, levels: model.levels.map((level) => level.id), default_level: model.default_level }))).toEqual([
+            { id: "deepseek-v4-pro", levels: ["max", "high", "off"], default_level: "high" },
+            { id: "deepseek-flash", levels: ["max", "high", "off"], default_level: "high" },
+        ]);
+        const models = modelsFromConnectedCatalogs(savedConfig, [], {
+            authStorage: createAuthStorage({ path: join(root, "auth.json") }), cacheDir,
+        });
+        const catalog = { cacheDir, curated: curatedSeed() };
+        const settings = settingsForClient({ model: "deepseek-v4-pro" }, "deepseek", catalog, models);
+        expect(settings.reasoningEffort).toBeUndefined();
+        const available = settings.availableModels ?? [];
+        expect(available.filter((model) => model.provider === "deepseek").map((model) => model.model)).toEqual(["deepseek-flash", "deepseek-v4-pro"]);
+        expect(available.filter((model) => model.provider === "deepseek").map((model) => ({
+            model: model.model,
+            levels: model.levels.map((level) => level.id),
+            defaultLevel: model.defaultLevel,
+        }))).toEqual([
+            { model: "deepseek-flash", levels: ["max", "high", "off"], defaultLevel: "high" },
+            { model: "deepseek-v4-pro", levels: ["max", "high", "off"], defaultLevel: "high" },
+        ]);
+        expect(JSON.stringify(settings)).not.toContain("deepseek-chat");
+        expect(JSON.stringify(settings)).not.toContain("deepseek-reasoner");
+
+        const firstRecommended = available.find((model) => model.provider === "deepseek" && model.recommended);
+        expect(firstRecommended?.model).toBe("deepseek-flash");
+        await selectOnboardingModel({ provider: "deepseek", model: firstRecommended!.model, configPath: join(root, "config.json"),
+            poolPath: join(root, "pool.json"), verify: async () => ({ status: "passed", provider: "deepseek", model: "deepseek-flash" }) });
+        expect(loadOptionalVeraConfig({ path: join(root, "config.json") }))
+            .toMatchObject({ provider: "deepseek", model: "deepseek-flash", reasoning_effort: "high" });
+
+        await selectOnboardingModel({ provider: "deepseek", model: "deepseek-v4-pro", configPath: join(root, "config.json"),
+            poolPath: join(root, "pool.json"), verify: async () => ({ status: "passed", provider: "deepseek", model: "deepseek-v4-pro" }) });
+        const selectedConfig = loadOptionalVeraConfig({ path: join(root, "config.json") })!;
+        expect(selectedConfig).toMatchObject({ provider: "deepseek", model: "deepseek-v4-pro", reasoning_effort: "high" });
+        const selectedSettings = settingsForClient({ model: selectedConfig.model, reasoningEffort: selectedConfig.reasoning_effort }, "deepseek", { cacheDir }, configuredCatalog(selectedConfig, cacheDir));
+        expect(selectedSettings.reasoningEffort).toBe("high");
+    } finally { connection.close(); await host.close(); provider.stop(true); await rm(root, { recursive: true, force: true }); }
+});
+
+test("DeepSeek 401 keeps the provider error and writes no config, credential, or catalog", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-deepseek-reject-"));
+    const socketPath = join(root, "host.sock");
+    const configPath = join(root, "config.json");
+    const authPath = join(root, "auth.json");
+    const cacheDir = join(root, "cache");
+    const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() {
+        return Response.json({ error: { message: "Invalid API key" } }, { status: 401 });
+    } });
+    const service = createProviderSignInService({ env: {}, configPath, cacheDir, authStorage: createAuthStorage({ path: authPath }) });
+    const host = await startHostServer({ socketPath, lockPath: join(root, "host.json"), providerSignIn: service });
+    const connection = await connectHost({ socketPath });
+    try {
+        await connection.send({ type: "provider_save", request_id: "bad-key", provider: "deepseek", key: "fake-bad-key", credential: "api_key",
+            endpoint: `http://127.0.0.1:${provider.port}/v1`, protocol: "openai-chat", custom: false });
+        const result = await connection.receive() as { type: string; reason?: string };
+        expect(result.type).toBe("provider_request_failed");
+        expect(result.reason).toContain("Invalid API key");
+        expect(createAuthStorage({ path: authPath }).getCredential("deepseek")).toBeUndefined();
+        expect(await Bun.file(providerCatalogCachePath("deepseek", cacheDir)).exists()).toBe(false);
+        expect(readProviderCatalogSnapshot("deepseek", { cacheDir }).models).toEqual([]);
+        expect(await Bun.file(configPath).exists()).toBe(false);
+    } finally { connection.close(); await host.close(); provider.stop(true); await rm(root, { recursive: true, force: true }); }
+});
+
+test("DeepSeek 401 leaves existing credential, config, and catalog bytes untouched", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-deepseek-existing-reject-"));
+    const socketPath = join(root, "host.sock");
+    const configPath = join(root, "config.json");
+    const authPath = join(root, "auth.json");
+    const cacheDir = join(root, "cache");
+    const auth = createAuthStorage({ path: authPath });
+    auth.setCredential("deepseek", { type: "api_key", key: "old-fake-key" });
+    await Bun.write(configPath, JSON.stringify({ schema_version: 1, provider: "deepseek", model: "deepseek-v4-pro", reasoning_effort: "high" }));
+    writeProviderCatalogSnapshot({ schema_version: 2, provider: "deepseek", fetched_at: "2026-01-01T00:00:00.000Z",
+        models: [{ id: "old-model", label: "old-model", levels: [] }] }, { cacheDir });
+    const originalAuth = await Bun.file(authPath).text();
+    const originalConfig = await Bun.file(configPath).text();
+    const catalogPath = providerCatalogCachePath("deepseek", cacheDir);
+    const originalCatalog = await Bun.file(catalogPath).text();
+    const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() {
+        return Response.json({ error: { message: "Invalid API key" } }, { status: 401 });
+    } });
+    const service = createProviderSignInService({ env: {}, configPath, cacheDir, authStorage: auth });
+    const host = await startHostServer({ socketPath, lockPath: join(root, "host.json"), providerSignIn: service });
+    const connection = await connectHost({ socketPath });
+    try {
+        await connection.send({ type: "provider_save", request_id: "bad-existing-key", provider: "deepseek", key: "new-fake-key", credential: "api_key",
+            endpoint: `http://127.0.0.1:${provider.port}/v1`, protocol: "openai-chat", custom: false, editing: "deepseek" });
+        const result = await connection.receive() as { type: string; reason?: string };
+        expect(result.type).toBe("provider_request_failed");
+        expect(result.reason).toContain("Invalid API key");
+        expect(await Bun.file(authPath).text()).toBe(originalAuth);
+        expect(await Bun.file(configPath).text()).toBe(originalConfig);
+        expect(await Bun.file(catalogPath).text()).toBe(originalCatalog);
+    } finally { connection.close(); await host.close(); provider.stop(true); await rm(root, { recursive: true, force: true }); }
+});
+
+test("DeepSeek discovery heals a broken cache and preserves configured model ids", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-deepseek-heal-"));
+    const cacheDir = join(root, "cache");
+    const authStorage = createAuthStorage({ path: join(root, "auth.json") });
+    const config = { provider: "deepseek", model: "deepseek-chat" } as VeraConfig;
+    writeProviderCatalogSnapshot({ schema_version: 2, provider: "deepseek", fetched_at: new Date().toISOString(),
+        models: [{ id: "deepseek-chat", label: "deepseek-chat", levels: [] }] }, { cacheDir });
+    try {
+        const models = discoveredDeepSeekModels(config, { authStorage, cacheDir });
+        expect(models.map((model) => model.model)).toEqual(["deepseek-v4-pro", "deepseek-flash"]);
+        const healed = readProviderCatalogSnapshot("deepseek", { cacheDir });
+        expect(healed?.models.map((model) => ({ id: model.id, levels: model.levels.map((level) => level.id) }))).toEqual([
+            { id: "deepseek-v4-pro", levels: ["max", "high", "off"] },
+            { id: "deepseek-flash", levels: ["max", "high", "off"] },
+        ]);
+        expect(config.model).toBe("deepseek-chat");
+        expect(models.some((model) => model.model === config.model)).toBe(false);
+        const visibleModels = configuredCatalog(config, cacheDir);
+        expect(visibleModels.find((model) => model.provider === "deepseek" && model.model === config.model))
+            .toMatchObject({ label: "deepseek-chat", description: "configured model" });
+        const settings = settingsForClient({ model: config.model, reasoningEffort: "high" }, "deepseek", { cacheDir }, visibleModels);
+        expect(settings.reasoningEffort).toBeUndefined();
+        expect(settings.availableReasoningEfforts).toEqual([]);
+        expect(settings.availableModels?.some((model) => model.provider === "deepseek" && model.model === "deepseek-chat"))
+            .toBe(true);
+    } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("provider status decoder refuses malformed rows and drops extra fields", async () => {

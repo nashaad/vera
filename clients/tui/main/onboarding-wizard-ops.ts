@@ -3,11 +3,15 @@
 import type { AgentUpdate } from "../../../src/engine/protocol.ts";
 import { credentialRefusal, holdsCredential, providerMessage } from "../../../src/providers/onboarding.ts";
 import { findConfiguredProvider } from "../../../src/providers/registry.ts";
+import { isRefreshableProvider } from "../../../src/model/refreshable-providers.ts";
 import {
     loadOptionalVeraConfig,
     startingVeraConfig,
 } from "../../../src/config.ts";
-import { shouldAdoptWizardModel } from "../onboarding-model-default.ts";
+import {
+    adoptedModelSettingsPatch,
+    shouldAdoptWizardModel,
+} from "../onboarding-model-default.ts";
 import {
     readProviderCatalogSnapshot,
     writeProviderCatalogSnapshot,
@@ -48,7 +52,7 @@ import { appendTuiError, appendTuiNotice } from "../state.ts";
 import { focusedAgentClient, focusedAgentState } from "./agents-dials.ts";
 import { requestAgentSettings } from "./diagnostics-ops.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
-import { onboardingInput } from "./model-pickers.ts";
+import { modelLevelFacts, onboardingInput } from "./model-pickers.ts";
 import { renderState } from "./render-state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { requestPoolAdmission } from "../main.ts";
@@ -118,11 +122,13 @@ export function openOnboardingWizard(rt: TuiRuntime): void {
 export function enterWizardModelStep(
     rt: TuiRuntime,
     provider: string,
+    confirmation?: string,
 ): void {
     showWizard(rt, {
         ...newWizardSession("model"),
         ...(wizardAdopts(rt, provider) ? { adopts: true } : {}),
         chosen: provider,
+        ...(confirmation === undefined ? {} : { confirmation }),
     });
     requestWizardModels(rt, provider);
 }
@@ -193,23 +199,36 @@ function startWizardSpinner(rt: TuiRuntime): void {
 function requestWizardModels(rt: TuiRuntime, provider: string): void {
     const session = rt.onboardingWizard;
     // The list is out, so the step says so rather than showing an empty one.
-    if (session !== undefined) {
+    const refreshable = isRefreshableProvider(
+        provider,
+        loadOptionalVeraConfig() ?? {},
+    );
+    if (session !== undefined && refreshable) {
         const { alert: _dropped, ...rest } = session;
         updateWizardSession(rt, { ...rest, asking: true });
     }
     if (!isHomeClient(rt.client)) {
-        fillWizardModels(rt, provider);
-        askProviderForModels(rt, provider);
+        if (refreshable) {
+            fillWizardModels(rt, provider);
+            askProviderForModels(rt, provider);
+        } else {
+            const requestId = randomUUID();
+            rt.pendingOnboardingStep = { provider, requestId };
+            requestAgentSettings(rt, focusedAgentClient(rt), requestId);
+        }
         return;
     }
-    rt.pendingOnboardingStep = provider;
+    rt.pendingOnboardingStep = { provider };
     beginCreateSession(rt, "stop");
 }
 
-/** What the host has saved is what it was told last time, which on a first run is nothing. Every visit to this step asks the provider itself. */
+/** Refreshable providers supply a fresh list for each visit. */
 function askProviderForModels(rt: TuiRuntime, provider: string): void {
     const session = rt.onboardingWizard;
-    if (session === undefined) return;
+    if (
+        session === undefined
+        || !isRefreshableProvider(provider, loadOptionalVeraConfig() ?? {})
+    ) return;
     const requestId = randomUUID();
     rt.onboardingCatalogRefresh = requestId;
     const { alert: _dropped, ...rest } = session;
@@ -277,9 +296,11 @@ function fillWizardModels(
         updateWizardSession(rt, {
             ...session,
             at: "model",
-            // While the provider is still being asked, an empty list is not
-            // yet an answer.
-            ...(session.asking === true
+            // A bundled list is available without a provider refresh response.
+            ...(session.asking === true || !isRefreshableProvider(
+                provider,
+                loadOptionalVeraConfig() ?? {},
+            )
                 ? {}
                 : { alert: `${providerLabel(provider)} listed no models` }),
         });
@@ -290,14 +311,21 @@ function fillWizardModels(
 }
 
 /** Called when a conversation reports its models. True when the wizard took them. */
-export function wizardTookModelSettings(rt: TuiRuntime): boolean {
-    const provider = rt.pendingOnboardingStep;
-    if (provider === undefined || rt.onboardingWizard === undefined) {
+export function wizardTookModelSettings(rt: TuiRuntime, requestId: string): boolean {
+    const pending = rt.pendingOnboardingStep;
+    if (
+        pending === undefined
+        || rt.onboardingWizard === undefined
+        || (pending.requestId !== undefined && pending.requestId !== requestId)
+    ) {
         return false;
     }
     rt.pendingOnboardingStep = undefined;
+    const { provider } = pending;
     fillWizardModels(rt, provider);
-    askProviderForModels(rt, provider);
+    if (isRefreshableProvider(provider, loadOptionalVeraConfig() ?? {})) {
+        askProviderForModels(rt, provider);
+    }
     return true;
 }
 
@@ -668,10 +696,14 @@ export function runOnboardingWizardAction(
             rt.connectingProviders.delete(provider);
             const live = rt.onboardingWizard;
             if (live === undefined || live.chosen !== provider || live.at !== "key") return;
-            rt.state = appendTuiNotice(rt.state, `stored ${provider} API key`);
+            rt.state = appendTuiNotice(rt.state, `${providerLabel(provider)} key works`);
             requestAgentSettings(rt, focusedAgentClient(rt));
             const { alert: _dropped, ...rest } = live;
-            updateWizardSession(rt, { ...rest, at: "model" });
+            updateWizardSession(rt, {
+                ...rest,
+                at: "model",
+                confirmation: `${providerLabel(provider)} key works`,
+            });
             requestWizardModels(rt, provider);
         }, (error: unknown) => {
             rt.connectingProviders.delete(provider);
@@ -762,9 +794,23 @@ export function settleWizardVerification(
     // there is, so it becomes the default. Connecting a second provider
     // later leaves the default where the user put it.
     if (session.adopts === true) {
+        const facts = modelLevelFacts(rt, pending.provider, pending.model);
+        const current = focusedAgentState(rt).modelSettings;
+        const currentEffort = current?.provider === pending.provider
+            && current.model === pending.model
+            && facts?.levels.some((level) => level.id === current.reasoningEffort) === true
+            ? current.reasoningEffort
+            : undefined;
+        const defaultEffort = pending.provider === "deepseek"
+            ? currentEffort ?? facts?.defaultLevel
+            : undefined;
         const modelRequest = requestModelSettingsChange(
             rt,
-            { provider: pending.provider, model: pending.model },
+            adoptedModelSettingsPatch(
+                pending.provider,
+                pending.model,
+                defaultEffort,
+            ),
             `model → ${pending.provider}/${pending.model}`,
             `the model to ${pending.provider}/${pending.model}`,
         );

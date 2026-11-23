@@ -601,8 +601,7 @@ export interface TuiRuntime {
     authStorage: AuthStorage;
     connectingProviders: Set<string>;
     poolAdmissionAttempts: Map<string, { readonly provider: string; readonly model: string; readonly verify: boolean; readonly retry: boolean; }>;
-    /** The provider whose model step is waiting for the new conversation's settings. */
-    pendingOnboardingStep: string | undefined;
+    pendingOnboardingStep: { readonly provider: string; readonly requestId?: string } | undefined;
     /** The catalog refresh the model step has out, so its answer is told apart from every other one. */
     onboardingCatalogRefresh: string | undefined;
     /** The one real request that decides whether the last gate is clear. */

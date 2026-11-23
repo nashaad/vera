@@ -80,6 +80,7 @@ export interface WizardSession {
     readonly selected?: string;
     /** The provider's own words when it refused. */
     readonly alert?: string;
+    readonly confirmation?: string;
     readonly verifying?: WizardVerification;
     /** The model that answered, which closes the flow. */
     readonly connected?: string;
@@ -625,7 +626,10 @@ export function wizardScreen(
         // is only a list that has not arrived.
         const empty = groups.every((group) => group.rows.length === 0);
         const notes = !empty
-            ? valueNote(session)
+            ? [
+                ...(session.confirmation === undefined ? [] : [session.confirmation]),
+                ...valueNote(session),
+            ]
             : session.asking === true
             ? [`Asking ${provider?.label ?? "the provider"} for its models…`]
             : provider?.noModels;

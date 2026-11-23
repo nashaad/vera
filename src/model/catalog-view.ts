@@ -106,7 +106,7 @@ function buildAvailableModelsWithLevels(
 ): readonly AvailableModel[] {
     const lookup = catalogLookup(options);
     const file = loadPoolFile(options).merged;
-    return models.map((model) => {
+    const available: AvailableModel[] = models.map((model) => {
         const catalogModel = lookup(model.provider, model.model);
         const entry = file.models[`${model.provider}/${model.model}`];
         const levels = admittedLevels(catalogModel?.levels ?? [], entry);
@@ -141,6 +141,33 @@ function buildAvailableModelsWithLevels(
             ...recommendation(catalogModel),
         };
     });
+    return orderAvailableRecommendations(available, options);
+}
+
+function orderAvailableRecommendations(
+    models: AvailableModel[],
+    options: EffectiveCatalogOptions,
+): AvailableModel[] {
+    const groups = new Map<string, { slots: number[]; models: AvailableModel[] }>();
+    models.forEach((model, index) => {
+        if (model.recommended !== true) return;
+        const group = groups.get(model.provider) ?? { slots: [], models: [] };
+        group.slots.push(index);
+        group.models.push(model);
+        groups.set(model.provider, group);
+    });
+    for (const [provider, group] of groups) {
+        if (group.models.length < 2) continue;
+        const ranks = new Map<string, number>();
+        effectiveCatalog(provider, options).models.forEach((model, index) => {
+            if (model.recommended === true) ranks.set(model.id, index);
+        });
+        group.models.sort((left, right) => ranks.get(left.model)! - ranks.get(right.model)!);
+        group.slots.forEach((slot, index) => {
+            models[slot] = group.models[index]!;
+        });
+    }
+    return models;
 }
 
 export function pooledModels(

@@ -1107,6 +1107,15 @@ test("sort orders models inside each provider group, unpriced last", () => {
     expect(labels(chooseSort(state, "Cheapest first"))).toEqual(["Zeta", "Beta", "Alpha", "Mu", "Gamma"]);
 });
 
+test("chosen favorite, alphabetical and price sorts take precedence over recommendation order", () => {
+    const recommended = priced.map((model) => ({ ...model, recommended: true }));
+    const state = modelBrowse({ ...base, allOptions: recommended }, "browse");
+    const labels = (next: TuiSettingsPickerState) => next.options.map((row) => row.label);
+    expect(labels(state)).toEqual(["Zeta", "Mu", "Alpha", "Beta", "Gamma"]);
+    expect(labels(chooseSort(state, "A to Z"))).toEqual(["Alpha", "Beta", "Mu", "Zeta", "Gamma"]);
+    expect(labels(chooseSort(state, "Cheapest first"))).toEqual(["Zeta", "Beta", "Alpha", "Mu", "Gamma"]);
+});
+
 test("Library order is offered only in Library models and Catalog falls back to A to Z", () => {
     const state = modelBrowse({ ...base, allOptions: priced }, "browse");
     expect(modelBrowseSort(state).options.map((row) => row.label)).toEqual(["Favorite order", "A to Z", "Cheapest first"]);

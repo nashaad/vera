@@ -1,5 +1,7 @@
 import { loadOptionalVeraConfig, updateVeraConfigDefaults, type VeraCustomProviderConfig } from "../config.ts";
 import { writeProviderCatalogSnapshot } from "../model/catalog-cache.ts";
+import { deepSeekCatalogModels } from "../model/deepseek-catalog.ts";
+import type { ProviderCatalog } from "../model/catalog-shape.ts";
 import { normalizeOpenRouterModels } from "../model/openrouter-catalog.ts";
 import type { AuthStorage } from "./auth-storage.ts";
 import { readModelCatalog } from "./read-model-catalog.ts";
@@ -58,7 +60,17 @@ export async function saveProvider(input: SaveProviderInput, authStorage: AuthSt
         { path: options.configPath },
     );
     if (input.apiKey !== undefined) authStorage.setCredential(input.id, { type: "api_key", key: input.apiKey });
-    writeProviderCatalogSnapshot(catalog, { cacheDir: options.cacheDir });
+    if (input.id === "deepseek") {
+        const bundledCatalog: ProviderCatalog = {
+            schema_version: 2,
+            provider: "deepseek",
+            fetched_at: new Date().toISOString(),
+            models: deepSeekCatalogModels(),
+        };
+        writeProviderCatalogSnapshot(bundledCatalog, { cacheDir: options.cacheDir });
+    } else {
+        writeProviderCatalogSnapshot(catalog, { cacheDir: options.cacheDir });
+    }
     if (input.replaces !== undefined) {
         updateVeraConfigDefaults({ custom_provider: { id: input.replaces, declaration: null } }, { path: options.configPath });
         authStorage.deleteCredential(input.replaces);
