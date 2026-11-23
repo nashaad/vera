@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { markDesktopExtensionStoreMigrated } from "./extension-fixtures.mjs";
 import { closeApp, MODIFIER, press, startTrial } from "./trial.mjs";
 
 const trial = startTrial();
@@ -58,7 +59,7 @@ function makePackage(name, version) {
 }
 
 function prepare() {
-    mkdirSync(join(desktopFolder, "extensions.pre-plugins"), { recursive: true });
+    markDesktopExtensionStoreMigrated(trial.home);
     // A theme saved by an earlier version, which the app moves into an extension on its first start.
     write(
         join(desktopFolder, "themes", "legacy-crow.json"),

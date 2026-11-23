@@ -4,6 +4,7 @@
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { markDesktopExtensionStoreMigrated } from "./extension-fixtures.mjs";
 import { until } from "./faux-home.mjs";
 import { closeApp, MODIFIER, press, startTrial } from "./trial.mjs";
 
@@ -57,6 +58,7 @@ export function activate(vera) {
 `;
 
 function prepare() {
+    markDesktopExtensionStoreMigrated(trial.home);
     const demoCommands = [
         { command: "demo.hello", title: "Say Hello", category: "Demo" },
         { command: "demo.arm", title: "Arm", category: "Demo" },

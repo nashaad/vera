@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { markDesktopExtensionStoreMigrated } from "./extension-fixtures.mjs";
 import { MODIFIER, press, startTrial } from "./trial.mjs";
 
 const trial = startTrial();
@@ -19,6 +20,7 @@ function exited(pid) {
 }
 
 try {
+    markDesktopExtensionStoreMigrated(trial.home);
     const extension = join(trial.home, "machine", "desktop", "extensions", "crow");
     mkdirSync(join(extension, "themes"), { recursive: true });
     writeFileSync(join(extension, "vera.desktop.json"), JSON.stringify({
