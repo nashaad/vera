@@ -8,6 +8,7 @@ import { connectHost } from "../../src/host/connection.ts";
 import { parseHostRequest } from "../../src/host/protocol.ts";
 import { startHostServer } from "../../src/host/server.ts";
 import { providerCatalogCachePath, readProviderCatalogSnapshot, writeProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
+import { curatedSeed } from "../../src/model/curated-models.ts";
 import { configuredCatalog, discoveredDeepSeekModels } from "../../src/host/runtime.ts";
 import { modelsFromConnectedCatalogs } from "../../src/providers/catalog-state.ts";
 import { settingsForClient } from "../../src/host/agent-registry/helpers.ts";
@@ -223,20 +224,28 @@ test("@core DeepSeek save validates the key without replacing its bundled catalo
         const models = modelsFromConnectedCatalogs(savedConfig, [], {
             authStorage: createAuthStorage({ path: join(root, "auth.json") }), cacheDir,
         });
-        const settings = settingsForClient({ model: "deepseek-v4-pro" }, "deepseek", { cacheDir }, models);
+        const catalog = { cacheDir, curated: curatedSeed() };
+        const settings = settingsForClient({ model: "deepseek-v4-pro" }, "deepseek", catalog, models);
         expect(settings.reasoningEffort).toBeUndefined();
         const available = settings.availableModels ?? [];
-        expect(available.filter((model) => model.provider === "deepseek").map((model) => model.model)).toEqual(["deepseek-v4-pro", "deepseek-flash"]);
+        expect(available.filter((model) => model.provider === "deepseek").map((model) => model.model)).toEqual(["deepseek-flash", "deepseek-v4-pro"]);
         expect(available.filter((model) => model.provider === "deepseek").map((model) => ({
             model: model.model,
             levels: model.levels.map((level) => level.id),
             defaultLevel: model.defaultLevel,
         }))).toEqual([
-            { model: "deepseek-v4-pro", levels: ["max", "high", "off"], defaultLevel: "high" },
             { model: "deepseek-flash", levels: ["max", "high", "off"], defaultLevel: "high" },
+            { model: "deepseek-v4-pro", levels: ["max", "high", "off"], defaultLevel: "high" },
         ]);
         expect(JSON.stringify(settings)).not.toContain("deepseek-chat");
         expect(JSON.stringify(settings)).not.toContain("deepseek-reasoner");
+
+        const firstRecommended = available.find((model) => model.provider === "deepseek" && model.recommended);
+        expect(firstRecommended?.model).toBe("deepseek-flash");
+        await selectOnboardingModel({ provider: "deepseek", model: firstRecommended!.model, configPath: join(root, "config.json"),
+            poolPath: join(root, "pool.json"), verify: async () => ({ status: "passed", provider: "deepseek", model: "deepseek-flash" }) });
+        expect(loadOptionalVeraConfig({ path: join(root, "config.json") }))
+            .toMatchObject({ provider: "deepseek", model: "deepseek-flash", reasoning_effort: "high" });
 
         await selectOnboardingModel({ provider: "deepseek", model: "deepseek-v4-pro", configPath: join(root, "config.json"),
             poolPath: join(root, "pool.json"), verify: async () => ({ status: "passed", provider: "deepseek", model: "deepseek-v4-pro" }) });

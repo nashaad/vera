@@ -121,7 +121,9 @@ All connected. Click its header scope chip or press Ctrl+G to switch to
 Favorites; typing searches every connected model while no favorites exist.
 Once you have a favorite, the saved scope is restored when Switch model opens.
 Recommended in `/models` shows Vera's curated picks for the connected
-providers.
+providers. A provider's catalog lists its recommended models in curated order
+unless the catalog assigns an explicit order. Your chosen picker sort and saved
+favorite order still apply.
 
 Favoriting saves a shortcut. It does not switch the conversation or make a
 verification request. Removing a favorite keeps its verification results and

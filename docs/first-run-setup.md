@@ -35,7 +35,9 @@ on Home.
 
 DeepSeek checks the key against its models endpoint and lists the models bundled
 with Vera rather than the endpoint's list. The desktop shows the confirmation on
-its model step; the terminal shows it in the wizard or key prompt.
+its model step; the terminal shows it in the wizard or key prompt. With Vera's
+shipped recommendations and no existing selection, the model step starts on
+DeepSeek V4.1 Flash 1017 with High effort. You can choose DeepSeek V4 Pro instead.
 
 Endpoints can use HTTP or HTTPS. Connecting a provider makes its catalog
 available; it does not select, favorite, verify, or assign a default model.

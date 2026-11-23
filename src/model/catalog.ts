@@ -11,6 +11,7 @@ import type {
     ReasoningLevel,
 } from "./catalog-shape.ts";
 import {
+    curatedKey,
     curatedKeys,
     curatedModels,
     curatedSelection,
@@ -82,9 +83,10 @@ export function effectiveCatalog(
         return {
             schema_version: 2,
             provider,
-            models: listed
-                .map((model) => withCuration(model, curated))
-                .sort(compareModels),
+            models: orderCuratedModels(
+                listed.map((model) => withCuration(model, curated)).sort(compareModels),
+                picks,
+            ),
         };
     });
 }
@@ -113,6 +115,38 @@ function withCuration(
     curated: ReadonlySet<string>,
 ): CatalogModel {
     return curated.has(model.id) ? { ...model, recommended: true } : model;
+}
+
+function orderCuratedModels(
+    models: CatalogModel[],
+    picks: readonly CuratedModel[],
+): CatalogModel[] {
+    const ranks = new Map<string, number>();
+    picks.forEach((pick, index) => {
+        const key = curatedKey(pick.model);
+        if (!ranks.has(key)) ranks.set(key, index);
+    });
+
+    let start = 0;
+    while (start < models.length) {
+        let end = start + 1;
+        while (end < models.length && models[end]!.order === models[start]!.order) end++;
+        const recommended: CatalogModel[] = [];
+        for (let index = start; index < end; index++) {
+            const model = models[index]!;
+            if (model.recommended === true) recommended.push(model);
+        }
+        recommended.sort((left, right) =>
+            ranks.get(curatedKey(left.id))! - ranks.get(curatedKey(right.id))!
+        );
+        // Only the recommended slots move; other rows keep their positions.
+        let next = 0;
+        for (let index = start; index < end; index++) {
+            if (models[index]!.recommended === true) models[index] = recommended[next++]!;
+        }
+        start = end;
+    }
+    return models;
 }
 
 function loadDiscoverySource(

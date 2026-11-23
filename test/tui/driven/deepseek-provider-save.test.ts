@@ -10,28 +10,25 @@ import { startTuiTestSession } from "../../support/tui-harness.ts";
 import { createInProcessChannel } from "../../../src/engine/message-channel.ts";
 import { runHeadlessLoop } from "../../../src/engine/run-turn.ts";
 import type { ClientCommand } from "../../../src/engine/protocol.ts";
-import type { AvailableModel } from "../../../src/model/catalog-view.ts";
-import { deepSeekCatalogModels } from "../../../src/model/deepseek-catalog.ts";
+import { availableModelsWithLevels } from "../../../src/model/catalog-view.ts";
+import { curatedSeed } from "../../../src/model/curated-models.ts";
+import { deepSeekCatalogModels, refreshDeepSeekCatalog } from "../../../src/model/deepseek-catalog.ts";
 import { FauxAdapter } from "../../support/faux-adapter.ts";
 import { emptyUsage, type AssistantMessage } from "../../../src/model/types.ts";
-
-const deepSeekModels: readonly AvailableModel[] = deepSeekCatalogModels().map(
-    (model) => ({
-        provider: "deepseek",
-        model: model.id,
-        label: model.label,
-        description: model.description ?? "",
-        refreshable: false,
-        levels: model.levels,
-        defaultLevel: model.default_level,
-    }),
-);
 
 test("@core Settings key save shows DeepSeek confirmation and bundled models", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-deepseek-save-"));
     const authStorage = createAuthStorage({ path: join(home, "machine", "auth.json") });
+    const cacheDir = join(home, "cache");
+    refreshDeepSeekCatalog({ cacheDir });
+    const deepSeekModels = availableModelsWithLevels(deepSeekCatalogModels().map((model) => ({
+        provider: "deepseek",
+        model: model.id,
+        label: model.label,
+        description: model.description ?? "",
+    })), { cacheDir, curated: curatedSeed(), userPath: join(home, "pool.json"), projectPath: join(home, "project-pool.json") });
     const commands: ClientCommand[] = [];
-    let availableModels: readonly AvailableModel[] = [];
+    let availableModels: typeof deepSeekModels = [];
     const starter = startingVeraConfig();
     let selectedProvider = starter.provider;
     let selectedModel = starter.model;
@@ -157,7 +154,7 @@ test("@core Settings key save shows DeepSeek confirmation and bundled models", a
         const change = commands.find((command) => command.type === "update_model_settings");
         expect(change).toMatchObject({
             type: "update_model_settings",
-            patch: { provider: "deepseek", model: "deepseek-v4-pro", reasoningEffort: "high" },
+            patch: { provider: "deepseek", model: "deepseek-flash", reasoningEffort: "high" },
         });
         session.sendKey("Enter");
         await session.waitForVisiblePane("high");

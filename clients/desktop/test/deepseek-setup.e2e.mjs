@@ -106,8 +106,8 @@ try {
     const flash = wizard.getByRole("radio", { name: /DeepSeek V4\.1 Flash 1017/ });
     assert.equal(await pro.count(), 1);
     assert.equal(await flash.count(), 1);
-    assert.equal(await pro.isChecked(), true);
-    assert.equal(await flash.isChecked(), false);
+    assert.equal(await pro.isChecked(), false);
+    assert.equal(await flash.isChecked(), true);
     assert.equal(await error.count(), 0);
     assert.deepEqual(modelRequests, [false, true]);
 
@@ -118,8 +118,8 @@ try {
     assert.ok(chats.some((body) => (body.tools ?? []).some((tool) => tool.function?.name === "admission_probe")));
     const model = page.locator(".model-pill .pill-label");
     const pill = page.locator(".effort-pill");
-    await until("DeepSeek V4 Pro and High on New Chat", async () =>
-        await model.count() === 1 && (await model.innerText()).trim() === "DeepSeek V4 Pro"
+    await until("DeepSeek V4.1 Flash 1017 and High on New Chat", async () =>
+        await model.count() === 1 && (await model.innerText()).trim() === "DeepSeek V4.1 Flash 1017"
         && await pill.count() === 1 && (await pill.innerText()).trim() === "High");
     assert.deepEqual(modelRequests, [false, true]);
 
@@ -130,7 +130,7 @@ try {
         await until(`request for ${text}`, () => chats.some((body) => JSON.stringify(body.messages ?? []).includes(text)));
         const request = chats.find((body) => JSON.stringify(body.messages ?? []).includes(text));
         await until("the turn to finish", async () => await page.locator(".send-button").getAttribute("data-mode") === "send");
-        assert.equal(request.model, "deepseek-v4-pro");
+        assert.equal(request.model, "deepseek-flash");
         return request;
     }
     const high = await send("Ahoy from the crow at high");
