@@ -1,5 +1,6 @@
 import { fg, StyledText, type TextChunk } from "@opentui/core";
 
+import { PLUGIN_BROWSER_COMMAND, PLUGIN_BROWSER_EXTENSION } from "../../src/core-extensions/customize/commands.ts";
 import type {
     ClientExtensionCommandDescriptor,
 } from "../../src/extensions/client-registry.ts";
@@ -23,7 +24,11 @@ import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
 import { tuiKeyHint } from "./keymap.ts";
 import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
 
-export type TuiCommandArgumentKind = "model" | "mention";
+export type TuiCommandArgumentKind = "model" | "mention" | "plugin-operation";
+
+export const PLUGIN_OPERATIONS = [
+    "list", "show", "install", "enable", "disable", "remove", "migrate",
+] as const;
 
 export const TUI_SLASH_GROUPS = ["built in", "extensions", "skills"] as const;
 
@@ -222,6 +227,7 @@ export interface TuiCommandErrorAction {
 export interface RunExtensionTuiCommandAction {
     readonly type: "run_extension";
     readonly command: string;
+    readonly invocationCommand?: string;
     readonly argumentsText: string;
     readonly source: string;
     readonly origin: "direct" | "client" | "host";
@@ -289,6 +295,13 @@ export type TuiCommandAction =
     | ImportSessionTuiCommandAction
     | OpenImportPickerTuiCommandAction
     | TuiCommandErrorAction;
+
+export function isPluginBrowserAction(action: TuiCommandAction | undefined): boolean {
+    return action?.type === "run_extension"
+        && action.origin === "client"
+        && action.source === PLUGIN_BROWSER_EXTENSION
+        && action.invocationCommand === PLUGIN_BROWSER_COMMAND;
+}
 
 export type TuiCommandScope = "focused_agent" | "main_session" | "application";
 
@@ -592,9 +605,10 @@ const EXTENSION_COMMAND = {
 } as const satisfies TuiCommandCatalogEntry;
 
 const PLUGIN_COMMAND = {
-    name: "plugin",
-    description: "Install, enable, disable, show, or remove a plugin",
-    usage: "/plugin <op> …",
+    name: "plugins",
+    description: "Browse definitions or manage plugins",
+    usage: "/plugins <op> …",
+    arguments: "plugin-operation",
 } as const satisfies TuiCommandCatalogEntry;
 
 const DOCTOR_COMMAND = {
@@ -734,6 +748,10 @@ export class TuiCommandRegistry {
         return [...this.commands.keys()];
     }
 
+    reservedCommandNames(): readonly string[] {
+        return [...this.commands.keys(), ...this.aliases.keys()];
+    }
+
     registeredPaletteActions(): readonly TuiPaletteActionDefinition[] {
         return [...this.paletteActions.values()].filter(
             (action) => action.isAvailable?.() ?? true,
@@ -763,7 +781,8 @@ export class TuiCommandRegistry {
         if (match === null) {
             return undefined;
         }
-        const kind = this.commands.get(match[1] ?? "")?.arguments;
+        const name = match[1] ?? "";
+        const kind = this.commands.get(this.aliases.get(name) ?? name)?.arguments;
         return kind === undefined ? undefined : { kind, prefix: match[2] ?? "" };
     }
 
@@ -1092,7 +1111,7 @@ export function tuiCommandArgumentHint(
         return undefined;
     }
     const command = commands.find((entry) => entry.name === match[1]);
-    if (command === undefined || command.arguments !== undefined) {
+    if (command === undefined || (command.arguments !== undefined && command.arguments !== "plugin-operation")) {
         return undefined;
     }
     const prefix = `/${command.name} `;
@@ -1696,7 +1715,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
     });
     registry.registerCommand({
         ...PLUGIN_COMMAND,
+        aliases: ["plugin", "customize"],
         parse: (argumentsText) => {
+            if (argumentsText.length === 0) {
+                return {
+                    type: "run_extension",
+                    command: PLUGIN_COMMAND.name,
+                    invocationCommand: PLUGIN_BROWSER_COMMAND,
+                    argumentsText: "",
+                    source: PLUGIN_BROWSER_EXTENSION,
+                    origin: "client",
+                };
+            }
             const tokenized = tokenizePluginManagerArguments(argumentsText);
             if ("error" in tokenized) {
                 return { type: "command_error", message: tokenized.error };
@@ -1704,7 +1734,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             const parsed = parsePluginManagerCommand([
                 "plugin",
                 ...tokenized.words,
-            ]);
+            ], "/plugins");
             if (parsed === undefined) {
                 return {
                     type: "command_error",
@@ -1717,12 +1747,12 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             return { type: "manage_plugins", command: parsed.command };
         },
         palette: {
-            name: "plugin",
+            name: "plugins",
             label: "Manage plugins",
-            description: "install or change plugin state",
+            description: "browse definitions or change plugin state",
             group: "Extensions",
-            slashName: "plugin",
-            action: { type: "prefill_composer", text: "/plugin " },
+            slashName: "plugins",
+            action: { type: "prefill_composer", text: "/plugins " },
         },
     });
     registry.registerCommand({

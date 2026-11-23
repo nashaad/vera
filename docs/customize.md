@@ -86,10 +86,12 @@ Discover shows the theme catalog. Yours shows the list above.
 
 ## In the terminal
 
-1. Run `/plugins`. `/customize` still works.
+1. Run `/plugins` with no argument to open the browser. `/customize` and `/plugin` also work as aliases, with or without arguments; use `/plugins` for package operations described in [Plugins](plugins.md).
 2. Choose Agents, Skills, Instructions, Memory, Plugins, or Extensions.
 3. Type to search names, descriptions, scopes, and paths.
 4. Press Enter on a result to preview its saved contents.
+
+On Home, `/plugins` starts a conversation and opens the browser there.
 
 Tab moves between Search and the list. Escape returns one level. The preview
 shows where a source comes from and whether it belongs to the project or home.
@@ -103,7 +105,7 @@ Their skills and agents still appear under Skills and Agents.
 Plugins lists each installed plugin with a summary of its parts and whether it
 is on or off. Its skills appear under Skills and its agents under Agents, with
 the scope naming the plugin, such as `plugin sea-chest`. Plugin items are
-read-only here. See [Plugins](plugins.md).
+read-only here. See [Plugins](plugins.md) for package operations.
 
 A Markdown file opens rendered. Press `s` to see its source.
 

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 
+import { createBuiltinTuiCommandRegistry } from "../../clients/tui/commands.ts";
 import {
     createTuiHelpView,
     handleTuiHelpKey,
@@ -54,6 +55,15 @@ async function editHelp(
         setup.renderer.destroy();
     }
 }
+
+test("the help command catalog lists /plugins without its aliases", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+    const names = registry.registeredCommands().map((command) => command.name);
+
+    expect(names.filter((name) => name === "plugins")).toHaveLength(1);
+    expect(names).not.toContain("plugin");
+    expect(names).not.toContain("customize");
+});
 
 test("help opens on a menu of pages; Enter opens one and Esc goes back", () => {
     let state = startTuiHelp(commands, extensions);
