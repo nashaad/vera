@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { fileReferences } from "../../../../src/attachments/file-limits.ts";
+import { appendDiffComments } from "../../../shared/diff-comment.ts";
 
 import { effortCommand, switchModelCommand } from "../models/commands.ts";
 import { ModelPills } from "../models/ModelPills.tsx";
@@ -15,6 +16,8 @@ import { ApprovalPill } from "./ApprovalPill.tsx";
 import type { DraftCaptureRecipient } from "./draft-capture-recipient.ts";
 import { ComposerBox } from "./ComposerBox.tsx";
 import { ContextChips } from "./ContextChips.tsx";
+import { DiffCommentChips } from "./DiffCommentChips.tsx";
+import { getDiffComments, removeDiffComments } from "./diff-comments.ts";
 import { pathsOfFiles } from "./files.ts";
 import { ImageChips } from "./ImageChips.tsx";
 import { PageCaptureChip } from "./PageCaptureChip.tsx";
@@ -25,6 +28,7 @@ import { NO_ANSWER } from "./slash/run.ts";
 import { arrowUpAction, enterAction, escapeAction, folderMissingNotice, MOVE_TO_FOLDER_LABEL } from "./rules.ts";
 import { useSlashMenu } from "./slash/useSlashMenu.ts";
 import { useBranch } from "./useBranch.ts";
+import { useDiffComments } from "./useDiffComments.ts";
 import { useFolderMissing } from "./useFolderMissing.ts";
 import { useMoveToFolder } from "./useMoveToFolder.ts";
 import { useSessionImages } from "./useImages.ts";
@@ -57,7 +61,7 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
     // Set when a New Chat prompt waits for its images before it goes out.
     const [autoSend, setAutoSend] = useState(false);
     const [preparing, setPreparing] = useState(false);
-    const lastSent = useRef<SentPrompt | undefined>(undefined);
+    const lastSent = useRef<(SentPrompt & { readonly hasDiffComments?: boolean }) | undefined>(undefined);
     const captureHandoff = useRef<DraftCaptureRecipient | undefined>(undefined);
     const pendingFirst = useRef<PendingPrompt | undefined>(undefined);
     const [captureReady, setCaptureReady] = useState(() => !hasPendingPrompt(agentId));
@@ -83,7 +87,8 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
     const running = watch.status !== "idle";
     const queued = watch.queue.length > 0;
     const held = watch.queue.some((prompt) => prompt.state === "held");
-    const promptText = appendPageCaptureText(text.trim(), pageCaptures.map(({ capture }) => capture));
+    const comments = useDiffComments(agentId);
+    const promptText = appendDiffComments(appendPageCaptureText(text.trim(), pageCaptures.map(({ capture }) => capture)), comments);
     const empty = promptText.trim().length === 0;
     const branch = useBranch(bridge, chat ? undefined : folder);
     const missing = useFolderMissing(bridge, folder, chat);
@@ -137,7 +142,7 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
         if (last === undefined || refused === undefined || refused.requestId !== last.requestId) return;
         lastSent.current = undefined;
         setNotice(refused.reason);
-        setText((current) => (current.length === 0 ? last.text : current));
+        setText((current) => (current.length === 0 ? last.text : last.hasDiffComments ? `${last.text}\n\n${current}` : current));
     }, [watch.refused]);
 
     // A prompt a rewind or fork gave back, or a quoted reply, lands in the box to edit.
@@ -261,13 +266,16 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
 
     const submit = async (): Promise<void> => {
         const content = text.trim();
-        let sentContent = appendPageCaptureText(content, pageCaptures.map(({ capture }) => capture));
+        const captureText = appendPageCaptureText(content, pageCaptures.map(({ capture }) => capture));
+        const sentComments = getDiffComments(agentId);
+        let sentContent = appendDiffComments(captureText, sentComments);
         if (!attached || hold !== undefined || sentContent.trim().length === 0 || preparing || selected.busy) return;
         if (content.length > 0 && slash.runLine(content)) return;
         if (ready.kind === "waiting") {
             setNotice(IMAGES_WAITING);
             return;
         }
+        let fileText = "";
         if (selected.files.length > 0) {
             if (folder === undefined) { setNotice("The session folder is not available."); return; }
             setPreparing(true);
@@ -281,11 +289,13 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
             }
             setPreparing(false);
             if (result.paths === undefined) { setNotice(result.error ?? "Could not attach these files."); return; }
-            sentContent = `${sentContent}\n\n${fileReferences(result.paths)}`;
+            fileText = fileReferences(result.paths);
         }
+        if (fileText.length > 0) sentContent = `${sentContent}\n\n${fileText}`;
         setNotice(undefined);
         setText("");
-        lastSent.current = sendPrompt(send, sentContent, ready.attachmentIds);
+        lastSent.current = { ...sendPrompt(send, sentContent, ready.attachmentIds), hasDiffComments: sentComments.length > 0 };
+        removeDiffComments(agentId, sentComments.map((comment) => comment.id));
         pendingFirst.current = undefined;
         clear();
         setPageCaptures([]);
@@ -375,6 +385,7 @@ export function SessionComposer({ bridge, agentId, pane = "main", watch, send, f
                 move={{ onMove: move.run, disabled: move.moving }}
             />
             <ImageChips chips={chips} onRemove={(key) => { remove(key); selected.remove(key); }} />
+            <DiffCommentChips sessionId={agentId} comments={comments} />
             {pageCaptures.length === 0 ? null : (
                 <div className="context-chips attached">
                     {pageCaptures.map((capture) => (

@@ -127,6 +127,7 @@ export function Conversation({ bridge, agentId, pane, title: fallbackTitle, work
                     ) : (
                         <SubagentCardsProvider parentId={agentId} blocks={blocks} enabled={pane === "main"}>
                             <Transcript
+                                sessionId={agentId}
                                 blocks={blocks}
                                 running={running}
                                 status={watch.status !== "idle" && holdsTurn(watch.requests) ? "waiting" : watch.status}

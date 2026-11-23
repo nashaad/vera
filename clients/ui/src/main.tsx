@@ -1,6 +1,10 @@
+import "./security/trustedTypes.ts";
 import { createRoot } from "react-dom/client";
 
+import { WorkerPoolContextProvider } from "@pierre/diffs/react";
+
 import { App } from "./App.tsx";
+import { DIFF_HIGHLIGHTER_OPTIONS, DIFF_POOL_OPTIONS } from "./session/diff/pierreWorker.ts";
 import { syncDesktopExtensions } from "./customize/desktop-extensions.ts";
 import { syncImportedThemes } from "./theme/sync.ts";
 import "./styles/base.css";
@@ -23,6 +27,7 @@ import "./styles/models-browser.css";
 import "./styles/session-tools.css";
 import "./styles/diffs.css";
 import "./styles/right-views.css";
+import "./styles/changes.css";
 import "./styles/browser.css";
 import "./styles/session-panes.css";
 import "./styles/chat.css";
@@ -44,7 +49,11 @@ if (rootElement === null) {
     throw new Error("Desktop page has no #root");
 }
 
-createRoot(rootElement).render(<App />);
+createRoot(rootElement).render(
+    <WorkerPoolContextProvider poolOptions={DIFF_POOL_OPTIONS} highlighterOptions={DIFF_HIGHLIGHTER_OPTIONS}>
+        <App />
+    </WorkerPoolContextProvider>,
+);
 void syncImportedThemes();
 void syncDesktopExtensions();
 

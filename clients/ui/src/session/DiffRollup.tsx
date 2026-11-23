@@ -1,22 +1,27 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { ChevronDownIcon, ChevronRightIcon, DiffIcon, FileIcon } from "../components/Icons.tsx";
 import { CORE_CONTAINERS } from "../registry/core.ts";
 import { useSurface } from "../state/useSurfaces.ts";
 import { useWorkbench } from "../workbench/context.tsx";
 import { revealContainer } from "../workbench/reveal.ts";
+import { activeSession } from "./activeSession.ts";
 import { type FileChange, fileFolder, fileName } from "./changes.ts";
+import { firstNewSideLine, openFileInFiles } from "./fileOpen.ts";
+import { parseKeyedPatches } from "./diff/patches.ts";
+import { DiffFileMenu, isAbsolutePath } from "./DiffFileMenu.tsx";
+import { PatchView } from "./PatchView.tsx";
 
 const COLLAPSED_ROWS = 5;
-const MAX_PATCH_LINES = 400;
 const MINUS = "−";
 
 export interface DiffRollupProps {
     readonly changes: readonly FileChange[];
     readonly folder?: string;
+    readonly sessionId?: string | undefined;
 }
 
-export function DiffRollup({ changes, folder }: DiffRollupProps) {
+export function DiffRollup({ changes, folder, sessionId }: DiffRollupProps) {
     const workbench = useWorkbench();
     const review = useSurface("review");
     const [showAll, setShowAll] = useState(false);
@@ -44,7 +49,7 @@ export function DiffRollup({ changes, folder }: DiffRollupProps) {
             </div>
             <div className="diff-files">
                 {shown.map((change) => (
-                    <FileRow key={change.path} change={change} folder={folder} />
+                    <FileRow key={change.path} change={change} folder={folder} sessionId={sessionId} />
                 ))}
                 {hidden > 0 ? (
                     <button type="button" className="diff-more" onClick={() => setShowAll(true)}>
@@ -67,67 +72,41 @@ function Tally({ added, removed }: { readonly added: number; readonly removed: n
     );
 }
 
-function FileRow({ change, folder }: { readonly change: FileChange; readonly folder?: string }) {
+function FileRow({ change, folder, sessionId }: { readonly change: FileChange; readonly folder?: string; readonly sessionId: string | undefined }) {
+    const workbench = useWorkbench();
     const [open, setOpen] = useState(false);
     const folderText = fileFolder(change.path, folder);
+    const reveal = activeSession()?.bridge.revealFolder;
+    const openInFiles = sessionId === undefined || folder === undefined ? undefined : () => {
+        const separator = folder.includes("/") || !folder.includes("\\") ? "/" : "\\";
+        const fullPath = isAbsolutePath(change.path)
+            ? change.path
+            : folder.endsWith(separator) ? `${folder}${change.path}` : `${folder}${separator}${change.path}`;
+        const hunks = parseKeyedPatches(change.patches, change.patchKeys)
+            .flatMap((patch) => patch.diff?.hunks ?? []);
+        openFileInFiles(workbench, sessionId, fullPath, firstNewSideLine(hunks));
+    };
     return (
         <div className="diff-file" data-open={open}>
-            <button type="button" className="diff-file-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-                <FileIcon className="diff-file-icon" />
-                <span className="diff-file-name">{fileName(change.path)}</span>
-                {folderText === "" ? null : <span className="diff-file-folder">{folderText}</span>}
-                {change.scratch ? <span className="diff-tag">scratch</span> : null}
-                <span className="diff-file-grow" />
-                <Tally added={change.added} removed={change.removed} />
-                {open ? <ChevronDownIcon className="diff-chev" /> : <ChevronRightIcon className="diff-chev" />}
-            </button>
-            {open ? <PatchView patches={change.patches} /> : null}
-        </div>
-    );
-}
-
-interface PatchLines {
-    readonly lines: readonly string[];
-    readonly cut: boolean;
-}
-
-// Reads at most MAX_PATCH_LINES + 1 lines, so a huge patch is never split whole.
-// The file row already names the file, so the patch's file headers are dropped.
-export function patchLines(patches: readonly string[]): PatchLines {
-    const lines: string[] = [];
-    for (const patch of patches) {
-        const body = patch.endsWith("\n") ? patch.slice(0, -1) : patch;
-        for (const line of body.split("\n")) {
-            if (isFileHeader(line)) continue;
-            if (lines.length === MAX_PATCH_LINES) return { lines, cut: true };
-            lines.push(line);
-        }
-    }
-    return { lines, cut: false };
-}
-
-function isFileHeader(line: string): boolean {
-    return line.startsWith("Index: ") || line.startsWith("===") || line.startsWith("+++ ") || line.startsWith("--- ");
-}
-
-type LineKind = "add" | "del" | "hunk" | "header" | "context";
-
-function lineKind(line: string): LineKind {
-    if (line.startsWith("+++") || line.startsWith("---")) return "header";
-    if (line.startsWith("@@")) return "hunk";
-    if (line.startsWith("+")) return "add";
-    if (line.startsWith("-")) return "del";
-    return "context";
-}
-
-export function PatchView({ patches }: { readonly patches: readonly string[] }) {
-    const { lines, cut } = useMemo(() => patchLines(patches), [patches]);
-    return (
-        <div className="diff-patch">
-            {lines.map((line, index) => (
-                <div key={index} className="diff-line" data-kind={lineKind(line)}>{line === "" ? " " : line}</div>
-            ))}
-            {cut ? <div className="diff-note">Patch cut at {MAX_PATCH_LINES} lines</div> : null}
+            <div className="diff-file-head">
+                <button type="button" className="diff-file-open" aria-expanded={open} onClick={() => setOpen(!open)}>
+                    <FileIcon className="diff-file-icon" />
+                    <span className="diff-file-name">{fileName(change.path)}</span>
+                    {folderText === "" ? null : <span className="diff-file-folder">{folderText}</span>}
+                    {change.scratch ? <span className="diff-tag">scratch</span> : null}
+                    <span className="diff-file-grow" />
+                    <Tally added={change.added} removed={change.removed} />
+                    {open ? <ChevronDownIcon className="diff-chev" /> : <ChevronRightIcon className="diff-chev" />}
+                </button>
+                <DiffFileMenu path={change.path} open={open} onToggle={() => setOpen(!open)} reveal={reveal} openInFiles={openInFiles} />
+            </div>
+            {open ? <PatchView
+                key={sessionId}
+                path={change.path}
+                patches={change.patches}
+                patchKeys={change.patchKeys}
+                sessionId={sessionId}
+            /> : null}
         </div>
     );
 }

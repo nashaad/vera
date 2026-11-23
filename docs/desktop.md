@@ -321,7 +321,7 @@ collapses it. The right pane works differently, described below. The main area
 is not a location for views.
 
 The right pane holds tabs. A tab is one open copy of a kind of pane: Review,
-Plan, Files, Browser, Chat or Subagents, or a page supplied by Vera or an extension. The kinds come from one list, and the tiles, the
+Changes, Plan, Files, Browser, Chat or Subagents, or a page supplied by Vera or an extension. The kinds come from one list, and the tiles, the
 launcher, the tab strip and the saved layout all follow it. The top row holds the
 tabs, a `+` button, and at the right the button that closes the pane. A tab shows
 its kind's icon and title, or the page's title for a Browser tab, and has a close
@@ -358,7 +358,7 @@ dots are not saved. Only notices that arrive while the window watches the sessio
 count, not the history it opens with. When the pane already holds 16 tabs, or the
 page its limit, a notice opens nothing and shows no dot.
 
-Seven views ship with the app:
+Eight views ship with the app:
 
 - Sessions, in the sidebar, lists the latest 50 sessions of the home, most recent
   first. When more sessions exist, `Show more` at the end of the list adds 50 older
@@ -445,7 +445,7 @@ Seven views ship with the app:
     Closing the open session returns to New Chat; closing another leaves the page
     as it is. If the session has background commands, a confirmation counts
     them and offers `Stop and close` or `Cancel`.
-- Review, Plan and Files, each in its own container that opens as right pane
+- Review, Changes, Plan and Files, each in its own container that opens as right pane
   tabs, follow the open session; see Session tools. Each can be shown or hidden in
   Settings > Show.
 - Browser, in its own container that opens as right pane tabs, holds websites;
@@ -570,17 +570,18 @@ Auto shows a part once it has something to show:
 - Work, once the host lists two sessions.
 - Customize, once the window has connected to the host.
 - Review, once the open session has changed files.
+- Changes, in a session that has a folder.
 - Plan, once the open session has a checklist.
 - Files, in a session that has a folder.
 - Output, once the connection log holds a warning or an error.
 - Context use, once the open session has reported it or can be started.
 - Check Vera's Health, once the connection to the host has failed.
 
-A part that Auto has shown stays shown until the window closes. Review, Plan,
-Files and Context use follow the open session: what that session has had so far
-counts, so they stay while it is open, and another session may show different
-ones. A page with no session, such as New Chat or Settings, shows none of the
-four under Auto.
+A part that Auto has shown stays shown until the window closes. Review, Changes,
+Plan, Files and Context use follow the open session: what that session has had so
+far counts, so they stay while it is open, and another session may show different
+ones. A page with no session, such as New Chat or Settings, shows none of them
+under Auto.
 
 Some parts have no Auto, because nothing in the window says when they have
 something to show. They offer On and Off, and an `auto` in the file for one of
@@ -796,6 +797,9 @@ Files and images:
   cannot be sent. An image the host refuses is removed, and a line above the box
   names it and gives the reason.
 - A message needs text; images go with it.
+- Comments added to selected patch lines appear as removable composer chips.
+  They are sent with the message as text containing the file path, side, line or
+  range, selected code and note.
 - On New Chat the images are attached once the new session is open, and the
   message is sent when they are all attached. If one is refused, the message
   stays in the box.
@@ -1208,27 +1212,122 @@ tab and opening it again shows the list.
 
 When a turn edits files, its end shows a card with the number of files edited
 and the lines added and removed. Each file row opens to its patch, cut at 400
-lines. `Review` opens the Review view; the button is drawn while Review is shown. Review lists the files changed in the
-last turn, or in the whole session, with their patches. Plan shows the newest
-checklist Vera wrote in its scratch folder: the title, how many items are done,
-a bar and the items, with recently completed items marked while the turn runs.
-Open plan file opens its displayed path in the system's default application.
-Files shows the
-session's folder (`Chat` for a chat) as a tree the window reads from disk:
-folders come first, a folder opens one level at a time, and one folder lists
-at most 500 entries. It skips `.git` and `.DS_Store`, and open folders are read
-again when a turn ends. Picking a file shows it beside the tree, which keeps
-the file marked: a bar with its path under the folder, then its text with line
-numbers. The window reads at most the first 256 KB and says so when the file is
-longer. A folder, a file that is not text and a file that is gone each show one
-line saying so. The arrows in the bar step back and forward through the files
-opened, up to the last 50, and `Browse files` hides or shows the tree. Drag the
-divider to resize the tree, use the arrow keys while it is focused, or double-click
-it to restore its default width. An open file is read again when a turn ends. An HTML file offers Source and Preview.
-Preview renders it beside the tree, including relative assets in the session's
-folder. The pointer selects or draws on the page and adds a screenshot and file
-details to the session's composer. Reload reads the file again after a change;
-Source returns to its text. See [Browser annotation](browser-annotation.md).
+lines. The patch shows line numbers for the sides present, marks additions and removals with a
+tint, and summarizes unchanged lines with a divider before and between hunks. A
+divider names the number of unchanged lines. A note marks a file with no newline at its end.
+Separate edits to one file appear as hunks in the same patch. When a later
+edit changes lines an earlier edit showed, its hunks start a new patch below
+the earlier one and the file name heads that patch too. Changed words in
+a modified line pair have a stronger tint. Supported file extensions use syntax
+colors. Copying selected patch code leaves out line numbers and dividers.
+
+Review has Unified and Split, Wrap and Scroll controls above its files. Unified
+shows one code column and Split shows the old and new sides side by side. Wrap
+keeps long lines in view; Scroll lets them run sideways under a fixed gutter.
+The edit card is always unified and wrapped. Bars mark added and removed rows at
+the left edge. In the edit card a patch has a fixed maximum height and scrolls
+inside it; Review scrolls as one view.
+
+In the edit card and Review, hovering a code line shows `+` over its line
+number. Click the line number or `+` to select the line, drag over the numbers,
+or Shift-click another line in the same patch to select a range; selected lines
+share one tint. Choosing `+` opens a comment box under the selection. Enter a
+note and choose `Comment`, or press Enter; Shift+Enter adds a line, and Escape
+or Enter on an empty note closes the box and clears the selection. After the
+comment is added, its card stays under those lines and a removable chip appears
+in the composer, which stays if the inline card is not shown. A selection in the
+old column is sent as the old side; a selection that crosses both sides does not
+open the comment box.
+While a turn runs, sending follows the composer's queued follow-up behavior. `Review` opens
+the Review view; the button is drawn while Review is shown. Review lists the files changed in the
+last turn, or in the whole session, with their patches. Each patch header
+stays in view while you scroll through that patch. Each file row in the edit card
+and each file header in Review has a menu that copies the file's path, opens the
+file in the system's default application, opens the file in a kept Files tab, or
+collapses and expands all of that file's patches. Review's Open file button
+opens the file in Files at the first line of the run's new side and is disabled
+for deleted files.
+
+Changes compares the open session's folder as git changes. Branch compares the
+current branch, or the short commit when HEAD is detached, with a destination
+branch chosen from a searchable Branches list; the destination defaults to the
+branch's upstream, then `origin/HEAD`, `main` and `master`. Uncommitted compares
+the working tree with HEAD and lists untracked files as additions. Branch and
+Uncommitted each show their whole-diff added and removed counts. A destination
+with no merge base says so in one line. The pane lists at most 5,000 changed
+files and 2,000 destination branches, and says when either list is capped.
+
+The toolbar's icon buttons search the tree, refresh, switch wrap and scroll,
+collapse and expand all files, switch unified and split, show or hide the tree,
+and open More actions, which also copies every changed file path. The
+changed-files tree sits on the right, filters as you type, and marks the file in
+view. Each file row shows its type, folders and name, its counts, and eye,
+comment and More actions buttons; the header folds its patch when clicked. A
+deleted file cannot open in Files. Above 100 changed files or 5,000 changed
+lines, the diff shows one file at a time with Previous and Next. Patches read six
+files per request and are cut at 400 lines; expanding unchanged lines reads that
+file's full sides up to 400 KB each. The eye opens the file in a kept Files tab
+and is disabled for deleted files; this is the same Open file action available
+from Review file headers and chat edit-card file menus. The comment button opens
+a file comment whose chip shows only the path, and line comments follow Review.
+Changes refreshes when it opens, when the scope or destination changes, when you
+choose Refresh, and when a turn ends. Git runs in a separate short-lived process,
+and the pane shows one line when it cannot read the changes. Files and Changes
+can Fill window to hide the sidebar and session; Restore or Escape while focus is
+within the right pane returns to the prior layout.
+
+Plan shows the newest checklist
+Vera wrote in its scratch folder: the title, how many items are done, a bar and
+the items, with recently completed items marked while the turn runs. Open plan
+file opens its displayed path in the system's default application. Files shows
+the session's folder (`Chat` for a chat) as a tree. In a Git repository the
+tree includes tracked and untracked files and ignored entries; opening an
+ignored folder reads its children from disk. Outside a repository, or when Git
+cannot provide the list, folders are read as they open, up to 500 entries at a
+time. The tree skips `.git` and `.DS_Store`, and refreshes when a turn ends.
+Git marks show file changes and folders containing changes. The filter finds
+files by path; prefix a query with `?` to search file contents in a Git
+repository. Content search skips ignored files. A separate Vera Git process
+handles each Git list or search. The tree's button and menu can collapse all
+folders. Picking a file opens it beside the tree in a tab. Files has up to 12
+tabs, including one replaceable preview tab. With Preview tabs on, a single
+click in the tree opens or replaces the preview tab; double-clicking or
+requesting to keep a file opens a kept tab. With Preview tabs off, every open
+creates a tab. Close buttons and middle-click close tabs. When the tab limit is
+reached, the least recently used kept tab is evicted. Tab labels use the shortest
+unique path suffix needed to distinguish matching file names. Tabs are marked
+when selected.
+
+The bar under the tabs shows the file path under the session folder, the tree
+visibility button and the `...` menu. The Close button closes every tab; the
+tree stays open. Tab selection, preview mode, menu settings, tree width and tree
+visibility last only for the mounted Files view; they are not persisted. The
+tree starts on the right and can be moved to the left. Drag its divider to
+resize it, use the arrow keys while it is focused, or double-click to restore its
+default width. The `...` menu sets Preview tabs, Word wrap, Scroll past end, Tab
+size (2, 4 or 8), and the tree's Left or Right position. Its defaults are Preview
+tabs and Word wrap on, Scroll past end off, Tab size 4, and tree on the right.
+
+Picking a file shows its text with line numbers. The window reads at most the
+first 256 KB and says so when the file is longer. Source supports scrolling,
+word wrap and tab-size settings. A folder, a file that is not text and a file
+that is gone each show one line saying so. Open files are read again when a turn
+ends. Added or changed lines have a bar, and removed lines have a boundary mark.
+An untracked file is marked as added. Changed-line marks in Files show
+uncommitted changes; they do not follow the Review scope or distinguish a
+particular turn. The window reads these ranges in a short-lived process named
+Vera Git. When the file is outside a repository or Git cannot provide ranges, no
+change bars appear.
+
+An HTML file offers Source and Preview. Preview renders it beside the tree,
+including relative assets in the session's folder. The pointer selects or draws
+on the page and adds a screenshot and file details to the session's composer.
+Reload reads the file again after a change; Source returns to its text. See
+[Browser annotation](browser-annotation.md). Line comments in Source add a
+removable comment to the current session's composer. The sent comment includes
+the file path relative to the session folder, the new-side line or range, quoted
+text and note. Opening a file at a requested line scrolls to it and marks it
+briefly.
 Plan and Review are built from the
 session's conversation, so when the session is not running and nothing of it
 has loaded, each says `This session is not running. Start it to see its plan.`
@@ -2179,9 +2278,9 @@ the context pill to fill in, quotes a reply into the composer from its `…`
 menu, rewinds the newest prompt back into the composer and compacts from the
 session menu without a sheet, waiting for the result line. From a sidebar row's
 `…` menu it renames the session while another page is open, pins it and reads
-`pins.json`, opens the Files view, opens two files beside the tree, steps back
-and forward between them, hides and shows the tree, unpins it from the
-right-click menu, clones it and closes the copy.
+`pins.json`, opens the Files view, opens and switches files in tabs beside the
+tree, hides and shows the tree, unpins it from the right-click menu, clones it
+and closes the copy.
 
 The Browser tests check that websites open in Browser and that Usage, Workflow runs
 and Artifacts open in app page panes. They exercise typed app-page addresses,

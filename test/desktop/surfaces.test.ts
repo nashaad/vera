@@ -47,6 +47,7 @@ test("@core auto waits for each part's own evidence", () => {
         ["work", { sessions: 2 }, { sessions: 1 }],
         ["customize", { hostReady: true }, { sessions: 5 }],
         ["review", { review: true }, { plan: true }],
+        ["changes", { files: true }, { plan: true }],
         ["plan", { plan: true }, { review: true }],
         ["files", { files: true }, { sessions: 5 }],
         ["output", { output: true }, { hostFailed: true }],
@@ -69,7 +70,7 @@ test("@core every part that offers auto has a condition, and no other part follo
 
 test("the containers each flag controls leave the layout when the flag is off", () => {
     const hidden = unavailableContainers(resolveVisibility(flags(), NO_EVIDENCE));
-    expect([...hidden].sort()).toEqual([CORE_CONTAINERS.files, CORE_CONTAINERS.output, CORE_CONTAINERS.plan, CORE_CONTAINERS.review].sort());
+    expect([...hidden].sort()).toEqual([CORE_CONTAINERS.changes, CORE_CONTAINERS.files, CORE_CONTAINERS.output, CORE_CONTAINERS.plan, CORE_CONTAINERS.review].sort());
     expect(unavailableContainers(ALL_VISIBLE).size).toBe(0);
 });
 

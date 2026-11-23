@@ -8,6 +8,7 @@ import { releaseBuildId } from "../../src/release/build-id.ts";
 import { DESKTOP_BUILD_ID_SYMBOL } from "./src/client-build.ts";
 import { extensionFramePage } from "./extension-frame-page.ts";
 import { EXTENSION_FRAME_FILE } from "./src/extension-frame-file.ts";
+import { GIT_TASK_FILE } from "./src/git/task-protocol.ts";
 import { ASSIGNMENT_TASK_FILE } from "./src/model-assignments/task-protocol.ts";
 import { UPDATE_TASK_FILE } from "./src/update/task-protocol.ts";
 
@@ -62,6 +63,7 @@ const TASKS = [
     { entry: join(root, "src", "extension-install", "worker.ts"), file: EXTENSION_TASK_FILE },
     { entry: join(root, "src", "extension-catalog", "worker.ts"), file: CATALOG_TASK_FILE },
     { entry: join(root, "src", "update", "worker.ts"), file: UPDATE_TASK_FILE },
+    { entry: join(root, "src", "git", "worker.ts"), file: GIT_TASK_FILE },
 ];
 async function bundleTask(entry: string, outdir: string, file: string): Promise<void> {
     const bundle = await Bun.build({ entrypoints: [entry], outdir, target: "node", format: "cjs", external: ["electron"], naming: file });
@@ -109,6 +111,18 @@ const renderer = await Bun.build({
     naming: { entry: "[name].[ext]", chunk: "chunks/[name]-[hash].[ext]", asset: "[name].[ext]" },
 });
 if (!renderer.success) fail(renderer.logs);
+
+// The highlighting worker is a separate local file because worker-src cannot load a blob or a data URL.
+const workerEntry = Bun.resolveSync("@pierre/diffs/worker/worker-portable.js", import.meta.dir);
+const diffWorker = await Bun.build({
+    entrypoints: [workerEntry],
+    outdir: rendererOut,
+    target: "browser",
+    format: "esm",
+    minify: true,
+    naming: "worker.js",
+});
+if (!diffWorker.success) fail(diffWorker.logs);
 
 const themeBoot = await Bun.build({
     entrypoints: [join(root, "..", "ui", "src", "theme", "boot.ts")],

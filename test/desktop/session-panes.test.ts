@@ -15,7 +15,6 @@ import {
     MAX_CHANGED_FILES,
 } from "../../clients/ui/src/session/changes.ts";
 import { contextSegments } from "../../clients/ui/src/session/ContextPill.tsx";
-import { patchLines } from "../../clients/ui/src/session/DiffRollup.tsx";
 import { conversationText } from "../../clients/ui/src/session/conversationText.ts";
 import { offerDraft, takeDraft } from "../../clients/ui/src/session/drafts.ts";
 import type { Block, ContextState, Presentation, ToolsBlock } from "../../clients/ui/src/session/model.ts";
@@ -102,20 +101,6 @@ describe("changed files", () => {
         expect(fileFolder("/work/src/deep/a.ts", "/work")).toBe("src/deep");
         expect(fileFolder("/work/a.ts", "/work")).toBe("");
         expect(fileFolder("/elsewhere/a.ts", "/work")).toBe("/elsewhere");
-    });
-});
-
-describe("patch lines", () => {
-    test("drops the file headers the row already shows and keeps hunks", () => {
-        const patch = "Index: nest.txt\n===================================================================\n--- nest.txt\n+++ nest.txt\n@@ -1,2 +1,2 @@\n-twigs\n+feathers\n mud\n";
-        expect(patchLines([patch])).toEqual({ lines: ["@@ -1,2 +1,2 @@", "-twigs", "+feathers", " mud"], cut: false });
-    });
-
-    test("cuts long patches at the line cap", () => {
-        const patch = Array.from({ length: 450 }, (_, index) => `+line ${index}`).join("\n");
-        const result = patchLines([patch]);
-        expect(result.cut).toBe(true);
-        expect(result.lines).toHaveLength(400);
     });
 });
 

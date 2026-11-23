@@ -500,6 +500,65 @@ export function DiffIcon({ className }: IconProps) {
         </Icon>
     );
 }
+export function ChangesIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <circle cx="6" cy="6" r="2" />
+            <circle cx="18" cy="7" r="2" />
+            <circle cx="6" cy="18" r="2" />
+            <path d="M6 8v8" />
+            <path d="M18 9c0 4.5-4 4.5-8 4.5" />
+        </Icon>
+    );
+}
+
+export function WrapIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M4 6h16" />
+            <path d="M4 12h13" />
+            <path d="M4 18h9" />
+            <path d="M17 10v4h-3" />
+        </Icon>
+    );
+}
+
+export function CollapseIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M8 4l4 4 4-4" />
+            <path d="M8 20l4-4 4 4" />
+        </Icon>
+    );
+}
+
+export function ExpandIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M8 8l4-4 4 4" />
+            <path d="M8 16l4 4 4-4" />
+        </Icon>
+    );
+}
+export function UnifiedIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M4 6h16" />
+            <path d="M4 10h16" />
+            <path d="M4 14h16" />
+            <path d="M4 18h16" />
+        </Icon>
+    );
+}
+
+export function SplitIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="3.5" y="4.5" width="7" height="15" rx="1.5" />
+            <rect x="13.5" y="4.5" width="7" height="15" rx="1.5" />
+        </Icon>
+    );
+}
 
 export function InboxIcon({ className }: IconProps) {
     return (
@@ -561,6 +620,33 @@ export function ExternalIcon({ className }: IconProps) {
             <path d="M14 4h6v6" />
             <path d="M20 4 11 13" />
             <path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
+        </Icon>
+    );
+}
+
+export function OpenFileIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M13 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7" />
+            <path d="M14 4h6v6M20 4l-9 9" />
+        </Icon>
+    );
+}
+
+export function WindowFillIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="4" y="4" width="16" height="16" rx="2" />
+            <path d="M9 4v5H4M15 20v-5h5" />
+        </Icon>
+    );
+}
+
+export function RestoreIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <rect x="7" y="7" width="13" height="13" rx="2" />
+            <path d="M17 7V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h2" />
         </Icon>
     );
 }

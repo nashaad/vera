@@ -69,10 +69,10 @@ try {
     await page.locator('[data-pane-launcher]').click();
     await page.locator('[data-pane-option="core.files"]').click();
     if (await page.locator('[data-sash="Files tree"]').count()) throw new Error("Divider appeared without a file");
-    await page.locator('.file-folder', { hasText: 'nested' }).click();
-    await page.locator('.file-entry', { hasText: 'note.txt' }).waitFor();
-    await page.locator('.file-entry', { hasText: 'index.html' }).click();
-    await page.locator('.file-preview-lines', { hasText: 'Initial crow' }).waitFor();
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: 'nested' }).click();
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /note\.txt/ }).waitFor();
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /index\.html/ }).click();
+    await page.locator('.files-code [data-line]', { hasText: 'Initial crow' }).waitFor();
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1840, 1000));
     const sash = page.locator('[data-sash="Files tree"]');
     const tree = page.locator('.files-tree');
@@ -97,12 +97,12 @@ try {
     await page.getByRole('button', { name: 'Browse files' }).click();
     if (await sash.count()) throw new Error('Hidden tree retained divider');
     await page.getByRole('button', { name: 'Browse files' }).click();
-    if (Math.abs(await width() - retained) > 2 || !await page.locator('.file-entry', { hasText: 'note.txt' }).isVisible()) throw new Error('Tree state was lost');
-    await page.locator('.file-entry', { hasText: 'note.txt' }).click();
-    await page.locator('.file-preview-lines', { hasText: 'nested note' }).waitFor();
+    if (Math.abs(await width() - retained) > 2 || !await page.locator('.vera-file-tree').getByRole('treeitem', { name: /note\.txt/ }).isVisible()) throw new Error('Tree state was lost');
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /note\.txt/ }).click();
+    await page.locator('.files-code [data-line]', { hasText: 'nested note' }).waitFor();
     if (Math.abs(await width() - retained) > 2) throw new Error('File switch lost tree width');
-    await page.locator('.file-entry', { hasText: 'index.html' }).click();
-    await page.locator('.file-preview-lines', { hasText: 'Initial crow' }).waitFor();
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /index\.html/ }).click();
+    await page.locator('.files-code [data-line]', { hasText: 'Initial crow' }).waitFor();
     await drag(-2000);
     if (Math.abs(await width() - Number(await sash.getAttribute('aria-valuemax'))) > 2) throw new Error('Maximum was not clamped');
     await drag(2000);
@@ -166,7 +166,7 @@ try {
             await until('tight split measured', async () => Number(await sash.getAttribute('aria-valuemax')) < 100);
         }
         await page.getByRole('button', { name: 'Source', exact: true }).click();
-        await page.locator('.file-preview-lines', { hasText: 'Initial crow' }).waitFor();
+        await page.locator('.files-code [data-line]', { hasText: 'Initial crow' }).waitFor();
         await page.getByRole('button', { name: 'Preview', exact: true }).click();
         await frame.locator('#target').waitFor();
         await page.getByRole('button', { name: 'Reload', exact: true }).click();
@@ -183,7 +183,7 @@ try {
         await page.getByRole('button', { name: 'Select element' }).click();
         await until(`${size} narrow annotation`, async () => await frame.locator('[data-vera-annotation]').count() === 1);
         await page.getByRole('button', { name: 'Source', exact: true }).click();
-        await page.locator('.file-preview-lines', { hasText: 'Initial crow' }).waitFor();
+        await page.locator('.files-code [data-line]', { hasText: 'Initial crow' }).waitFor();
         await page.getByRole('button', { name: 'Preview', exact: true }).click();
         await frame.locator('#target').waitFor();
     }
@@ -329,7 +329,7 @@ try {
     if (process.env.VERA_PREVIEW_PROOF) await page.screenshot({ path: `${process.env.VERA_PREVIEW_PROOF}-reload.png` });
     const firstUrl = await page.locator('iframe[title="File preview"]').getAttribute("src");
     await page.getByRole("button", { name: "Source", exact: true }).click();
-    await page.locator('.file-preview-lines', { hasText: 'Changed crow' }).waitFor();
+    await page.locator('.files-code [data-line]', { hasText: 'Changed crow' }).waitFor();
     await until("released scope", async () => await app.evaluate(async ({ net }, url) => (await net.fetch(url)).status, firstUrl) === 404);
     if (await page.locator('iframe[title="File preview"]').count()) throw new Error("Preview frame survived Source");
     await page.getByRole("button", { name: "Preview", exact: true }).click();

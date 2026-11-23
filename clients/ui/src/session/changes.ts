@@ -5,6 +5,7 @@ export interface FileChange {
     readonly path: string;
     // Each edit's patch, oldest first.
     readonly patches: readonly string[];
+    readonly patchKeys: readonly string[];
     readonly added: number;
     readonly removed: number;
     readonly scratch: boolean;
@@ -12,25 +13,45 @@ export interface FileChange {
 
 export const MAX_CHANGED_FILES = 200;
 
+interface PatchIdentity {
+    readonly id: number;
+    readonly path: string;
+    readonly patch: string;
+}
+
+const patchIdentities = new WeakMap<FileDiff, PatchIdentity>();
+let nextPatchIdentity = 0;
+
+function patchKey(diff: FileDiff, blockKey: string, index: number): string {
+    let identity = patchIdentities.get(diff);
+    if (identity === undefined || identity.path !== diff.path || identity.patch !== diff.patch) {
+        identity = { id: ++nextPatchIdentity, path: diff.path, patch: diff.patch };
+        patchIdentities.set(diff, identity);
+    }
+    return JSON.stringify([identity.id, blockKey, index]);
+}
+
 export function collectChanges(blocks: readonly Block[]): FileChange[] {
     const byPath = new Map<string, FileChange>();
     for (const block of blocks) {
         if (block.kind !== "tools") continue;
-        for (const call of block.calls) {
-            if (call.presentation?.kind !== "diff") continue;
-            add(byPath, call.presentation.diff);
-        }
+        block.calls.forEach((call, index) => {
+            if (call.presentation?.kind !== "diff") return;
+            const diff = call.presentation.diff;
+            add(byPath, diff, patchKey(diff, block.key, index));
+        });
     }
     return [...byPath.values()];
 }
 
-function add(byPath: Map<string, FileChange>, diff: FileDiff): void {
+function add(byPath: Map<string, FileChange>, diff: FileDiff, patchKey: string): void {
     const known = byPath.get(diff.path);
     if (known === undefined) {
         if (byPath.size >= MAX_CHANGED_FILES) return;
         byPath.set(diff.path, {
             path: diff.path,
             patches: [diff.patch],
+            patchKeys: [patchKey],
             added: diff.added,
             removed: diff.removed,
             scratch: diff.scratch,
@@ -40,6 +61,7 @@ function add(byPath: Map<string, FileChange>, diff: FileDiff): void {
     byPath.set(diff.path, {
         ...known,
         patches: [...known.patches, diff.patch],
+        patchKeys: [...known.patchKeys, patchKey],
         added: known.added + diff.added,
         removed: known.removed + diff.removed,
     });

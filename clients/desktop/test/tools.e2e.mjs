@@ -12,6 +12,9 @@ import { setSidebarGrouping } from "./sidebar.mjs";
 import { startTrial } from "./trial.mjs";
 
 const BUILT = "The nest is built.";
+const BUILD_REPORT = Array.from({ length: 10 }, () =>
+    "The crow checked every twig twice, packed mud into the gaps, lined the cup with feathers, and stepped back to look at the rim."
+).join(" ");
 const SECOND = "The crow is resting.";
 const SUMMARY = "Built a nest and rested.";
 const PLAN = "# Crow plan\n\n- [x] Write the nest\n- [ ] Line the nest\n";
@@ -35,6 +38,7 @@ function stepFor(messages, scratch) {
     if (summarizerPrompt(messages)) return undefined;
     const lastUser = messages.findLastIndex((message) => message.role === "user");
     const user = JSON.stringify(messages[lastUser]?.content ?? "");
+    if (user.includes("Write the handover note") || user.includes("Produce the updated note")) return undefined;
     if (!user.includes("EDIT")) return undefined;
     const results = messages.slice(lastUser + 1).filter((message) => message.role === "tool").length;
     if (results === 0) return { name: "write", input: { path: join(scratch ?? "missing-scratch", "plan.md"), content: PLAN } };
@@ -46,7 +50,7 @@ function stepFor(messages, scratch) {
 function replyText(messages) {
     if (summarizerPrompt(messages)) return SUMMARY;
     const user = JSON.stringify([...messages].reverse().find((message) => message.role === "user")?.content ?? "");
-    if (user.includes("EDIT")) return BUILT;
+    if (user.includes("EDIT")) return `${BUILT}\n\n${BUILD_REPORT}`;
     if (user.includes("SECOND")) return SECOND;
     return SUMMARY;
 }
@@ -95,6 +99,17 @@ async function sessionMenu(label) {
     await page.locator(".menu-item", { hasText: label }).first().click();
 }
 
+async function closeMenuInside(where) {
+    const menu = page.locator(".menu").last();
+    await menu.waitFor({ timeout: 5_000 });
+    const box = await menu.boundingBox();
+    const viewport = page.viewportSize();
+    if (!box || !viewport || box.x < 0 || box.y < 0 || box.x + box.width > viewport.width || box.y + box.height > viewport.height) {
+        throw new Error(`${where} menu outside the viewport: ${JSON.stringify({ box, viewport })}`);
+    }
+    await page.keyboard.press("Escape");
+}
+
 try {
     await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
     configureFauxHome(trial.home, provider.address().port, "auto");
@@ -132,12 +147,184 @@ try {
     // Writes the rollup and the plan already name draw no line of their own.
     if (await page.locator(".run-head").count() !== 0) throw new Error("A run of landed writes drew a summary line.");
     await rollup.locator(".diff-file-head").first().click();
-    await rollup.locator(".diff-line[data-kind=\"add\"]", { hasText: "feathers" }).waitFor({ timeout: 5_000 });
+    // The file holds the creation run and the edit run, each its own Pierre diff.
+    const editRuns = await rollup.locator(".diff-patch").first().evaluate(async (patch) => {
+        const read = (container) => {
+            const root = container.shadowRoot;
+            return {
+                lines: [...(root?.querySelectorAll("[data-line]") ?? [])].map((line) => ({
+                    type: line.getAttribute("data-line-type"),
+                    text: line.textContent?.trim() ?? "",
+                })),
+                text: root?.textContent ?? "",
+            };
+        };
+        for (let attempt = 0; attempt < 200; attempt += 1) {
+            const containers = [...patch.querySelectorAll("diffs-container")];
+            if (containers.length >= 2 && containers.every((container) => container.shadowRoot)) {
+                const runs = containers.map(read);
+                if (runs[0].text.includes("twigs") && runs[1].text.includes("feathers")) return runs;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        return [...patch.querySelectorAll("diffs-container")].map(read);
+    });
+    if (editRuns.length !== 2) throw new Error(`The edit card rendered ${editRuns.length} runs, expected 2.`);
+    const created = editRuns[0].lines.filter((line) => line.type === "change-addition").map((line) => line.text);
+    if (!created.includes("twigs") || !created.includes("mud")) throw new Error(`The first run did not show the created lines: ${JSON.stringify(editRuns[0])}`);
+    if (editRuns[0].lines.some((line) => line.type === "change-deletion")) throw new Error(`The first run held a deletion: ${JSON.stringify(editRuns[0])}`);
+    const removed = editRuns[1].lines.filter((line) => line.type === "change-deletion").map((line) => line.text);
+    const added = editRuns[1].lines.filter((line) => line.type === "change-addition").map((line) => line.text);
+    if (!removed.includes("twigs") || !added.includes("feathers")) throw new Error(`The second run did not show twigs removed and feathers added: ${JSON.stringify(editRuns[1])}`);
 
-    // Review opens the right pane on the same change.
+    // The card header tally keeps a space between its counts, like the top line.
+    const cardTallyGap = await page.evaluate(() => {
+        const tally = document.querySelector(".diff-file-head .diff-tally");
+        const add = tally?.querySelector(".add") ?? null;
+        const del = tally?.querySelector(".del") ?? null;
+        if (add === null || del === null) return null;
+        return Math.round(del.getBoundingClientRect().left - add.getBoundingClientRect().right);
+    });
+    if (cardTallyGap === null || cardTallyGap < 4) throw new Error(`The card tally has no gap: ${cardTallyGap}`);
+
+    // A card comment takes focus without changing an existing composer draft.
+    await input.fill("");
+    await input.click();
+    await page.keyboard.type("x");
+    const draft = await input.inputValue();
+    if (draft !== "x" || !await input.evaluate((node) => node === document.activeElement)) {
+        throw new Error(`The composer was not focused with its draft: ${JSON.stringify(draft)}`);
+    }
+    const cardLine = await page.evaluate(() => {
+        for (const container of document.querySelectorAll(".diff-patch diffs-container")) {
+            const shadow = container.shadowRoot;
+            const line = shadow?.querySelector('[data-line][data-line-type="change-addition"]');
+            if (!shadow || !line) continue;
+            const rect = line.getBoundingClientRect();
+            line.dispatchEvent(new PointerEvent("pointermove", {
+                bubbles: true,
+                composed: true,
+                pointerType: "mouse",
+                clientX: rect.x + 20,
+                clientY: rect.y + rect.height / 2,
+            }));
+            return { x: rect.x + 20, y: rect.y + rect.height / 2 };
+        }
+        return undefined;
+    });
+    if (cardLine === undefined) throw new Error("No changed line in the edit card to comment on.");
+    await page.waitForTimeout(300);
+    const plus = await page.evaluate(() => {
+        for (const container of document.querySelectorAll(".diff-patch diffs-container")) {
+            const button = container.shadowRoot?.querySelector("[data-utility-button]");
+            if (!button) continue;
+            const rect = button.getBoundingClientRect();
+            if (rect.width === 0) continue;
+            return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        }
+        return undefined;
+    });
+    if (plus === undefined) throw new Error("The card's gutter plus did not show on hover.");
+    await page.mouse.click(plus.x, plus.y);
+    const cardComment = page.locator(".diff-comment-box:not(.diff-comment-readonly) textarea");
+    await cardComment.waitFor({ timeout: 5_000 });
+    await page.waitForTimeout(150);
+    const focus = await page.evaluate(() => {
+        const area = document.querySelector(".diff-comment-box:not(.diff-comment-readonly) textarea");
+        const active = document.activeElement;
+        return {
+            focused: area !== null && area === active,
+            active: active === null ? "none" : `${active.tagName}.${active.className}`,
+        };
+    });
+    const draftAfterOpen = await input.inputValue();
+    if (!focus.focused || draftAfterOpen !== draft) {
+        throw new Error(`A card comment box did not take focus with its draft unchanged: ${JSON.stringify({ ...focus, draft, draftAfterOpen })}`);
+    }
+    await input.click();
+    await page.waitForTimeout(350);
+    if (!await input.evaluate((node) => node === document.activeElement)) {
+        throw new Error("A card comment box took focus back after the composer was clicked.");
+    }
+    await cardComment.click();
+    await page.keyboard.type("y");
+    if (await cardComment.inputValue() !== "y" || await input.inputValue() !== draft) {
+        throw new Error("Typing a card comment changed the composer draft.");
+    }
+    await page.keyboard.press("Escape");
+    let closed = false;
+    try {
+        await page.locator(".diff-comment-box:not(.diff-comment-readonly)").waitFor({ state: "detached", timeout: 3_000 });
+        closed = true;
+    } catch {
+        closed = false;
+    }
+    if (!closed) throw new Error("Escape did not close the card comment box.");
+    if (await input.inputValue() !== draft) throw new Error("Escape changed the composer draft.");
+    await input.fill("");
+
+    // The edit-card file menu stays inside the window at each checked width.
+    const patchMenu = rollup.locator(".diff-file-more").first();
+    for (const width of [1500, 1150, 980]) {
+        await page.setViewportSize({ width, height: 800 });
+        await patchMenu.click();
+        await closeMenuInside(`${width}px edit-card`);
+    }
+
+    // Review opens the right pane on the same change, one item per run.
     await rollup.locator(".diff-review").click();
-    await page.locator(".change-head", { hasText: "nest.txt" }).first().click();
-    await page.locator(".review .diff-line[data-kind=\"del\"]", { hasText: "twigs" }).waitFor({ timeout: 10_000 });
+    const reviewMenus = page.locator(".review-file-actions .diff-file-more");
+    const reviewRuns = () => page.locator(".review diffs-container").evaluateAll((containers) => containers.map((container) => {
+        const root = container.shadowRoot;
+        return {
+            title: root?.querySelector("[data-title]")?.textContent ?? "",
+            text: root?.textContent ?? "",
+            lines: root?.querySelectorAll("[data-line]").length ?? 0,
+        };
+    }));
+    await until("both nest.txt runs in Review", async () => {
+        const runs = await reviewRuns();
+        return runs.filter((run) => run.title === "nest.txt").length === 2;
+    });
+    for (const width of [1500, 1150, 980]) {
+        await page.setViewportSize({ width, height: 800 });
+        await reviewMenus.first().click();
+        await closeMenuInside(`${width}px Review`);
+    }
+    if (await reviewMenus.count() !== 2) throw new Error(`Review rendered ${await reviewMenus.count()} header menus for two runs.`);
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await reviewMenus.nth(1).click();
+    await page.getByRole("menuitem", { name: "Collapse file" }).click();
+    await until("both nest.txt runs to collapse with both headers showing", async () => {
+        const nests = (await reviewRuns()).filter((run) => run.title === "nest.txt");
+        return nests.length === 2 && nests.every((run) => run.lines === 0);
+    });
+    // Collapsed Review content fits, so the sticky container must not clamp it below the top.
+    const reviewGap = await page.evaluate(async () => {
+        const diff = document.querySelector(".review-diffs");
+        if (diff !== null) {
+            diff.scrollTop = 0;
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        }
+        const container = document.querySelector(".review diffs-container");
+        const header = container?.shadowRoot?.querySelector("[data-diffs-header], [data-header]") ?? container;
+        const box = (node) => {
+            const rect = node?.getBoundingClientRect();
+            return rect === undefined ? null : { top: rect.top, bottom: rect.bottom };
+        };
+        return { diff: box(diff), header: box(header), scrollHeight: diff?.scrollHeight ?? null, clientHeight: diff?.clientHeight ?? null };
+    });
+    if (reviewGap.diff === null || reviewGap.header === null || reviewGap.header.top - reviewGap.diff.top >= 40) {
+        throw new Error(`Review left a gap above the first collapsed file: ${JSON.stringify(reviewGap)}`);
+    }
+    await reviewMenus.nth(1).click();
+    await page.getByRole("menuitem", { name: "Expand file" }).click();
+    let nests = [];
+    await until("both nest.txt runs to expand with feathers in the second", async () => {
+        nests = (await reviewRuns()).filter((run) => run.title === "nest.txt");
+        return nests.length === 2 && nests.every((run) => run.lines > 0) && nests[1].text.includes("feathers");
+    });
+    if (nests[0].text.includes("feathers")) throw new Error("Review's first run held the later edit.");
 
     // The Plan view shows the checklist the provider wrote; a pane opens from the right pane's "+".
     const openPane = async (title) => {
@@ -183,31 +370,34 @@ try {
 
     // The Files view reads the session's folder itself, one folder at a time.
     await openPane("Files");
-    await page.locator(".file-row", { hasText: "nest.txt" }).waitFor({ timeout: 10_000 });
-    await page.locator(".file-folder", { hasText: "hold" }).click();
-    await page.locator(".file-row", { hasText: "doubloon.txt" }).waitFor({ timeout: 10_000 });
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /nest\.txt/ }).waitFor({ timeout: 10_000 });
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: 'hold' }).click();
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /doubloon\.txt/ }).waitFor({ timeout: 10_000 });
 
-    // A file opens beside the tree with numbered lines and stays marked there.
-    await page.locator(".file-entry", { hasText: "nest.txt" }).click();
-    await page.locator(".file-preview-lines", { hasText: "feathers" }).waitFor({ timeout: 10_000 });
-    const gutter = await page.locator(".file-preview-gutter").innerText();
-    if (gutter !== "1\n2") throw new Error(`The gutter numbered ${JSON.stringify(gutter)}`);
+    // A file opens in a preview tab with numbered source lines.
+    const nestEntry = page.locator('.vera-file-tree').getByRole('treeitem', { name: /nest\.txt/ });
+    await nestEntry.click();
+    await page.locator(".files-code [data-line]", { hasText: "feathers" }).waitFor({ timeout: 10_000 });
+    const gutter = await page.locator(".files-code [data-column-number]").allTextContents();
+    if (gutter.slice(0, 2).join("\n") !== "1\n2") throw new Error(`The gutter numbered ${JSON.stringify(gutter)}`);
     const shownPath = async () => page.locator(".file-preview-path").innerText();
     if (await shownPath() !== "nest.txt") throw new Error(`The preview named ${await shownPath()}`);
-    await page.locator(".file-entry[aria-current=\"true\"]", { hasText: "nest.txt" }).waitFor({ timeout: 5_000 });
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /nest\.txt/, selected: true }).waitFor({ timeout: 5_000 });
+    await nestEntry.dblclick();
+    if (await page.locator(".file-tab--preview", { hasText: "nest.txt" }).count() !== 0) throw new Error("A double-click did not keep the tab.");
 
-    // Previous and next step through the files opened, and Browse files hides and shows the tree.
-    await page.locator(".file-entry", { hasText: "doubloon.txt" }).click();
+    // A second preview leaves the kept tab available, and Browse files hides and shows the tree.
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /doubloon\.txt/ }).click();
     await until("doubloon.txt open", async () => (await shownPath()) === "hold/doubloon.txt");
-    await page.getByRole("button", { name: "Previous file" }).click();
+    await page.getByRole("tab", { name: /nest.txt/ }).click();
     await until("nest.txt open again", async () => (await shownPath()) === "nest.txt");
-    await page.getByRole("button", { name: "Next file" }).click();
+    await page.getByRole("tab", { name: /doubloon.txt/ }).click();
     await until("doubloon.txt open again", async () => (await shownPath()) === "hold/doubloon.txt");
     const browse = page.getByRole("button", { name: "Browse files" });
     await browse.click();
-    await page.locator(".file-tree").waitFor({ state: "hidden", timeout: 5_000 });
+    await page.locator(".files-tree").waitFor({ state: "hidden", timeout: 5_000 });
     await browse.click();
-    await page.locator(".file-entry[aria-current=\"true\"]", { hasText: "doubloon.txt" }).waitFor({ timeout: 5_000 });
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /doubloon\.txt/, selected: true }).waitFor({ timeout: 5_000 });
 
     // The context pill fills in once the host measures the conversation.
     const pill = page.locator(".context-pill");
@@ -280,7 +470,7 @@ try {
     await page.locator(".switcher-item[aria-label=\"Plan\"]").click();
     await page.locator(".plan-title").waitFor({ timeout: 5_000 });
     await rowMenu(agentId, "Open Files Pane");
-    await page.locator(".file-row", { hasText: "nest.txt" }).waitFor({ timeout: 10_000 });
+    await page.locator('.vera-file-tree').getByRole('treeitem', { name: /nest\.txt/ }).waitFor({ timeout: 10_000 });
 
     // Right-click opens the same menu; Unpin puts the row back under its folder.
     await rowItem(agentId).click({ button: "right" });

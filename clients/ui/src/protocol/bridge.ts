@@ -21,6 +21,9 @@ import type {
     StorageMeasured,
     StoragePreviewed,
 } from "./storage.ts";
+import type { FileLineChange, GitTask, GitTaskReply } from "../../../shared/git-wire.ts";
+
+export type { FileLineChange } from "../../../shared/git-wire.ts";
 
 export type DesktopPhase = "starting" | "waiting" | "attached";
 
@@ -399,6 +402,10 @@ export interface DesktopBridge {
     savePastedImage(data: Uint8Array, mediaType: string): Promise<string | undefined>;
     // The checked-out branch of a folder's git repository, or undefined when none.
     readBranch(folder: string): Promise<string | undefined>;
+    // Reads Git state, changes, paths or search results in a one-request task process.
+    gitRead(task: GitTask): Promise<GitTaskReply>;
+    // Reads changed line ranges against HEAD in the Vera Git task; null means unavailable.
+    readFileChanges(folder: string, path: string): Promise<FileLineChange[] | null>;
     // One level of a folder on this machine, read by the window rather than the host.
     listFolder(folder: string): Promise<FolderListing>;
     // The start of a text file on this machine, read by the window rather than the host.

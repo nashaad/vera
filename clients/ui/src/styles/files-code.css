@@ -1,0 +1,52 @@
+.files-code {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    container-type: size;
+    --files-code-tab-size: 4;
+    background: var(--vera-surface-code);
+    color: var(--vera-text);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-code);
+    line-height: 1.6;
+    --diffs-header-font-family: var(--vera-font-ui);
+    --diffs-light-bg: var(--vera-surface-code);
+    --diffs-dark-bg: var(--vera-surface-code);
+    --diffs-light: var(--vera-text);
+    --diffs-dark: var(--vera-text);
+    --diffs-addition-color: var(--vera-diff-added);
+    --diffs-deletion-color: var(--vera-diff-removed);
+    --diffs-modified-color: var(--vera-link);
+    --diffs-bg-addition-override: var(--vera-diff-added);
+    --diffs-bg-deletion-override: var(--vera-diff-removed);
+    --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--vera-diff-added) 32%, transparent);
+    --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--vera-diff-removed) 32%, transparent);
+    --diffs-bg-selection-override: var(--vera-selection);
+    --diffs-bg-selection-number-override: var(--vera-selection);
+    --diffs-bg-hover-override: var(--vera-text-muted);
+    --diffs-bg-context-override: var(--vera-surface-code);
+    --diffs-bg-context-gutter-override: var(--vera-surface-code);
+    --diffs-bg-separator-override: var(--vera-surface-panel);
+    --diffs-bg-buffer-override: color-mix(in srgb, var(--vera-text) 4%, var(--vera-surface-code));
+    --diffs-fg-number-override: var(--vera-text-disabled);
+    --diffs-font-family: var(--vera-font-code);
+    --diffs-font-size: var(--vera-font-size-code);
+    --diffs-line-height: 1.6;
+    --diffs-gap-block: calc(var(--vera-space) * 1);
+    --diffs-gap-inline: calc(var(--vera-space) * 2);
+    --diffs-tab-size: var(--files-code-tab-size);
+}
+
+.files-code > * {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    tab-size: var(--files-code-tab-size);
+}
+
+.files-code-scroll-space {
+    height: 100cqh;
+}

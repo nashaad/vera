@@ -69,6 +69,7 @@ function DetailBody({ session, childId }: { readonly session: ActiveSession; rea
             </header>
             {failure === undefined ? null : <p className="subagent-error" role="alert">{failure}</p>}
             <SubagentTranscript
+                sessionId={childId}
                 watch={watch}
                 folder={row?.workspace}
                 after={(
@@ -78,7 +79,7 @@ function DetailBody({ session, childId }: { readonly session: ActiveSession; rea
                     </>
                 )}
             />
-            <SubagentMessageBox key={childId} watch={watch} send={send} />
+            <SubagentMessageBox key={childId} sessionId={childId} watch={watch} send={send} />
         </section>
     );
 }

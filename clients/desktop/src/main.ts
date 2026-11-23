@@ -63,6 +63,8 @@ import { readFilePreview } from "./file-preview.ts";
 import { LOCAL_PREVIEW_SCHEME, LocalPreviewScopes } from "./local-preview.ts";
 import { listFolder, pathArgument } from "./folder-listing.ts";
 import { readBranch } from "./git-branch.ts";
+import { GIT_TASK_FILE, GIT_TASK_SERVICE, parseGitTask, parseGitTaskReply } from "./git/task-protocol.ts";
+import type { GitTaskReply } from "../../shared/git-wire.ts";
 import { HostPipe } from "./host-pipe.ts";
 import { LayoutStore, layoutPath } from "./layout-store.ts";
 import { ASSIGNMENT_TASK_FILE, ASSIGNMENT_TASK_SERVICE, changeArgument, parseAssignmentTaskReply, type AssignmentTask } from "./model-assignments/task-protocol.ts";
@@ -162,6 +164,7 @@ const sidebarSettingsStore = new SidebarSettingsStore(sidebarSettingsPath(select
 let hiddenCommands: ReadonlySet<string> = hiddenCommandsFor(flagsStore.read());
 const assignmentTasks = new TaskRunner(() => startTaskProcess<AssignmentTask>(ASSIGNMENT_TASK_FILE, ASSIGNMENT_TASK_SERVICE), parseAssignmentTaskReply);
 const assignments = new AssignmentService(selectedVeraHome(), (task) => assignmentTasks.run(task));
+const gitTasks = new TaskRunner(() => startTaskProcess(GIT_TASK_FILE, GIT_TASK_SERVICE), parseGitTaskReply);
 const extensionStore = new ExtensionStore(
     selectedVeraHome(),
     new ExtensionStateStore(extensionStatePath(selectedVeraHome())),
@@ -637,6 +640,15 @@ ipcMain.handle(CHANNELS.imagePaste, async (event, data: unknown, mediaType: unkn
 ipcMain.handle(CHANNELS.branchRead, async (event, folder: unknown): Promise<string | undefined> => {
     if (!fromWindow(event) || typeof folder !== "string" || !isAbsolute(folder)) return undefined;
     return readBranch(folder);
+});
+ipcMain.handle(CHANNELS.gitRead, async (event, request: unknown): Promise<GitTaskReply> => {
+    const task = fromWindow(event) ? parseGitTask(request) : undefined;
+    if (task === undefined) return { kind: "failure", ok: false, reason: "Could not read the changes." };
+    try {
+        return await gitTasks.run(task);
+    } catch {
+        return { kind: "failure", ok: false, reason: "Could not read the changes." };
+    }
 });
 ipcMain.handle(CHANNELS.folderList, async (event, folder: unknown): Promise<FolderListing> => {
     const path = pathArgument(folder);

@@ -34,7 +34,7 @@ function writeFlags(home: string, text: string): string {
 
 test("@core every optional part has one flag, and core parts have none", () => {
     expect([...FLAG_KEYS].sort()).toEqual([
-        "browser", "buildLine", "configure", "contextPill", "coverage", "customize", "devices", "diagnostics",
+        "browser", "buildLine", "changes", "configure", "contextPill", "coverage", "customize", "devices", "diagnostics",
         "doctor", "extensions", "failures", "files", "nudges", "output", "plan", "review", "search", "showReasoning",
         "tour", "work",
     ]);
@@ -47,7 +47,7 @@ test("@core packaged defaults hide the developer group and keep shipped behavior
     for (const spec of FLAG_SPECS.filter((entry) => entry.group === "developer")) expect(packaged[spec.key]).toBe("off");
     expect(packaged.showReasoning).toBe("off");
     expect(packaged.browser).toBe("on");
-    for (const key of ["search", "work", "customize", "review", "plan", "files", "output", "contextPill", "doctor"] as const) {
+    for (const key of ["search", "work", "customize", "review", "changes", "plan", "files", "output", "contextPill", "doctor"] as const) {
         expect(packaged[key]).toBe("auto");
     }
 });

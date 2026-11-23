@@ -22,7 +22,7 @@ test("@core the renderer bundles for the browser without Bun-only imports", asyn
             if (!output.path.endsWith(".js")) continue;
             const text = await output.text();
             expect(text).not.toContain("Bun.");
-            expect(text).not.toContain("bun:");
+            expect(text).not.toMatch(/["']bun:/);
             expect(text).not.toMatch(/["']node:/);
             expect(text).not.toMatch(/["']electron["']/);
         }
@@ -70,7 +70,11 @@ test("@core the page applies the stored theme from a blocking script before the 
     const sheet = html.indexOf("<link rel=\"stylesheet\"");
     expect(script).toBeGreaterThan(-1);
     expect(sheet).toBeGreaterThan(script);
-    expect(html).not.toContain("'unsafe-inline'");
+    expect(html).toContain("style-src 'self' 'unsafe-inline'");
+    expect(html).toContain("worker-src 'self'");
+    expect(html).toContain("require-trusted-types-for 'script'");
+    expect(html).toContain("trusted-types default");
+    expect(html).not.toMatch(/script-src[^;]*'unsafe-inline'/);
     const out = await mkdtemp(join(tmpdir(), "vera-theme-boot-"));
     try {
         const result = await Bun.build({

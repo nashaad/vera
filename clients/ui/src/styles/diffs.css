@@ -9,6 +9,7 @@
 
 .diff-rollup-head {
     display: flex;
+    flex-wrap: wrap;
     gap: calc(var(--vera-space) * 2);
     align-items: center;
     padding: calc(var(--vera-space) * 2.25) calc(var(--vera-space) * 3.5);
@@ -46,6 +47,40 @@
     color: var(--vera-diff-removed);
 }
 
+.diff-view-controls {
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 0.5);
+    align-items: center;
+}
+
+.diff-view-toggle {
+    padding: calc(var(--vera-space) * 0.5) calc(var(--vera-space) * 1.5);
+    color: var(--vera-text-dim);
+    font: inherit;
+    font-size: calc(var(--vera-font-size) * 11 / 13);
+    background: transparent;
+    border: thin solid transparent;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+}
+
+.diff-view-toggle:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.diff-view-toggle[aria-pressed="true"] {
+    color: var(--vera-text);
+    background: var(--vera-surface-selected);
+    border-color: var(--vera-border);
+}
+
+.diff-view-toggle:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
 .transcript .diff-review {
     flex: 0 0 auto;
     padding: calc(var(--vera-space) * 0.75) calc(var(--vera-space) * 2.5);
@@ -69,22 +104,54 @@
     border-top: thin solid var(--vera-border);
 }
 
-.transcript .diff-file-head,
-.transcript .diff-more {
+.diff-file-head {
     display: flex;
-    gap: calc(var(--vera-space) * 2);
     align-items: center;
-    width: 100%;
-    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 3.5);
     color: var(--vera-text-dim);
     font-size: var(--vera-font-size-body);
-    text-align: left;
 }
 
-.transcript .diff-file-head:hover,
-.transcript .diff-more:hover {
+.diff-file-open,
+.diff-more {
+    display: flex;
+    flex: 1 1 0;
+    gap: calc(var(--vera-space) * 2);
+    align-items: center;
+    min-width: 0;
+    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 2) calc(var(--vera-space) * 2) calc(var(--vera-space) * 3.5);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.diff-file-head:hover,
+.diff-more:hover {
     color: var(--vera-text);
     background: var(--vera-surface-hover);
+}
+
+.diff-file-open:focus-visible,
+.diff-file-more:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
+.diff-file-more {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 4.5);
+    height: calc(var(--vera-space) * 4.5);
+    margin-right: calc(var(--vera-space) * 1.5);
+}
+
+.diff-file-head .diff-tally {
+    display: inline-flex;
+    gap: var(--vera-space);
+    justify-content: flex-end;
+    min-width: calc(var(--vera-space) * 12);
+    text-align: right;
 }
 
 .diff-file-icon {
@@ -136,41 +203,259 @@
     color: var(--vera-text-disabled);
 }
 
+/* Pierre renders into a shadow root; theme values cross the boundary as inherited custom properties. */
+.diff-patch,
+.review-diffs {
+    background: var(--vera-surface-code);
+    color: var(--vera-text);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-code);
+    line-height: 1.6;
+    --diffs-header-font-family: var(--vera-font-ui);
+    --diffs-light-bg: var(--vera-surface-code);
+    --diffs-dark-bg: var(--vera-surface-code);
+    --diffs-light: var(--vera-text);
+    --diffs-dark: var(--vera-text);
+    --diffs-addition-color: var(--vera-diff-added);
+    --diffs-deletion-color: var(--vera-diff-removed);
+    --diffs-modified-color: var(--vera-link);
+    /* Pierre mixes these targets into the code background at its own ratios. */
+    --diffs-bg-addition-override: var(--vera-diff-added);
+    --diffs-bg-deletion-override: var(--vera-diff-removed);
+    --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--vera-diff-added) 32%, transparent);
+    --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--vera-diff-removed) 32%, transparent);
+    --diffs-bg-selection-override: var(--vera-selection);
+    --diffs-bg-selection-number-override: var(--vera-selection);
+    --diffs-bg-hover-override: var(--vera-text-muted);
+    --diffs-bg-context-override: var(--vera-surface-code);
+    --diffs-bg-context-gutter-override: var(--vera-surface-code);
+    --diffs-bg-separator-override: var(--vera-surface-panel);
+    --diffs-bg-buffer-override: color-mix(in srgb, var(--vera-text) 4%, var(--vera-surface-code));
+    --diffs-fg-number-override: var(--vera-text-disabled);
+    --diffs-font-family: var(--vera-font-code);
+    --diffs-font-size: var(--vera-font-size-code);
+    --diffs-line-height: 1.6;
+    --diffs-gap-block: calc(var(--vera-space) * 1);
+    --diffs-gap-inline: calc(var(--vera-space) * 2);
+    --diffs-tab-size: 4;
+}
+
 .diff-patch {
     max-height: calc(var(--vera-space) * 110);
     overflow: auto;
-    background: var(--vera-surface-code);
+    scrollbar-gutter: stable;
     border-top: thin solid var(--vera-border);
-    font-family: var(--vera-font-code);
-    font-size: calc(var(--vera-font-size) * 12 / 13);
-    line-height: 1.6;
 }
 
-.diff-line {
-    padding: 0 calc(var(--vera-space) * 3.5);
+.review-diffs {
+    display: block;
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: calc(var(--vera-space) * 2);
+    scrollbar-gutter: stable;
+}
+
+.diff-patch diffs-container,
+.review-diffs diffs-container {
+    display: block;
+}
+
+:root[data-color-scheme="dark"] .diff-patch diffs-container,
+:root[data-color-scheme="dark"] .review-diffs diffs-container {
+    color-scheme: dark;
+}
+
+:root[data-color-scheme="light"] .diff-patch diffs-container,
+:root[data-color-scheme="light"] .review-diffs diffs-container {
+    color-scheme: light;
+}
+
+/* Light selection needs a deeper target: Pierre mixes 18% into a code row and 25% into a number. */
+:root[data-color-scheme="light"] .diff-patch,
+:root[data-color-scheme="light"] .review-diffs {
+    --diffs-bg-selection-override: color-mix(in srgb, var(--vera-selection) 40%, var(--vera-focus));
+    --diffs-bg-selection-number-override: color-mix(in srgb, var(--vera-selection) 40%, var(--vera-focus));
+}
+
+.diff-patch::-webkit-scrollbar-corner,
+.view-body:has(> .review)::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+.diff-error,
+.diff-note {
+    padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 3.5);
     color: var(--vera-text-muted);
-    white-space: pre;
-}
-
-.diff-line[data-kind="add"] {
-    color: var(--vera-diff-added);
-    background: color-mix(in srgb, var(--vera-diff-added) 12%, transparent);
-}
-
-.diff-line[data-kind="del"] {
-    color: var(--vera-diff-removed);
-    background: color-mix(in srgb, var(--vera-diff-removed) 12%, transparent);
-}
-
-.diff-line[data-kind="hunk"],
-.diff-line[data-kind="header"] {
-    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
 }
 
 .diff-note {
+    font-family: var(--vera-font-ui);
+    border-bottom: thin solid var(--vera-border);
+}
+
+.diff-raw {
+    margin: 0;
     padding: calc(var(--vera-space) * 2) calc(var(--vera-space) * 3.5);
-    color: var(--vera-text-disabled);
+    background: var(--vera-surface-code);
+    color: var(--vera-text);
+    font-family: var(--vera-font-code);
+    font-size: var(--vera-font-size-code);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.review-file-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: calc(var(--vera-space) * 1.5);
+    align-items: center;
+}
+
+.review-file-note {
+    color: var(--vera-text-muted);
+    font-family: var(--vera-font-ui);
     font-size: var(--vera-font-size-label);
+    white-space: nowrap;
+}
+
+.diff-comment-cell {
+    flex: 1 1 0;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding: var(--vera-space) calc(var(--vera-space) * 2) calc(var(--vera-space) * 1.5) 0;
+}
+
+.diff-patch diffs-container > [slot^="annotation-"],
+.review-diffs diffs-container > [slot^="annotation-"] {
+    max-width: 100%;
+    min-width: 0;
+}
+
+.diff-comment-box {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--vera-space) * 1.5);
+    padding: calc(var(--vera-space) * 2);
+    color: var(--vera-text);
+    background: var(--vera-surface-menu);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-lg);
+    box-shadow: var(--vera-shadow-knob);
+    font-family: var(--vera-font-ui);
+}
+
+.diff-comment-box:focus-within {
+    border-color: color-mix(in srgb, var(--vera-focus) 45%, var(--vera-border));
+}
+
+.diff-comment-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--vera-space) * 1) calc(var(--vera-space) * 2);
+    min-width: 0;
+    align-items: baseline;
+    justify-content: space-between;
+}
+
+.diff-comment-who {
+    flex: 0 0 auto;
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-label);
+    font-weight: 600;
+}
+
+.diff-comment-where {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
+    text-align: right;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
+.diff-comment-box textarea {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: calc(var(--vera-font-size-body) * 3);
+    max-height: calc(var(--vera-font-size-body) * 9);
+    padding: 0;
+    overflow-y: auto;
+    color: var(--vera-text);
+    background: transparent;
+    border: 0;
+    resize: none;
+    field-sizing: content;
+    font: inherit;
+    font-size: var(--vera-font-size-body);
+    line-height: 1.5;
+    outline: none;
+}
+
+.diff-comment-box textarea::placeholder {
+    color: var(--vera-text-disabled);
+}
+
+.diff-comment-actions {
+    display: flex;
+    gap: calc(var(--vera-space) * 1);
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.diff-comment-box button {
+    padding: calc(var(--vera-space) * 0.75) calc(var(--vera-space) * 2.5);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+}
+
+.diff-comment-cancel {
+    color: var(--vera-text-muted);
+    background: transparent;
+}
+
+.diff-comment-cancel:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.diff-comment-add {
+    padding-right: calc(var(--vera-space) * 3.5);
+    padding-left: calc(var(--vera-space) * 3.5);
+    color: var(--vera-surface-code);
+    background: var(--vera-text);
+    border-radius: var(--vera-radius-xl);
+}
+
+.diff-comment-add:disabled {
+    color: var(--vera-text-disabled);
+    background: var(--vera-surface-hover);
+    border-radius: var(--vera-radius-xl);
+    cursor: default;
+}
+
+.diff-comment-notice {
+    color: var(--vera-warning);
+    font-size: var(--vera-font-size-label);
+}
+
+.diff-comment-note {
+    color: var(--vera-text);
+    font-size: var(--vera-font-size-body);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
 }
 
 .diff-more {

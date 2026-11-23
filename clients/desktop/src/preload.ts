@@ -34,6 +34,7 @@ import type {
     SessionPane,
 } from "../../ui/src/protocol/bridge.ts";
 import type { UpdateAction, UpdateState } from "../../ui/src/protocol/updates.ts";
+import type { FileLineChange, GitTask, GitTaskReply } from "../../shared/git-wire.ts";
 import type { ImportedThemeSummary } from "../../ui/src/theme/imported.ts";
 import type { CatalogListResult, CatalogPreviewResult } from "../../ui/src/protocol/extension-catalog.ts";
 import type { ExtensionChangeResult, ExtensionPreviewResult } from "../../ui/src/protocol/extensions.ts";
@@ -155,6 +156,13 @@ const bridge: DesktopBridge = {
     readBranch: async (folder: string) => {
         const branch: unknown = await ipcRenderer.invoke(CHANNELS.branchRead, folder);
         return typeof branch === "string" ? branch : undefined;
+    },
+    gitRead: async (task: GitTask) => (await ipcRenderer.invoke(CHANNELS.gitRead, task)) as GitTaskReply,
+    readFileChanges: async (folder: string, path: string): Promise<FileLineChange[] | null> => {
+        const reply: unknown = await ipcRenderer.invoke(CHANNELS.gitRead, { kind: "changedLines", folder, path });
+        if (typeof reply !== "object" || reply === null || !("kind" in reply) || reply.kind !== "changedLines" || !("changes" in reply)) return null;
+        const changes = reply.changes;
+        return changes === null || Array.isArray(changes) ? changes as FileLineChange[] | null : null;
     },
     listFolder: async (folder: string) => (await ipcRenderer.invoke(CHANNELS.folderList, folder)) as FolderListing,
     readFilePreview: async (path: string) => (await ipcRenderer.invoke(CHANNELS.fileRead, path)) as FilePreview,

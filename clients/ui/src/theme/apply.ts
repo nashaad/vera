@@ -45,6 +45,7 @@ export function applyTheme(
         root.style.setProperty(`--vera-${token}`, theme.values[token]);
     }
     root.setAttribute("data-theme", applied);
+    root.setAttribute("data-color-scheme", colorScheme(applied));
     root.style.setProperty("color-scheme", colorScheme(applied));
     return applied;
 }

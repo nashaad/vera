@@ -33,7 +33,6 @@
 }
 
 .right-seg-option:focus-visible,
-.change-head:focus-visible,
 .subagent-action:focus-visible,
 .tasks-pill:focus-visible,
 .sheet-x:focus-visible {
@@ -64,84 +63,59 @@
     margin-bottom: var(--vera-space);
 }
 
-.file-tree,
-.file-tree ul {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.file-row,
-.file-note {
+.files-tree-body {
     display: flex;
-    gap: calc(var(--vera-space) * 1.5);
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.files-tree-search {
+    display: flex;
+    flex: 0 0 auto;
+    gap: var(--vera-space);
     align-items: center;
-    width: 100%;
-    min-height: calc(var(--vera-row-height) * 0.8);
-    padding: 0 calc(var(--vera-space) * 2) 0 calc(var(--vera-space) * (2 + 4 * var(--depth)));
-    font-size: var(--vera-font-size-label);
-    white-space: nowrap;
-}
-
-.file-row {
-    color: var(--vera-text-muted);
-}
-
-.file-note {
+    margin: 0 calc(var(--vera-space) * 2) var(--vera-space);
+    padding: 0 calc(var(--vera-space) * 1.5);
     color: var(--vera-text-dim);
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius-sm);
 }
 
-button.file-row {
-    font: inherit;
-    font-size: var(--vera-font-size-label);
-    text-align: left;
-    background: transparent;
-    border: 0;
-    cursor: pointer;
-}
-
-button.file-row:hover {
-    color: var(--vera-text);
-    background: var(--vera-surface-hover);
-}
-
-button.file-row:focus-visible {
-    outline: thin solid var(--vera-focus);
-    outline-offset: calc(var(--vera-space) / -2);
-}
-
-.file-entry[aria-current="true"] {
-    color: var(--vera-text);
-    background: var(--vera-surface-selected);
-}
-
-/* Files have no chevron, so their icon starts where a folder's chevron does, one step in. */
-.file-row:not(.file-folder) {
-    padding-left: calc(var(--vera-space) * (6.5 + 4 * var(--depth)));
-}
-
-.file-chevron {
-    flex: none;
-    width: calc(var(--vera-space) * 3);
-    height: calc(var(--vera-space) * 3);
-    color: var(--vera-text-disabled);
-    transition: transform var(--vera-motion);
-}
-
-[aria-expanded="true"] > .file-folder .file-chevron {
-    transform: rotate(90deg);
-}
-
-.file-icon {
+.files-tree-search svg {
     flex: none;
     width: calc(var(--vera-space) * 3.5);
     height: calc(var(--vera-space) * 3.5);
-    color: var(--vera-text-dim);
 }
 
-.file-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
+.files-tree-search[data-content-search="true"] svg {
+    color: var(--vera-accent);
+}
+
+.files-tree-search input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: calc(var(--vera-row-height) * 0.8);
+    color: var(--vera-text);
+    background: transparent;
+    border: 0;
+    outline: 0;
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+}
+
+.files-tree-search:focus-within {
+    border-color: var(--vera-focus);
+}
+
+.files-tree-note {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 0 calc(var(--vera-space) * 2) var(--vera-space);
+    color: var(--vera-text-dim);
+    font-size: var(--vera-font-size-label);
 }
 
 .change-add {
@@ -152,76 +126,29 @@ button.file-row:focus-visible {
     color: var(--vera-diff-removed);
 }
 
-.change-list {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.change {
-    border-bottom: thin solid var(--vera-border);
-}
-
-.change-head {
+.location .view-body:has(> .review) {
     display: flex;
-    width: 100%;
-    gap: calc(var(--vera-space) * 1.5);
-    align-items: center;
-    min-height: calc(var(--vera-row-height) - var(--vera-space) / 2);
-    padding: 0 calc(var(--vera-space) * 2);
-    color: var(--vera-text-muted);
-    font: inherit;
-    font-size: var(--vera-font-size-label);
-    text-align: left;
-    background: transparent;
-    border: 0;
-    cursor: pointer;
-}
-
-.change-head:hover {
-    color: var(--vera-text);
-    background: var(--vera-surface-hover);
-}
-
-.change-icon {
-    flex: 0 0 auto;
-    width: calc(var(--vera-space) * 3);
-    height: calc(var(--vera-space) * 3);
-}
-
-.change-name {
-    flex: 0 1 auto;
-    min-width: 0;
+    flex-direction: column;
     overflow: hidden;
-    color: var(--vera-text);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    padding-top: 0;
+    padding-bottom: 0;
 }
 
-.change-folder {
+/* The floating actions button sits over the body, so it moves inside the reserved gutter. */
+.view[data-merged="true"]:has(> .view-body > .review) > .view-header {
+    right: calc(var(--vera-space) * 2.5);
+}
+
+.review {
+    display: flex;
     flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--vera-text-disabled);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    flex-direction: column;
+    min-height: 0;
+    padding-top: var(--vera-space);
 }
 
-.change-tag {
-    flex: 0 0 auto;
-    padding: 0 calc(var(--vera-space) * 1);
-    color: var(--vera-badge-text);
-    font-size: calc(var(--vera-font-size-label) * 0.9);
-    background: var(--vera-badge);
-    border-radius: var(--vera-radius-sm);
-}
-
-.change-stat {
-    display: inline-flex;
-    flex: 0 0 auto;
-    gap: calc(var(--vera-space) * 1);
-    margin-left: auto;
-    font-family: var(--vera-font-code);
+.location[data-location="sidebar"] .review {
+    padding-top: calc(var(--vera-space) * 2.5);
 }
 
 /* plan */
@@ -496,15 +423,13 @@ button.file-row:focus-visible {
     color: var(--vera-text-dim);
 }
 
-/* An open file fills the view beside the tree, and its text scrolls in both directions under the bar. */
-
-.files-view[data-preview="true"] {
+.files-view {
     display: flex;
     flex-direction: column;
     height: 100%;
 }
 
-.files-view[data-preview="true"] > .files-split {
+.files-view > .files-split {
     display: flex;
     flex: 1 1 auto;
     min-height: 0;
@@ -512,12 +437,61 @@ button.file-row:focus-visible {
     border-top: thin solid var(--vera-border);
 }
 
-.files-view[data-preview="true"] .files-tree {
-    flex: 0 0 clamp(calc(var(--vera-space) * 40), 40%, calc(var(--vera-space) * 70));
+.files-split[data-tree-position="left"] { flex-direction: row-reverse; }
+
+.files-editor {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
     min-width: 0;
+    min-height: 0;
+}
+
+.file-tabs {
+    display: flex;
+    flex: 0 0 auto;
+    min-width: 0;
+    min-height: var(--vera-row-height);
+    overflow-x: auto;
+    border-bottom: thin solid var(--vera-border);
+}
+
+.file-tab {
+    display: flex;
+    flex: 0 0 auto;
+    gap: var(--vera-space);
+    align-items: center;
+    max-width: calc(var(--vera-space) * 55);
+    min-height: var(--vera-row-height);
+    padding: 0 var(--vera-space) 0 calc(var(--vera-space) * 2);
+    border-right: thin solid var(--vera-border);
+    color: var(--vera-text-muted);
+    cursor: pointer;
+}
+
+.file-tab[aria-selected="true"] {
+    background: var(--vera-surface-selected);
+    color: var(--vera-text);
+}
+
+.file-tab--preview .file-tab-label { font-style: italic; }
+.file-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-tab-close { flex: none; }
+
+.files-tree {
+    display: flex;
+    flex: 0 0 clamp(calc(var(--vera-space) * 40), 40%, calc(var(--vera-space) * 70));
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
     padding-top: var(--vera-space);
-    overflow: auto;
+    overflow: hidden;
     border-left: thin solid var(--vera-border);
+}
+
+.files-split[data-tree-position="left"] .files-tree {
+    border-right: thin solid var(--vera-border);
+    border-left: 0;
 }
 
 .files-tree[hidden] {
@@ -611,52 +585,4 @@ button.file-row:focus-visible {
     padding: var(--vera-space) calc(var(--vera-space) * 2);
     color: var(--vera-text-dim);
     font-size: var(--vera-font-size-label);
-}
-
-.file-preview-text {
-    display: flex;
-    flex: 1 1 auto;
-    align-items: flex-start;
-    min-height: 0;
-    overflow: auto;
-}
-
-.file-preview-gutter,
-.file-preview-lines {
-    margin: 0;
-    padding: var(--vera-space) 0;
-    font-family: var(--vera-font-code);
-    font-size: var(--vera-font-size-label);
-    line-height: 1.5;
-    white-space: pre;
-}
-
-/* The gutter stays put while long lines scroll sideways. */
-.file-preview-gutter {
-    position: sticky;
-    left: 0;
-    flex: 0 0 auto;
-    min-height: 100%;
-    padding-right: calc(var(--vera-space) * 2);
-    padding-left: calc(var(--vera-space) * 2);
-    color: var(--vera-text-disabled);
-    text-align: right;
-    background: var(--vera-surface);
-    user-select: none;
-}
-
-/* A sticky gutter needs the shade of the region it sits in, or text scrolls through it. */
-.location[data-location="sidebar"] .file-preview-gutter {
-    background: var(--vera-surface-sidebar);
-}
-
-.location[data-location="panel"] .file-preview-gutter {
-    background: var(--vera-surface-panel);
-}
-
-.file-preview-lines {
-    flex: 1 0 auto;
-    padding-right: calc(var(--vera-space) * 2);
-    color: var(--vera-text);
-    tab-size: 4;
 }
