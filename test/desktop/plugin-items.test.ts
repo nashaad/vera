@@ -22,6 +22,27 @@ import {
 } from "../../clients/ui/src/plugins/items.ts";
 import type { FolderCustomizationsAnswer } from "../../clients/ui/src/protocol/bridge.ts";
 import type { DesktopExtensionEntry } from "../../clients/ui/src/protocol/extensions.ts";
+import type { PluginInstallPreview } from "../../clients/ui/src/protocol/plugin-install.ts";
+import { pluginRestartNotes } from "../../clients/ui/src/plugins/PluginInstallPreview.tsx";
+
+test("plugin install preview names the restarts each part needs", () => {
+    const preview: PluginInstallPreview = {
+        name: "crow", source_path: "/work/crow", replaces: null,
+        skills: ["sail"], agents: ["captain"],
+        mcp: { servers: [], skipped: [], notes: [] }, mcp_enabled: true,
+        host_extension_id: null, desktop_extension_id: null,
+        needs_host_restart: false, needs_desktop_restart: false,
+        ignored: [], warnings: [],
+    };
+    expect(pluginRestartNotes(preview)).toEqual([]);
+    expect(pluginRestartNotes({ ...preview, needs_host_restart: true })).toEqual([
+        "Restart the resident host to apply extension code and MCP servers.",
+    ]);
+    expect(pluginRestartNotes({ ...preview, needs_desktop_restart: true })).toEqual([
+        "Reload desktop extensions or restart the app to load its desktop extension.",
+    ]);
+    expect(pluginRestartNotes({ ...preview, needs_host_restart: true, needs_desktop_restart: true })).toHaveLength(2);
+});
 
 const FOLDER = "/work";
 const HOME = "/Users/nash";
@@ -204,19 +225,39 @@ test("plugin packages and their skills and agents stay visible and read-only", (
         skills: [{ name: "sail", description: "Sail", manualOnly: false, plugin: "crow" }],
         agents: [{ name: "captain", description: "Captain", scope: "plugin", writable: false, plugin: "crow" }],
         sources: [
-            { id: "plugins:crow", category: "plugins", name: "crow", description: "1 skill", scope: "plugin", plugin: "crow", content: "", editable: false },
+            { id: "plugins:crow", category: "plugins", name: "crow", description: "1 skill, 1 agent", scope: "plugin", plugin: "crow", path: pluginPath, status: "enabled", content: "", editable: false },
+            { id: "plugins:off", category: "plugins", name: "off", description: "1 skill", scope: "plugin", plugin: "off", path: `${HOME}/plugins/off`, status: "disabled", content: "", editable: false },
             { id: "skills:sail", category: "skills", name: "sail", description: "Sail", scope: "plugin crow", plugin: "crow", path: `${pluginPath}/SKILL.md`, content: "", editable: false },
             { id: "agents:captain", category: "agents", name: "captain", description: "Captain", scope: "plugin", plugin: "crow", path: `${pluginPath}/captain.md`, content: "", editable: false },
         ],
     }, [], []);
 
-    expect(pluginKindCounts(items).plugins).toBe(1);
+    expect(pluginKindCounts(items).plugins).toBe(2);
     for (const [name, kind] of [["crow", "plugins"], ["sail", "skills"], ["captain", "agents"]] as const) {
         const entry = items.find((candidate) => candidate.name === name)!;
-        expect(entry.scope).toBe("builtin");
-        expect(pluginSections(items, kind, "").find((section) => section.scope === "builtin")?.items).toContain(entry);
+        expect(entry.scope).toBe("home");
+        expect(pluginSections(items, kind, "").find((section) => section.scope === "home")?.items).toContain(entry);
         expect(pluginEditorPath(entry)).toBeUndefined();
     }
+    const plugin = items.find((entry) => entry.name === "crow")!;
+    expect(pluginSections(items, "plugins", "").map((section) => section.scope)).toEqual(["home"]);
+    expect(plugin.pluginContents).toEqual({ skills: ["sail"], agents: ["captain"] });
+    expect(pluginRowMeta(plugin, FOLDER, HOME)).toEqual({ detail: "1 skill, 1 agent" });
+    expect(pluginSheetMeta(plugin, "work")).toEqual(["On"]);
+    expect(pluginFacts(plugin, "work")).toEqual([
+        { label: "Location", value: pluginPath, code: true },
+        { label: "State", value: "On", code: false },
+        { label: "Parts", value: "1 skill, 1 agent", code: false },
+    ]);
+    const off = items.find((entry) => entry.name === "off")!;
+    expect(pluginOff(off)).toBe(true);
+    expect(pluginSheetMeta(off, "work")).toEqual(["Off"]);
+    expect(off.pluginContents).toEqual({ skills: [], agents: [] });
+    const skill = items.find((entry) => entry.name === "sail")!;
+    const agent = items.find((entry) => entry.name === "captain")!;
+    expect(pluginRowMeta(skill, FOLDER, HOME)).toEqual({ extension: "From crow", detail: "/sail" });
+    expect(pluginRowMeta(agent, FOLDER, HOME)).toEqual({ extension: "From crow", detail: "~/plugins/crow/captain.md" });
+    expect(pluginSheetMeta(skill, "work")).toEqual(["From crow", "Your home"]);
     expect(pluginEditorPath(pluginItems(READING, [], [])[0]!)).toBe(DEPLOY_SOURCE.path);
 });
 
@@ -346,6 +387,8 @@ test("sections say what an empty scope means and what a fruitless search means",
     expect(pluginSectionEmpty("folder", "skills", "vera")).toBe("No skills in vera yet. Items from your home load here too.");
     expect(pluginSectionEmpty("folder", "skills", undefined)).toBe("No folder is selected, so there are no skills here.");
     expect(pluginSectionEmpty("home", "agents", "vera")).toBe("No agents in your home.");
+    expect(pluginSectionEmpty("home", "plugins", "vera")).toBe("No plugins are installed. Use Add to install one.");
+    expect(pluginSections([], "plugins", "").map((section) => section.scope)).toEqual(["home"]);
     expect(pluginSectionEmpty("builtin", "memory", "vera")).toBe("No built-in memory.");
     expect(pluginNoMatch("skills", "  quill  ")).toBe("No skills match “quill”.");
 });

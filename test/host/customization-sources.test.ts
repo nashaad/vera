@@ -55,6 +55,7 @@ test("source catalog is served without a turn and includes registered definition
             category: "plugins",
             scope: "plugin",
             status: "enabled",
+            path: join(home, "plugins", "fixture-plugin"),
         }));
         expect(update.catalog.sources).toContainEqual(expect.objectContaining({
             id: "skills:plunder",

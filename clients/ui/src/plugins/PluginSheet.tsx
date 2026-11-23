@@ -104,6 +104,19 @@ export function PluginSheet({ item, folderLabel, extensions, onClose, onTryNow }
         >
             <p className="plugin-sheet-meta">{pluginSheetMeta(item, folderLabel).join(" · ")}</p>
             <p className="plugin-sheet-description">{item.description}</p>
+            {item.kind === "plugins" ? (
+                <div className="plugin-overview">
+                    <div className="plugin-markdown" data-plugin-contents>
+                        <PluginParts title="Skills" names={item.pluginContents?.skills ?? []} />
+                        <PluginParts title="Agents" names={item.pluginContents?.agents ?? []} />
+                        <p className="plugin-note">
+                            Change this plugin with <code>vera plugin disable {item.name}</code>,{" "}
+                            <code>vera plugin remove {item.name}</code>, or <code>/plugins</code> in the terminal.
+                        </p>
+                    </div>
+                    <Facts item={item} folderLabel={folderLabel} />
+                </div>
+            ) : (<>
             <div className="plugin-tabs" role="tablist" aria-label="Plugin details">
                 <button
                     type="button"
@@ -140,14 +153,7 @@ export function PluginSheet({ item, folderLabel, extensions, onClose, onTryNow }
                             </p>
                         ) : null}
                     </div>
-                    <dl className="plugin-facts">
-                        {pluginFacts(item, folderLabel).map((fact) => (
-                            <Fragment key={fact.label}>
-                                <dt>{fact.label}</dt>
-                                <dd className={fact.code ? "plugin-code" : undefined}>{fact.value}</dd>
-                            </Fragment>
-                        ))}
-                    </dl>
+                    <Facts item={item} folderLabel={folderLabel} />
                 </div>
             ) : (
                 <div className="plugin-files">
@@ -200,8 +206,33 @@ export function PluginSheet({ item, folderLabel, extensions, onClose, onTryNow }
                     )}
                 </div>
             )}
+            </>)}
             {menu === undefined ? null : <PluginMenu item={item} x={menu.x} y={menu.y} onClose={() => setMenu(undefined)} />}
         </OverlaySheet>
+    );
+}
+
+function PluginParts({ title, names }: { readonly title: string; readonly names: readonly string[] }) {
+    return (
+        <section>
+            <h3>{title}</h3>
+            {names.length === 0 ? <p className="plugin-empty">None loaded.</p> : (
+                <ul>{names.map((name) => <li key={name}>{name}</li>)}</ul>
+            )}
+        </section>
+    );
+}
+
+function Facts({ item, folderLabel }: { readonly item: PluginItem; readonly folderLabel: string | undefined }) {
+    return (
+        <dl className="plugin-facts">
+            {pluginFacts(item, folderLabel).map((fact) => (
+                <Fragment key={fact.label}>
+                    <dt>{fact.label}</dt>
+                    <dd className={fact.code ? "plugin-code" : undefined}>{fact.value}</dd>
+                </Fragment>
+            ))}
+        </dl>
     );
 }
 

@@ -112,7 +112,9 @@ vera plugin install <path>
 vera plugin install <path> --dry-run
 ```
 
-In the TUI, use `/plugin install <path>`. The preview lists the skills,
+The desktop Plugins page also installs a plugin from a folder; see
+[Customize](customize.md#the-desktop-page). In the TUI, use
+`/plugin install <path>`. The preview lists the skills,
 agents, MCP servers with their transport, extension capabilities, ignored
 parts, and each skipped MCP server with its reason. With
 `--dry-run`, Vera prints the preview and stops.

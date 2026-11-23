@@ -120,7 +120,7 @@ test("scope groups follow the fixed order and drop empty groups", () => {
     expect(sections[0]?.items.map((item) => item.name)).toEqual(["notes", "planner", "AGENTS.md"]);
 });
 
-test("plugin source rows keep their metadata and sort after existing kinds in Other", () => {
+test("plugin source rows and their items belong to Your home", () => {
     const pluginSource = source({
         id: "plugins:sea-chest",
         category: "plugins",
@@ -140,13 +140,13 @@ test("plugin source rows keep their metadata and sort after existing kinds in Ot
     }), []);
 
     const plugin = items.find((item) => item.kind === "plugins");
-    expect(plugin).toMatchObject({ kind: "plugins", name: "sea-chest", group: "Other", source: pluginSource });
+    expect(plugin).toMatchObject({ kind: "plugins", name: "sea-chest", group: "Your home", source: pluginSource });
     expect(plugin?.source?.plugin).toBe("sea-chest");
     expect(items.find((item) => item.name === "lookout")).toMatchObject({
-        kind: "agents", group: "Other", agent: { scope: "plugin", plugin: "sea-chest" },
+        kind: "agents", group: "Your home", agent: { scope: "plugin", plugin: "sea-chest" },
     });
     expect(items.find((item) => item.name === "plunder")?.skill?.plugin).toBe("sea-chest");
-    expect(groupByScope(items).find((section) => section.group === "Other")?.items.map((item) => item.kind))
+    expect(groupByScope(items).find((section) => section.group === "Your home")?.items.map((item) => item.kind))
         .toEqual(["skills", "agents", "plugins"]);
 });
 
@@ -156,7 +156,8 @@ test("scope strings map to readable group names", () => {
     expect(scopeGroup("extension")).toBe("Extensions");
     expect(scopeGroup("extension demo")).toBe("Extensions");
     expect(scopeGroup("system")).toBe("Built in");
-    expect(scopeGroup("plugin")).toBe("Other");
+    expect(scopeGroup("plugin")).toBe("Your home");
+    expect(scopeGroup("plugin sea-chest")).toBe("Your home");
     expect(scopeGroup(undefined)).toBe("Other");
 });
 

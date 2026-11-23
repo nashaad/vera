@@ -12,7 +12,7 @@ import { KindIcon } from "../plugins/KindIcon.tsx";
 import { DiscoverThemes } from "../customize/DiscoverThemes.tsx";
 import { useDesktopExtensions, type DesktopExtensionsState } from "../customize/useDesktopExtensions.ts";
 import { useFolderCustomizations } from "../customize/useFolderCustomizations.ts";
-import type { DesktopBridge, ExtensionFailure } from "../protocol/bridge.ts";
+import type { DesktopBridge, ExtensionFailure, PluginInstallPreviewResult } from "../protocol/bridge.ts";
 import { folderName } from "../protocol/sessionGroups.ts";
 import { useActiveSession } from "../session/activeSession.ts";
 import { useViewEnvironment } from "../views/env.tsx";
@@ -35,6 +35,7 @@ import {
 } from "../plugins/items.ts";
 import { PluginMenu } from "../plugins/PluginMenu.tsx";
 import { PluginSheet } from "../plugins/PluginSheet.tsx";
+import { PluginInstallPreview, PluginInstallRefusal, pluginRestartNotes } from "../plugins/PluginInstallPreview.tsx";
 
 type FailureState =
     | { readonly phase: "loading" }
@@ -43,7 +44,7 @@ type FailureState =
 
 type PluginsMode = "yours" | "discover";
 
-const KIND_TABS: readonly CustomizeKind[] = ["skills", "agents", "extensions", "instructions", "memory", "plugins"];
+const KIND_TABS: readonly CustomizeKind[] = ["plugins", "skills", "agents", "extensions", "instructions", "memory"];
 const FIRST_ROWS = 6;
 
 function desktopBridge(): DesktopBridge | undefined {
@@ -142,7 +143,14 @@ function FolderMenu({ folder, folders, onPick }: FolderMenuProps) {
     );
 }
 
-function AddMenu({ extensions }: { readonly extensions: DesktopExtensionsState }) {
+interface AddMenuProps {
+    readonly extensions: DesktopExtensionsState;
+    readonly kind: "plugins" | "extensions";
+    readonly pluginBusy: boolean;
+    readonly choosePlugin: () => void;
+}
+
+function AddMenu({ extensions, kind, pluginBusy, choosePlugin }: AddMenuProps) {
     const [open, setOpen] = useState(false);
     const root = useRef<HTMLDivElement>(null);
     const placed = usePopoverPlacement(open, root);
@@ -168,7 +176,7 @@ function AddMenu({ extensions }: { readonly extensions: DesktopExtensionsState }
                 className="solid-btn"
                 aria-haspopup="menu"
                 aria-expanded={open}
-                disabled={extensions.busy}
+                disabled={extensions.busy || pluginBusy}
                 onClick={() => setOpen(!open)}
             >
                 <PlusIcon />
@@ -181,14 +189,16 @@ function AddMenu({ extensions }: { readonly extensions: DesktopExtensionsState }
                         type="button"
                         role="menuitem"
                         className="folder-item"
-                        data-desktop-extension-install
+                        data-desktop-extension-install={kind === "extensions" ? "" : undefined}
+                        data-plugin-install={kind === "plugins" ? "" : undefined}
                         onClick={() => {
                             setOpen(false);
-                            extensions.choose();
+                            if (kind === "plugins") choosePlugin();
+                            else extensions.choose();
                         }}
                     >
-                        <span className="folder-item-name">Install from file</span>
-                        <span className="folder-item-path">An unpacked extension package</span>
+                        <span className="folder-item-name">{kind === "plugins" ? "Install from folder" : "Install from file"}</span>
+                        <span className="folder-item-path">{kind === "plugins" ? "A plugin folder" : "An unpacked extension package"}</span>
                     </button>
                 </div>
             ) : null}
@@ -247,11 +257,13 @@ function PluginRow({ item, folder, home, onOpen, onMenu }: {
                 </span>
                 <span className="plugin-row-body">
                     <span className="plugin-row-name">{pluginName(item)}</span>
-                    <span className="plugin-row-desc">{item.description.length === 0 ? "No description." : item.description}</span>
+                    {item.kind === "plugins" ? null : (
+                        <span className="plugin-row-desc">{item.description.length === 0 ? "No description." : item.description}</span>
+                    )}
                     <span className="plugin-row-meta">
                         {meta.extension === undefined ? null : <span>{meta.extension}</span>}
                         {meta.extension !== undefined && meta.detail !== undefined ? <span className="plugin-dot">·</span> : null}
-                        {meta.detail === undefined ? null : <code>{meta.detail}</code>}
+                        {meta.detail === undefined ? null : item.kind === "plugins" ? <span>{meta.detail}</span> : <code>{meta.detail}</code>}
                     </span>
                 </span>
                 <span className="plugin-row-end">
@@ -402,6 +414,10 @@ export function PluginsPage() {
     const [picked, setPicked] = useState<PluginItem | undefined>(undefined);
     const [rowMenu, setRowMenu] = useState<{ readonly item: PluginItem; readonly x: number; readonly y: number } | undefined>(undefined);
     const [mode, setMode] = useState<PluginsMode>("yours");
+    const [installPreview, setInstallPreview] = useState<Extract<PluginInstallPreviewResult, { ok: true }> | undefined>(undefined);
+    const [pluginRefusal, setPluginRefusal] = useState<string | undefined>(undefined);
+    const [pluginBusy, setPluginBusy] = useState(false);
+    const [pluginReport, setPluginReport] = useState<{ readonly ok: boolean; readonly message: string } | undefined>(undefined);
     const yours = mode === "yours";
 
     const attached = connection.phase === "attached";
@@ -444,6 +460,42 @@ export function PluginsPage() {
         if (current === undefined) setPicked(undefined);
         else if (current !== picked) setPicked(current);
     }, [items, picked]);
+
+    async function choosePlugin(): Promise<void> {
+        if (bridge === undefined || pluginBusy) return;
+        setPluginBusy(true);
+        setPluginReport(undefined);
+        try {
+            const result = await bridge.previewPluginInstall();
+            if (result.ok) setInstallPreview(result);
+            else if ("reason" in result) setPluginRefusal(result.reason);
+        } catch {
+            setPluginRefusal("Vera could not read that plugin folder.");
+        } finally {
+            setPluginBusy(false);
+        }
+    }
+
+    async function confirmPlugin(): Promise<void> {
+        if (bridge === undefined || installPreview === undefined || pluginBusy) return;
+        setPluginBusy(true);
+        try {
+            const result = await bridge.installPlugin(installPreview.token);
+            setInstallPreview(undefined);
+            if (result.ok) {
+                const notes = pluginRestartNotes(result.result.preview);
+                setPluginReport({ ok: true, message: [`Installed ${result.result.preview.name}.`, ...notes].join(" ") });
+                setReload((current) => current + 1);
+            } else {
+                setPluginReport({ ok: false, message: result.reason });
+            }
+        } catch {
+            setInstallPreview(undefined);
+            setPluginReport({ ok: false, message: "Vera could not install that plugin." });
+        } finally {
+            setPluginBusy(false);
+        }
+    }
 
     function tryNow(item: PluginItem): void {
         requestNewChatPrefill(`/${item.name}`);
@@ -569,10 +621,28 @@ export function PluginsPage() {
                         <RefreshIcon />
                         Reload
                     </button>
-                    {kind === "extensions" ? <AddMenu extensions={extensions} /> : null}
+                    {kind === "extensions" || kind === "plugins" ? (
+                        <AddMenu extensions={extensions} kind={kind} pluginBusy={pluginBusy || bridge === undefined} choosePlugin={() => { void choosePlugin(); }} />
+                    ) : null}
                 </div>
             ) : null}
+            {yours && kind === "plugins" && pluginReport !== undefined ? (
+                <p className="customize-note" role="status" data-tone={pluginReport.ok ? undefined : "danger"} data-plugin-install-report={pluginReport.ok}>
+                    {pluginReport.message}
+                </p>
+            ) : null}
             {yours ? listBody() : discoverBody()}
+            {pluginRefusal === undefined ? null : (
+                <PluginInstallRefusal reason={pluginRefusal} onClose={() => setPluginRefusal(undefined)} />
+            )}
+            {installPreview === undefined ? null : (
+                <PluginInstallPreview
+                    preview={installPreview.preview}
+                    busy={pluginBusy}
+                    onCancel={() => setInstallPreview(undefined)}
+                    onInstall={() => { void confirmPlugin(); }}
+                />
+            )}
             {picked === undefined ? null : (
                 <PluginSheet
                     key={picked.key}

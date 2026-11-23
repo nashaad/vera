@@ -23,6 +23,12 @@ export interface PluginItem extends CustomizeItem {
     readonly extension?: DesktopExtensionEntry;
     // Set when the host names the installed extension a skill came from.
     readonly extensionId?: string;
+    readonly pluginContents?: PluginContents;
+}
+
+export interface PluginContents {
+    readonly skills: readonly string[];
+    readonly agents: readonly string[];
 }
 
 export interface PluginSection {
@@ -95,16 +101,21 @@ export function pluginPathLabel(path: string, scope: PluginScope, folder: string
 }
 
 export function pluginDetail(item: PluginItem, folder: string | undefined, home: string | undefined): string | undefined {
+    if (item.kind === "plugins") return item.description || undefined;
     const command = pluginCommand(item);
     if (command !== undefined) return command;
     const path = item.source?.path;
     return path === undefined ? undefined : pluginPathLabel(path, item.scope, folder, home);
 }
 
+export function pluginOrigin(item: PluginItem): string | undefined {
+    if (item.kind !== "skills" && item.kind !== "agents") return undefined;
+    return item.skill?.plugin ?? item.agent?.plugin ?? item.source?.plugin;
+}
+
 export function pluginRowMeta(item: PluginItem, folder: string | undefined, home: string | undefined): PluginRowMeta {
-    const extension = item.extensionId !== undefined && item.kind !== "extensions"
-        ? `From ${item.extensionId}`
-        : undefined;
+    const origin = pluginOrigin(item) ?? (item.kind !== "extensions" ? item.extensionId : undefined);
+    const extension = origin === undefined ? undefined : `From ${origin}`;
     const detail = pluginDetail(item, folder, home);
     return {
         ...(extension === undefined ? {} : { extension }),
@@ -129,7 +140,8 @@ export function pluginSections(
 ): readonly PluginSection[] {
     const matching = visibleItems(items, kind, query);
     const searching = query.trim().length > 0;
-    return PLUGIN_SECTION_ORDER
+    const scopes: readonly PluginScope[] = kind === "plugins" ? ["home"] : PLUGIN_SECTION_ORDER;
+    return scopes
         .map((scope) => ({ scope, items: matching.filter((item) => item.scope === scope) }))
         .filter((section) => searching ? section.items.length > 0 : section.scope !== "builtin" || section.items.length > 0);
 }
@@ -141,6 +153,7 @@ export function pluginSectionEmpty(scope: PluginScope, kind: CustomizeKind, fold
             ? `No folder is selected, so there are no ${plural} here.`
             : `No ${plural} in ${folderLabel} yet. Items from your home load here too.`;
     }
+    if (scope === "home" && kind === "plugins") return "No plugins are installed. Use Add to install one.";
     if (scope === "home") return `No ${plural} in your home.`;
     return `No built-in ${plural}.`;
 }
@@ -150,6 +163,9 @@ export function pluginNoMatch(kind: CustomizeKind, query: string): string {
 }
 
 export function pluginSheetMeta(item: PluginItem, folder: string | undefined): readonly string[] {
+    if (item.kind === "plugins") return [pluginOff(item) ? "Off" : "On"];
+    const origin = pluginOrigin(item);
+    if (origin !== undefined) return [`From ${origin}`, "Your home"];
     if (item.scope === "builtin") return ["Included with Vera"];
     if (item.kind === "extensions") return ["Installed extension", "Your home"];
     if (item.extensionId !== undefined) return [`From ${item.extensionId}`, "Your home"];
@@ -159,6 +175,13 @@ export function pluginSheetMeta(item: PluginItem, folder: string | undefined): r
 export function pluginFacts(item: PluginItem, folder: string | undefined): readonly PluginFact[] {
     const path = item.source?.path;
     const location = path ?? (item.scope === "builtin" ? "Included with Vera" : "Not available");
+    if (item.kind === "plugins") {
+        return [
+            { label: "Location", value: location, code: path !== undefined },
+            { label: "State", value: pluginOff(item) ? "Off" : "On", code: false },
+            { label: "Parts", value: item.description || "None", code: false },
+        ];
+    }
     const command = pluginCommand(item);
     return [
         { label: "Location", value: location, code: path !== undefined },
@@ -191,9 +214,32 @@ export function pluginItems(
     const installedIds = new Set(
         extensions.filter((extension) => !extension.included).map((extension) => extension.id),
     );
+    const contents = new Map<string, { skills: string[]; agents: string[] }>();
+    const addPart = (plugin: string | undefined, kind: "skills" | "agents", name: string): void => {
+        if (plugin === undefined) return;
+        let parts = contents.get(plugin);
+        if (parts === undefined) {
+            parts = { skills: [], agents: [] };
+            contents.set(plugin, parts);
+        }
+        parts[kind].push(name);
+    };
+    for (const skill of reading.skills) addPart(skill.plugin, "skills", skill.name);
+    for (const agent of reading.agents) addPart(agent.plugin, "agents", agent.name);
     const items: PluginItem[] = buildItems(reading, failures)
         .filter((item) => item.kind !== "extensions")
         .map((item): PluginItem => {
+            const plugin = item.skill?.plugin ?? item.agent?.plugin ?? item.source?.plugin;
+            if (item.kind === "plugins") {
+                return {
+                    ...item,
+                    scope: "home",
+                    pluginContents: contents.get(item.name) ?? { skills: [], agents: [] },
+                };
+            }
+            if (plugin !== undefined && (item.kind === "skills" || item.kind === "agents")) {
+                return { ...item, scope: "home" };
+            }
             const id = item.group === "Extensions" ? extensionScopeId(item.source?.scope) : undefined;
             if (id !== undefined && installedIds.has(id)) {
                 return { ...item, scope: "home", extensionId: id };

@@ -517,6 +517,34 @@ main[data-page="customize"] .plugins-toolbar {
     line-height: 1.6;
 }
 
+.plugin-markdown section h3 {
+    margin: 0 0 calc(var(--vera-space) * 2);
+    font-size: var(--vera-font-size);
+}
+
+.plugin-markdown section + section {
+    margin-top: calc(var(--vera-space) * 4);
+}
+
+.plugin-markdown section ul {
+    margin: 0;
+    padding-left: calc(var(--vera-space) * 5);
+    color: var(--vera-text-muted);
+}
+
+.plugin-note {
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.plugin-install-details {
+    min-height: 0;
+    overflow: auto;
+    padding-bottom: calc(var(--vera-space) * 3);
+}
+
 .plugin-facts {
     align-self: start;
     display: grid;

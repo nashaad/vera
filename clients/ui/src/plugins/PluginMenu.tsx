@@ -2,7 +2,7 @@ import { ContextMenu } from "../workbench/ContextMenu.tsx";
 import { dirname } from "../customize/catalog.ts";
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import type { MenuEntry } from "../commands/menus.ts";
-import { pluginEditorPath, type PluginItem } from "./items.ts";
+import { pluginEditorPath, pluginOrigin, type PluginItem } from "./items.ts";
 
 export interface PluginMenuProps {
     readonly item: PluginItem;
@@ -26,22 +26,26 @@ export function PluginMenu({ item, x, y, onClose }: PluginMenuProps) {
     const editorPath = pluginEditorPath(item);
     const content = item.source?.content ?? "";
     const entries: readonly MenuEntry[] = [
-        { kind: "item", label: "Open in editor", command: OPEN_EDITOR, disabled: bridge === undefined || editorPath === undefined },
+        ...(item.kind === "plugins" || pluginOrigin(item) !== undefined ? [] : [
+            { kind: "item" as const, label: "Open in editor", command: OPEN_EDITOR, disabled: bridge === undefined || editorPath === undefined },
+        ]),
         {
             kind: "item",
             label: bridge?.platform === "darwin" ? "Show in Finder" : "Open folder",
             command: REVEAL,
             disabled: bridge === undefined || path === undefined,
         },
-        { kind: "item", label: "Copy Markdown", command: COPY_MARKDOWN, disabled: content.length === 0 },
-        { kind: "separator" },
+        ...(item.kind === "plugins" ? [] : [
+            { kind: "item" as const, label: "Copy Markdown", command: COPY_MARKDOWN, disabled: content.length === 0 },
+            { kind: "separator" as const },
+        ]),
         { kind: "item", label: "Copy path", command: COPY_PATH, disabled: path === undefined },
     ];
     const run = (command: string): void => {
         if (command === OPEN_EDITOR && editorPath !== undefined) {
             void bridge?.openFile(editorPath);
         } else if (command === REVEAL && path !== undefined) {
-            void bridge?.revealFolder(dirname(path));
+            void bridge?.revealFolder(item.kind === "plugins" ? path : dirname(path));
         } else if (command === COPY_MARKDOWN) {
             void navigator.clipboard.writeText(content);
         } else if (command === COPY_PATH && path !== undefined) {

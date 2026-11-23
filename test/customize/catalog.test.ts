@@ -5,8 +5,9 @@ import { join } from "node:path";
 import { loadAgentCatalog } from "../../src/agents/catalog.ts";
 import { loadCustomizationCatalog } from "../../src/customize/catalog.ts";
 import { includedExtensionIds } from "../../src/extensions/included.ts";
-import { installPlugin } from "../../src/plugins/manager.ts";
+import { installPlugin, setPluginEnabled } from "../../src/plugins/manager.ts";
 import { AGENT_PLUGIN_SCHEMA } from "../../src/plugins/naming.ts";
+import { parseSources } from "../../clients/ui/src/customize/wire.ts";
 
 const originalHome = process.env.VERA_HOME;
 const roots: string[] = [];
@@ -48,8 +49,26 @@ test("@core plugin skills and agents keep their plugin name in the catalog", asy
         scope: "plugin",
         plugin: "fixture-plugin",
         status: "enabled",
+        path: join(home, "plugins", "fixture-plugin"),
         editable: false,
     }));
+    const firstAgent = agents.agents[0]!;
+    const crowdedAgents = {
+        ...agents,
+        agents: Array.from({ length: 500 }, (_, index) => ({
+            ...firstAgent,
+            path: undefined,
+            definition: { ...firstAgent.definition, name: `crow-${index}` },
+        })),
+    };
+    const crowded = await loadCustomizationCatalog({ workspace, agents: crowdedAgents });
+    expect(parseSources(crowded.sources).some((item) => item.id === "plugins:fixture-plugin")).toBe(true);
+    setPluginEnabled("fixture-plugin", false);
+    const disabledCatalog = await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
+    expect(disabledCatalog.sources.find((source) => source.id === "plugins:fixture-plugin")).toMatchObject({
+        path: join(home, "plugins", "fixture-plugin"),
+        status: "disabled",
+    });
     expect(catalog.sources).toContainEqual(expect.objectContaining({
         id: "skills:plunder",
         category: "skills",

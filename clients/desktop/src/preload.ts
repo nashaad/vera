@@ -21,6 +21,8 @@ import type {
     ExtensionFailuresResult,
     FolderCustomizationsResult,
     NewSessionAgentsResult,
+    PluginInstallPreviewResult,
+    PluginInstallResult,
     FilePreview,
     FolderListing,
     HostModelsResult,
@@ -86,6 +88,8 @@ const bridge: DesktopBridge = {
     installDesktopExtension: async (token: string) =>
         (await ipcRenderer.invoke(CHANNELS.desktopExtensionInstall, token)) as ExtensionChangeResult,
     cancelDesktopExtension: (token: string) => ipcRenderer.send(CHANNELS.desktopExtensionCancel, token),
+    previewPluginInstall: async () => (await ipcRenderer.invoke(CHANNELS.pluginInstallPreview)) as PluginInstallPreviewResult,
+    installPlugin: async (token: string) => (await ipcRenderer.invoke(CHANNELS.pluginInstallConfirm, token)) as PluginInstallResult,
     setDesktopExtensionEnabled: async (id: string, enabled: boolean) =>
         (await ipcRenderer.invoke(CHANNELS.desktopExtensionEnable, id, enabled)) as ExtensionChangeResult,
     removeDesktopExtension: async (id: string) =>

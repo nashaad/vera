@@ -22,6 +22,8 @@ export const CHANNELS = {
     desktopExtensionCancel: "vera:desktop-extension-cancel",
     desktopExtensionEnable: "vera:desktop-extension-enable",
     desktopExtensionRemove: "vera:desktop-extension-remove",
+    pluginInstallPreview: "vera:plugin-install-preview",
+    pluginInstallConfirm: "vera:plugin-install-confirm",
     extensionCatalogOpen: "vera:extension-catalog-open",
     extensionCatalogPreview: "vera:extension-catalog-preview",
     extensionCatalogClose: "vera:extension-catalog-close",

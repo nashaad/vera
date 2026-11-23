@@ -16,21 +16,24 @@ Open Plugins from the sidebar, the Go menu, or the command palette. The page
 reads what a session in the selected folder loads.
 
 The toolbar holds a search field, a kind control, and Reload. The kind control
-lists Skills, Agents, Extensions, Instructions, Memory, and Plugins with counts,
-and the search field follows the selected kind. Add appears on the Extensions kind only,
-with Install from file in its menu.
+lists Plugins, Skills, Agents, Extensions, Instructions, and Memory with counts,
+and the search field follows the selected kind. The page opens on Skills. Add
+appears on Plugins with Install from folder, described as "A plugin folder".
+On Extensions, Add offers Install from file.
 
 The list stacks its scopes as sections. In this folder comes first, with its
 count, a note naming the folder, and the folder menu on the right. The menu
 chooses which folder to read, and Reload reads it again. Your home follows with
 its count and a note that it loads in every folder. Built in sits last, starts
 collapsed, and opens from its chevron; a kind with no items in that section has
-no Built in section. Included extensions' skills and agents appear there.
+no Built in section. Included extensions' skills and agents appear there. The
+Plugins kind has only Your home because plugins are installed in the home.
 
 Each section shows its first six rows in two columns, then a line naming the
 next items; the line opens the rest of that section only. An empty In this
 folder says so and notes that items from your home load there too. An empty
-Your home says so. With no folder selected, the folder menu reads `No folder`
+Your home says so. The empty Plugins kind says that no plugins are installed
+and points to Add. With no folder selected, the folder menu reads `No folder`
 and the section says there are none there.
 
 Search filters every section. A section with no match hides, Built in opens
@@ -38,30 +41,46 @@ while it has a match, and when nothing matches the page says so.
 
 Each row shows the kind's icon, the name, a one-line description, and a meta
 line. The meta line reads `From <extension id>` when an installed extension
-brought the item, then the skill's slash command or another kind's file path.
+brought the item, or `From <plugin>` when a plugin brought a skill or agent,
+followed by the skill's slash command or another kind's file path.
 Paths read from the folder lose it, and paths in your home start with `~/`. An
 instruction row shows the file's name, with its path on the meta line. Items
-traced to an installed extension appear under Your home. A check marks an item
-that is present, and the three-dot button opens the row menu. A disabled
-desktop extension shows Off and a dimmed tile.
+traced to an installed extension or plugin appear under Your home. A check marks
+an item that is present, and the three-dot button opens the row menu. A disabled
+desktop extension or plugin shows Off and a dimmed tile. A plugin package row
+shows its parts summary on the meta line.
 
-Selecting a row opens a sheet. The Overview tab shows the file rendered as
-Markdown beside Location, Scope, Loads in, Command, and Files. The Files tab
-shows the one file that was read, with a toggle between the rendered file and
-its numbered source. The three-dot menu offers Open in editor, Show in Finder
-(Open folder away from macOS), Copy Markdown, and Copy path. Try now appears for
-skills: it opens a new chat with the skill's command in the composer and does
-not send it.
+Selecting an ordinary row opens a sheet. The Overview tab shows the file
+rendered as Markdown beside Location, Scope, Loads in, Command, and Files. The
+Files tab shows the one file that was read, with a toggle between the rendered
+file and its numbered source. The three-dot menu offers Open in editor, Show in
+Finder (Open folder away from macOS), Copy Markdown, and Copy path. Try now
+appears for skills: it opens a new chat with the skill's command in the composer
+and does not send it.
+
+Plugin skill and agent rows and plugin package rows are read-only. They have no
+Open in editor, Uninstall, or switch action. A plugin package sheet shows its
+name with "Plugin", its On or Off state as a plain label, its parts summary,
+and its skills and agents as lists. Location, State, and Parts appear in its
+facts column; its three-dot menu offers Show in Finder and Copy path only. The
+sheet says to change a plugin with `vera plugin disable <name>`,
+`vera plugin remove <name>`, or `/plugins` in the terminal.
 
 On the Extensions kind, Add opens a menu with Install from file. An extension's
 sheet has a switch that turns the extension on or off and an Uninstall button.
 The extensions included with Vera are always on and are not listed. Their skills
 and agents still appear under Skills and Agents, in Built in.
 
-Plugin-provided skills and agents appear in Built in, although they do not ship
-with Vera. The Plugins kind lists installed packages there as well. Plugin items
-are read-only. See
-[Plugins](plugins.md) to install or manage a package.
+On the Plugins kind, Install from folder opens a folder chooser and then a
+preview of the selected package. The preview shows its name, version, skills,
+agents, MCP servers and transport, extension parts, ignored parts, and warnings.
+Choose Install or Cancel. If the manager refuses the preview, the sheet shows
+the reason and only offers Close. Install reports the result, then refreshes
+the list so the plugin and its items appear. If the package includes a desktop
+extension, the report says to reload desktop extensions or restart the app.
+Preview and install run in a separate task process, not the desktop main
+process. See
+[Plugins](plugins.md) for package details.
 
 Discover shows the theme catalog. Yours shows the list above.
 
