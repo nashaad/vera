@@ -5,6 +5,7 @@ import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWr
 import type { IncludedExtensionsResult } from "../../ui/src/protocol/included-extensions.ts";
 import type { SavedPins } from "../../ui/src/protocol/pins.ts";
 import type { MoveSessionOutcome } from "../../ui/src/protocol/sessionMove.ts";
+import type { SidebarSettings } from "../../ui/src/protocol/sidebarSettings.ts";
 import type { DesktopFlags, FlagPatch } from "../../ui/src/state/desktopFlags.ts";
 import type {
     AnnexPagesResult,
@@ -104,6 +105,8 @@ const bridge: DesktopBridge = {
     saveLayout: (layout: LayoutState) => ipcRenderer.send(CHANNELS.layoutSave, layout),
     loadPins: async () => (await ipcRenderer.invoke(CHANNELS.pinsLoad)) as SavedPins,
     savePins: (pins: SavedPins) => ipcRenderer.send(CHANNELS.pinsSave, pins),
+    loadSidebarSettings: async () => (await ipcRenderer.invoke(CHANNELS.sidebarSettingsLoad)) as SidebarSettings,
+    saveSidebarSettings: (settings: SidebarSettings) => ipcRenderer.send(CHANNELS.sidebarSettingsSave, settings),
     loadFlags: async () => (await ipcRenderer.invoke(CHANNELS.flagsLoad)) as DesktopFlags,
     saveFlags: async (patch: FlagPatch) => ((await ipcRenderer.invoke(CHANNELS.flagsSave, patch)) ?? undefined) as DesktopFlags | undefined,
     reportHiddenCommands: (ids: readonly string[]) => ipcRenderer.send(CHANNELS.flagsHidden, ids),

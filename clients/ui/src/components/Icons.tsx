@@ -131,6 +131,16 @@ export function MoreIcon({ className }: IconProps) {
     );
 }
 
+export function FilterIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M4 6h16" />
+            <path d="M7 12h10" />
+            <path d="M10 18h4" />
+        </Icon>
+    );
+}
+
 export function ChevronRightIcon({ className }: IconProps) {
     return (
         <Icon className={className}>
@@ -361,6 +371,17 @@ export function PinIcon({ className }: IconProps) {
             <path d="M9 4h6" />
             <path d="M10 4v5l-3 4h10l-3-4V4" />
             <path d="M12 13v7" />
+        </Icon>
+    );
+}
+
+export function PinOffIcon({ className }: IconProps) {
+    return (
+        <Icon className={className}>
+            <path d="M9 4h6" />
+            <path d="M10 4v5l-3 4h10l-3-4V4" />
+            <path d="M12 13v7" />
+            <path d="m4 4 16 16" />
         </Icon>
     );
 }

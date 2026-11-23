@@ -7,6 +7,8 @@ let loading: Promise<void> | undefined;
 // Toggles made before the file is read are replayed over what it holds.
 let early: string[] = [];
 let loaded = false;
+// The row whose Pin the sidebar moves focus to once the change renders.
+let focusAfter: string | undefined;
 const listeners = new Set<() => void>();
 
 function publish(next: SavedPins): void {
@@ -44,9 +46,17 @@ export function isPinned(id: string): boolean {
 
 export function toggleSessionPin(id: string): void {
     const next = togglePin(pins, id);
+    focusAfter = id;
     if (!loaded) early.push(id);
     else window.veraDesktop?.savePins(next);
     publish(next);
+}
+
+// Reads and clears the row a pin change moved, so the sidebar can put focus back on its Pin.
+export function takePinFocus(): string | undefined {
+    const id = focusAfter;
+    focusAfter = undefined;
+    return id;
 }
 
 export function usePinnedSessions(): readonly string[] {

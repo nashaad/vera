@@ -358,30 +358,44 @@ page its limit, a notice opens nothing and shows no dot.
 Seven views ship with the app:
 
 - Sessions, in the sidebar, lists the first 50 sessions of the home, most recent
-  first, in groups by folder. A group's heading is the last segment of the folder
-  path, or `No folder` when a session has none. Hovering the heading shows the
-  full path. Chats, which are sessions with no folder of their own, share one
-  group headed `Chats`; its heading opens no workspace page. Groups are in the
-  order of their most recent session, and rows keep
-  the host's order inside a group. A subagent is listed indented under the
-  session that started it, in that session's group, including under a chat; a
-  subagent of a chat does not get a group named after the chat's folder. A
-  subagent of a subagent is listed under the same top parent. A pinned session's
-  subagents are listed under it in Pinned, and a pinned subagent is listed in
-  Pinned on its own. Subagents start collapsed beneath their parent. A count such
-  as `2 nested` shows how many are listed, with `· 1 working` when one is working.
-  Click the count or the chevron beside the parent title to show the nested rows;
-  click the chevron again to collapse them. A group and a parent collapse and
-  expand while the window stays open; neither state is kept across launches.
+  first. It opens as one plain list under Group by None. The filter button at the
+  right of the view's header opens a menu with `Group by` and the current choice,
+  then `Folder` and `None`; the chosen one has a check. Folder groups the list by
+  folder. The choice is kept per home in `machine/desktop/sidebar.json` and
+  survives a restart.
+
+  Under Folder, a group's heading is the last segment of the folder path, or
+  `No folder` when a session has none. Hovering the heading shows the full path.
+  Chats, which are sessions with no folder of their own, share one group headed
+  `Chats`; its heading opens no workspace page. Under None, chats sit in the
+  plain list. Groups are in the order of their most recent session, and rows keep
+  the host's order inside a group. A workspace with one top-level session whose
+  title matches the folder name shows as one folder row with a folder icon and
+  no separate heading; the row opens the session. Any other group draws its
+  heading over its session rows, and the heading opens the workspace page.
+
+  A subagent is listed under its direct parent at any depth, in that session's
+  place in the list or group. A subagent of a chat does not get a group named
+  after the chat's folder. A pinned session carries its whole subtree into
+  Pinned; a stale pin on a subagent does not list it on its own. Subagents start
+  collapsed beneath their parent. The number after a parent's title counts its
+  direct children, and the chevron beside it shows or hides them. A group and a
+  parent collapse and expand while the window stays open; neither state is kept
+  across launches.
+
   Archived sessions and their subagents leave Pinned, Chats and their folder
   groups for an `Archived` group at the bottom. It starts collapsed. Opening an
   archived session from that group or Go to Session does not unarchive it. Each
-  row shows the session's title and its status at the right. A working session
-  has a rotating indicator, a session waiting on you has a filled dot, and the
-  other rows have an outlined dot and the time since their last activity, written
-  short (`now`, `5m`, `3h`, `2d`, `1mo`, `1y`). Reduce motion stops the rotating
-  indicator. Picking a row opens that session, and the row of the open session is
-  filled.
+  top-level row shows the session's title, its time since the last activity
+  (`now`, `5m`, `3h`, `2d`, `1mo`, `1y`) and a Pin or Unpin button. A working
+  session has a rotating indicator in the time's place, and a session waiting on
+  you has a filled dot there. Reduce motion stops the rotating indicator. A
+  nested row shows its title, with the working spinner or waiting dot, and no
+  time or Pin. Picking a row opens that session, and the row of the
+  open session is filled. The Pin or Unpin button on a top-level row does the
+  same as the menu item. With a row focused, Up and Down move through the
+  visible rows, Right expands a row or moves into its children, and Left
+  collapses it or moves to its parent.
 
   A session's title is its name, whether you gave it or Vera's automatic titles
   did, or else the start of its first prompt, the same as in the terminal UI.
@@ -394,11 +408,12 @@ Seven views ship with the app:
   on the row open the row's menu:
 
   - Rename… opens the session and its rename sheet.
-  - Pin Session moves the row into a `Pinned` group at the top of the list, in
-    the order the sessions were pinned, and Unpin Session puts it back under its
-    folder. Pins are kept per home in `machine/desktop/pins.json`, at most 50; a
-    newer pin past that drops the oldest. The terminal UI keeps its own pins. A
-    pinned session shows only while it is among the sessions the list has loaded.
+  - Pin Session is offered on a top-level row, and moves it and its subagents
+    into a `Pinned` group at the top of the list, in the order the sessions were
+    pinned. Unpin Session puts it back in the plain list or under its folder.
+    Pins are kept per home in `machine/desktop/pins.json`, at most 50; a newer pin
+    past that drops the oldest. The terminal UI keeps its own pins. A pinned
+    session shows only while it is among the sessions the list has loaded.
   - Archive Session moves the session and its subagents into Archived; Unarchive
     Session returns them to their groups, including Pinned when still pinned.
     Either action on a subagent's row applies to its parent session family,

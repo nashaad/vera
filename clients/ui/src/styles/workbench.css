@@ -393,6 +393,15 @@
     width: calc(var(--vera-font-size) * 1.3);
 }
 
+.menu-label {
+    flex: 1 1 auto;
+}
+
+.menu-hint {
+    flex: 0 0 auto;
+    color: var(--vera-text-disabled);
+}
+
 .menu-separator {
     height: 0;
     margin: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2);

@@ -55,7 +55,7 @@ function shortcutKeys(id: string, platform: string): readonly string[] {
 // Commands that need arguments cannot run from a list, and the palette does not list itself.
 export function buildCommandItems(commands: readonly Command[], platform: string): readonly PaletteItem[] {
     const items = commands
-        .filter((command) => command.needsArgs !== true && command.id !== "palette.commands")
+        .filter((command) => command.needsArgs !== true && command.paletteHidden !== true && command.id !== "palette.commands")
         .map((command): PaletteItem => ({
             id: command.id,
             label: command.title,
