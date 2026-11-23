@@ -648,14 +648,19 @@ right. Under each message:
   reply does; finished replies do not.
 - Reasoning is hidden. A thought shows nothing during the turn or after it, and
   the status line says only `Thinking`. See Showing reasoning below.
-- Replies render a small part of Markdown: headings, paragraphs, lists, bold,
-  italic, inline code, links and fenced code. Fenced code has its language and a
+- Replies render Markdown headings, paragraphs, line breaks, nested bullet and
+  numbered lists, task lists, blockquotes, thematic breaks, tables, and fenced
+  or indented code. Inline formatting includes bold, italic, strikethrough,
+  inline code, links and escaped characters. Fenced code has its language and a
   copy button, which copies the plain code. Once a block's closing fence arrives
   (or the reply ends), the block is colored by its language from the theme's
   syntax colors, in the built-in themes and in imported VS Code themes; a block
   whose language Vera does not know stays plain. Links are shown with their
   address on hover and are not opened, except a link to one of Vera's pages, which
-  opens inside the window as described under Browser. Raw HTML is never rendered.
+  opens inside the window as described under Browser. Bare addresses to Vera
+  pages in reply text also open there. Images do not load remote content; they
+  appear as inert links labelled with their alt text. Raw HTML is shown as text,
+  never rendered.
 - Notices from Vera, such as errors, show as a strip in the column.
 - The end of each turn has a copy button, a `…` button and the time since its
   last step (`just now`, `5m ago`, `1h ago`). Hovering the time shows the exact
