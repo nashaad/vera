@@ -31,6 +31,16 @@ test("the host history page wire carries reasoning facts", () => {
 });
 
 test("host protocol parses identity requests and encodes responses", () => {
+    expect(parseHostRequest(JSON.stringify({ type: "list_agents", query: "  title and folder  " })))
+        .toEqual({ type: "list_agents", query: "title and folder" });
+    expect(parseHostRequest(JSON.stringify({ type: "list_agents", query: "   " })))
+        .toEqual({ type: "list_agents" });
+    for (const query of [null, 4, {}, ["title"]]) {
+        expect(parseHostRequest(JSON.stringify({ type: "list_agents", query })))
+            .toEqual({ type: "list_agents" });
+    }
+    expect(parseHostRequest(JSON.stringify({ type: "list_agents", query: `  ${"x".repeat(250)}  ` })))
+        .toEqual({ type: "list_agents", query: "x".repeat(200) });
     expect(HOST_MIN_COMPATIBLE_PROTOCOL_VERSION).toBe(HOST_PROTOCOL_VERSION);
     expect(parseHostRequest('{"type":"host_identity"}')).toEqual({
         type: "host_identity",

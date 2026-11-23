@@ -75,6 +75,55 @@ test("recent order is newest first with the id breaking ties", () => {
     ]);
 });
 
+test("query matching is case-insensitive across title, name and folder", () => {
+    const rows = [
+        { ...agent("title-hit"), title: "  Harbor Notes  ", workspace: "/work/Archive" },
+        { ...agent("name-hit"), name: "Harbor Draft", workspace: "/work/Other" },
+        { ...agent("folder-hit"), title: "Unrelated", workspace: "/work/Harbor" },
+        { ...agent("miss"), title: "Unrelated", workspace: "/work/Other" },
+    ];
+    expect(pageSessionListing(rows, { query: "HARBOR", order: "recent" }).agents.map((row) => row.id))
+        .toEqual(["folder-hit", "name-hit", "title-hit"]);
+});
+
+test("query requires every word and matches only session facts", () => {
+    const rows = [
+        { ...agent("chat-hit"), chat: true as const, title: "Morning review", workspace: "/work/Cabin" },
+        { ...agent("root"), workspace: "/" },
+        { ...agent("short-id"), workspace: "" },
+        { ...agent("named"), title: "Morning review", name: "Fallback title", workspace: "/work/Reports" },
+    ];
+    expect(pageSessionListing(rows, { query: "morning cabin" }).agents.map((row) => row.id))
+        .toEqual(["chat-hit"]);
+    expect(pageSessionListing(rows, { query: "fallback reports" }).agents.map((row) => row.id))
+        .toEqual(["named"]);
+    expect(pageSessionListing(rows, { query: "morning fallback" }).agents.map((row) => row.id))
+        .toEqual(["named"]);
+    for (const query of ["chat", "no folder", "short", "/"]) {
+        expect(pageSessionListing(rows, { query }).agents).toEqual([]);
+    }
+});
+
+test("query total and cursor paging operate on the filtered recent listing", () => {
+    const rows = [
+        { ...agent("match-old", "2026-08-19T10:00:00.000Z"), title: "Find me" },
+        { ...agent("skip", "2026-08-21T10:00:00.000Z"), title: "No" },
+        { ...agent("match-new", "2026-08-20T10:00:00.000Z"), title: "Find me" },
+    ];
+    const first = pageSessionListing(rows, { query: "find", order: "recent", limit: 1 });
+    expect(first.agents.map((row) => row.id)).toEqual(["match-new"]);
+    expect(first.total).toBe(2);
+    const second = pageSessionListing(rows, {
+        query: "find",
+        order: "recent",
+        limit: 1,
+        cursor: first.next_cursor,
+    });
+    expect(second.agents.map((row) => row.id)).toEqual(["match-old"]);
+    expect(second.total).toBe(2);
+    expect(second.next_cursor).toBeUndefined();
+});
+
 test("recent order keeps paging stable across the whole listing", () => {
     const listing = [
         agent("c", "2026-08-20T12:00:00.000Z"),

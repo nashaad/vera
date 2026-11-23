@@ -15,6 +15,7 @@ export interface AgentListFacts {
 }
 
 export interface ListAgentsOptions {
+    readonly query?: string;
     readonly limit?: number;
     readonly order?: "id" | "recent";
     readonly cursor?: string;
@@ -74,11 +75,12 @@ export class HostProtocolClient {
         return new Promise((resolve, reject) => {
             const start = (): void => {
                 this.listAgentsBusy = true;
-                const { limit = 50, order, cursor } = options;
+                const { limit = 50, order, cursor, query } = options;
                 void this.request<AgentListFacts>(
                     {
                         type: "list_agents",
                         limit,
+                        ...(query === undefined ? {} : { query }),
                         ...(order === undefined ? {} : { order }),
                         ...(cursor === undefined ? {} : { cursor }),
                     },

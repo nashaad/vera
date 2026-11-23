@@ -176,6 +176,7 @@ export interface RefreshCatalogsFailedResponse {
 
 export interface ListAgentsRequest {
     readonly type: "list_agents";
+    readonly query?: string;
     readonly include?: readonly SessionFactName[];
     /** Row order. Defaults to id, which is the historic shape. */
     readonly order?: "id" | "recent";
@@ -1464,11 +1465,15 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     }
     if (value?.type === "list_agents") {
         const include = parseSessionFactNames(value.include);
+        const query = typeof value.query === "string"
+            ? value.query.trim().slice(0, 200)
+            : "";
         const order = value.order === "recent" ? "recent" : undefined;
         const limit = value.limit;
         const cursor = value.cursor;
         return {
             type: "list_agents",
+            ...(query.length === 0 ? {} : { query }),
             ...(include === undefined ? {} : { include }),
             ...(order === undefined ? {} : { order }),
             ...(typeof limit === "number" && Number.isSafeInteger(limit)

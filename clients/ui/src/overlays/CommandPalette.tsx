@@ -4,10 +4,13 @@ import type { CommandRegistry } from "../commands/registry.ts";
 import { useCommandVisibility } from "../extensions/useDesktopExtensions.tsx";
 import { useRouter } from "../pages/router.tsx";
 import { useViewEnvironment } from "../views/env.tsx";
+import type { AgentListFacts } from "../protocol/client.ts";
+import { appendSessionMatches, scheduleSessionSearch } from "./session-search.ts";
 import {
     buildCommandItems,
     buildSessionItems,
     labelSegments,
+    PALETTE_LIMIT,
     rankItems,
     sectionRows,
     type PaletteItem,
@@ -18,6 +21,11 @@ export interface CommandPaletteProps {
     readonly mode: "commands" | "sessions";
     readonly commands: CommandRegistry;
     readonly onClose: () => void;
+}
+
+interface SessionSearchAnswer {
+    readonly query: string;
+    readonly result: AgentListFacts | undefined;
 }
 
 const COPY = {
@@ -37,10 +45,13 @@ const COPY = {
 
 // Runs the chosen entry. The palette closes first so a sheet the command opens replaces it.
 export function CommandPalette({ mode, commands, onClose }: CommandPaletteProps) {
-    const { connection } = useViewEnvironment();
+    const { connection, listAgents } = useViewEnvironment();
+    const listAgentsRef = useRef(listAgents);
+    listAgentsRef.current = listAgents;
     const { navigate } = useRouter();
     const [query, setQuery] = useState("");
     const [active, setActive] = useState(0);
+    const [answer, setAnswer] = useState<SessionSearchAnswer>();
     const listRef = useRef<HTMLDivElement>(null);
     const platform = window.veraDesktop?.platform ?? "";
     const sessionRows = connection.sessionRows;
@@ -52,7 +63,19 @@ export function CommandPalette({ mode, commands, onClose }: CommandPaletteProps)
             : buildSessionItems(sessionRows ?? [], Date.now()),
         [mode, commands, platform, sessionRows, isVisible],
     );
-    const ranked = useMemo(() => rankItems(items, query), [items, query]);
+    const searchQuery = query.trim();
+    useEffect(() => {
+        if (mode !== "sessions" || searchQuery.length === 0) return;
+        return scheduleSessionSearch(searchQuery, (value) => listAgentsRef.current({ query: value, limit: PALETTE_LIMIT, order: "recent" }),
+            (result) => setAnswer({ query: searchQuery, result }));
+    }, [mode, query, searchQuery]);
+
+    const pending = mode === "sessions" && searchQuery.length > 0 && answer?.query !== searchQuery;
+    const ranked = useMemo(() => {
+        const loaded = rankItems(items, query);
+        if (mode !== "sessions" || searchQuery.length === 0 || answer?.query !== searchQuery || answer.result === undefined) return loaded;
+        return appendSessionMatches(loaded, answer.result, query, Date.now());
+    }, [items, query, mode, searchQuery, answer]);
     const sections = useMemo(() => sectionRows(ranked), [ranked]);
     const visibleRows = useMemo(() => sections.flatMap((section) => section.entries), [sections]);
     const highlight = active < visibleRows.length ? active : 0;
@@ -92,7 +115,7 @@ export function CommandPalette({ mode, commands, onClose }: CommandPaletteProps)
     };
 
     const copy = COPY[mode];
-    const emptyText = items.length === 0 ? copy.none : copy.noMatch;
+    const emptyText = items.length === 0 && (mode !== "sessions" || searchQuery.length === 0) ? copy.none : copy.noMatch;
 
     return (
         <div
@@ -116,12 +139,13 @@ export function CommandPalette({ mode, commands, onClose }: CommandPaletteProps)
                         value={query}
                         onChange={(event) => {
                             setQuery(event.target.value);
+                            setAnswer(undefined);
                             setActive(0);
                         }}
                     />
                 </div>
                 <div className="palette-list" role="listbox" ref={listRef}>
-                    {ranked.length === 0 ? <div className="palette-empty">{emptyText}</div> : null}
+                    {ranked.length === 0 && !pending ? <div className="palette-empty">{emptyText}</div> : null}
                     {sections.map((section) => (
                         <div key={section.title || "all"} role="presentation">
                             {section.title === "" ? null : <div className="palette-group">{section.title}</div>}

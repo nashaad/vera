@@ -3,6 +3,7 @@ import type { SessionFactName } from "../store/session-facts.ts";
 import { connectHost } from "./connection.ts";
 
 export interface ListAgentsOptions {
+    readonly query?: string;
     readonly include?: readonly SessionFactName[];
     readonly limit?: number;
     readonly cursor?: string;
@@ -33,6 +34,7 @@ export async function listAgentPageThroughHost(
     try {
         await connection.send({
             type: "list_agents",
+            ...(options.query === undefined ? {} : { query: options.query }),
             ...(options.include === undefined ? {} : { include: options.include }),
             ...(options.limit === undefined ? {} : { limit: options.limit }),
             ...(options.cursor === undefined ? {} : { cursor: options.cursor }),

@@ -257,9 +257,12 @@ Window, Session, Theme and Help, with each command's shortcut. Individual theme
 commands appear when you search for their names; Choose Theme and the import commands
 are listed without a search. Typing filters the list by fuzzy match and marks the matched
 letters. Up and Down move, Enter runs the command and Escape closes the
-palette. Cmd+P opens Go to Session, the same list over sessions, each with its
-folder and age and a dot while it is working or waiting on you; Enter opens the
-session. Both are in the View menu.
+palette. Cmd+P opens Go to Session, with recent sessions shown when the query is empty.
+Typing filters sessions by title and folder, including sessions outside the
+recent list. The picker does not search conversation content.
+Each row shows its folder and age and a dot while it is working or waiting on
+you; Enter opens the session. The picker does not change the sidebar. Both are
+in the View menu.
 
 Cmd+/ opens Keyboard Shortcuts, a sheet with every shortcut by group and a
 filter box. The Help menu holds it and the sheets below. Each sheet closes with
