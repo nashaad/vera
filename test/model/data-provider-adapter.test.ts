@@ -78,8 +78,8 @@ test("DeepSeek shipped data selects the thinking and reasoning-content layers", 
     expect(body).not.toHaveProperty("reasoning_effort");
 });
 
-test("DeepSeek shipped data maps every Vera effort to accepted wire values", async () => {
-    const seen = new Map<string, unknown>();
+test("@core DeepSeek generic adapter sends native thinking for each effort", async () => {
+    const bodies: Record<string, unknown>[] = [];
     const adapter = createConfiguredModelAdapter({
         schema_version: 1,
         provider: "deepseek",
@@ -87,21 +87,41 @@ test("DeepSeek shipped data maps every Vera effort to accepted wire values", asy
         approval_mode: "ask",
     }, {
         env: { DEEPSEEK_API_KEY: "deepseek-key" },
+        imageSupport: () => false,
         fetch: async (_input, init) => {
-            const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-            seen.set(String(body.model) + seen.size, body.reasoning_effort);
+            bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
             return new Response('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
         },
     });
-    const efforts = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+    const efforts = [
+        { id: "minimal", wire: "high" },
+        { id: "low", wire: "high" },
+        { id: "medium", wire: "high" },
+        { id: "high", wire: "high" },
+        { id: "xhigh", wire: "max" },
+        { id: "max", wire: "max" },
+        { id: "off", wire: undefined },
+    ] as const;
 
-    for (const effort of efforts) {
-        await adapter.stream({
-            model: "deepseek-v4-pro",
-            reasoningEffort: effort,
-            messages: [],
-        }).result();
+    for (const model of ["deepseek-v4-pro", "deepseek-flash"]) {
+        for (const effort of efforts) {
+            const result = await adapter.stream({
+                model,
+                reasoningEffort: effort.id,
+                messages: [],
+            }).result();
+            expect(result.stopReason).toBe("stop");
+            const body = bodies.at(-1);
+            expect(body).toMatchObject({
+                model,
+                thinking: { type: effort.id === "off" ? "disabled" : "enabled" },
+            });
+            if (effort.wire === undefined) {
+                expect(body).not.toHaveProperty("reasoning_effort");
+            } else {
+                expect(body).toHaveProperty("reasoning_effort", effort.wire);
+            }
+        }
     }
-
-    expect([...seen.values()]).toEqual(["high", "high", "high", "high", "max", "max"]);
+    expect(bodies).toHaveLength(14);
 });

@@ -339,14 +339,22 @@ export function applySecretPromptTransition(rt: TuiRuntime,
         return;
     }
     const key = transition.submitted;
+    const neededProvider = homeNeedsProvider(rt);
     const save = rt.dependencies.saveProviderKey;
     void (save === undefined ? Promise.reject(new Error("This host does not support provider sign-in.")) : save(prompt.providerId, key)).then(() => {
-        rt.state = appendTuiNotice(rt.state, `stored ${prompt.label} API key`);
+        const label = findConfiguredProvider(
+            prompt.providerId,
+            loadOptionalVeraConfig(),
+        )?.label ?? prompt.label;
+        rt.state = appendTuiNotice(rt.state, `${label} key works`);
         requestAgentSettings(rt, focusedAgentClient(rt));
-        if (homeNeedsProvider(rt)) {
-            enterWizardModelStep(rt, prompt.providerId);
+        if (neededProvider) {
+            enterWizardModelStep(rt, prompt.providerId, `${label} key works`);
         } else if (prompt.parent?.kind === "provider") {
-            openProviderPicker(rt, prompt.parent.parent);
+            openProviderPicker(rt, prompt.parent.parent, {
+                selected: prompt.providerId,
+                subtitle: `${label} key works`,
+            });
         } else {
             rt.settingsPicker = prompt.parent;
             renderState(rt);

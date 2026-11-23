@@ -1,3 +1,5 @@
+import type { ModelSettingsPatch } from "../../src/engine/model-settings.ts";
+import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import {
     STARTING_MODEL,
     STARTING_PROVIDER,
@@ -10,6 +12,20 @@ export interface OnboardingModelDefaultOptions {
     readonly currentProvider?: string;
     readonly hasAssignedDefault: boolean;
     readonly modelUsedBefore: boolean;
+}
+
+export function adoptedModelSettingsPatch(
+    provider: string,
+    model: string,
+    defaultEffort: ModelReasoningEffort | undefined,
+): ModelSettingsPatch {
+    return {
+        provider,
+        model,
+        ...(defaultEffort === undefined
+            ? {}
+            : { reasoningEffort: defaultEffort }),
+    };
 }
 
 export interface OnboardingModelState {

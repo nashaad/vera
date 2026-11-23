@@ -10,6 +10,7 @@ import { createTuiGutterEntry, tuiGutterContent, tuiGutterWidth } from "../gutte
 import { defaultModelChangeNotice, isSettingsRetryTrigger, modelPickerActionOptions, notifyExtensionSettings, refreshSessionPicker, refreshWorkspaceSidebarRoster, rejectionNotice, renderSidebarJump, renderState, retryMissingAgentSettings, settleExtensionModelSettings, syncConfigurationRequiredRequest } from "../main.ts";
 import { hostOwnsPromptQueue, modelSettingsForOpenPicker, setSidebarFocused } from "../main/agents-dials.ts";
 import { settleQueueRecall } from "./queue-recall.ts";
+import { wizardTookModelSettings } from "./onboarding-wizard-ops.ts";
 import { isSearchLanding } from "../main/chrome.ts";
 import { createTuiMarkdownEntry } from "../markdown-entry.ts";
 import { installTuiTextLinkHandler, openTuiLink } from "../markdown-links.ts";
@@ -282,6 +283,7 @@ export function handleSidebarAgentUpdate(rt: TuiRuntime,
         }
     }
     if (update.type === "model_settings") {
+        if (rt.sidebar.isFocused()) wizardTookModelSettings(rt, update.requestId);
         settleExtensionModelSettings(rt, update, pane.client);
         const change = rt.requestedModelChanges.get(update.requestId);
         if (change?.target === pane.client) {

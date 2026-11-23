@@ -488,7 +488,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 notifyExtensionSettings(rt, rt.state.modelSettings);
             }
             if (update.type === "model_settings") {
-                wizardTookModelSettings(rt);
+                wizardTookModelSettings(rt, update.requestId);
             }
             if (
                 update.type === "model_settings"

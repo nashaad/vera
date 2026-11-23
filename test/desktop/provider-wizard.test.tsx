@@ -6,7 +6,7 @@ import { KeyStep, keyEcho } from "../../clients/ui/src/pages/settings/provider-w
 import { ModelStep } from "../../clients/ui/src/pages/settings/provider-wizard/ModelStep.tsx";
 import { ProviderStep } from "../../clients/ui/src/pages/settings/provider-wizard/ProviderStep.tsx";
 import { ProviderWizardFooter } from "../../clients/ui/src/pages/settings/provider-wizard/ProviderWizardFooter.tsx";
-import { ProviderWizard } from "../../clients/ui/src/pages/settings/ProviderWizard.tsx";
+import { KeySaveConfirmation, keySaveConfirmation, ProviderWizard } from "../../clients/ui/src/pages/settings/ProviderWizard.tsx";
 import type { ModelEntry } from "../../clients/ui/src/models/settings.ts";
 import type { ProviderStatus } from "../../clients/ui/src/protocol/bridge.ts";
 
@@ -17,11 +17,30 @@ const providers: readonly ProviderStatus[] = [
 ];
 
 const models: readonly ModelEntry[] = [
-    { provider: "deepseek", model: "deepseek-chat", label: "DeepSeek Chat", contextWindow: 64000, onPareto: false, verified: false, hidden: false, recommended: true, levels: [], available: true },
-    { provider: "deepseek", model: "deepseek-reasoner", label: "DeepSeek Reasoner", pricing: { input: 0.1, output: 0.3 }, onPareto: false, verified: false, hidden: false, recommended: false, levels: [], available: true },
+    { provider: "deepseek", model: "deepseek-v4-pro", label: "DeepSeek V4 Pro", onPareto: false, verified: false, hidden: false, recommended: true, levels: [{ id: "max", label: "Max" }, { id: "high", label: "High" }, { id: "off", label: "Off" }], defaultLevel: "high", available: true },
+    { provider: "deepseek", model: "deepseek-flash", label: "DeepSeek V4.1 Flash 1017", pricing: { input: 0.1, output: 0.3 }, onPareto: false, verified: false, hidden: false, recommended: false, levels: [{ id: "max", label: "Max" }, { id: "high", label: "High" }, { id: "off", label: "Off" }], defaultLevel: "high", available: true },
 ];
 
 describe("provider wizard components", () => {
+    test("successful key save confirmation renders with both bundled models", () => {
+        const confirmation = keySaveConfirmation("DeepSeek", "fake-key", true);
+        expect(confirmation).toBe("DeepSeek key works");
+        const html = renderToStaticMarkup(createElement("section", null,
+            createElement(KeySaveConfirmation, { message: confirmation! }),
+            createElement(ModelStep, { models, model: "deepseek-v4-pro", query: "", onModelChange: () => undefined, onQueryChange: () => undefined }),
+        ));
+        expect(html).toContain('<p class="provider-wizard-success" role="status">DeepSeek key works</p>');
+        expect(html).toContain("DeepSeek V4 Pro");
+        expect(html).toContain("DeepSeek V4.1 Flash 1017");
+        expect(html).toContain("$0.1 / $0.3");
+    });
+
+    test("keyless saves and unsuccessful replacements have no confirmation", () => {
+        expect(keySaveConfirmation("DeepSeek", "", true)).toBeUndefined();
+        expect(keySaveConfirmation("DeepSeek", "fake-key", false)).toBeUndefined();
+        expect(keySaveConfirmation("DeepSeek", "   ", true)).toBeUndefined();
+    });
+
     test("initial render opens a supplied provider directly and waits for an id-only open", () => {
         const previous = Object.getOwnPropertyDescriptor(globalThis, "window");
         Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
@@ -89,7 +108,7 @@ describe("provider wizard components", () => {
         expect(browser).toContain(">Sign in</button>");
         const stored = renderToStaticMarkup(createElement(ProviderWizardFooter, { ...common, provider: { ...providers[0]!, connected: true } }));
         expect(stored).toContain(">Continue</button>");
-        const modelAction = renderToStaticMarkup(createElement(ProviderWizardFooter, { ...common, step: "model", model: "deepseek-chat" }));
+        const modelAction = renderToStaticMarkup(createElement(ProviderWizardFooter, { ...common, step: "model", model: "deepseek-v4-pro" }));
         expect(modelAction).toContain('type="submit"');
         expect(modelAction).toContain(">Check and use</button>");
     });
@@ -97,16 +116,20 @@ describe("provider wizard components", () => {
     test("model search and rows show available model metadata", () => {
         const html = renderToStaticMarkup(createElement(ModelStep, {
             models,
-            model: "deepseek-chat",
-            query: "reasoner",
+            model: "deepseek-v4-pro",
+            query: "flash",
             onModelChange: () => undefined,
             onQueryChange: () => undefined,
         }));
         expect(html).toContain("aria-label=\"Search models\"");
         expect(html).toContain('placeholder="Search models"');
         expect(html).not.toContain("visually-hidden");
-        expect(html).toContain("DeepSeek Reasoner");
+        expect(html).toContain("DeepSeek V4.1 Flash 1017");
         expect(html).toContain("$0.1 / $0.3");
-        expect(html).not.toContain("DeepSeek Chat");
+        expect(html).not.toContain("DeepSeek V4 Pro");
+        expect(models.map((entry) => entry.model)).toEqual(["deepseek-v4-pro", "deepseek-flash"]);
+        expect(models.map((entry) => entry.levels.map((level) => level.id))).toEqual([["max", "high", "off"], ["max", "high", "off"]]);
+        expect(models.map((entry) => entry.defaultLevel)).toEqual(["high", "high"]);
+        expect(models.find((entry) => entry.recommended)?.model).toBe("deepseek-v4-pro");
     });
 });

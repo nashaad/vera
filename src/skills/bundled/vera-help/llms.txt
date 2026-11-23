@@ -87,7 +87,7 @@ Manual: `docs/commands.md`, `docs/themes.md`, `docs/programmatic-use.md`.
 In the window, choose a provider on first run, enter a key or sign in in the browser, then choose a model to check and use; Settings > Providers, the Models browser and provider setup requests open the same screen.
 Choose Connect a provider on Home, or Configure providers from Ctrl+P, then Add provider.
 Enter the provider name, endpoint, and API key. Known API providers prefill the endpoint; custom endpoints also expose protocol and credential choices.
-Save reads the catalog immediately. It discovers models without keeping, verifying, assigning, or selecting them.
+Save reads the provider's catalog or shows its bundled models, and says when a key checked against the models endpoint works; it does not verify, assign, or select a model.
 A failed save names the cause and preserves the input. Endpoints must use HTTP or HTTPS.
 Open Switch model, type to search the connected models, then press Enter on one to open a conversation.
 Outrider guided setup is hidden by default; enable `experimental.outrider_onboarding` in Home config through `/configure` to offer it.

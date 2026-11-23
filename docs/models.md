@@ -202,6 +202,9 @@ what they cost: `off` is fastest and cheapest, `xhigh` is slower and costs more,
 and `max` is slowest and costs the most. When a provider publishes its own
 wording for a level, Vera shows that instead. `/effort <level>` sets one
 directly. Levels differ by model, and not every model has an off setting.
+DeepSeek's bundled `deepseek-v4-pro` and `deepseek-flash` both offer `max`,
+`high`, and `off`, with `high` as the default. Vera sends the selected effort
+to DeepSeek.
 
 The `▌` bar marks the level Enter will select. Use Up/Down to move it.
 Switching to a model with effort levels always asks which level to run, with

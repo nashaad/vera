@@ -16,13 +16,16 @@ let opened = false;
 let deepseekRefreshed = false;
 let holdProviderLists = false;
 const heldProviderLists = [];
-let deepseek = { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: true,
-    catalog_connected: true, enabled: true, connected_by: "key", custom: false };
+let deepseek = { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: false,
+    catalog_connected: false, enabled: true, custom: false };
 const provider = () => ({ id: "openai-codex", name: "OpenAI Codex", methods: ["browser"], connected,
     catalog_connected: connected, enabled: true, ...(connected ? { connected_by: "browser" } : {}), custom: false });
 const settings = (providerId = "openai-codex") => ({ provider: providerId,
-    model: providerId === "deepseek" ? "deepseek-chat" : "crow-0",
-    availableModels: [{ provider: "deepseek", model: "deepseek-chat", label: "DeepSeek Chat", levels: [] },
+    model: providerId === "deepseek" ? "deepseek-v4-pro" : "crow-0",
+    reasoningEffort: providerId === "deepseek" ? "high" : undefined,
+    availableReasoningEfforts: providerId === "deepseek" ? ["max", "high", "off"] : [],
+    availableModels: [{ provider: "deepseek", model: "deepseek-v4-pro", label: "DeepSeek V4 Pro", levels: [{ id: "max", label: "Max" }, { id: "high", label: "High" }, { id: "off", label: "Off" }], defaultLevel: "high" },
+        { provider: "deepseek", model: "deepseek-flash", label: "DeepSeek V4.1 Flash 1017", levels: [{ id: "max", label: "Max" }, { id: "high", label: "High" }, { id: "off", label: "Off" }], defaultLevel: "high" },
         { provider: "openai-codex", model: "crow-0", label: "Crow", levels: [] }], pooled: [],
     providerCatalogs: [{ id: "deepseek", label: "DeepSeek" }, { id: "openai-codex", label: "OpenAI Codex" }] });
 const reply = (socket, value) => socket.write(`${JSON.stringify(value)}\n`);
@@ -59,6 +62,13 @@ const host = createSocketServer((socket) => {
             return;
         }
         if (request.type === "catalog_refresh" && request.provider === "deepseek") deepseekRefreshed = true;
+        if (request.type === "provider_save" && request.provider === "deepseek") {
+            if (request.key !== "fake-deepseek-key") throw new Error("The wizard did not submit the fake DeepSeek key.");
+            deepseek = { ...deepseek, connected: true, catalog_connected: true, connected_by: "key" };
+            reply(socket, { type: "provider_save_result", request_id: request.request_id, provider: deepseek });
+            socket.end();
+            return;
+        }
         if (request.type === "provider_forget" && request.provider === "deepseek") {
             deepseek = { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: false, catalog_connected: false, enabled: true, custom: false };
             reply(socket, { type: "model_operation_complete" });
@@ -96,13 +106,15 @@ try {
     const page = await app.firstWindow();
     const wizard = page.locator(".provider-wizard-sheet");
     await wizard.waitFor({ timeout: 45_000 });
-    const deepseekRow = wizard.getByRole("button", { name: /DeepSeek/ });
-    await deepseekRow.getByText("Stored key", { exact: true }).waitFor();
-    await deepseekRow.click();
-    const continueButton = wizard.getByRole("button", { name: "Continue", exact: true });
-    await continueButton.focus();
-    await page.keyboard.press("Enter");
-    await wizard.getByRole("radio", { name: /DeepSeek Chat/ }).waitFor({ timeout: 30_000 });
+    await wizard.getByRole("button", { name: /DeepSeek/ }).click();
+    await wizard.getByLabel("DeepSeek API key").fill("fake-deepseek-key");
+    await wizard.getByRole("button", { name: "Continue", exact: true }).click();
+    await wizard.getByRole("radio", { name: /DeepSeek V4 Pro/ }).waitFor({ timeout: 30_000 });
+    await wizard.getByRole("radio", { name: /DeepSeek V4\.1 Flash 1017/ }).waitFor();
+    await wizard.getByRole("status").getByText("DeepSeek key works", { exact: true }).waitFor();
+    if (!await wizard.getByRole("radio", { name: /DeepSeek V4 Pro/ }).isChecked()) {
+        throw new Error("DeepSeek's configured model was not selected by default.");
+    }
     if (deepseekRefreshed) throw new Error("DeepSeek's fixed catalog was refreshed.");
     await page.keyboard.press("Escape");
     await wizard.getByRole("button", { name: "Continue", exact: true }).waitFor();
