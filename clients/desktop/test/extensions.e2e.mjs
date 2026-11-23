@@ -58,6 +58,7 @@ function makePackage(name, version) {
 }
 
 function prepare() {
+    mkdirSync(join(desktopFolder, "extensions.pre-plugins"), { recursive: true });
     // A theme saved by an earlier version, which the app moves into an extension on its first start.
     write(
         join(desktopFolder, "themes", "legacy-crow.json"),

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runCli } from "../../clients/cli/main.ts";
@@ -9,7 +10,7 @@ import { installPlugin, listPlugins } from "../../src/plugins/manager.ts";
 import { AGENT_MCP_SCHEMA, AGENT_PLUGIN_SCHEMA, isPortablePluginName } from "../../src/plugins/naming.ts";
 
 function fixture() {
-    const root = mkdtempSync(join(process.cwd(), ".agent-notes/plugpkg-task/migration-command-test-"));
+    const root = mkdtempSync(join(realpathSync(tmpdir()), "vera-plugin-migrate-command-"));
     return { root, home: join(root, "home"), vera: join(root, "home", ".vera") };
 }
 

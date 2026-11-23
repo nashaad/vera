@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { handleTuiExtensionsListKey, openTuiExtensionsList } from "../../clients/tui/extensions-list.ts";
@@ -7,7 +8,7 @@ import { applyPluginExtensionStates, pluginExtensionEntries } from "../../client
 import { installPlugin, listPlugins, setPluginEnabled } from "../../src/plugins/manager.ts";
 
 function fixture() {
-    const root = mkdtempSync(join(process.cwd(), ".agent-notes/plugpkg-task/tui-plugin-test-"));
+    const root = mkdtempSync(join(realpathSync(tmpdir()), "vera-plugin-migrate-tui-"));
     return { root, home: join(root, "home") };
 }
 
