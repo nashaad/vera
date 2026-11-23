@@ -16,7 +16,7 @@ function alive(pid: number): boolean {
     try {
         process.kill(pid, 0);
         const state = spawnSync("ps", ["-p", String(pid), "-o", "state="], { encoding: "utf8" });
-        return state.status !== 0 || !state.stdout.trim().startsWith("Z");
+        return state.status === 0 && !state.stdout.trim().startsWith("Z");
     } catch {
         return false;
     }
