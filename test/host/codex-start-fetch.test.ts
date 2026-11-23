@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
+    existsSync,
     mkdirSync,
     mkdtempSync,
     readFileSync,
@@ -23,7 +24,7 @@ import {
 } from "../../src/model/catalog-cache.ts";
 import { normalizeCodexModelCache } from "../../src/model/codex-catalog.ts";
 import type { AuthStorage } from "../../src/providers/auth-storage.ts";
-import { socketAndLoopbackTest } from "../support/socket-probe.ts";
+import { loopbackTest, socketAndLoopbackTest } from "../support/socket-probe.ts";
 
 const fixtureText = readFileSync(
     new URL("../fixtures/codex-models-cache.json", import.meta.url),
@@ -492,3 +493,89 @@ test("a hung start fetch gives up at its timeout", async () => {
         rmSync(directory, { recursive: true, force: true });
     }
 });
+
+loopbackTest(
+    "@core a hanging start fetch is aborted at its timeout and saves nothing",
+    async () => {
+        const root = scratch("vera-codex-start-abort-");
+        const cacheDir = providerCatalogCacheDir(root);
+        const socketClosed = Promise.withResolvers<void>();
+        const endpoint = Bun.serve({
+            hostname: "127.0.0.1",
+            port: 0,
+            fetch(request) {
+                // A request that arrives after the client gave up is already aborted.
+                if (request.signal.aborted) socketClosed.resolve();
+                request.signal.addEventListener("abort", () => socketClosed.resolve(), { once: true });
+                return new Promise<Response>(() => {});
+            },
+        });
+        try {
+            const logged: Array<{ readonly type: string } & Record<string, unknown>> = [];
+            const outcome = await fetchCodexCatalogAtStart({
+                authStorage: signedIn(),
+                cacheDir,
+                log: (entry) => logged.push(entry),
+                baseUrl: `http://127.0.0.1:${endpoint.port}`,
+                timeoutMs: 250,
+            });
+            expect(outcome).toEqual({ status: "failed", failure: "timeout" });
+            await Promise.race([
+                socketClosed.promise,
+                Bun.sleep(2_000).then(() => {
+                    throw new Error("the server never saw the request abort");
+                }),
+            ]);
+            expect(existsSync(providerCatalogCachePath("openai-codex", cacheDir))).toBe(false);
+            expect(logged).toContainEqual(expect.objectContaining({
+                type: "codex_catalog_start_fetch_failed",
+                failure: "timeout",
+            }));
+            expect(logged.some((entry) => entry.type === "codex_catalog_start_fetch")).toBe(false);
+        } finally {
+            endpoint.stop(true);
+            rmSync(root, { recursive: true, force: true });
+        }
+    },
+    10_000,
+);
+
+loopbackTest(
+    "a start fetch that answers after its timeout saves nothing",
+    async () => {
+        const root = scratch("vera-codex-start-late-");
+        const cacheDir = providerCatalogCacheDir(root);
+        const release = Promise.withResolvers<void>();
+        const answered = Promise.withResolvers<void>();
+        const endpoint = Bun.serve({
+            hostname: "127.0.0.1",
+            port: 0,
+            async fetch() {
+                await release.promise;
+                answered.resolve();
+                return Response.json(fixture);
+            },
+        });
+        try {
+            const logged: Array<{ readonly type: string } & Record<string, unknown>> = [];
+            const outcome = await fetchCodexCatalogAtStart({
+                authStorage: signedIn(),
+                cacheDir,
+                log: (entry) => logged.push(entry),
+                baseUrl: `http://127.0.0.1:${endpoint.port}`,
+                timeoutMs: 250,
+            });
+            expect(outcome).toEqual({ status: "failed", failure: "timeout" });
+            release.resolve();
+            await answered.promise;
+            await Bun.sleep(100);
+            expect(existsSync(providerCatalogCachePath("openai-codex", cacheDir))).toBe(false);
+            expect(logged.some((entry) => entry.type === "codex_catalog_start_fetch")).toBe(false);
+        } finally {
+            release.resolve();
+            endpoint.stop(true);
+            rmSync(root, { recursive: true, force: true });
+        }
+    },
+    10_000,
+);

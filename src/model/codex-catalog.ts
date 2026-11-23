@@ -25,6 +25,7 @@ export interface CodexCatalogFetchOptions extends OpenAICodexAuthorizationOption
     readonly baseUrl?: string;
     readonly cacheDir?: string;
     readonly authorization?: CodexCatalogAuthorization;
+    readonly signal?: AbortSignal;
 }
 
 export interface CodexCatalogAuthorization {
@@ -53,8 +54,8 @@ export class CodexCatalogError extends Error {
     }
 }
 
-// Throws CodexCatalogError when the request fails, so a failed refresh never
-// replaces the saved list.
+// Throws CodexCatalogError when the request fails and the signal's reason when
+// it aborts, so neither replaces the saved list.
 export async function fetchCodexCatalog(
     options: CodexCatalogFetchOptions = {},
 ): Promise<ProviderCatalog> {
@@ -69,8 +70,12 @@ export async function fetchCodexCatalog(
         if (authorization.accountId !== undefined) {
             headers["chatgpt-account-id"] = authorization.accountId;
         }
-        return fetchRequest(url, { headers, signal: AbortSignal.timeout(10_000) })
+        const timeout = AbortSignal.timeout(10_000);
+        const signal = options.signal === undefined
+            ? timeout : AbortSignal.any([options.signal, timeout]);
+        return fetchRequest(url, { headers, signal })
             .catch((error: unknown) => {
+                options.signal?.throwIfAborted();
                 const detail = messageOf(error);
                 const safe = options.authorization === undefined
                     ? detail : detail.replaceAll(authorization.accessToken, "[redacted]");
@@ -86,13 +91,16 @@ export async function fetchCodexCatalog(
     if (authStorage.getCredential(PROVIDER) === undefined) {
         throw new CodexCatalogError("missing_credential", "OpenAI Codex is not signed in");
     }
+    options.signal?.throwIfAborted();
     const signedIn = { ...options, authStorage };
     const authorization = await authorize(() => options.authorization?.resolve()
         ?? resolveOpenAICodexAuthorization(signedIn));
+    options.signal?.throwIfAborted();
     let response = await send(authorization);
     if (response.status === 401) {
         response = await send(await authorize(() => options.authorization?.refreshRejected(authorization.accessToken)
             ?? refreshRejectedOpenAICodexAuthorization(authorization.accessToken, signedIn)));
+        options.signal?.throwIfAborted();
     }
     if (response.status === 401 || response.status === 403) {
         throw new CodexCatalogError("authentication", `OpenAI Codex models returned ${response.status}`);
@@ -105,6 +113,9 @@ export async function fetchCodexCatalog(
         ...normalizeCodexModelCache(await response.json().catch(() => undefined)),
         fetched_at: new Date().toISOString(),
     };
+    // A fetch that ignores the signal can reach this line with a late reply;
+    // the abort must still win over the write.
+    options.signal?.throwIfAborted();
     if (catalog.models.length === 0) {
         throw new CodexCatalogError("empty_response", "OpenAI Codex listed no models");
     }
