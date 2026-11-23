@@ -195,6 +195,10 @@
 
 /* sessions */
 
+.sessions-view[data-stale="true"] {
+    opacity: 0.75;
+}
+
 .session-group {
     margin-bottom: calc(var(--vera-space) * 1.5);
 }

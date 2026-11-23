@@ -392,7 +392,7 @@ export function SessionsView({ visible }: ViewProps) {
         }
     };
     return (
-        <div className="sessions-view" ref={listRef} data-motion-visible={visible && windowShown && documentShown} data-grouping={grouping}>
+        <div className="sessions-view" ref={listRef} data-stale={state.sessionRowsStale || undefined} data-motion-visible={visible && windowShown && documentShown} data-grouping={grouping}>
             {shown.map(({ section, open, rows: sectionRows }) => (
                 <Section
                     key={section.key}

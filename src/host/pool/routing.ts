@@ -190,6 +190,9 @@ export function prepareRoutedHost(options: RoutedHostOptions) {
         listAgents: () => options.keepResidentOwner === true
             ? snapshots.refreshAndList()
             : router.list(),
+        listAgentsWithAvailability: () => options.keepResidentOwner === true
+            ? snapshots.refreshAndListWithAvailability()
+            : router.listWithAvailability(),
         onRosterChanged: (listener: () => void) => snapshots.onChanged(listener),
         listBackgroundAgents: () => snapshots.list(),
         readWorkIndex: () => snapshots.workIndex(),

@@ -64,6 +64,11 @@ export class HostProtocolClient {
         );
     }
 
+    pollAgents(options: ListAgentsOptions = {}): Promise<AgentListFacts> | undefined {
+        if (this.listAgentsBusy) return undefined;
+        return this.listAgents(options);
+    }
+
     // One page, most recently updated first. The host reports the whole listing's size as total.
     listAgents(options: ListAgentsOptions = {}): Promise<AgentListFacts> {
         return new Promise((resolve, reject) => {

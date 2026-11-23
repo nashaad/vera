@@ -14,7 +14,10 @@ export class HostPipe {
     private generation = 0;
     private readonly sockets = new Set<Socket>();
 
-    constructor(private readonly emit: (event: DesktopEvent) => void) {}
+    constructor(
+        private readonly emit: (event: DesktopEvent) => void,
+        private readonly onReply?: (request: string, reply: string) => void,
+    ) {}
 
     connect(socketPath: string): void {
         this.close();
@@ -52,7 +55,10 @@ export class HostPipe {
                 if (newline === -1) break;
                 const line = buffered.slice(0, newline + 1);
                 buffered = buffered.slice(newline + 1);
-                if (current()) this.emit({ type: "frame", text: line });
+                if (current()) {
+                    this.onReply?.(text, line);
+                    this.emit({ type: "frame", text: line });
+                }
             }
             if (buffered.length > MAX_FRAME_BYTES) {
                 lose("The host sent a frame larger than this client accepts.");

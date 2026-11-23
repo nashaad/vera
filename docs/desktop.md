@@ -397,6 +397,11 @@ Seven views ship with the app:
   visible rows, Right expands a row or moves into its children, and Left
   collapses it or moves to its parent.
 
+  While the first list loads, the window can show the last saved rows for this
+  home, dimmed until the host answers. The saved rows may be out of date. If no
+  saved list is available, the view says `Loading sessions.` The host can return
+  a list with last-known rows when a session process does not answer in time.
+
   A session's title is its name, whether you gave it or Vera's automatic titles
   did, or else the start of its first prompt, the same as in the terminal UI.
   Only a session with neither shows its generated name, such as
