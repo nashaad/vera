@@ -189,13 +189,14 @@ retries does not restart the assignment search.
 
 ## Message another conversation
 
-Two conversations open in the same folder can message each other. Ask one
-to send a note to the other by its title or its identity, for example "tell
-lookout the crow's nest tests pass". Vera finds the other conversation and
-stores the note. When the recipient starts a turn for it, the whole note
-arrives in its transcript, marked as coming from that conversation and not
-from you. A recipient that does not start a turn reads the note when it next
-checks its inbox. The sender is not told when it is read.
+Two conversations in the same folder can message each other, including one
+parked in the last 10 days. Ask one to send a note to the other by its title
+or its identity, for example "tell lookout the crow's nest tests pass". Vera
+finds the other conversation and stores the note. When the recipient starts a
+turn for it, the whole note arrives in its transcript, marked as coming from
+that conversation and not from you. A recipient that does not start a turn
+reads the note when it next checks its inbox. The sender is not told when it
+is read.
 
 If you are watching the recipient, Vera asks once whether messages from
 other conversations may start a turn. You can allow it once, for this
@@ -206,8 +207,11 @@ while an earlier one is still waiting is marked read after the earlier one is
 read, and the model is not shown it twice. If Vera cannot record the turn,
 it tries again a few times, then shows a notice that the note is still held
 in the inbox. A conversation running in the
-background with auto or full access permissions starts a turn on its own. One
-with ask permissions keeps the message until you return to it.
+background with auto or full access permissions can start a turn on its own,
+including when it is parked. A parked conversation with ask permissions keeps
+the message unread until you open it, when Vera asks about admission. A blocked
+conversation keeps the note without waking. Wake limits can also leave a note
+in the inbox for later.
 
 ## Create a definition
 

@@ -167,6 +167,21 @@ export function createSessionHandlers(options: SessionHandlerOptions): SessionHa
             throw error;
         }
     };
+    registry.storedPeers = {
+        list: async () => (await storedSessions).values(),
+        async withTarget(id, run) {
+            await storedSessions;
+            const initial = storedSessionIndex.get(id);
+            if (initial === undefined) {
+                return await run(undefined, async () => { throw new Error("Session is not indexed"); });
+            }
+            return await withSessionReservation(initial.session_path, restoringSessions, async (path) => {
+                const current = storedSessionIndex.get(id);
+                const summary = current?.session_path === initial.session_path ? current : undefined;
+                return await run(summary, () => resumeSessionReserved(path));
+            });
+        },
+    };
     const trashSessionReserved = async (targetId: string): Promise<"trashed" | "busy" | "not_found" | "failed"> => {
         const resident = await registry.trashSession(targetId);
         if (resident === "trashed") {

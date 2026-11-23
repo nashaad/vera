@@ -13,6 +13,8 @@ import type { HostLog } from "../host-log.ts";
 
 import { isChatFolder } from "../../store/chat-folder.ts";
 import { readSessionIndexMetadata } from "../../store/session-store.ts";
+import { readFinalSessionFailure, rememberStoredPeerFacts } from "../../store/session-peer-metadata.ts";
+import { isRecentPeerActivity } from "../agent-registry/stored-peer.ts";
 import {
     type AgentRegistry,
     importedSessionSummary,
@@ -213,7 +215,16 @@ export async function indexStoredSession(
         const header = metadata.header;
         const fileStat = await stat(path).catch(() => undefined);
         const size = fileStat?.size;
-        sessions.set(header.id, {
+        const failed = header.parentId === undefined && header.delegation?.parentId === undefined
+            && header.delegation?.kind !== "subagent" && fileStat !== undefined
+            && isRecentPeerActivity(fileStat.mtimeMs)
+            ? await readFinalSessionFailure(path, fileStat.size).catch(() => undefined)
+            : undefined;
+        const peer = failed === undefined ? undefined : {
+            ...(metadata.identityName === undefined ? {} : { name: metadata.identityName }),
+            failed,
+        };
+        const summary: RegisteredAgentSummary = {
             id: header.id,
             workspace: header.cwd,
             ...(isChatFolder(path, header.cwd) ? { chat: true as const } : {}),
@@ -241,7 +252,9 @@ export async function indexStoredSession(
                     parent_id: header.delegation?.parentId ?? header.parentId,
                 }),
             ...(size === undefined ? {} : { size_bytes: size }),
-        });
+        };
+        sessions.set(header.id, summary);
+        if (peer !== undefined) rememberStoredPeerFacts(summary, peer);
     } catch {
         // A corrupt unopened session cannot block healthy lazy resumes.
     }

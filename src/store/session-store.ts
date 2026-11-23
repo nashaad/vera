@@ -2823,6 +2823,7 @@ export interface SessionIndexMetadata {
     readonly title?: string;
     readonly hasUserContent: boolean;
     readonly archived: boolean;
+    readonly identityName?: string;
 }
 
 export async function readSessionIndexMetadata(
@@ -2853,6 +2854,7 @@ export async function readSessionIndexMetadata(
         let firstPrompt: string | undefined;
         let hasUserContent = false;
         let name: string | null | undefined;
+        let identityName: string | undefined;
         while (true) {
             let lineStart = 0;
             for (
@@ -2868,6 +2870,10 @@ export async function readSessionIndexMetadata(
                 } catch {
                     continue;
                 }
+                if (record.type === "session_identity" && identityName === undefined
+                    && typeof record.name === "string" && record.name.length > 0
+                    && typeof record.key === "string" && record.key.length > 0
+                    && typeof record.timestamp === "string") identityName = record.name;
                 if (record.type === "session_name") {
                     if (typeof record.name === "string" || record.name === null) {
                         name = record.name as string | null;
@@ -2904,6 +2910,7 @@ export async function readSessionIndexMetadata(
             header,
             hasUserContent,
             archived,
+            ...(identityName === undefined ? {} : { identityName }),
             ...(title === undefined ? {} : { title }),
         };
     } finally {

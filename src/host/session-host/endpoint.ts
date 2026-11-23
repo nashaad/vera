@@ -9,6 +9,7 @@ import type { SessionEndpoint, RoutedSession } from "../pool/router.ts";
 import type { SessionHost } from "./types.ts";
 import { applyBranchSync, branchSourceReady, branchSyncDelta, branchSyncInfo } from "../agent-registry/context-sync.ts";
 import { localMessageSubagent } from "../agent-registry/subagent.ts";
+import { localPeerRosterWithStored } from "../agent-registry/roster.ts";
 import * as subagentEndpoint from "../agent-registry/subagent-endpoint.ts";
 import * as lifecycle from "../agent-registry/lifecycle.ts";
 import { entryUpdatedAt, type RegisteredAgentEntry } from "../agent-registry/support.ts";
@@ -51,7 +52,7 @@ export function sessionEndpoint(host: SessionHost): SessionEndpoint {
         sendToSession: (extensionId, id, text) => host.localExtensionSessions.sendToSession(extensionId, id, text),
         askSession: (call, signal) => host.localExtensionSessions.askSession(call, signal),
         investigate: (call, signal) => host.localExtensionSessions.investigate(call, signal),
-        peerRoster: async (callerId, workspace, details) => host.registry.localPeerRoster(callerId, workspace, details),
+        peerRoster: (callerId, workspace, details) => localPeerRosterWithStored(host.registry, callerId, workspace, details),
         peerSend: (caller, effect) => host.registry.sendToPeer(caller, effect),
         peerLabel: async (id) => host.registry.localPeerLabel(id),
         messageSubagent: (parentId, effect) => localMessageSubagent(host.registry, parentId, effect),

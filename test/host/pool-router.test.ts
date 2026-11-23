@@ -1014,6 +1014,45 @@ test("peer delivery can finish if its sender closes during delivery", async () =
         .toMatchObject({ output: "delivered", isError: false });
 });
 
+test("@core pool peer roster merges bounded worker rows without exposing details", async () => {
+    const resident = { id: "resident", workspace: "/work", sessionPath: "/sessions/resident.jsonl" };
+    const host = endpoint(new Map());
+    const worker = endpoint(new Map([[resident.id, resident]]));
+    const parked = (id: string, day: number) => ({
+        participant_id: id, status: "parked", live: false, name: id,
+        last_activity: `2026-11-${String(day).padStart(2, "0")}T00:00:00.000Z`, session_path: "/private",
+    });
+    host.peerRoster = async (_id, _workspace, details) => {
+        expect(details).toBe(true);
+        return [parked("resident", 23), parked("duplicate", 1), ...Array.from({ length: 19 }, (_, i) => parked(`old-${i}`, 2))];
+    };
+    worker.peerRoster = async () => [
+        { participant_id: "resident", status: "idle", live: true, last_activity: "2026-11-01", session_path: "/private" },
+        parked("duplicate", 22), ...Array.from({ length: 19 }, (_, i) => parked(`new-${i}`, 20)),
+    ];
+    host.list = worker.list = async () => { throw new Error("whole-index list"); };
+    const router = new HostRouter({ host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+    const rows = await router.peerRoster("caller", "/work", false);
+    expect(rows).toHaveLength(21);
+    expect(rows[0]).toEqual({ participant_id: "resident", status: "idle", live: true });
+    expect(rows[1]).toEqual({ participant_id: "duplicate", name: "duplicate", status: "parked", live: false });
+    expect(rows.slice(2).every((row) => String(row.participant_id).startsWith("new-"))).toBe(true);
+    expect(rows.every((row) => !("last_activity" in row) && !("session_path" in row))).toBe(true);
+});
+
+test("@core resident peer delivery does not scan stored indexes", async () => {
+    const recipient = { id: "recipient", workspace: "/work", sessionPath: "/sessions/recipient.jsonl" };
+    const host = endpoint(new Map());
+    const worker = endpoint(new Map([[recipient.id, recipient]]));
+    host.list = worker.list = async () => { throw new Error("whole-index list"); };
+    worker.peerSend = async () => ({ kind: "output", output: "delivered", isError: false });
+    const router = new HostRouter({ host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+    expect(await router.peerSend(
+        { id: "sender", workspace: "/work", label: "Crow", hop: 0, readThrough: 0 },
+        { type: "agent_send", to: recipient.id, text: "Map found." },
+    )).toMatchObject({ output: "delivered" });
+});
+
 test("closing a child that disappears during the request returns not found", async () => {
     const parent = { id: "parent", workspace: "/work", sessionPath: "/sessions/parent.jsonl" };
     const child = { id: "child", workspace: "/work", sessionPath: "/sessions/child.jsonl", parentId: parent.id };
