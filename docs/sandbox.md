@@ -119,8 +119,8 @@ With the fence on, a command can read only:
 |---|---|
 | macOS | `/bin`, `/sbin`, `/usr`, `/System`, `/Library`, `/Applications`, `/opt`, `/private/etc`, `/private/var`, `/dev`, and the `/etc`, `/tmp`, `/var` and `/private` entries themselves (not what `/private/tmp` holds) |
 | Linux | `/bin`, `/sbin`, `/usr`, `/lib`, `/lib32`, `/lib64`, `/libx32`, `/etc`, `/opt`, `/proc`, `/sys`, `/dev`, `/run`, `/var`, `/nix`, `/snap` |
-| Your home, macOS and Linux | `~/.bun`, `~/.cargo`, `~/.rustup`, `~/.nvm`, `~/.volta`, `~/.fnm`, `~/.pyenv`, `~/.rbenv`, `~/.asdf`, `~/.deno`, `~/go`, `~/.local/bin`, `~/.local/share/mise`, `~/.local/share/uv`, `~/.npm`, `~/.cache`, `~/.gitconfig`, `~/.config/git` |
-| Your home, macOS only | `~/Library/Caches`, `~/.CFUserTextEncoding`, `~/Library/Preferences/.GlobalPreferences*`, `~/Library/Preferences/ByHost/.GlobalPreferences.*` |
+| Your home, macOS and Linux | `~/.bun`, `~/.cargo`, `~/.rustup`, `~/.nvm`, `~/.volta`, `~/.fnm`, `~/.pyenv`, `~/.rbenv`, `~/.asdf`, `~/.deno`, `~/go`, `~/.local/bin`, `~/.local/lib`, `~/.local/share/mise`, `~/.local/share/uv`, `~/.npm`, `~/.cache`, `~/.gitconfig`, `~/.config/git` |
+| Your home, macOS only | `~/Library/Python`, `~/Library/Caches`, `~/.CFUserTextEncoding`, `~/Library/Preferences/.GlobalPreferences*`, `~/Library/Preferences/ByHost/.GlobalPreferences.*` |
 | The sandbox itself | its own temp folder outside your home, and on Linux the folder of its seccomp helper |
 
 Everything else is refused: the rest of your home folder and, on macOS,

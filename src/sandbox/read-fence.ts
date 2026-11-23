@@ -67,6 +67,7 @@ const HOME_TOOLS = [
     ".deno",
     "go",
     ".local/bin",
+    ".local/lib",
     ".local/share/mise",
     ".local/share/uv",
     ".npm",
@@ -74,6 +75,9 @@ const HOME_TOOLS = [
     ".gitconfig",
     ".config/git",
 ];
+
+// Python's user site-packages on macOS.
+const DARWIN_HOME_TOOLS = ["Library/Python"];
 
 // Read by every macOS process through CoreFoundation.
 const DARWIN_HOME_SYSTEM = [
@@ -94,7 +98,7 @@ export function fixedReadable(
 ): readonly string[] {
     const system = platform === "darwin" ? DARWIN_SYSTEM : LINUX_SYSTEM;
     const tools = platform === "darwin"
-        ? [...HOME_TOOLS, ...DARWIN_HOME_SYSTEM]
+        ? [...HOME_TOOLS, ...DARWIN_HOME_TOOLS, ...DARWIN_HOME_SYSTEM]
         : HOME_TOOLS;
     return [...system, ...tools.map((name) => join(home, name))];
 }

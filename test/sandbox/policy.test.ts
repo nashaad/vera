@@ -456,6 +456,8 @@ test("@core sandbox policy gives a fenced macOS command the system folders and t
             "/privat[e]",
             join(home, ".bun"),
             join(home, ".gitconfig"),
+            join(home, ".local", "lib"),
+            join(home, "Library", "Python"),
             join(home, "Library", "Caches"),
             join(home, ".CFUserTextEncoding"),
         ]),
@@ -481,12 +483,14 @@ test("@core sandbox policy gives a fenced Linux command the system folders and t
             "/var",
             join(home, ".cargo"),
             join(home, ".config", "git"),
+            join(home, ".local", "lib"),
         ]),
     );
     for (const closed of ["/home", "/root", home]) {
         expect(allow).not.toContain(closed);
     }
     expect(allow).not.toContain(join(home, "Library", "Caches"));
+    expect(allow).not.toContain(join(home, "Library", "Python"));
 });
 
 test("@core sandbox policy keeps the macOS only entries out of the Linux list", () => {
