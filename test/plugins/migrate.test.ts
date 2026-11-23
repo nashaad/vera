@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { installPlugin, removePlugin } from "../../src/plugins/manager.ts";
@@ -10,11 +11,16 @@ import { AGENT_PLUGIN_SCHEMA } from "../../src/plugins/naming.ts";
 import { readPluginRegistry } from "../../src/plugins/registry.ts";
 
 function homeFixture(): { root: string; home: string; vera: string } {
-    const root = mkdtempSync(join(process.cwd(), ".agent-notes/plugpkg-task/migration-test-"));
-    const home = join(root, "home");
-    const vera = join(home, ".vera");
-    mkdirSync(vera, { recursive: true });
-    return { root, home, vera };
+    const root = mkdtempSync(join(realpathSync(tmpdir()), "vera-plugin-migrate-"));
+    try {
+        const home = join(root, "home");
+        const vera = join(home, ".vera");
+        mkdirSync(vera, { recursive: true });
+        return { root, home, vera };
+    } catch (error) {
+        rmSync(root, { recursive: true, force: true });
+        throw error;
+    }
 }
 
 function hostExtension(vera: string, id: string): string {
@@ -148,7 +154,9 @@ test("migration leaves legacy stores intact when the config rewrite fails", () =
         expect(retry.failures).toEqual([]);
         expect(retry.migrated.join("\n")).toContain("crow.config");
         expect(retry.config_rewritten).toBe(true);
-    } finally { chmodSync(f.vera, 0o755); rmSync(f.root, { recursive: true, force: true }); }
+    } finally {
+        try { chmodSync(f.vera, 0o755); } finally { rmSync(f.root, { recursive: true, force: true }); }
+    }
 });
 
 test("partial migration loads the plugin ahead of its matching legacy extension", async () => {

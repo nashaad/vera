@@ -1,5 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createLiveVeraConfigReader, loadVeraConfig, type VeraConfig } from "../../src/config.ts";
@@ -18,10 +19,15 @@ import { Inbox } from "../../src/store/inbox.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 function fixture() {
-    const root = mkdtempSync(join(process.cwd(), ".agent-notes/plugpkg-task/startup-test-"));
-    const home = join(root, "selected-home");
-    mkdirSync(home, { recursive: true });
-    return { root, home };
+    const root = mkdtempSync(join(realpathSync(tmpdir()), "vera-plugin-migrate-startup-"));
+    try {
+        const home = join(root, "selected-home");
+        mkdirSync(home, { recursive: true });
+        return { root, home };
+    } catch (error) {
+        rmSync(root, { recursive: true, force: true });
+        throw error;
+    }
 }
 
 function legacy(home: string, id: string): string {
@@ -133,6 +139,20 @@ function noSignals() {
     return spyOn(process, "kill").mockImplementation(() => { throw new Error("Unexpected process signal"); });
 }
 
+async function closeFixture(
+    root: string,
+    signals: ReturnType<typeof noSignals>,
+    opened: Awaited<ReturnType<typeof openHost>> | undefined,
+    checkSignals: () => void = () => { expect(signals).not.toHaveBeenCalled(); },
+): Promise<void> {
+    try {
+        await opened?.close();
+        checkSignals();
+    } finally {
+        try { signals.mockRestore(); } finally { rmSync(root, { recursive: true, force: true }); }
+    }
+}
+
 test("host startup migrates the selected home and loads rewritten extension config", async () => {
     const f = fixture();
     const signals = noSignals();
@@ -152,10 +172,7 @@ test("host startup migrates the selected home and loads rewritten extension conf
         expect(opened.findings.contributions()).toEqual([]);
         await expectWorkersHaveNoDrift(opened, f.home, config, "crow.start");
     } finally {
-        await opened?.close();
-        expect(signals).not.toHaveBeenCalled();
-        signals.mockRestore();
-        rmSync(f.root, { recursive: true, force: true });
+        await closeFixture(f.root, signals, opened);
     }
 });
 
@@ -184,11 +201,10 @@ test("a held plugin lock skips startup migration and leaves the legacy extension
         }));
         expect(opened.findings.contributions()).toEqual([]);
     } finally {
-        await opened?.close();
-        expect(signals).toHaveBeenCalledTimes(1);
-        expect(signals).toHaveBeenCalledWith(process.pid, 0);
-        signals.mockRestore();
-        rmSync(f.root, { recursive: true, force: true });
+        await closeFixture(f.root, signals, opened, () => {
+            expect(signals).toHaveBeenCalledTimes(1);
+            expect(signals).toHaveBeenCalledWith(process.pid, 0);
+        });
     }
 });
 
@@ -209,10 +225,7 @@ test("a failed startup migration is logged while the legacy extension remains ac
         }));
         expect(opened.findings.contributions()).toEqual([]);
     } finally {
-        await opened?.close();
-        expect(signals).not.toHaveBeenCalled();
-        signals.mockRestore();
-        rmSync(f.root, { recursive: true, force: true });
+        await closeFixture(f.root, signals, opened);
     }
 });
 
@@ -228,10 +241,7 @@ test("a session worker does not run migration", async () => {
         expect(existsSync(join(f.home, "machine", "plugins.json"))).toBe(false);
         expect(opened.logs.some((entry) => entry.type === "host_startup_plugin_migration")).toBe(false);
     } finally {
-        await opened?.close();
-        expect(signals).not.toHaveBeenCalled();
-        signals.mockRestore();
-        rmSync(f.root, { recursive: true, force: true });
+        await closeFixture(f.root, signals, opened);
     }
 });
 
@@ -257,10 +267,7 @@ test("partial startup migration keeps both the migrated config and a held-back e
         expect(opened.logs).toContainEqual(expect.objectContaining({ type: "host_startup_plugin_migration", outcome: "partial" }));
         expect(opened.findings.contributions()).toEqual([]);
     } finally {
-        await opened?.close();
-        expect(signals).not.toHaveBeenCalled();
-        signals.mockRestore();
-        rmSync(f.root, { recursive: true, force: true });
+        await closeFixture(f.root, signals, opened);
     }
 });
 
@@ -283,10 +290,7 @@ test("startup remaps an already-read config even when the config file is absent"
         expect(opened.findings.contributions()).toEqual([]);
         await expectWorkersHaveNoDrift(opened, f.home, config, "crow.memory");
     } finally {
-        await opened?.close();
-        expect(signals).not.toHaveBeenCalled();
-        signals.mockRestore();
-        rmSync(f.root, { recursive: true, force: true });
+        await closeFixture(f.root, signals, opened);
     }
 });
 
@@ -312,11 +316,7 @@ test("a config rewrite failure rolls back startup migration and still loads lega
         }));
         expect(opened.findings.contributions()).toEqual([]);
     } finally {
-        chmodSync(f.home, 0o755);
-        await opened?.close();
-        expect(signals).not.toHaveBeenCalled();
-        signals.mockRestore();
-        rmSync(f.root, { recursive: true, force: true });
+        try { chmodSync(f.home, 0o755); } finally { await closeFixture(f.root, signals, opened); }
     }
 });
 
@@ -337,10 +337,7 @@ test("a corrupt plugin registry logs startup migration failure and keeps legacy 
         }));
         expect(opened.findings.contributions()).toEqual([]);
     } finally {
-        await opened?.close();
-        expect(signals).not.toHaveBeenCalled();
-        signals.mockRestore();
-        rmSync(f.root, { recursive: true, force: true });
+        await closeFixture(f.root, signals, opened);
     }
 });
 
@@ -356,10 +353,7 @@ test("a fresh host does not create migration state", async () => {
         expect(opened.logs.some((entry) => entry.type === "host_startup_plugin_migration")).toBe(false);
         expect(opened.findings.contributions()).toEqual([]);
     } finally {
-        await opened?.close();
-        expect(signals).not.toHaveBeenCalled();
-        signals.mockRestore();
-        rmSync(f.root, { recursive: true, force: true });
+        await closeFixture(f.root, signals, opened);
     }
 });
 
@@ -388,10 +382,7 @@ test("host startup leaves desktop installs alone after the desktop store migrate
         expect(opened.logs.some((entry) => entry.type === "host_startup_plugin_migration")).toBe(false);
         expect(opened.findings.contributions()).toEqual([]);
     } finally {
-        await opened?.close();
-        expect(signals).not.toHaveBeenCalled();
-        signals.mockRestore();
-        rmSync(f.root, { recursive: true, force: true });
+        await closeFixture(f.root, signals, opened);
     }
 });
 
@@ -417,10 +408,7 @@ test("startup migration preserves managed state over an explicit config state", 
         expect(opened.host.extensions.extensionIds()).not.toContain("crow.off");
         expect(opened.findings.contributions()).toEqual([]);
     } finally {
-        await opened?.close();
-        expect(signals).not.toHaveBeenCalled();
-        signals.mockRestore();
-        rmSync(f.root, { recursive: true, force: true });
+        await closeFixture(f.root, signals, opened);
     }
 });
 
@@ -448,9 +436,6 @@ test("startup migration refuses a desktop store outside the selected home", asyn
         }));
         expect(opened.findings.contributions()).toEqual([]);
     } finally {
-        await opened?.close();
-        expect(signals).not.toHaveBeenCalled();
-        signals.mockRestore();
-        rmSync(f.root, { recursive: true, force: true });
+        await closeFixture(f.root, signals, opened);
     }
 });
