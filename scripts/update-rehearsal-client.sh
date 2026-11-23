@@ -2,7 +2,7 @@
 set -eu
 
 if [ "${VERA_REHEARSAL_CLEAN:-}" != 1 ]; then
-    exec env -i HOME="${HOME:?}" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" TERM=xterm-256color VERA_REHEARSAL_CLEAN=1 VERA_REHEARSAL_LEG="${VERA_REHEARSAL_LEG:-}" sh "$0" "$@"
+    exec env -i HOME="${HOME:?}" SHELL=/bin/sh PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" TERM=xterm-256color VERA_REHEARSAL_CLEAN=1 VERA_REHEARSAL_LEG="${VERA_REHEARSAL_LEG:-}" sh "$0" "$@"
 fi
 
 cleanup_installed=0
@@ -34,6 +34,10 @@ export VERA_HOME="$home" VERA_INSTALL_PREFIX="$prefix"
 export VERA_RELEASES_API="$feed/releases" VERA_RELEASES_DOWNLOAD_BASE="$feed"
 export VERA_DESKTOP=no
 work=$(mktemp -d) || fail "create scratch folder"
+HOME="$work/home"
+mkdir -p "$HOME" || fail "create private HOME"
+export HOME SHELL=/bin/sh
+unset ZDOTDIR XDG_CONFIG_HOME
 vera="$prefix/bin/vera"
 share="$prefix/share/vera"
 lock="$home/runtime/host.json"

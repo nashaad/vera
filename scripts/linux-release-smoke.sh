@@ -85,6 +85,8 @@ docker run --rm --init --platform "$docker_platform" \
         useradd -m crow
         su crow -s /bin/sh -c "
             set -eu
+            export SHELL=/bin/sh
+            unset ZDOTDIR XDG_CONFIG_HOME
             cd \$HOME
             if command -v bun >/dev/null 2>&1; then echo bun is on PATH >&2; exit 1; fi
             sh /dist/install.sh /dist/vera-linux-'"$arch"'.tar.gz

@@ -530,8 +530,11 @@ test("update installs a fake newer release end to end from an installed temp pre
 
         const installed = Bun.spawnSync(["sh", installer, fakeInstallerTarball(root, "vera-old")], {
             env: {
-                ...process.env,
+                ...Object.fromEntries(Object.entries(process.env).filter(([name]) =>
+                    name !== "ZDOTDIR" && name !== "XDG_CONFIG_HOME",
+                )),
                 HOME: root,
+                SHELL: "/bin/sh",
                 VERA_HOME: home,
                 VERA_INSTALL_PREFIX: prefix,
                 PATH: process.env.PATH ?? "/usr/bin:/bin",

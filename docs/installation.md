@@ -154,8 +154,28 @@ and run it again. `--desktop-only` cannot be combined with `--no-desktop` or
 
 ### Add the launcher to PATH
 
-If your shell cannot find `vera`, add this to your shell startup file and
-reload the shell:
+The release installer adds the install prefix's `bin` directory to your PATH
+when that directory is not already on PATH. It chooses a startup file from the
+shell named by `SHELL`: zsh uses `.zshrc` in `ZDOTDIR`, or in your home directory when
+`ZDOTDIR` is unset; bash uses `.bashrc` and, on macOS, the first existing file
+among `.bash_profile`, `.bash_login` and `.profile`, or creates `.bash_profile`
+when none exists; fish uses
+`$XDG_CONFIG_HOME/fish/conf.d/vera.fish`, or
+`~/.config/fish/conf.d/vera.fish` when `XDG_CONFIG_HOME` is unset. Other shells
+use `~/.profile`.
+
+Vera appends a marked block that can be removed during uninstall. It does not
+add a second block if one is already present. If the startup file cannot be
+written, or the bin path cannot safely be placed inside a double-quoted shell
+string, the installer prints a manual `export PATH` command instead. Set
+`VERA_NO_MODIFY_PATH=1` to skip startup-file edits and print the manual command.
+
+After the desktop app step, the installer reports the startup file it changed
+and how to activate the change. Open a new terminal, or source the file in the
+current shell. For `.profile`, use `. ~/.profile`.
+
+Installation from a checkout with `bun run install:local` does not edit startup
+files. If needed, add its launcher directory to your startup file manually:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -215,7 +235,12 @@ then backs up the home including sign-ins by default, unless
 sets the backup location in either mode and is the interactive default.
 
 Uninstall removes the listed launcher, release files, desktop app and home. It
-leaves macOS preferences and saved application state at
+also removes the marked PATH block from home-directory startup files and those
+in the current `ZDOTDIR` and `XDG_CONFIG_HOME`. It deletes the fish `vera.fish`
+file when it is empty afterward, and preserves any other content in every
+startup file. To remove a block from an earlier custom directory, set the
+corresponding variable to that directory when running uninstall. It leaves
+macOS preferences and saved application state at
 `~/Library/Preferences/dev.vera.desktop.plist` and
 `~/Library/Saved Application State/dev.vera.desktop.savedState` when present,
 and reports those paths and the backup path.
