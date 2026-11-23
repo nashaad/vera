@@ -6,7 +6,7 @@ import type { AttachmentRef } from "../../../src/engine/protocol.ts";
 import type { IdentifiedTuiAgentClient } from "../agent-client.ts";
 import { routeTuiAgentMessage } from "../agent-message-routing.ts";
 import type { TuiAgentPane } from "../agent-pane.ts";
-import type { TuiCommandCatalogEntry } from "../commands.ts";
+import { isPluginBrowserAction, type TuiCommandCatalogEntry } from "../commands.ts";
 import { materializeDroppedImage } from "../dropped-image.ts";
 import { pastedImagePaths } from "../image-path.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
@@ -46,6 +46,7 @@ export function availableCommandSuggestions(rt: TuiRuntime,
         ? suggestions.filter((entry) => {
             const action = rt.commandRegistry.dispatch(`/${entry.name}`);
             return workerFreeAction(rt, action, viewingFile)
+                || (homeMode && isPluginBrowserAction(action))
                 || (homeMode && action?.type === "update_session_name")
                 || (homeMode && action?.type === "run_extension"
                     && action.origin === "host"

@@ -7,6 +7,7 @@ import { runCli } from "../../clients/cli/main.ts";
 import { runPluginCommand } from "../../clients/tui/main/plugin-ops.ts";
 import {
     parsePluginManagerCommand,
+    pluginManagerUsage,
     tokenizePluginManagerArguments,
 } from "../../src/plugins/command.ts";
 import {
@@ -116,6 +117,48 @@ test("plugin commands parse install, show, enable, disable and remove", () => {
     expect(parsePluginManagerCommand(["extension", "list"])).toBeUndefined();
 });
 
+test("plugin parser usage accepts a command label", () => {
+    const cases = [
+        { args: ["plugin"], suffix: "list|show|install|enable|disable|remove|migrate <…>" },
+        { args: ["plugin", "list", "extra"], suffix: "list" },
+        { args: ["plugin", "show"], suffix: "show <name>" },
+        { args: ["plugin", "install"], suffix: "install <path> [--dry-run]" },
+        { args: ["plugin", "enable"], suffix: "enable <name>" },
+        { args: ["plugin", "disable"], suffix: "disable <name>" },
+        { args: ["plugin", "remove"], suffix: "remove <name> [--purge]" },
+        { args: ["plugin", "migrate", "extra"], suffix: "migrate" },
+    ];
+    for (const { args, suffix } of cases) {
+        expect(parsePluginManagerCommand(args)).toEqual({ error: `Usage: vera plugin ${suffix}` });
+        expect(parsePluginManagerCommand(args, "/plugins")).toEqual({ error: `Usage: /plugins ${suffix}` });
+    }
+    const suffix = "list|show|install|enable|disable|remove|migrate <…>";
+    expect(pluginManagerUsage()).toBe(`Usage: vera plugin ${suffix}`);
+    expect(pluginManagerUsage("/plugins")).toBe(`Usage: /plugins ${suffix}`);
+    expect(parsePluginManagerCommand(["plugin", "unknown"])).toEqual({
+        error: `Unknown plugin operation 'unknown'. Usage: vera plugin ${suffix}`,
+    });
+    expect(parsePluginManagerCommand(["plugin", "unknown"], "/plugins")).toEqual({
+        error: `Unknown plugin operation 'unknown'. Usage: /plugins ${suffix}`,
+    });
+});
+
+test("vera plugin CLI reports its own usage label", async () => {
+    const stdout = outputSink();
+    const stderr = outputSink();
+    const dependencies = { stdout, stderr, dispatchToHostRelease: async () => undefined };
+
+    expect(await runCli(["plugin", "show"], dependencies)).toBe(1);
+    expect(stdout.text).toBe("");
+    expect(stderr.text).toBe("Usage: vera plugin show <name>\n");
+
+    stderr.text = "";
+    expect(await runCli(["plugin", "unknown"], dependencies)).toBe(1);
+    expect(stderr.text).toBe(
+        "Unknown plugin operation 'unknown'. Usage: vera plugin list|show|install|enable|disable|remove|migrate <…>\n",
+    );
+});
+
 test("the plugin tokenizer accepts a quoted path", () => {
     const parsed = tokenizePluginManagerArguments(
         "install \"My Plugins/sample\" --dry-run",
@@ -215,7 +258,7 @@ test("plugin commands show a dash for a missing version", async () => {
     }
 });
 
-test("the TUI plugin submit path opens a dialog or a notice", () => {
+test("the /plugins operation path opens a dialog or a notice", () => {
     const { root, home } = temporaryHome();
     try {
         const source = pluginSource(root);
@@ -252,6 +295,7 @@ test("the TUI plugin submit path opens a dialog or a notice", () => {
 
         const listed = runPluginCommand({ operation: "list" }, operations);
         expect(listed.surface).toBe("dialog");
+        expect(listed.text).toContain("Plugins");
         expect(listed.text).toContain("sample-plugin");
 
         const disabled = runPluginCommand(

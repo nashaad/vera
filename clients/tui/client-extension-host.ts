@@ -1,4 +1,5 @@
 import { loadOptionalVeraConfig, type VeraExtensionConfig } from "../../src/config.ts";
+import { PLUGIN_BROWSER_COMMAND, PLUGIN_BROWSER_EXTENSION } from "../../src/core-extensions/customize/commands.ts";
 import { hostExtensionConfigs } from "../../src/extensions/host-set.ts";
 import { readPluginExtensionSnapshot } from "../../src/extensions/plugin-parts.ts";
 import { selectedVeraHome } from "../../src/profile-paths.ts";
@@ -336,8 +337,7 @@ export async function startTuiClientExtensionHost(
                 options.postNotice(text, noticeOptions);
             },
         },
-        reservedCommandNames:
-            options.commandRegistry.registeredCommands().map(({ name }) => name),
+        reservedCommandNames: options.commandRegistry.reservedCommandNames(),
         reservedKeybindingKeys: [],
         onFailure: options.onFailure,
         signal: options.signal,
@@ -356,7 +356,10 @@ export async function startTuiClientExtensionHost(
         }
         disposeCommands = registerExtensionTuiCommands(
             options.commandRegistry,
-            registry.commands(),
+            registry.commands().filter((command) =>
+                command.source !== PLUGIN_BROWSER_EXTENSION
+                || command.name !== PLUGIN_BROWSER_COMMAND
+            ),
             "client",
         );
     } catch (error) {

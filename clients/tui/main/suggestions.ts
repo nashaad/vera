@@ -1,5 +1,5 @@
 import { countTuiCharacters } from "../clipboard.ts";
-import { SLASH_COMPACT_WIDTH, renderTuiArgumentSuggestions, renderTuiCommandSuggestions, tuiArgumentSuggestions, tuiCommandArgumentHint, tuiCommandSuggestionWidth, tuiSuggestionGaps, tuiSuggestionWindow } from "../commands.ts";
+import { PLUGIN_OPERATIONS, SLASH_COMPACT_WIDTH, renderTuiArgumentSuggestions, renderTuiCommandSuggestions, tuiArgumentSuggestions, tuiCommandArgumentHint, tuiCommandSuggestionWidth, tuiSuggestionGaps, tuiSuggestionWindow } from "../commands.ts";
 import { findActiveComposeSuggester } from "../compose-suggester.ts";
 import { tuiGutterContent } from "../gutter.ts";
 import { SUGGESTIONS_RESERVED_ROWS, showStatusNotice } from "../main.ts";
@@ -31,10 +31,15 @@ export function activeCompletion(
 } | undefined {
     const argument = rt.commandRegistry.argumentPrefix(text);
     if (argument !== undefined) {
+        if (argument.kind === "plugin-operation" && argument.prefix.length === 0) {
+            return undefined;
+        }
         return {
             prefix: argument.prefix,
             values: argument.kind === "mention"
                 ? visibleMentions(rt)
+                : argument.kind === "plugin-operation"
+                ? PLUGIN_OPERATIONS
                 : pooledModelNames(rt),
         };
     }

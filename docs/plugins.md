@@ -112,7 +112,7 @@ vera plugin install <path>
 vera plugin install <path> --dry-run
 ```
 
-In the TUI, use `/plugin install <path>`. The preview lists the skills,
+In the TUI, use `/plugins install <path>`. The preview lists the skills,
 agents, MCP servers with their transport, extension capabilities, ignored
 parts, and each skipped MCP server with its reason. With
 `--dry-run`, Vera prints the preview and stops.
@@ -145,8 +145,8 @@ vera plugin show <name>
 plugin whose installed files changed after install. A plugin with no version
 shows `-`. `show` prints the parts,
 the source folder, when it was installed, the digest of the installed copy,
-and the size of the plugin's data. In the TUI, `/plugin list` and
-`/plugin show <name>` give the same output.
+and the size of the plugin's data. In the TUI, `/plugins list` and
+`/plugins show <name>` give the same output.
 
 ## Turn a plugin on or off
 
@@ -161,7 +161,7 @@ running session's next turn. Agent lists are read again when agents are next
 listed. A plugin with a host extension or MCP servers also needs a host
 restart. A desktop extension list reads the plugin state again when refreshed;
 reload the desktop extensions or restart the app to replace running code.
-In the TUI, use `/plugin enable <name>` and `/plugin disable <name>`.
+In the TUI, use `/plugins enable <name>` and `/plugins disable <name>`.
 
 A skill turned off by `disabled_skills` stays off when a plugin brings it. A
 user or project agent of the same name replaces a plugin agent, and Vera
@@ -178,7 +178,7 @@ vera plugin remove <name> --purge
 Remove deletes the installed package and its record. For a plugin installed
 from a local folder, the source folder is not touched. Plugin data in
 `plugins/.data/<name>/` is kept so a reinstall finds it; `--purge` deletes that
-data too. In the TUI, use `/plugin remove <name>`.
+data too. In the TUI, use `/plugins remove <name>`.
 
 When migration was held back and a migrated plugin still has copies in an old
 store, removal also deletes those copies and prints their paths. This prevents
@@ -195,7 +195,7 @@ again on the next host start; run the command below to retry sooner.
 vera plugin migrate
 ```
 
-In the TUI, use `/plugin migrate`. Vera copies installed host and desktop
+In the TUI, use `/plugins migrate`. Vera copies installed host and desktop
 extensions into plugins, preserving their ids and on or off states. A host
 and desktop extension with the same id and state share a plugin; otherwise
 they remain separate. Existing extension data stays under its extension id.
@@ -219,6 +219,8 @@ Remove. Migration during host startup loads the migrated host parts in that
 startup. After a manual migration, restart the host to load them. Restart the
 desktop to load migrated desktop parts. An older desktop build cannot see those
 parts; use a current build.
+
+The TUI command `/plugin` remains an alias for `/plugins`.
 
 ## Files
 

@@ -3,7 +3,7 @@ import { registerSourceBrowser } from "../../src/core-extensions/customize/view.
 import type { VeraClientExtensionApi, VeraClientPickerRequest } from "../../src/sdk/extensions.ts";
 import type { VeraExperimentalTuiDocument } from "../../src/sdk/experimental-tui.ts";
 
-test("preview Escape returns to its list and category through shared surfaces", async () => {
+test("the /plugins browser preview Escape returns through its shared surfaces", async () => {
     const requests: VeraClientPickerRequest[] = [];
     const documents: VeraExperimentalTuiDocument[] = [];
     const answers = [

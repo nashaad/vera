@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { TuiAgentClient, TuiDependencies } from "../../../clients/tui/main.ts";
+import { createHomeClient } from "../../../clients/tui/home-client.ts";
 import { loadAgentCatalog } from "../../../src/agents/catalog.ts";
 import { createInProcessChannel } from "../../../src/engine/message-channel.ts";
 import type { ClientCommand } from "../../../src/engine/protocol.ts";
@@ -54,6 +55,22 @@ test("plugin changes refresh skill commands and the cached agent list", async ()
         await session.waitForVisiblePane("Start a conversation");
         await session.settle(150);
 
+        session.sendText("/plugins");
+        session.sendKey("Enter");
+        const browser = await session.waitForVisiblePane("Instructions");
+        expect(browser).toContain("Agents");
+        session.sendKey("Escape");
+        await session.settle(150);
+
+        session.sendText("/plugins li");
+        await session.waitForVisiblePane("list");
+        session.sendKey("Tab");
+        await session.waitForVisiblePane("/plugins list");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("No plugins installed.");
+        session.sendKey("Escape");
+        await session.settle(150);
+
         session.sendText("/agent");
         session.sendKey("Enter");
         await session.waitForVisiblePane("Agents");
@@ -63,7 +80,7 @@ test("plugin changes refresh skill commands and the cached agent list", async ()
 
         let skills = countCommands(commands, "list_skills");
         let agents = countCommands(commands, "list_agents");
-        const installed = await dialog(session, `/plugin install ${source}`, "Plugin install");
+        const installed = await dialog(session, `/plugins install ${source}`, "Plugin install");
         expect(installed).toMatch(/version:\s+-/);
         expect(countCommands(commands, "list_skills")).toBe(++skills);
         expect(countCommands(commands, "list_agents")).toBe(++agents);
@@ -79,18 +96,27 @@ test("plugin changes refresh skill commands and the cached agent list", async ()
         session.sendKey("Escape");
         await session.settle(100);
 
-        const listed = await dialog(session, "/plugin list", "sample-plugin");
+        const listed = await dialog(session, "/plugins list", "sample-plugin");
         expect(listed).toMatch(/sample-plugin\s+-\s+enabled/);
+        const aliasListed = await dialog(session, "/plugin list", "sample-plugin");
+        expect(aliasListed).toMatch(/sample-plugin\s+-\s+enabled/);
+        session.sendText("/customize");
+        session.sendKey("Enter");
+        const aliasBrowser = await session.waitForVisiblePane("Instructions");
+        expect(aliasBrowser).toContain("Agents");
+        session.sendKey("Escape");
+        await session.settle(150);
+        expect(countCommands(commands, "list_skills")).toBe(++skills);
         await dialog(session, `/extension install ${extension} --dry-run`,
             "Extension folders install as plugins", "Extensions");
-        const shown = await dialog(session, "/plugin show sample-plugin", "Plugin sample-plugin");
+        const shown = await dialog(session, "/plugins show sample-plugin", "Plugin sample-plugin");
         expect(shown).toMatch(/version:\s+-/);
-        const preview = await dialog(session, `/plugin install ${source} --dry-run`, "Plugin install plan");
+        const preview = await dialog(session, `/plugins install ${source} --dry-run`, "Plugin install plan");
         expect(preview).toMatch(/version:\s+-/);
         expect(countCommands(commands, "list_skills")).toBe(skills);
         expect(countCommands(commands, "list_agents")).toBe(agents);
 
-        await notice(session, "/plugin disable sample-plugin", "Disabled sample-plugin");
+        await notice(session, "/plugins disable sample-plugin", "Disabled sample-plugin");
         expect(countCommands(commands, "list_skills")).toBe(++skills);
         expect(countCommands(commands, "list_agents")).toBe(++agents);
         await waitForAgentList(agentLists, false);
@@ -106,7 +132,7 @@ test("plugin changes refresh skill commands and the cached agent list", async ()
         session.sendKey("Escape");
         await session.settle(100);
 
-        await notice(session, "/plugin enable sample-plugin", "Enabled sample-plugin");
+        await notice(session, "/plugins enable sample-plugin", "Enabled sample-plugin");
         expect(countCommands(commands, "list_skills")).toBe(++skills);
         expect(countCommands(commands, "list_agents")).toBe(++agents);
         await waitForAgentList(agentLists, true);
@@ -120,15 +146,15 @@ test("plugin changes refresh skill commands and the cached agent list", async ()
         session.sendKey("Escape");
         await session.settle(100);
 
-        await dialog(session, "/plugin migrate", "No legacy extensions to migrate");
+        await dialog(session, "/plugins migrate", "No legacy extensions to migrate");
         expect(countCommands(commands, "list_skills")).toBe(++skills);
         expect(countCommands(commands, "list_agents")).toBe(++agents);
-        await notice(session, "/plugin remove sample-plugin", "Removed sample-plugin");
+        await notice(session, "/plugins remove sample-plugin", "Removed sample-plugin");
         expect(countCommands(commands, "list_skills")).toBe(++skills);
         expect(countCommands(commands, "list_agents")).toBe(++agents);
         await waitForAgentList(agentLists, false);
 
-        await notice(session, "/plugin disable missing-plugin", "Plugin operation failed");
+        await notice(session, "/plugins disable missing-plugin", "Plugin operation failed");
         expect(countCommands(commands, "list_skills")).toBe(skills);
         expect(countCommands(commands, "list_agents")).toBe(agents);
         expect(signals).not.toHaveBeenCalled();
@@ -137,6 +163,48 @@ test("plugin changes refresh skill commands and the cached agent list", async ()
         signals.mockRestore();
     }
 }, 30_000);
+
+test("home lists plugins and opens the browser in a new conversation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-tui-home-plugins-"));
+    const commands: ClientCommand[] = [];
+    const signals = spyOn(process, "kill").mockImplementation(() => {
+        throw new Error("Test must not send signals");
+    });
+    let created = 0;
+    let session: TuiTestSession | undefined;
+    try {
+        session = await startTuiTestSession({
+            home: join(root, "home"),
+            dependencies: () => {
+                const conversation = dependencies(commands, []);
+                return {
+                    ...conversation,
+                    client: createHomeClient(process.cwd()),
+                    homeHasSessions: false,
+                    createSession: async () => {
+                        created += 1;
+                        return conversation.client;
+                    },
+                };
+            },
+        });
+        await session.waitForVisiblePane("V  E  R  A");
+        session.sendText("/plug");
+        const menu = await session.waitForVisiblePane("/plugins");
+        expect(menu.split("\n").filter((line) => /\/plugins\s+Browse definitions/.test(line))).toHaveLength(1);
+        expect(menu).not.toContain("/customize");
+        session.sendText("ins");
+        session.sendKey("Enter");
+        const browser = await session.waitForVisiblePane("Instructions");
+        expect(browser).toContain("Agents");
+        expect(created).toBe(1);
+        expect(signals).not.toHaveBeenCalled();
+        session.sendKey("Escape");
+    } finally {
+        await session?.close();
+        signals.mockRestore();
+    }
+}, 15_000);
 
 function dependencies(commands: ClientCommand[], agentLists: string[][]): TuiDependencies {
     const channel = createInProcessChannel();
