@@ -96,7 +96,10 @@ import {
     ruleDirectories,
     rulesForReadPaths,
 } from "./rules.ts";
-import { loadProjectInstructions } from "./project-instructions.ts";
+import {
+    loadProjectInstructions,
+    loadUserInstructions,
+} from "./project-instructions.ts";
 import {
     type ContextualContributionContext,
     promptContributionMetadata,
@@ -1381,6 +1384,9 @@ export async function runTurn(
                     reason: preflight.reason,
                 });
             }
+            const userInstructions = state.loadOptionalContext !== false
+                ? await loadUserInstructions()
+                : undefined;
             const projectInstructions = state.loadOptionalContext !== false
                 ? await loadProjectInstructions(state.toolRuntime.workspace)
                 : { files: [], warnings: [] };
@@ -1481,6 +1487,7 @@ export async function runTurn(
                     ? {}
                     : { scratchDir: state.scratchDir }),
                 date: requestDate,
+                ...(userInstructions === undefined ? {} : { userInstructions }),
                 projectInstructions,
                 ...(rules === undefined ? {} : { rules }),
                 memory,
@@ -1513,6 +1520,9 @@ export async function runTurn(
                             tool.definition.name
                         ),
                         contributionParts: contextContributionParts({
+                            ...(userInstructions === undefined
+                                ? {}
+                                : { userInstructions }),
                             projectInstructions,
                             ...(rules === undefined ? {} : { rules }),
                             ...(memory === undefined ? {} : { memory }),

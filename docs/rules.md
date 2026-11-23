@@ -28,9 +28,9 @@ the next turn.
 Write plain sentences. Conclusion first.
 ```
 
-Always-on rules render in this order: your rules, then `AGENTS.md` and
-`AGENTS.local.md`, then the project's rules. Within a directory, rules sort by
-file name.
+Always-on rules render in this order: `~/.vera/AGENTS.md`, then your rules,
+then the project's `AGENTS.md` and `AGENTS.local.md`, then the project's rules.
+Within a directory, rules sort by file name.
 
 ## Rules scoped to paths
 

@@ -170,6 +170,17 @@ disable-model-invocation: true
         documentedIn: 'hooks',
     },
     {
+        name: 'AGENTS.md',
+        path: 'AGENTS.md',
+        kind: 'file',
+        writer: 'you',
+        placement: 'home',
+        summary: 'Your own instructions for every project and chat.',
+        loads: 'Read again before each turn and included in every request, before your rules.',
+        detail: 'Imports work as in a project `AGENTS.md` and stay inside this home. Vera does not read an `AGENTS.local.md` here.',
+        documentedIn: 'config-reference',
+    },
+    {
         name: 'rules/',
         path: 'rules/',
         kind: 'directory',
@@ -177,7 +188,7 @@ disable-model-invocation: true
         placement: 'home',
         summary: 'Rules that apply in every project, one markdown file each.',
         loads: 'A rule with no frontmatter joins the system prompt. A rule with a `paths:` list arrives when Vera reads a matching file.',
-        detail: 'A project rule does not replace a home rule; both apply. Home rules render before `AGENTS.md`.',
+        detail: 'A project rule does not replace a home rule; both apply. Home rules render before the project\'s `AGENTS.md`.',
         documentedIn: 'rules',
     },
     {
@@ -296,7 +307,7 @@ const projectNodes: DirectoryNode[] = [
         placement: 'committed',
         summary: 'Project instructions shared with everyone on the project.',
         loads: 'Read from the project root and included in every request.',
-        detail: 'Vera reads it from the project root only. It does not walk parent directories. `/context` lists it under loaded instruction files with its size.',
+        detail: 'Vera reads it from the project root only. It does not walk parent directories. Your home `AGENTS.md` and rules come before it. `/context` lists it under loaded instruction files with its size.',
         documentedIn: 'config-reference',
     },
     {

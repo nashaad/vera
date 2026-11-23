@@ -50,8 +50,9 @@ the model and effort, the same as the token counts in the known-window case.
 
 ## Large instruction files
 
-Everything in the INSTRUCTIONS section is sent with every request: home and
-project rules, `AGENTS.md`, `AGENTS.local.md`, the selected agent's
+Everything in the INSTRUCTIONS section is sent with every request:
+`~/.vera/AGENTS.md`, home and project rules, the project's `AGENTS.md` and
+`AGENTS.local.md`, the selected agent's
 instructions, and the skill catalog. Memory files are not loaded, so they add
 nothing to it. When that total reaches 8,000 estimated tokens, `/context` shows
 a red line under INSTRUCTIONS with the total and the biggest source. In the

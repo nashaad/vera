@@ -145,6 +145,7 @@ export const HOME_OWNED_ROOT_ENTRIES = [
     "memory",
     "agents",
     "rules",
+    "AGENTS.md",
 ] as const;
 
 export function installedExtensionIdsIn(veraHome: string): readonly string[] {

@@ -1,6 +1,9 @@
 import { basename } from "node:path";
 
-import { PROJECT_INSTRUCTION_FILENAMES } from "./project-instructions.ts";
+import {
+    PROJECT_INSTRUCTION_FILENAMES,
+    USER_INSTRUCTION_FILENAMES,
+} from "./project-instructions.ts";
 import type { MemorySnapshot } from "./memory.ts";
 import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
 import { alwaysOnRules, type RuleScope, type RuleSnapshot } from "./rules.ts";
@@ -30,6 +33,7 @@ export interface ContextProjectionPart {
 }
 
 export function contextContributionParts(input: {
+    readonly userInstructions?: ProjectInstructionSnapshot;
     readonly projectInstructions?: ProjectInstructionSnapshot;
     readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;
@@ -37,7 +41,19 @@ export function contextContributionParts(input: {
     readonly agentInstructions?: string;
 }): Readonly<Record<string, readonly ContextPartSeed[]>> {
     const parts: Record<string, readonly ContextPartSeed[]> = {};
-    const project = projectInstructionParts(input.projectInstructions);
+    const user = instructionParts(
+        input.userInstructions,
+        "user",
+        USER_INSTRUCTION_FILENAMES,
+    );
+    if (user.length > 0) {
+        parts["core.user-instructions"] = user;
+    }
+    const project = instructionParts(
+        input.projectInstructions,
+        "project",
+        PROJECT_INSTRUCTION_FILENAMES,
+    );
     if (project.length > 0) {
         parts["core.project-instructions"] = project;
     }
@@ -83,16 +99,18 @@ export function apportionPartTokens(
     });
 }
 
-function projectInstructionParts(
+function instructionParts(
     snapshot: ProjectInstructionSnapshot | undefined,
+    scope: "user" | "project",
+    rootNames: readonly string[],
 ): readonly ContextPartSeed[] {
     if (snapshot === undefined) return [];
     return snapshot.files.map((file) => ({
         id: file.path,
         displayName: file.name,
-        scope: "project",
+        scope,
         bytes: file.bytes,
-        ...(isRootInstructionName(file.name) ? {} : { imported: true }),
+        ...(rootNames.includes(basename(file.name)) ? {} : { imported: true }),
     }));
 }
 
@@ -141,9 +159,4 @@ function agentParts(
         scope: "agent",
         bytes: Buffer.byteLength(body, "utf8"),
     }];
-}
-
-function isRootInstructionName(name: string): boolean {
-    return (PROJECT_INSTRUCTION_FILENAMES as readonly string[])
-        .includes(basename(name));
 }

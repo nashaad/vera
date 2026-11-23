@@ -99,6 +99,14 @@ test("spawn consent and standing nudges at the home root are owned", () => {
     expect(unrecognisedHomeEntries(root)).toEqual([]);
 });
 
+test("the home AGENTS.md is owned", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-home-"));
+    mkdirSync(join(root, ".vera"), { recursive: true });
+    writeFileSync(join(root, ".vera", "AGENTS.md"), "Call me Captain.\n");
+    writeFileSync(join(root, ".vera", "AGENTS.local.md"), "Never read.\n");
+    expect(unrecognisedHomeEntries(root)).toEqual(["AGENTS.local.md"]);
+});
+
 test("the extension registry the installer writes is owned", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
     mkdirSync(join(root, ".vera", "extensions"), { recursive: true });

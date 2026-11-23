@@ -31,6 +31,7 @@ export interface ModelRequestSnapshot {
     readonly notesOffer?: boolean;
     readonly scratchDir?: string;
     readonly date: Date;
+    readonly userInstructions?: ProjectInstructionSnapshot;
     readonly projectInstructions: ProjectInstructionSnapshot;
     readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;
@@ -95,6 +96,9 @@ export function projectModelRequest(
             ? {}
             : { scratchDir: snapshot.scratchDir }),
         date: snapshot.date,
+        ...(snapshot.userInstructions === undefined
+            ? {}
+            : { userInstructions: snapshot.userInstructions }),
         projectInstructions: snapshot.projectInstructions,
         ...(snapshot.rules === undefined ? {} : { rules: snapshot.rules }),
         ...(snapshot.memory === undefined ? {} : { memory: snapshot.memory }),

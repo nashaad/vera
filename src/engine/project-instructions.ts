@@ -10,11 +10,14 @@ import {
     resolve,
 } from "node:path";
 import { Lexer } from "marked";
+import { veraProfileDirectory } from "../profile-paths.ts";
 
 export const PROJECT_INSTRUCTION_FILENAMES = [
     "AGENTS.md",
     "AGENTS.local.md",
 ] as const;
+
+export const USER_INSTRUCTION_FILENAMES = ["AGENTS.md"] as const;
 
 const MAX_FILE_BYTES = 128 * 1024;
 const MAX_TOTAL_BYTES = 256 * 1024;
@@ -102,7 +105,25 @@ export interface ProjectInstructionSnapshot {
     readonly warnings: readonly string[];
 }
 
+interface InstructionScope {
+    readonly label: string;
+    readonly boundary: string;
+    readonly displayRoot?: string;
+}
+
+const PROJECT_SCOPE: InstructionScope = {
+    label: "project instructions",
+    boundary: "the workspace",
+};
+
+const USER_SCOPE: InstructionScope = {
+    label: "user instructions",
+    boundary: "the Vera home",
+    displayRoot: "<home>",
+};
+
 interface LoadState {
+    readonly scope: InstructionScope;
     readonly workspace: string;
     readonly workspaceRealPath: string;
     readonly files: ProjectInstructionFile[];
@@ -122,10 +143,30 @@ interface MarkdownToken {
 export async function loadProjectInstructions(
     workspace: string,
 ): Promise<ProjectInstructionSnapshot> {
+    return await loadInstructionFiles(
+        workspace,
+        PROJECT_INSTRUCTION_FILENAMES,
+        PROJECT_SCOPE,
+    );
+}
+
+/** Imports stay inside the home, as project imports stay inside the workspace. */
+export async function loadUserInstructions(
+    home: string = veraProfileDirectory(),
+): Promise<ProjectInstructionSnapshot> {
+    return await loadInstructionFiles(home, USER_INSTRUCTION_FILENAMES, USER_SCOPE);
+}
+
+async function loadInstructionFiles(
+    workspace: string,
+    names: readonly string[],
+    scope: InstructionScope,
+): Promise<ProjectInstructionSnapshot> {
     const workspaceRealPath = await realpath(workspace).catch(() =>
         resolve(workspace)
     );
     const state: LoadState = {
+        scope,
         workspace: workspaceRealPath,
         workspaceRealPath,
         files: [],
@@ -134,7 +175,7 @@ export async function loadProjectInstructions(
         totalBytes: 0,
     };
 
-    for (const name of PROJECT_INSTRUCTION_FILENAMES) {
+    for (const name of names) {
         await loadInstructionFile(join(workspace, name), state, 0, true);
     }
 
@@ -156,7 +197,7 @@ async function loadInstructionFile(
     } catch (error) {
         if (!root || !isMissingFile(error)) {
             state.warnings.push(
-                `${displayPath(state.workspace, path)} could not be read: ${errorMessage(error)}`,
+                `${displayName(state, path)} could not be read: ${errorMessage(error)}`,
             );
         }
         return;
@@ -167,13 +208,13 @@ async function loadInstructionFile(
     }
     if (!root && !isWithin(state.workspaceRealPath, resolvedPath)) {
         state.warnings.push(
-            `${displayPath(state.workspace, path)} was not imported because it is outside the workspace`,
+            `${displayName(state, path)} was not imported because it is outside ${state.scope.boundary}`,
         );
         return;
     }
     if (!root && !isTextFile(resolvedPath)) {
         state.warnings.push(
-            `${displayPath(state.workspace, path)} was not imported because its file type is not supported`,
+            `${displayName(state, path)} was not imported because its file type is not supported`,
         );
         return;
     }
@@ -185,13 +226,13 @@ async function loadInstructionFile(
         const details = await stat(resolvedPath);
         if (!details.isFile()) {
             state.warnings.push(
-                `${displayPath(state.workspace, path)} exists but is not a regular file`,
+                `${displayName(state, path)} exists but is not a regular file`,
             );
             return;
         }
         if (details.size > MAX_FILE_BYTES) {
             state.warnings.push(
-                `${displayPath(state.workspace, path)} is ${details.size} bytes; the ${MAX_FILE_BYTES}-byte limit was exceeded`,
+                `${displayName(state, path)} is ${details.size} bytes; the ${MAX_FILE_BYTES}-byte limit was exceeded`,
             );
             return;
         }
@@ -200,20 +241,20 @@ async function loadInstructionFile(
         bytes = await readFile(resolvedPath);
         if (bytes.byteLength > MAX_FILE_BYTES) {
             state.warnings.push(
-                `${displayPath(state.workspace, path)} grew beyond the ${MAX_FILE_BYTES}-byte limit while it was being read`,
+                `${displayName(state, path)} grew beyond the ${MAX_FILE_BYTES}-byte limit while it was being read`,
             );
             return;
         }
     } catch (error) {
         state.warnings.push(
-            `${displayPath(state.workspace, path)} could not be read: ${errorMessage(error)}`,
+            `${displayName(state, path)} could not be read: ${errorMessage(error)}`,
         );
         return;
     }
 
     if (state.totalBytes + bytes.byteLength > MAX_TOTAL_BYTES) {
         state.warnings.push(
-            `${displayPath(state.workspace, path)} was omitted because project instructions exceed the ${MAX_TOTAL_BYTES}-byte total limit`,
+            `${displayName(state, path)} was omitted because ${state.scope.label} exceed the ${MAX_TOTAL_BYTES}-byte total limit`,
         );
         return;
     }
@@ -223,7 +264,7 @@ async function loadInstructionFile(
         content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch {
         state.warnings.push(
-            `${displayPath(state.workspace, path)} is not valid UTF-8 and was omitted`,
+            `${displayName(state, path)} is not valid UTF-8 and was omitted`,
         );
         return;
     }
@@ -231,7 +272,7 @@ async function loadInstructionFile(
     state.loadedPaths.add(resolvedPath);
     state.totalBytes += bytes.byteLength;
     state.files.push({
-        name: displayPath(state.workspace, resolvedPath),
+        name: displayName(state, resolvedPath),
         path: resolvedPath,
         content,
         bytes: bytes.byteLength,
@@ -241,7 +282,7 @@ async function loadInstructionFile(
     const imports = cachedImportPaths(content, resolvedPath, size, mtimeMs);
     if (imports.length > 0 && importHops >= MAX_IMPORT_HOPS) {
         state.warnings.push(
-            `${displayPath(state.workspace, path)} imports were skipped after ${MAX_IMPORT_HOPS} hops`,
+            `${displayName(state, path)} imports were skipped after ${MAX_IMPORT_HOPS} hops`,
         );
         return;
     }
@@ -360,6 +401,13 @@ function isTextFile(path: string): boolean {
 function isWithin(parent: string, child: string): boolean {
     const path = relative(parent, child);
     return path === "" || (!path.startsWith("..") && !isAbsolute(path));
+}
+
+function displayName(state: LoadState, path: string): string {
+    const shown = displayPath(state.workspace, path);
+    return state.scope.displayRoot === undefined || isAbsolute(shown)
+        ? shown
+        : `${state.scope.displayRoot}/${shown}`;
 }
 
 function displayPath(workspace: string, path: string): string {
