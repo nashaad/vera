@@ -50,6 +50,8 @@ async function fixture(): Promise<Fixture> {
     writeFileSync(join(home, "machine", "desktop", "chromium", "Default", "data"), "browser bytes");
     mkdirSync(join(home, "extensions", "ext-one"), { recursive: true });
     writeFileSync(join(home, "extensions", "ext-one", "main.js"), "extension bytes");
+    mkdirSync(join(home, "plugins", "sample-plugin", "skills", "sample-skill"), { recursive: true });
+    writeFileSync(join(home, "plugins", "sample-plugin", "skills", "sample-skill", "SKILL.md"), "plugin bytes");
     mkdirSync(join(home, "extension-data", "ext-one"), { recursive: true });
     writeFileSync(join(home, "extension-data", "ext-one", "data.json"), "extension data");
     mkdirSync(join(home, "skills", "skill-one"), { recursive: true });
@@ -97,7 +99,7 @@ test("@core storage measures every home category, titles sessions, and keeps old
         expect(category(measurement, "scratch").summary).toBe("1 session folder");
         expect(category(measurement, "scratch").largest[0]?.name).toBe("Plan the launch");
         expect(category(measurement, "logs").summary).toBe("1 log file");
-        expect(category(measurement, "extensions").summary).toBe("5 files");
+        expect(category(measurement, "extensions").summary).toBe("6 files");
         expect(category(measurement, "other").summary).toBe("2 other files");
         expect(category(measurement, "other").largest.map((item) => item.name).sort())
             .toEqual(["desktop", "notes.txt"]);
@@ -119,6 +121,7 @@ test("@core storage measures every home category, titles sessions, and keeps old
                 join(home, "skills", "skill-one", "SKILL.md"),
                 join(home, "agents", "agent-one", "agent.md"),
                 join(home, "memory", "memory-one.md"),
+                join(home, "plugins", "sample-plugin", "skills", "sample-skill", "SKILL.md"),
             ],
             browser: [join(home, "machine", "desktop", "chromium", "Default", "data")],
             other: [join(home, "notes.txt"), join(home, "machine", "desktop", "layout.json")],

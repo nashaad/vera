@@ -76,9 +76,10 @@ export async function activate(vera: VeraExtensionApiShape): Promise<void> {
         return;
     }
 
+    const promptOwners = new Map<string, string>();
     for (const client of connected) {
         registerTools(vera, client);
-        registerPrompts(vera, client);
+        registerPrompts(vera, client, promptOwners);
     }
     registerResourceTool(vera, connected);
 }
@@ -214,33 +215,46 @@ function registerTool(
 function registerPrompts(
     vera: VeraExtensionApiShape,
     client: McpServerClient,
+    owners: Map<string, string>,
 ): void {
     for (const prompt of client.prompts) {
         const argumentNames = prompt.arguments.map((argument) =>
             argument.required ? `<${argument.name}>` : `[${argument.name}]`);
         const commandName = bridgedCommandName(client.name, prompt.name);
-        vera.commands.register({
-            name: commandName,
-            description: prompt.description.length > 0
-                ? prompt.description
-                : `MCP prompt ${prompt.name} on server ${client.name}`,
-            usage: [`/${commandName}`, ...argumentNames].join(" "),
-            async run(request: { argumentsText: string; signal: AbortSignal }) {
-                const args = promptArguments(
-                    prompt.arguments.map((argument) => argument.name),
-                    request.argumentsText,
-                );
-                const text = await client.getPrompt(
-                    prompt.name,
-                    args,
-                    request.signal,
-                );
-                return {
-                    kind: "text",
-                    text: text.length > 0 ? text : "(empty prompt)",
-                };
-            },
-        });
+        try {
+            vera.commands.register({
+                name: commandName,
+                description: prompt.description.length > 0
+                    ? prompt.description
+                    : `MCP prompt ${prompt.name} on server ${client.name}`,
+                usage: [`/${commandName}`, ...argumentNames].join(" "),
+                async run(request: { argumentsText: string; signal: AbortSignal }) {
+                    const args = promptArguments(
+                        prompt.arguments.map((argument) => argument.name),
+                        request.argumentsText,
+                    );
+                    const text = await client.getPrompt(
+                        prompt.name,
+                        args,
+                        request.signal,
+                    );
+                    return {
+                        kind: "text",
+                        text: text.length > 0 ? text : "(empty prompt)",
+                    };
+                },
+            });
+            owners.set(commandName, client.name);
+        } catch (error) {
+            const earlier = owners.get(commandName);
+            console.error(
+                `[vera.mcp] server ${client.name}: prompt ${prompt.name} was skipped: `
+                    + message(error)
+                    + (earlier === undefined
+                        ? ""
+                        : ` (server ${earlier} already bridges ${commandName})`),
+            );
+        }
     }
 }
 

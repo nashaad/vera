@@ -8,11 +8,16 @@ import { loadRules, ruleDirectories } from "../engine/rules.ts";
 import { listExtensions } from "../extensions/manager.ts";
 import { homeSkillConfig } from "../skills/sources.ts";
 import { loadExtensionManifest } from "../extensions/manifest.ts";
+import { withoutPluginExtensionPaths } from "../extensions/plugin-paths.ts";
+import { selectedVeraHome } from "../profile-paths.ts";
+import { readPluginCatalog, type PluginCatalog } from "../plugins/catalog.ts";
+import { pluginSummaryLine } from "../plugins/components.ts";
 import type { CustomizationCatalog, CustomizationSource } from "./types.ts";
 
 const MAX_PREVIEW_BYTES = 256 * 1024;
 
 function skillScopeLabel(skill: CatalogSkill): string {
+    if (skill.plugin !== undefined) return `plugin ${skill.plugin}`;
     return skill.extensionId === undefined ? skill.scope : `extension ${skill.extensionId}`;
 }
 
@@ -21,7 +26,9 @@ export async function loadCustomizationCatalog(options: {
     readonly workspace?: string;
     readonly instructionRoot?: InstructionRoot;
     readonly agents: AgentCatalog;
+    readonly pluginCatalog?: PluginCatalog;
 }): Promise<CustomizationCatalog> {
+    const pluginCatalog = options.pluginCatalog ?? readPluginCatalog();
     const sources: CustomizationSource[] = [];
     const warnings: string[] = [...options.agents.notices];
     async function add(source: CustomizationSource): Promise<void> {
@@ -48,21 +55,25 @@ export async function loadCustomizationCatalog(options: {
             id: `agents:${row.definition.name}`, category: "agents",
             name: row.definition.name, description: row.definition.description ?? "",
             scope: row.scope, path: row.path, editable: row.writable,
+            ...(row.plugin === undefined ? {} : { plugin: row.plugin }),
             content: JSON.stringify({ ...row.definition, instructions: undefined }, null, 4)
                 + "\n\n" + row.definition.instructions,
             contextIds: [`agent:${row.definition.name}`],
         });
     }
-    const skills = await loadSkillCatalog(options.workspace === undefined
-        ? {}
-        : { projectRoot: options.workspace });
-    warnings.push(...skills.warnings);
+    const skills = await loadSkillCatalog({
+        ...(options.workspace === undefined ? {} : { projectRoot: options.workspace }),
+        pluginCatalog,
+        pluginRoots: pluginCatalog.skill_roots,
+    });
+    warnings.push(...skills.warnings, ...skills.pluginWarnings);
     for (const row of skills.skills) {
         await add({
             id: `skills:${row.metadata.name}`, category: "skills",
             name: row.metadata.name, description: row.metadata.description,
             scope: skillScopeLabel(row), path: row.skillPath, editable: row.scope === "user" || row.scope === "project",
             content: row.instructions, contextIds: [row.skillPath],
+            ...(row.plugin === undefined ? {} : { plugin: row.plugin }),
             status: row.metadata.disableModelInvocation ? "explicit invocation only" : "available",
         });
     }
@@ -72,6 +83,7 @@ export async function loadCustomizationCatalog(options: {
             name: row.metadata.name, description: row.metadata.description,
             scope: skillScopeLabel(row), path: row.skillPath, editable: row.scope === "user" || row.scope === "project",
             content: row.instructions, contextIds: [],
+            ...(row.plugin === undefined ? {} : { plugin: row.plugin }),
             status: "disabled",
         });
     }
@@ -120,12 +132,21 @@ export async function loadCustomizationCatalog(options: {
     }
     // Extensions included with Vera are not listed; /extensions turns them on and off.
     // The skills catalog above already warned if config.json did not load.
+    for (const record of pluginCatalog.plugins) {
+        sources.push({
+            id: `plugins:${record.name}`, category: "plugins",
+            name: record.name, description: pluginSummaryLine(record.components),
+            scope: "plugin", plugin: record.name, content: "", editable: false,
+            contextIds: [], status: record.enabled ? "enabled" : "disabled",
+        });
+    }
     const config = homeSkillConfig();
-    const entries: { path: string; enabled: boolean; id: string }[] = listExtensions().map((row) => ({
+    const home = selectedVeraHome();
+    const entries: { path: string; enabled: boolean; id: string }[] = withoutPluginExtensionPaths(listExtensions(), home).map((row) => ({
         path: row.path, enabled: row.enabled, id: row.id,
     }));
     const paths = new Set(entries.map((row) => row.path));
-    for (const row of config?.extensions ?? []) {
+    for (const row of withoutPluginExtensionPaths(config?.extensions ?? [], home)) {
         if (paths.has(row.path)) continue;
         paths.add(row.path);
         try {
@@ -142,5 +163,5 @@ export async function loadCustomizationCatalog(options: {
             status: row.enabled ? "enabled" : "disabled",
         });
     }
-    return { sources, warnings };
+    return { sources, warnings: [...new Set(warnings)] };
 }

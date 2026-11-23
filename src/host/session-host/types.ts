@@ -18,6 +18,7 @@ import type { SessionShard } from "../shard.ts";
 import type { WorkerGlobals } from "../pool/worker-globals.ts";
 import type { LeaseCredential } from "../pool/leased-adapter.ts";
 import type { WorkerExtensionServices } from "../pool/extension-catalog.ts";
+import type { PluginWorkerExtensions } from "../../plugins/catalog.ts";
 
 export interface SessionModelServices extends Pick<AgentRegistryOptions,
     "readAvailableModels"
@@ -63,6 +64,8 @@ export interface StartSessionHostOptions {
     ) => void;
     readonly poolHost?: boolean;
     readonly remoteExtensions?: WorkerExtensionServices;
+    readonly pluginWorkerExtensions?: PluginWorkerExtensions;
+    readonly availableExtensionIds?: readonly string[];
     readonly processObservations?: AgentRegistryOptions["processObservations"];
     readonly config: VeraConfig;
     readonly currentConfig: () => VeraConfig;
@@ -99,6 +102,7 @@ export interface StartSessionHostOptions {
 export interface SessionHost {
     readonly registry: AgentRegistry;
     readonly extensions: ExtensionRegistry;
+    readonly pluginWorkerExtensions: PluginWorkerExtensions;
     readonly handlers: SessionHandlers;
     readonly createAdapter: AgentRegistryOptions["createAdapter"];
     readonly localExtensionSessions: ExtensionSessionServices;

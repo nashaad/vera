@@ -5,16 +5,24 @@ description: "Inspect installed capabilities, configure them, and enable or disa
 
 # Manage extensions
 
-Extensions add capabilities to Vera. Run `/extensions` to see included
-extensions and installed copies, what they contribute, and whether they are
-enabled. The same screen is available from **Manage extensions** in Ctrl+P.
+Extensions add capabilities to Vera. Run `/extensions` to inspect included
+and plugin-owned extensions, their contributions, and their state. The same
+screen is available from **Manage extensions** in Ctrl+P.
 
-> Sharing and a catalog of extensions are planned. For now, the focus is
-> making the existing extensions work well.
+Installed plugins live in the Vera home. Vera does not load extensions from a
+project folder; a `.vera/extensions` directory in a workspace is ignored.
 
-Installed extensions live in the home, under `extensions/`. Vera does not load
-extensions from a project folder; a `.vera/extensions` directory in a
-workspace is ignored.
+A plugin is the package you install. It can hold an extension together with
+skills, agents, and MCP servers. See [Plugins](plugins.md).
+
+A plugin can include a desktop extension. Turn the plugin on or off with
+`/plugin enable <name>` or `/plugin disable <name>`, and remove it with
+`vera plugin remove <name>`; the desktop extension's own switch and Remove
+do not change the plugin. See [Desktop extensions](desktop.md#desktop-extensions).
+
+A plugin's host extension loads with the host when the plugin is on. Its
+configuration can come from an `extensions` entry for its installed directory;
+the plugin switch controls whether it loads. See [Plugins](plugins.md#host-extensions).
 
 To write your own, see [Extension APIs](extension-apis.md).
 
@@ -26,22 +34,24 @@ Enter this in the composer with the source directory's path:
 /extension install <path>
 ```
 
-The result lists the extension's capabilities, and under `unreviewed` the
-tools that run without asking in ask and auto mode. See
-[Permission rules](permission-rules.md). Then open `/extensions` to inspect
-the installed copy. `/extension list` opens the same manager.
+The folder installs as a plugin, and the result names that plugin and its
+capabilities. See [Permission rules](permission-rules.md). `/extension list`
+opens `/extensions`; `vera extension list` lists included and core extensions.
 
 ## Inspect or change a copy
 
-Use Up/Down to choose an extension and Enter to open details. The detail
-screen shows its version, group, status, contributed capabilities, path, and
-source when recorded. Rows are grouped as Installed, Included, and Core.
+Use Up/Down to choose an extension and Enter to open details. The screen shows
+its version, group, status, capabilities, path, and source. Rows are grouped as
+Installed, Included, and Core. Plugin-owned rows are read-only: use `/plugin`
+to turn the plugin on or off or remove it.
 
-Space enables or disables a managed or included copy. For an included copy
-this edits `disabled_included_extensions` in `config.json`. **Remove** opens a
-confirmation; it deletes the managed copy and leaves the source untouched.
-Included copies cannot be removed. Unmanaged copies have no enable/disable
-shortcut.
+Space enables or disables an included or core copy by editing
+`disabled_included_extensions` in `config.json`. Included copies cannot be
+removed. `/extension enable <id>` and `/extension disable <id>` name the plugin
+command when the extension belongs to a plugin. `/extension remove <id>`
+removes its plugin when that plugin contains only the extension. If it has
+other parts, the command names `/plugin remove <name>` instead. If migration
+has left a legacy copy active, removal deletes it and prints its path.
 
 ### Understand status
 
@@ -50,9 +60,6 @@ shortcut.
 | enabled | The copy is enabled. |
 | disabled | The copy is turned off. |
 | failed | The manifest did not load, or the host could not load the code. The row shows why. |
-| unmanaged | The copy is not managed through this installation registry. |
-
-Installed copies appear above included ones. Desktop and web expose the same facts in their own lists.
 
 ## Apply configuration changes
 

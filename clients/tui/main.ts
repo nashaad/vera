@@ -144,6 +144,7 @@ import {
     configuredTuiClientExtensions,
     createTuiClientExtensionHostController,
     createTuiClientExtensionHostStarter,
+    readTuiClientExtensionConfiguration,
 } from "./client-extension-host.ts";
 import { captureTuiExtensionComposeTarget, type TuiExtensionComposeTarget } from "./client-extension-compose.ts";
 import { tuiContextStateForAgent } from "./client-extension-context.ts";
@@ -973,23 +974,8 @@ export async function startConfiguredTui(
                 importSessionThroughHost(await pairedSocket(), path),
             listImportableSessions: async (workspace) =>
                 listImportableSessionsThroughHost(await pairedSocket(), workspace),
-            ...(config?.disabled_included_extensions === undefined
-                ? {}
-                : {
-                    disabledIncludedExtensions:
-                        config.disabled_included_extensions,
-                }),
-            ...(config?.extensions === undefined
-                ? {}
-                : { clientExtensions: config.extensions }),
-            loadClientExtensionConfiguration() {
-                const latest = loadOptionalVeraConfig();
-                return {
-                    disabledIncludedExtensions:
-                        latest?.disabled_included_extensions ?? [],
-                    clientExtensions: latest?.extensions ?? [],
-                };
-            },
+            ...readTuiClientExtensionConfiguration(),
+            loadClientExtensionConfiguration: readTuiClientExtensionConfiguration,
             build: {
                 clientVersion: clientBuildId,
                 // Getters: Reconnect host replaces `host`, and diagnostics must show the one attached now.

@@ -1,6 +1,7 @@
-import { mergeExtensionScopes } from "../../src/extensions/discovery.ts";
-import type { VeraExtensionConfig } from "../../src/config.ts";
-import { includedExtensionConfigs } from "../../src/extensions/included.ts";
+import { loadOptionalVeraConfig, type VeraExtensionConfig } from "../../src/config.ts";
+import { hostExtensionConfigs } from "../../src/extensions/host-set.ts";
+import { readPluginExtensionSnapshot } from "../../src/extensions/plugin-parts.ts";
+import { selectedVeraHome } from "../../src/profile-paths.ts";
 import {
     startClientExtensionRegistry,
     type ClientExtensionAddressingAdapter,
@@ -254,13 +255,24 @@ export function createTuiClientExtensionHostController(
     };
 }
 
+export function readTuiClientExtensionConfiguration(): {
+    readonly disabledIncludedExtensions: readonly string[];
+    readonly clientExtensions: readonly VeraExtensionConfig[];
+} {
+    const config = loadOptionalVeraConfig();
+    return {
+        disabledIncludedExtensions: config?.disabled_included_extensions ?? [],
+        clientExtensions: config?.extensions ?? [],
+    };
+}
+
 export function configuredTuiClientExtensions(
     disabledIncludedExtensions: readonly string[],
     extensions: readonly VeraExtensionConfig[] = [],
 ): readonly VeraExtensionConfig[] {
-    return mergeExtensionScopes(
-        includedExtensionConfigs(disabledIncludedExtensions),
-        extensions,
+    return hostExtensionConfigs(
+        { disabled_included_extensions: disabledIncludedExtensions, extensions },
+        readPluginExtensionSnapshot(selectedVeraHome()),
     );
 }
 

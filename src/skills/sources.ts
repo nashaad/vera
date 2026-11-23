@@ -12,8 +12,11 @@ import {
 import { collectConfigProblem, describeConfigProblem } from "../config/diagnostic.ts";
 import { includedExtensionConfigs } from "../extensions/included.ts";
 import { mergeExtensionScopes } from "../extensions/discovery.ts";
+import { withoutPluginExtensionPaths } from "../extensions/plugin-paths.ts";
 import { loadExtensionManifest } from "../extensions/manifest.ts";
+import { selectedVeraHome } from "../profile-paths.ts";
 import { projectVeraConfigPath } from "../project-paths.ts";
+import { readPluginCatalog, type PluginCatalog, type PluginRoot } from "../plugins/catalog.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export interface ExtensionSkillRoot {
@@ -24,7 +27,9 @@ export interface ExtensionSkillRoot {
 export interface SkillSources {
     readonly disabledSkills: readonly string[];
     readonly extensionRoots: readonly ExtensionSkillRoot[];
+    readonly pluginRoots: readonly PluginRoot[];
     readonly warnings: readonly string[];
+    readonly pluginWarnings: readonly string[];
 }
 
 export function isSkillDisabled(
@@ -66,7 +71,9 @@ export function homeSkillConfig(): VeraConfig | undefined {
 
 // Reads the home config and enabled extensions from disk, so every caller
 // of the catalog sees the same set without threading it through the host.
-export function resolveSkillSources(): SkillSources {
+export function resolveSkillSources(
+    pluginCatalog: PluginCatalog = readPluginCatalog(),
+): SkillSources {
     const warnings: string[] = [];
     const home = readHomeSettings();
     if (home.state !== "loaded") {
@@ -79,7 +86,7 @@ export function resolveSkillSources(): SkillSources {
             includedExtensionConfigs(
                 config?.disabled_included_extensions ?? [],
             ),
-            config?.extensions ?? [],
+            withoutPluginExtensionPaths(config?.extensions ?? [], selectedVeraHome()),
         );
     } catch (error) {
         warnings.push(`extension skills could not be listed: ${errorMessage(error)}`);
@@ -109,7 +116,9 @@ export function resolveSkillSources(): SkillSources {
             ? EVERY_SKILL
             : config?.disabled_skills ?? [],
         extensionRoots,
+        pluginRoots: pluginCatalog.skill_roots,
         warnings,
+        pluginWarnings: pluginCatalog.warnings,
     };
 }
 

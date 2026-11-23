@@ -27,7 +27,7 @@ interface Trial {
 // Each task crosses a structured clone, as it does to a task process, and runs with no state of its own.
 function trial(run?: (task: InstallTask) => Promise<InstallReply>, onChange?: () => void): Trial {
     const home = scratchDirectory();
-    const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)));
+    const store = new ExtensionStore(home, new ExtensionStateStore(extensionStatePath(home)));
     const themes = new ThemeService(store, themesDirectory(home));
     const tasks: InstallTask[] = [];
     const service = new ExtensionService(store, themes, async (task) => {
@@ -135,7 +135,7 @@ test("an included extension is listed as on and the service refuses to turn it o
     const home = scratchDirectory();
     const included = scratchDirectory();
     writeText(join(included, "vera.sample", "vera.desktop.json"), JSON.stringify({ id: "vera.sample", version: "1.0.0", engine: DESKTOP_ENGINE }));
-    const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)), included);
+    const store = new ExtensionStore(home, new ExtensionStateStore(extensionStatePath(home)), included);
     const service = new ExtensionService(store, new ThemeService(store, themesDirectory(home)), async () => { throw new Error("no task"); });
     expect(service.setEnabled("vera.sample", false)).toEqual({ ok: false, reason: 'Vera could not turn "vera.sample" off.' });
     const list = service.list();

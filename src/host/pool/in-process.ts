@@ -5,7 +5,7 @@ import { defaultHostSocketPath } from "../lockfile.ts";
 import type { HostIdentity } from "../protocol.ts";
 import type { StopCause } from "../../model/types.ts";
 import { startWorkerServer, type HostListener, type StartHostServerOptions } from "../server.ts";
-import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "../session-host.ts";
+import { startSessionHost, type SessionHost, type StartedSessionHost, type StartSessionHostOptions } from "../session-host.ts";
 import { sessionEndpoint } from "../session-host/endpoint.ts";
 import type { StopWaitEvent, StopWaitTarget } from "../stop-when-idle.ts";
 import type { GuardedScratchDetach } from "../scratch-retention.ts";
@@ -30,6 +30,22 @@ export interface InProcessWorkerOptions {
     readonly lockPath: string;
     readonly buildId: string;
     readonly capabilities: readonly string[];
+}
+
+export function workerSessionOptions(
+    options: StartSessionHostOptions,
+    host: Pick<StartedSessionHost, "startupConfig" | "currentConfig">,
+): StartSessionHostOptions {
+    return { ...options, config: host.startupConfig, currentConfig: host.currentConfig };
+}
+
+export function inProcessExtensionBootstrap(
+    host: Pick<SessionHost, "extensions" | "pluginWorkerExtensions">,
+): Pick<StartSessionHostOptions, "pluginWorkerExtensions" | "availableExtensionIds"> {
+    return {
+        pluginWorkerExtensions: host.pluginWorkerExtensions,
+        availableExtensionIds: host.extensions.extensionIds(),
+    };
 }
 
 export interface InProcessWorker {
@@ -89,6 +105,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         ...options.sessionOptions,
         restoringSessions,
         sessionWorker: true,
+        ...inProcessExtensionBootstrap(options.host),
         processObservations: {
             async onObservationStarted(start) { observations.start(`${executor}:w0`, start); },
             async onObservationSettled(settlement) { await observations.settle(`${executor}:w0`, settlement); },

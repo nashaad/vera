@@ -85,12 +85,21 @@ export class ExtensionService {
     }
 
     setEnabled(id: string, enabled: boolean): ExtensionChangeResult {
-        if (!this.store.setEnabled(id, enabled)) return { ok: false, reason: `Vera could not turn "${id}" ${enabled ? "on" : "off"}.` };
+        if (!this.store.setEnabled(id, enabled)) {
+            const plugin = this.store.pluginOwner(id);
+            return plugin === undefined
+                ? { ok: false, reason: `Vera could not turn "${id}" ${enabled ? "on" : "off"}.` }
+                : { ok: false, reason: `"${id}" belongs to plugin "${plugin}". Use /plugin ${enabled ? "enable" : "disable"} ${plugin}.` };
+        }
         return this.changed();
     }
 
     remove(id: string): ExtensionChangeResult {
-        switch (this.store.remove(id)) {
+        const result = this.store.remove(id);
+        if (typeof result !== "string") {
+            return { ok: false, reason: `"${id}" belongs to plugin "${result.plugin}". Use vera plugin remove ${result.plugin}.` };
+        }
+        switch (result) {
             case "removed":
                 return this.changed();
             case "included":

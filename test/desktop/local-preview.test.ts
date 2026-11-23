@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { LocalPreviewScopes, MAX_PREVIEW_ASSET_BYTES, MAX_PREVIEW_SCOPES } from "../../clients/desktop/src/local-preview.ts";
+import { extensionsDirectory } from "../../clients/desktop/src/extensions/paths.ts";
 import { parseDesktopManifest } from "../../clients/ui/src/extensions/manifest.ts";
 import { ExtensionStateStore } from "../../clients/desktop/src/extensions/state.ts";
 import { ExtensionStore } from "../../clients/desktop/src/extensions/store.ts";
@@ -91,13 +92,13 @@ test("only included extensions list preview contributions", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vera-preview-store-"));
     directories.push(directory);
     const included = join(directory, "included");
-    const installed = join(directory, "installed");
+    const installed = extensionsDirectory(directory);
     for (const [parent, id] of [[included, "crow.included"], [installed, "crow.installed"]] as const) {
         const folder = join(parent, id);
         await mkdir(folder, { recursive: true });
         await writeFile(join(folder, "vera.desktop.json"), JSON.stringify({ id, version: "1.0.0", engine: "vera-gui@^1", contributes: { filePreviews: ["html"] } }));
     }
-    const store = new ExtensionStore(installed, new ExtensionStateStore(join(directory, "state.json")), included);
+    const store = new ExtensionStore(directory, new ExtensionStateStore(join(directory, "state.json")), included);
     expect(store.entries().find((entry) => entry.id === "crow.included")?.filePreviews).toEqual(["html"]);
     expect(store.entries().find((entry) => entry.id === "crow.installed")?.filePreviews).toBeUndefined();
 });

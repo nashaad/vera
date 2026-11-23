@@ -2,6 +2,7 @@ import { basename, resolve } from "node:path";
 
 import type { VeraConfig } from "../config.ts";
 import { hostExtensionConfigs } from "../extensions/host-set.ts";
+import type { PluginSnapshot } from "../plugins/catalog.ts";
 import { extensionServesHost, loadExtensionManifest } from "../extensions/manifest.ts";
 import { fileReadStamp } from "../store/read-cache.ts";
 
@@ -42,11 +43,15 @@ export function createExtensionConfigWatch(options: {
     readonly configPath: string;
     readonly config: ExtensionConfigFields;
     readonly currentConfig: () => ExtensionConfigFields;
+    readonly pluginSnapshot: PluginSnapshot;
     readonly intervalMs?: number;
 }): ExtensionConfigWatch {
-    const startup = extensionConfigEntries(options.config);
+    const startup = extensionConfigEntries(options.config, options.pluginSnapshot);
     // A worker can start after config.json changed while the host kept its startup set.
-    const observedAtStart = readEntries(options.currentConfig) ?? startup;
+    const observedAtStart = readEntries(
+        options.currentConfig,
+        options.pluginSnapshot,
+    ) ?? startup;
     let observed = observedAtStart;
     let drift = driftAgainstStartup(startup, observedAtStart);
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -58,7 +63,10 @@ export function createExtensionConfigWatch(options: {
         if (before === undefined || before === lastStamp) return;
         let next: Map<string, ExtensionConfigEntry>;
         try {
-            next = extensionConfigEntries(options.currentConfig());
+            next = extensionConfigEntries(
+                options.currentConfig(),
+                options.pluginSnapshot,
+            );
         } catch {
             return;
         }
@@ -109,9 +117,10 @@ function driftAgainstStartup(
 
 function readEntries(
     currentConfig: () => ExtensionConfigFields,
+    plugins: PluginSnapshot,
 ): Map<string, ExtensionConfigEntry> | undefined {
     try {
-        return extensionConfigEntries(currentConfig());
+        return extensionConfigEntries(currentConfig(), plugins);
     } catch {
         return undefined;
     }
@@ -190,9 +199,24 @@ function restartRequired(
 
 export function extensionConfigEntries(
     config: ExtensionConfigFields,
+    plugins: PluginSnapshot,
 ): Map<string, ExtensionConfigEntry> {
     const entries = new Map<string, ExtensionConfigEntry>();
-    for (const configured of hostExtensionConfigs(config)) {
+    const pluginParts = new Map(plugins.host_extensions.map((part) => [part.directory, part]));
+    for (const configured of hostExtensionConfigs(config, plugins)) {
+        const plugin = pluginParts.get(configured.path);
+        if (plugin !== undefined) {
+            const prior = entries.get(plugin.id);
+            if (prior === undefined || !prior.enabled || !prior.servesHost) {
+                entries.set(plugin.id, {
+                    id: plugin.id,
+                    path: plugin.directory,
+                    enabled: configured.enabled,
+                    servesHost: plugin.serves_host,
+                });
+            }
+            continue;
+        }
         let id: string;
         let path = resolve(configured.path);
         let servesHost = true;

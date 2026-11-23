@@ -135,7 +135,7 @@ function claim(byName: Map<string, SourceInfo[]>, name: string): SourceInfo | un
 }
 
 export function kindCounts(items: readonly CustomizeItem[]): Readonly<Record<KindFilter, number>> {
-    const counts: Record<KindFilter, number> = { all: items.length, skills: 0, agents: 0, extensions: 0, instructions: 0, memory: 0 };
+    const counts: Record<KindFilter, number> = { all: items.length, skills: 0, agents: 0, extensions: 0, instructions: 0, memory: 0, plugins: 0 };
     for (const item of items) counts[item.kind] += 1;
     return counts;
 }
@@ -202,6 +202,7 @@ export const KIND_LABELS: Readonly<Record<CustomizeKind, KindLabel>> = {
     extensions: { singular: "Extension", plural: "Extensions" },
     instructions: { singular: "Instructions", plural: "Instructions" },
     memory: { singular: "Memory", plural: "Memory" },
+    plugins: { singular: "Plugin", plural: "Plugins" },
 };
 
 export interface CardBadge {

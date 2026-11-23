@@ -14,7 +14,7 @@ import { removeScratchDirectories, scratchDirectory, writeText } from "./theme-f
 afterEach(removeScratchDirectories);
 
 function storeFor(home: string): ExtensionStore {
-    return new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)));
+    return new ExtensionStore(home, new ExtensionStateStore(extensionStatePath(home)));
 }
 
 function saveOld(home: string, name: string): string {

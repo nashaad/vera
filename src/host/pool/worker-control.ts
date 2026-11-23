@@ -35,7 +35,7 @@ import type { ManagedProcessObservationHandlers } from "../../tools/process-runt
 export type WorkerStartOptions = Pick<StartResidentHostOptions,
     "config" | "home" | "configPath" | "projectRoot" | "sessionDirectory" | "blockedDirectory"
     | "permissionPreferencesPath" | "eventLogDirectory" | "modelFailureLedgerPath" | "importRoots"
-    | "inboxPath" | "inboxUserConfigPath" | "schedulePath" | "arcConfigPath"
+    | "inboxPath" | "inboxUserConfigPath" | "schedulePath" | "arcConfigPath" | "pluginWorkerExtensions"
 >;
 
 export interface WorkerBootstrap {

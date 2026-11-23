@@ -372,6 +372,7 @@ function categoryRoots(home: string): readonly string[] {
         join(home, "machine", "cache"),
         join(home, "machine", "desktop", "chromium"),
         join(home, "extensions"),
+        join(home, "plugins"),
         join(home, "extension-data"),
         join(home, "skills"),
         join(home, "agents"),
@@ -555,7 +556,7 @@ async function measureNow(options: StorageMeasureOptions): Promise<StorageMeasur
 
     const extensionTotals = { bytes: 0, items: 0 };
     const extensionLargest = new Largest();
-    for (const root of ["extensions", "extension-data", "skills", "agents", "memory"]) {
+    for (const root of ["extensions", "plugins", "extension-data", "skills", "agents", "memory"]) {
         const listing = await measureListing(join(home, root), budget, {
             keyFor: (name) => `${root}/${name}`,
         });

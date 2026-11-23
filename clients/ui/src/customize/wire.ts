@@ -1,14 +1,15 @@
 // Catalog replies a session sends on its watch connection, and the lines that ask for them.
 // Customize and the agent picker read these; the session view ignores them.
 
-export type SourceCategory = "agents" | "skills" | "instructions" | "memory" | "extensions";
-export type AgentScope = "project" | "user" | "extension";
+export type SourceCategory = "agents" | "skills" | "instructions" | "memory" | "extensions" | "plugins";
+export type AgentScope = "project" | "user" | "extension" | "plugin";
 
 export interface SkillInfo {
     readonly name: string;
     readonly description: string;
     // True when only a person can run the skill; the session never picks it on its own.
     readonly manualOnly: boolean;
+    readonly plugin?: string;
 }
 
 export interface AgentInfo {
@@ -23,6 +24,7 @@ export interface AgentInfo {
     readonly subagentAssignment?: string;
     readonly defaultModel?: string;
     readonly defaultEffort?: string;
+    readonly plugin?: string;
 }
 
 export interface SourceInfo {
@@ -35,6 +37,7 @@ export interface SourceInfo {
     readonly content: string;
     readonly editable: boolean;
     readonly status?: string;
+    readonly plugin?: string;
 }
 
 export type CatalogReply =
@@ -59,8 +62,8 @@ export interface AgentSelectedReply {
     readonly notice?: string;
 }
 
-const CATEGORIES: readonly SourceCategory[] = ["agents", "skills", "instructions", "memory", "extensions"];
-const SCOPES: readonly AgentScope[] = ["project", "user", "extension"];
+const CATEGORIES: readonly SourceCategory[] = ["agents", "skills", "instructions", "memory", "extensions", "plugins"];
+const SCOPES: readonly AgentScope[] = ["project", "user", "extension", "plugin"];
 // A catalog longer than this is cut; the page says how many it holds.
 export const CATALOG_LIMIT = 500;
 // Source bodies past this are cut for display; the file on disk holds the rest.
@@ -136,7 +139,12 @@ export function parseSources(value: unknown): readonly SourceInfo[] {
 function parseSkill(value: unknown): SkillInfo[] {
     if (!isFields(value) || typeof value.name !== "string" || value.name.length === 0) return [];
     const description = typeof value.description === "string" ? value.description : "";
-    return [{ name: value.name, description, manualOnly: value.disableModelInvocation === true }];
+    return [{
+        name: value.name,
+        description,
+        manualOnly: value.disableModelInvocation === true,
+        ...optionalString("plugin", value.plugin),
+    }];
 }
 
 function parseAgent(value: unknown): AgentInfo[] {
@@ -156,6 +164,7 @@ function parseAgent(value: unknown): AgentInfo[] {
         ...optionalString("subagentAssignment", value.subagentAssignment),
         ...(pair === undefined ? {} : optionalString("defaultModel", pair.name)),
         ...(pair === undefined ? {} : optionalString("defaultEffort", pair.effort)),
+        ...optionalString("plugin", value.plugin),
     }];
 }
 
@@ -174,6 +183,7 @@ function parseSource(value: unknown): SourceInfo[] {
         editable: value.editable === true,
         ...optionalString("path", value.path),
         ...optionalString("status", value.status),
+        ...optionalString("plugin", value.plugin),
     }];
 }
 

@@ -2,8 +2,8 @@ import {
     EXTENSION_REGISTRY_SCHEMA_VERSION, MANAGED_STATE_DIRECTORY, ExtensionManagerError,
     assertSafeExtensionDirectory,
     parseRegistry, readManagedExtensionRecords, writeManagedMarker,
-    assertManagedPathSafe, isManagedDirectoryPresent, managedExtensionDirectory,
-    extensionPath, fileExists, isRecord, errorMessage,
+    assertManagedPathSafe, isManagedDirectoryPresent,
+    extensionPath, fileExists, errorMessage,
     type ManagedExtensionRecord, type ExtensionRegistryDocument,
 } from "./managed-registry.ts";
 export {
@@ -11,29 +11,30 @@ export {
     readExtensionRegistry, managedExtensionConfigs,
 } from "./managed-registry.ts";
 export type { ManagedExtensionSource, ManagedExtensionRecord, ExtensionRegistryDocument } from "./managed-registry.ts";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
-    closeSync,
-    cpSync,
     lstatSync,
     mkdirSync,
-    openSync,
-    readFileSync,
     readdirSync,
-    realpathSync,
     renameSync,
     rmSync,
     writeFileSync,
-    writeSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
+    inspectDirectory,
+    unlimitedDirectoryLimits,
+    withFileLock,
+} from "../store/managed-directory.ts";
+
+import {
+    loadOptionalVeraConfig,
     updateVeraConfigDefaults,
     type LoadVeraConfigOptions,
-    type VeraExtensionConfig,
 } from "../config.ts";
-import { includedExtensionIds } from "./included.ts";
+import { includedExtensionIds, includedExtensions } from "./included.ts";
+import { installPlugin, listPlugins, removePluginForExtension, type PluginInstallPreview } from "../plugins/manager.ts";
 import { loadExtensionManifest } from "./manifest.ts";
 import { installedExtensionIdsIn, veraProfileDirectory } from "../profile-paths.ts";
 
@@ -46,11 +47,12 @@ export interface ExtensionInstallPreview {
     readonly capabilities: readonly string[];
     readonly unreviewedTools: readonly string[];
     readonly dryRun: boolean;
+    readonly plugin?: PluginInstallPreview;
 }
 
 export interface ExtensionInstallResult {
     readonly preview: ExtensionInstallPreview;
-    readonly record?: ManagedExtensionRecord;
+    readonly record?: { readonly id: string };
 }
 
 export interface ExtensionListEntry {
@@ -94,110 +96,22 @@ export function installExtension(
     source: string,
     options: ExtensionManagerOptions & { readonly dryRun?: boolean } = {},
 ): ExtensionInstallResult {
-    const directory = extensionDirectoryFor(options);
-    const registryPath = extensionRegistryPathFor(options);
-    assertSafeExtensionDirectory(directory);
-    const sourcePath = resolve(source);
-
-    if (options.dryRun === true) {
-        const prepared = stableSource(sourcePath);
-        const records = readManagedExtensionRecords(directory, registryPath);
-        assertInstallSlot(directory, prepared.loaded.manifest.id, records);
-        return {
-            preview: installPreview(directory, sourcePath, prepared, true),
-        };
-    }
-
-    return withRegistryLock(registryPath, () => {
-        assertSafeExtensionDirectory(directory);
-        const prepared = stableSource(sourcePath);
-        const records = readManagedExtensionRecords(directory, registryPath);
-        const activeRecords = repairMissingRecords(directory, registryPath, records);
-        assertInstallSlot(
-            directory,
-            prepared.loaded.manifest.id,
-            activeRecords,
-        );
-
-        const staging = join(
-            directory,
-            `.staging-${prepared.loaded.manifest.id}-${process.pid}-${randomUUID()}`,
-        );
-        const destination = join(directory, prepared.loaded.manifest.id);
-        let markerWritten = false;
-        let registryWritten = false;
-        let moved = false;
-        let record: ManagedExtensionRecord | undefined;
-        try {
-            mkdirSync(directory, { recursive: true, mode: 0o700 });
-            cpSync(prepared.loaded.directory, staging, {
-                recursive: true,
-                errorOnExist: true,
-                force: false,
-            });
-            const staged = loadExtensionManifest(staging);
-            const stagedDigest = digestExtensionDirectory(staged.directory);
-            const currentSource = stableSource(sourcePath);
-            if (
-                staged.manifest.id !== currentSource.loaded.manifest.id
-                || stagedDigest !== currentSource.digest
-            ) {
-                throw new ExtensionManagerError(
-                    `Extension ${prepared.loaded.manifest.id} changed while it was being staged`,
-                );
-            }
-            record = {
-                id: staged.manifest.id,
-                version: staged.manifest.version,
-                source: { kind: "local", path: sourcePath },
-                digest: stagedDigest,
-                directory: managedExtensionDirectory(staged.manifest.id),
-                enabled: true,
-                installedAt: new Date().toISOString(),
-            };
-            writeManagedMarker(directory, record);
-            markerWritten = true;
-            writeExtensionRegistry(directory, registryPath, {
-                schema_version: EXTENSION_REGISTRY_SCHEMA_VERSION,
-                extensions: [...activeRecords, record],
-            });
-            registryWritten = true;
-            renameSync(staging, destination);
-            moved = true;
-        } catch (error) {
-            if (moved) rmSync(destination, { recursive: true, force: true });
-            if (registryWritten) {
-                try {
-                    writeExtensionRegistry(directory, registryPath, {
-                        schema_version: EXTENSION_REGISTRY_SCHEMA_VERSION,
-                        extensions: activeRecords,
-                    });
-                } catch {
-                }
-            }
-            if (markerWritten) {
-                try {
-                    removeManagedMarker(directory, record!.id);
-                } catch {
-                }
-            }
-            rmSync(staging, { recursive: true, force: true });
-            if (error instanceof ExtensionManagerError) throw error;
-            throw new ExtensionManagerError(
-                `Could not install extension ${prepared.loaded.manifest.id}: ${errorMessage(error)}`,
-            );
-        }
-        const preview = installPreview(
-            directory,
-            sourcePath,
-            {
-                loaded: loadExtensionManifest(destination),
-                digest: record!.digest,
-            },
-            false,
-        );
-        return { preview, record };
-    });
+    const result = installPlugin(source, { home: options.home, dry_run: options.dryRun });
+    const preview = result.preview;
+    return {
+        preview: {
+            id: preview.name,
+            version: preview.version ?? "?",
+            source: preview.source_path,
+            destination: preview.directory,
+            digest: preview.digest,
+            capabilities: preview.components.host_extension?.capabilities ?? [],
+            unreviewedTools: [],
+            dryRun: preview.dry_run,
+            plugin: preview,
+        },
+        ...(result.record === null ? {} : { record: { id: result.record.name } }),
+    };
 }
 
 export function setExtensionEnabled(
@@ -205,6 +119,7 @@ export function setExtensionEnabled(
     enabled: boolean,
     options: ExtensionManagerOptions = {},
 ): ManagedExtensionRecord {
+    rejectPluginToggle(id, enabled, options);
     const directory = extensionDirectoryFor(options);
     const registryPath = extensionRegistryPathFor(options);
     return withRegistryLock(registryPath, () => {
@@ -241,6 +156,7 @@ export function setAnyExtensionEnabled(
     enabled: boolean,
     options: ExtensionManagerOptions = {},
 ): { readonly id: string } {
+    rejectPluginToggle(id, enabled, options);
     const home = veraProfileDirectory(process.env, options.home);
     if (installedExtensionIdsIn(home).includes(id) || !includedExtensionIds().includes(id)) {
         return setExtensionEnabled(id, enabled, options);
@@ -266,7 +182,12 @@ export function setIncludedExtensionEnabled(
 export function removeExtension(
     id: string,
     options: ExtensionManagerOptions = {},
-): ManagedExtensionRecord {
+): ManagedExtensionRecord | { readonly id: string; readonly plugin: string; readonly data_directory: string; readonly legacy_removed?: readonly string[] } {
+    const removal = removePluginForExtension(id, options);
+    if (removal !== undefined) {
+        return { id, plugin: removal.record.name, data_directory: removal.data_directory,
+            ...(removal.legacy_removed === undefined ? {} : { legacy_removed: removal.legacy_removed }) };
+    }
     const directory = extensionDirectoryFor(options);
     const registryPath = extensionRegistryPathFor(options);
     return withRegistryLock(registryPath, () => {
@@ -298,6 +219,29 @@ export function removeExtension(
         }
         rmSync(tombstone, { recursive: true, force: true });
         return record;
+    });
+}
+
+
+export function listIncludedExtensions(options: ExtensionManagerOptions = {}): readonly ExtensionListEntry[] {
+    const home = veraProfileDirectory(process.env, options.home);
+    const config = loadOptionalVeraConfig({ path: join(home, "config.json") });
+    const disabled = new Set(config?.disabled_included_extensions ?? []);
+    return includedExtensions().map((extension) => {
+        try {
+            const manifest = loadExtensionManifest(extension.path).manifest;
+            return {
+                id: manifest.id, version: manifest.version, enabled: !disabled.has(manifest.id),
+                included: true, core: extension.core, managed: false, path: extension.path,
+                source: extension.core ? "Core" : "Included", capabilities: manifest.capabilities,
+            };
+        } catch (error) {
+            return {
+                id: extension.id ?? extension.path, enabled: false, included: true,
+                core: extension.core, managed: false, path: extension.path,
+                source: extension.core ? "Core" : "Included", error: errorMessage(error),
+            };
+        }
     });
 }
 
@@ -374,9 +318,11 @@ export function listExtensions(
 }
 
 export function digestExtensionDirectory(directory: string): string {
-    const hash = createHash("sha256");
-    hashDirectory(hash, directory, "");
-    return `sha256:${hash.digest("hex")}`;
+    return inspectDirectory(
+        directory,
+        unlimitedDirectoryLimits(),
+        extensionError,
+    ).digest;
 }
 
 function writeExtensionRegistry(
@@ -438,96 +384,18 @@ function removeManagedRecord(
     removeManagedMarker(directory, id);
 }
 
-function repairMissingRecords(
-    directory: string,
-    _registryPath: string,
-    records: readonly ManagedExtensionRecord[],
-): readonly ManagedExtensionRecord[] {
-    const active: ManagedExtensionRecord[] = [];
-    for (const record of records) {
-        const path = extensionPath(directory, record);
-        assertManagedPathSafe(path);
-        if (isManagedDirectoryPresent(path)) {
-            active.push(record);
-        } else {
-            removeManagedMarker(directory, record.id);
-        }
-    }
-    return active;
+function pluginOwner(id: string, options: ExtensionManagerOptions) {
+    return listPlugins(options).plugins.map((entry) => entry.record).find((record) =>
+        record.components.host_extension === id || record.components.desktop_extension === id
+    );
 }
 
-function assertInstallSlot(
-    directory: string,
-    id: string,
-    records: readonly ManagedExtensionRecord[],
-): void {
-    const existing = records.find((record) => record.id === id);
-    if (existing !== undefined) {
-        throw new ExtensionManagerError(
-            `Extension ${id} is already installed. To replace it, run /extension remove ${id}, then install again.`,
-        );
+function rejectPluginToggle(id: string, enabled: boolean, options: ExtensionManagerOptions): void {
+    const owner = pluginOwner(id, options);
+    if (owner !== undefined) {
+        const operation = enabled ? "enable" : "disable";
+        throw new ExtensionManagerError(`Extension ${id} belongs to plugin ${owner.name}. Run vera plugin ${operation} ${owner.name}.`);
     }
-    const destination = join(directory, id);
-    try {
-        if (lstatSync(destination).isSymbolicLink()) {
-            throw new ExtensionManagerError(
-                `Extension destination is a symlink: ${destination}`,
-            );
-        }
-        throw new ExtensionManagerError(
-            `Extension destination already exists: ${destination}`,
-        );
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-}
-
-function stableSource(sourcePath: string): PreparedSource {
-    const first = prepareSource(sourcePath);
-    const second = prepareSource(sourcePath);
-    if (first.digest !== second.digest) {
-        throw new ExtensionManagerError(
-            `Extension source changed while it was being inspected: ${sourcePath}`,
-        );
-    }
-    return second;
-}
-
-function prepareSource(sourcePath: string): PreparedSource {
-    try {
-        if (lstatSync(sourcePath).isSymbolicLink()) {
-            throw new ExtensionManagerError(
-                `Extension source directory is a symlink: ${sourcePath}`,
-            );
-        }
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    const loaded = loadExtensionManifest(sourcePath);
-    return { loaded, digest: digestExtensionDirectory(loaded.directory) };
-}
-
-interface PreparedSource {
-    readonly loaded: ReturnType<typeof loadExtensionManifest>;
-    readonly digest: string;
-}
-
-function installPreview(
-    directory: string,
-    sourcePath: string,
-    prepared: PreparedSource,
-    dryRun: boolean,
-): ExtensionInstallPreview {
-    return {
-        id: prepared.loaded.manifest.id,
-        version: prepared.loaded.manifest.version,
-        source: sourcePath,
-        destination: join(directory, prepared.loaded.manifest.id),
-        digest: prepared.digest,
-        capabilities: prepared.loaded.manifest.capabilities,
-        unreviewedTools: prepared.loaded.manifest.unreviewedTools,
-        dryRun,
-    };
 }
 
 function isDirectory(path: string): boolean {
@@ -539,79 +407,14 @@ function isDirectory(path: string): boolean {
 }
 
 function withRegistryLock<T>(registryPath: string, action: () => T): T {
-    const lockPath = `${registryPath}.lock`;
-    mkdirSync(dirname(registryPath), { recursive: true, mode: 0o700 });
-    let descriptor: number;
-    while (true) {
-        try {
-            descriptor = openSync(lockPath, "wx", 0o600);
-            break;
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-            if (!reclaimDeadLock(lockPath)) {
-                throw new ExtensionManagerError(
-                    `Another extension operation is using ${dirname(registryPath)}`,
-                );
-            }
-        }
-    }
-    try {
-        const owner = Buffer.from(`${JSON.stringify({ pid: process.pid })}\n`);
-        writeSync(descriptor, owner, 0, owner.byteLength, 0);
-        return action();
-    } finally {
-        closeSync(descriptor);
-        rmSync(lockPath, { force: true });
-    }
+    return withFileLock(
+        `${registryPath}.lock`,
+        action,
+        extensionError,
+        `Another extension operation is using ${dirname(registryPath)}`,
+    );
 }
 
-function reclaimDeadLock(path: string): boolean {
-    let value: unknown;
-    try {
-        value = JSON.parse(readFileSync(path, "utf8"));
-    } catch {
-        return false;
-    }
-    if (!isRecord(value) || typeof value.pid !== "number" || !Number.isInteger(value.pid)) {
-        return false;
-    }
-    try {
-        process.kill(value.pid, 0);
-        return false;
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") return false;
-    }
-    rmSync(path, { force: true });
-    return true;
-}
-
-function hashDirectory(
-    hash: ReturnType<typeof createHash>,
-    directory: string,
-    relativeDirectory: string,
-): void {
-    const entries = readdirSync(directory, { withFileTypes: true })
-        .toSorted((left, right) => left.name.localeCompare(right.name));
-    for (const entry of entries) {
-        const relativePath = relativeDirectory === ""
-            ? entry.name
-            : join(relativeDirectory, entry.name);
-        const path = join(directory, entry.name);
-        if (entry.isDirectory()) {
-            hash.update(`dir:${relativePath}\n`);
-            hashDirectory(hash, path, relativePath);
-        } else if (entry.isFile()) {
-            hash.update(`file:${relativePath}\n`);
-            hash.update(readFileSync(path));
-            hash.update("\n");
-        } else if (entry.isSymbolicLink()) {
-            throw new ExtensionManagerError(
-                `Symlinks are not supported in extension sources: ${path}`,
-            );
-        } else {
-            throw new ExtensionManagerError(
-                `Unsupported file in extension source: ${path}`,
-            );
-        }
-    }
+function extensionError(message: string): Error {
+    return new ExtensionManagerError(message);
 }

@@ -12,7 +12,7 @@ your editor.
 ## Browse a source
 
 1. Run `/customize`.
-2. Choose Agents, Skills, Instructions, Memory, or Extensions.
+2. Choose Agents, Skills, Instructions, Memory, Plugins, or Extensions.
 3. Type to search names, descriptions, scopes, and paths.
 4. Press Enter on a result to preview its saved contents.
 
@@ -21,9 +21,14 @@ shows where a source comes from and whether it belongs to the project or home.
 A skill turned off by `disabled_skills` stays in the Skills list, marked
 disabled. See [Turn a skill off](skills.md#turn-a-skill-off).
 
-Extensions lists the ones you installed or added to `config.json`. The
+Extensions lists the extension folders you added to `config.json`. The
 extensions included with Vera are not listed; manage them with `/extensions`.
 Their skills and agents still appear under Skills and Agents.
+
+Plugins lists each installed plugin with a summary of its parts and whether it
+is on or off. Its skills appear under Skills and its agents under Agents, with
+the scope naming the plugin, such as `plugin sea-chest`. Plugin items are
+read-only here. See [Plugins](plugins.md).
 
 A Markdown file opens rendered. Press `s` to see its source.
 
@@ -40,8 +45,8 @@ once, so Vera reloads before you have made any changes. Add its wait flag,
 as in `EDITOR="code --wait"`, and it returns only when you close the file's
 tab.
 
-Bundled skills and extension-provided definitions are read-only here. Close
-and reopen Customize to refresh all catalogs after changes.
+Bundled skills, plugin items and extension-provided definitions are read-only
+here. Close and reopen Customize to refresh all catalogs after changes.
 
 ### If an edit is invalid
 

@@ -3,11 +3,13 @@ import {
     loadSkillCatalog,
     type SkillCatalog,
 } from "./catalog.ts";
+import type { PluginCatalog } from "../plugins/catalog.ts";
 
 export interface SkillCommandDescriptor {
     readonly name: string;
     readonly description: string;
     readonly disableModelInvocation: boolean;
+    readonly plugin?: string;
 }
 
 export interface SkillCommandCatalog {
@@ -31,11 +33,13 @@ export type SkillInvocationDecision =
 export async function loadSkillCommandCatalog(options: {
     readonly projectRoot?: string;
     readonly allowedSkills?: readonly string[];
+    readonly pluginCatalog?: PluginCatalog;
 }): Promise<SkillCommandCatalog> {
     const catalog = filterAllowedSkills(
-        await loadSkillCatalog(options.projectRoot === undefined
-            ? {}
-            : { projectRoot: options.projectRoot }),
+        await loadSkillCatalog({
+            ...(options.projectRoot === undefined ? {} : { projectRoot: options.projectRoot }),
+            ...(options.pluginCatalog === undefined ? {} : { pluginCatalog: options.pluginCatalog }),
+        }),
         options.allowedSkills,
     );
     return {
@@ -43,8 +47,9 @@ export async function loadSkillCommandCatalog(options: {
             name: skill.metadata.name,
             description: skill.metadata.description,
             disableModelInvocation: skill.metadata.disableModelInvocation,
+            ...(skill.plugin === undefined ? {} : { plugin: skill.plugin }),
         })),
-        warnings: catalog.warnings,
+        warnings: [...catalog.warnings, ...catalog.pluginWarnings],
     };
 }
 
