@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { createRequire } from "node:module";
 import { join } from "node:path";
 
+import { markDesktopExtensionStoreMigrated } from "./extension-fixtures.mjs";
 import { configureFauxHome, streamChunk } from "./faux-home.mjs";
 import { COUNT_PROCESSES, MODIFIER, press, startTrial } from "./trial.mjs";
 
@@ -47,6 +48,7 @@ function write(path, value) {
 }
 
 function prepare() {
+    markDesktopExtensionStoreMigrated(trial.home);
     // A disabled entry for the included importer is ignored, so every check below runs with one in the state file.
     write(join(desktopFolder, "extensions.json"), { version: 1, disabled: [IMPORTER] });
     write(join(files, "pirate-crow.json"), PIRATE_CROW);
@@ -189,6 +191,7 @@ async function builtinJourney() {
     try {
         await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
         configureFauxHome(builtinTrial.home, provider.address().port, "auto");
+        markDesktopExtensionStoreMigrated(builtinTrial.home);
         const extension = join(builtinTrial.home, "machine", "desktop", "extensions", "crow");
         write(join(extension, "vera.desktop.json"), {
             id: "crow",

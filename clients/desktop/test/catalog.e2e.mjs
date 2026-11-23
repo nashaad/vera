@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { createServer } from "node:http";
 import { join } from "node:path";
 
+import { markDesktopExtensionStoreMigrated } from "./extension-fixtures.mjs";
 import { startTrial } from "./trial.mjs";
 
 const trial = startTrial();
@@ -147,6 +148,7 @@ function filesMentioning(folder, text) {
 const seconds = (started) => (Date.now() - started) / 1000;
 
 try {
+    markDesktopExtensionStoreMigrated(trial.home);
     const appFolder = join(trial.trialRoot, "app");
     const bun = process.env.VERA_DESKTOP_BUN || "bun";
     const built = Date.now();
