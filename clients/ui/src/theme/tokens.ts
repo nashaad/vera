@@ -67,6 +67,7 @@ export const VALUE_TOKENS = [
     "row-height",
     "motion",
     "motion-slow",
+    "motion-long",
     "motion-loop",
 ] as const;
 

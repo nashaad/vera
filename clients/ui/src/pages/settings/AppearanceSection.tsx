@@ -67,7 +67,7 @@ export function AppearanceSection() {
                 })}
             </div>
             <ExtensionRows />
-            <SettingRow name="Text size" description="Scales the text of the interface in this window.">
+            <SettingRow id="appearance.text-size" name="Text size" description="Scales the text of the interface in this window.">
                 <Segmented
                     label="Text size"
                     options={SCALES}
@@ -76,7 +76,7 @@ export function AppearanceSection() {
                     onChange={(textSize) => save({ ...appearance, textSize })}
                 />
             </SettingRow>
-            <SettingRow name="Code size" description="Scales code, diffs and code blocks.">
+            <SettingRow id="appearance.code-size" name="Code size" description="Scales code, diffs and code blocks.">
                 <Segmented
                     label="Code size"
                     options={SCALES}
@@ -85,7 +85,7 @@ export function AppearanceSection() {
                     onChange={(codeSize) => save({ ...appearance, codeSize })}
                 />
             </SettingRow>
-            <SettingRow name="Density" description="The space between rows and controls.">
+            <SettingRow id="appearance.density" name="Density" description="The space between rows and controls.">
                 <Segmented
                     label="Density"
                     options={DENSITIES}
@@ -94,7 +94,7 @@ export function AppearanceSection() {
                     onChange={(density) => save({ ...appearance, density })}
                 />
             </SettingRow>
-            <SettingRow name="Reduce motion" description="Turns off animated transitions in this window.">
+            <SettingRow id="appearance.reduce-motion" name="Reduce motion" description="Turns off animated transitions in this window.">
                 <button
                     type="button"
                     role="switch"
@@ -106,7 +106,7 @@ export function AppearanceSection() {
                     <span className="appearance-switch-knob" />
                 </button>
             </SettingRow>
-            <SettingRow name="Past approvals" description="Keeps each approval's full card in the transcript after you answer it.">
+            <SettingRow id="appearance.past-approvals" name="Past approvals" description="Keeps each approval's full card in the transcript after you answer it.">
                 <button
                     type="button"
                     role="switch"

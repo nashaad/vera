@@ -144,7 +144,7 @@ interface Catalog {
 
 // The install task and the catalog task each run on a cloned task with no state, over a store in a scratch home.
 function catalogOver(address: string | undefined, home = scratchDirectory()): Catalog {
-    const store = new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)));
+    const store = new ExtensionStore(home, new ExtensionStateStore(extensionStatePath(home)));
     const themes = new ThemeService(store, themesDirectory(home));
     const extensions = new ExtensionService(store, themes, async (task) => {
         const parsed = parseInstallTask(structuredClone(task));

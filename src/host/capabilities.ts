@@ -30,6 +30,7 @@ export const HOST_CAPABILITY_RESTART_RECORDS = "host.restart-records.v1";
 export const HOST_CAPABILITY_SESSION_MOVE = "session.move.v1";
 export const HOST_CAPABILITY_SESSION_SHOW_WINDOW = "session.show-window.v1";
 export const HOST_CAPABILITY_SESSION_SHOW_TERMINAL = "session.show-terminal.v1";
+export const HOST_CAPABILITY_STORAGE = "storage.manage.v1";
 
 export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
@@ -56,6 +57,7 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_SESSION_MOVE,
     HOST_CAPABILITY_SESSION_SHOW_WINDOW,
     HOST_CAPABILITY_SESSION_SHOW_TERMINAL,
+    HOST_CAPABILITY_STORAGE,
 ] as const;
 
 /**

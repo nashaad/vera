@@ -8,11 +8,19 @@ import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import type { PooledModel } from "../../src/model/catalog-view.ts";
 import { availableReasoningEfforts } from "../../src/engine/model-settings.ts";
+import { refreshDeepSeekCatalog } from "../../src/model/deepseek-catalog.ts";
 import { inferReasoningSelection } from "../../src/model/reasoning-effort.ts";
+import {
+    emptyUsage,
+    type AssistantMessage,
+    type ModelAdapter,
+    type ModelRequest,
+} from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 const GLM = "z-ai/glm-5.2";
 const KIMI = "moonshotai/kimi-k3";
+const FLASH = "deepseek-flash";
 
 function pooled(model: string, label: string, levelIds: readonly string[]): PooledModel {
     return {
@@ -27,6 +35,47 @@ function pooled(model: string, label: string, levelIds: readonly string[]): Pool
 
 function pooledGlm(levelIds: readonly string[]): PooledModel {
     return pooled(GLM, "GLM 5.2", levelIds);
+}
+
+function pooledFlash(): PooledModel {
+    return {
+        provider: "deepseek",
+        model: FLASH,
+        label: "DeepSeek V4.1 Flash 1017",
+        available: true,
+        verified: true,
+        defaultLevel: "high",
+        levels: ["max", "high", "off"].map((id) => ({ id, label: id })),
+    };
+}
+
+function answer(text: string): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+}
+
+function recordingAdapter(
+    responses: readonly AssistantMessage[],
+    requests: ModelRequest[],
+): ModelAdapter {
+    const faux = new FauxAdapter(responses);
+    return {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+}
+
+async function finishTurn(attachment: AgentAttachment): Promise<void> {
+    while ((await attachment.receive()).type !== "turn_finished") {
+        // A client consumes the ordered update stream until the turn boundary.
+    }
 }
 
 /**
@@ -222,6 +271,95 @@ test("a published level publishes no requested level", async () => {
     }
 });
 
+test("@core a new session on a Flash-shaped model starts on the model's default level", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-effort-flash-"));
+    const cacheDir = await mkdtemp(join(tmpdir(), "vera-effort-flash-cache-"));
+    refreshDeepSeekCatalog({ cacheDir });
+    const requests: ModelRequest[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => recordingAdapter([answer("done")], requests),
+        provider: "deepseek",
+        model: FLASH,
+        // The saved default names a level this model does not offer.
+        reasoningEffort: "low",
+        approvalMode: "auto",
+        cacheDir,
+        readPool: () => [pooledFlash()],
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        const attachment = agent.attach();
+        attachment.send({ type: "prompt", content: "hello" });
+        await finishTurn(attachment);
+        expect(requests[0]?.reasoningEffort).toBe("high");
+
+        attachment.send({ type: "get_model_settings", requestId: "settings" });
+        const served = await receiveModelSettings(attachment);
+        expect(served.settings.availableReasoningEfforts).toEqual(["max", "high", "off"]);
+        expect(served.settings.reasoningEffort).toBe("high");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+        await rm(cacheDir, { recursive: true, force: true });
+    }
+});
+
+test("a saved default the model offers is kept at session start", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-effort-kept-"));
+    const cacheDir = await mkdtemp(join(tmpdir(), "vera-effort-kept-cache-"));
+    await writeFile(
+        join(cacheDir, "openrouter.json"),
+        JSON.stringify({
+            schema_version: 2,
+            provider: "openrouter",
+            models: [{
+                id: GLM,
+                label: "GLM 5.2",
+                default_level: "high",
+                levels: [
+                    { id: "max", label: "Max" },
+                    { id: "high", label: "High" },
+                    { id: "medium", label: "Medium" },
+                    { id: "low", label: "Low" },
+                ],
+            }],
+        }),
+    );
+    const requests: ModelRequest[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => recordingAdapter([answer("done")], requests),
+        provider: "openrouter",
+        model: GLM,
+        reasoningEffort: "low",
+        approvalMode: "auto",
+        cacheDir,
+        readPool: () => [pooledGlm(["max", "high", "medium", "low"])],
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        const attachment = agent.attach();
+        attachment.send({ type: "get_model_settings", requestId: "settings" });
+        const served = await receiveModelSettings(attachment);
+        expect(served.settings.reasoningEffort).toBe("low");
+
+        attachment.send({ type: "prompt", content: "hello" });
+        await finishTurn(attachment);
+        expect(requests[0]?.reasoningEffort).toBe("low");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+        await rm(cacheDir, { recursive: true, force: true });
+    }
+});
+
 async function receiveModelSettings(
     attachment: AgentAttachment,
 ): Promise<ModelSettingsUpdate> {
@@ -308,11 +446,12 @@ test("a level the project pool refuses is neither served nor accepted", async ()
 });
 
 /**
- * The looser case cuts the other way too. A stored level the catalog never
- * published is served as it always was, unless admission is on record refusing
- * it, in which case serving it would name an effort the next turn cannot send.
+ * The looser case cuts the other way too: a stored level the catalog never
+ * published is served as it always was, unless admission refuses it. A new
+ * session starts on an offered level in that case, so the footer cannot name
+ * an effort the next turn refuses.
  */
-test("a refused level is not served even when it was never published", async () => {
+test("a refused level is not served at session start", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-effort-unpublished-"));
     const cacheDir = await mkdtemp(join(tmpdir(), "vera-effort-unpub-cache-"));
     await mkdir(join(root, ".vera"), { recursive: true });
@@ -368,7 +507,7 @@ test("a refused level is not served even when it was never published", async () 
         const served = await receiveModelSettings(attachment);
         expect(served.settings.availableReasoningEfforts)
             .toEqual(["high", "medium"]);
-        expect(served.settings.reasoningEffort).toBeUndefined();
+        expect(served.settings.reasoningEffort).toBe("high");
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

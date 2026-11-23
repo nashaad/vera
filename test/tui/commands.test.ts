@@ -68,6 +68,7 @@ test("every slash action has an explicit pane scope", () => {
                 dryRun: true,
             },
         },
+        { type: "manage_plugins", command: { operation: "list" } },
         { type: "show_doctor" },
         { type: "open_usage" },
         { type: "run_update" },
@@ -120,6 +121,7 @@ test("every slash action has an explicit pane scope", () => {
             ["show_diagnostics", "application"],
             ["show_extensions", "application"],
             ["manage_extensions", "application"],
+            ["manage_plugins", "application"],
             ["show_doctor", "application"],
             ["open_usage", "application"],
             ["run_update", "application"],
@@ -309,6 +311,37 @@ test("extension manager slash commands are application-owned actions", () => {
     expect(registry.dispatch("/extension reload")).toEqual({
         type: "manage_extensions",
         command: { operation: "reload" },
+    });
+});
+
+test("plugin manager slash commands are application-owned actions", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.dispatch("/plugin list")).toEqual({
+        type: "manage_plugins",
+        command: { operation: "list" },
+    });
+    expect(registry.dispatch(
+        `/plugin install "/tmp/My Plugin" --dry-run`,
+    )).toEqual({
+        type: "manage_plugins",
+        command: {
+            operation: "install",
+            source: "/tmp/My Plugin",
+            dry_run: true,
+        },
+    });
+    expect(registry.dispatch("/plugin show sample")).toEqual({
+        type: "manage_plugins",
+        command: { operation: "show", name: "sample" },
+    });
+    expect(registry.dispatch("/plugin disable sample")).toEqual({
+        type: "manage_plugins",
+        command: { operation: "disable", name: "sample" },
+    });
+    expect(registry.dispatch("/plugin remove sample --purge")).toEqual({
+        type: "manage_plugins",
+        command: { operation: "remove", name: "sample", purge: true },
     });
 });
 

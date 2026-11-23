@@ -87,8 +87,9 @@ On the desktop's New Chat page the composer bar has an agent pill beside the
 approval pill. It shows the agent the new session starts on, which is `default`
 until you pick another. Click it, or type `/agent` with no name, to open Choose
 Agent. It lists the agents a session started there would offer: the included
-ones, your own, and, when a folder is picked, that folder's project agents. With
-no folder picked it lists what a chat offers, which has no project agents.
+ones, agents from enabled plugins, your own, and, when a folder is picked, that
+folder's project agents. With no folder picked it lists what a chat offers,
+which has no project agents.
 `/agent crow` picks the agent `crow` directly, and says `No agent named crow`
 when the list does not offer it. The host reads the list without starting a
 session.
@@ -212,6 +213,16 @@ with ask permissions keeps the message until you return to it.
 
 Use `/create-agent` to describe a recurring job and review a proposed
 definition before saving it. See [Create an agent definition](skills.md#create-an-agent-definition).
+
+### Plugin agents
+
+An enabled plugin can bring agent definitions, from its `agents/` directory or
+the `dev.vera/agents/` directory named in its `plugin.json`. Plugin agents load
+after the included ones and before your own. They are read-only: their files
+cannot be edited from Vera or given a different default model. When a user or
+project agent has the same name, that agent wins and Vera reports a notice
+naming the plugin whose definition it replaced. Install and switch plugins
+with [Plugins](plugins.md).
 
 ### Definition reference
 

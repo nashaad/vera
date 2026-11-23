@@ -488,6 +488,11 @@ test("@core repeated reasoning cutoffs step down until no lower effort remains",
             messages: [],
         },
         {
+            // The first attempt spends 15 fake minutes, past the default budget.
+            policy: {
+                delaysMs: [1_000, 2_000, 4_000, 8_000, 15_000, 30_000],
+                budgetMs: 60_000_000,
+            },
             onEvent: () => {},
             onRetry: (retry) => retries.push(retry),
             onFallback: () => {},

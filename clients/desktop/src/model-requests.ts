@@ -68,6 +68,26 @@ export async function forgetProvider(
     });
 }
 
+export async function setProviderEnabled(
+    socketPath: string | undefined,
+    provider: string,
+    enabled: boolean,
+    workspace: string | undefined,
+): Promise<HostModelsResult> {
+    if (socketPath === undefined) return NOT_RUNNING;
+    return withHost(socketPath, "The host could not change that provider.", async (connection): Promise<HostModelsResult> => {
+        await connection.send({ type: "provider_set_enabled", provider, enabled, ...workspaceField(workspace) });
+        const reply = record(await connection.receiveWithin(REFRESH_TIMEOUT_MS, "The host did not answer in time."));
+        if (reply?.type !== "model_operation_complete") return { ok: false, reason: "This host cannot change providers." };
+        if (typeof reply.error === "string") return { ok: false, reason: reply.error };
+        return {
+            ok: true,
+            settings: reply.settings ?? null,
+            ...(typeof reply.warning === "string" ? { warning: reply.warning } : {}),
+        };
+    });
+}
+
 export async function operateModel(
     socketPath: string | undefined,
     operation: ModelOperationKind,

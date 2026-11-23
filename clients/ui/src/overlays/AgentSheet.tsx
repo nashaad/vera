@@ -16,6 +16,7 @@ const SCOPE_LABELS: Readonly<Record<AgentInfo["scope"], string>> = {
     project: "This folder",
     user: "Your home",
     extension: "Extension",
+    plugin: "Plugin",
 };
 
 export function AgentSheet({ onClose }: AgentSheetProps) {

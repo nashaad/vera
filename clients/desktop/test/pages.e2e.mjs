@@ -4,11 +4,13 @@
 // Devices describes this machine, Plugins lists what the folder loads,
 // and the command palette and shortcuts sheet open from their keys.
 
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
+import { setSidebarGrouping } from "./sidebar.mjs";
 import { startTrial } from "./trial.mjs";
 
 const RARE = "Quillfeather";
@@ -98,6 +100,19 @@ try {
     // A project rule gives the Instructions kind a row whose meta line is its path.
     mkdirSync(join(folder, ".vera", "rules"), { recursive: true });
     writeFileSync(join(folder, ".vera", "rules", "cli.md"), "Help is --help.\n");
+    const pluginSource = join(trial.trialRoot, "plugin-source");
+    mkdirSync(join(pluginSource, "skills", "sail"), { recursive: true });
+    mkdirSync(join(pluginSource, "dev.vera", "agents"), { recursive: true });
+    writeFileSync(join(pluginSource, "plugin.json"), JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        name: "crow-pack",
+        version: "1.0.0",
+    }));
+    writeFileSync(join(pluginSource, "skills", "sail", "SKILL.md"), "---\nname: sail\ndescription: Sail the reef\n---\nSail.\n");
+    writeFileSync(join(pluginSource, "dev.vera", "agents", "captain.md"), "---\ndescription: Navigate\n---\nNavigate.\n");
+    execFileSync("bun", ["-e", 'import { installPlugin } from "./src/plugins/manager.ts"; installPlugin(process.argv[1]);', pluginSource], {
+        env: { ...process.env, VERA_HOME: trial.home },
+    });
 
     const app = await trial.launch();
     await app.evaluate(({ dialog }, path) => {
@@ -106,6 +121,7 @@ try {
 
     page = await app.firstWindow();
     await page.waitForSelector(".app[data-sessions=\"0\"]", { timeout: 45_000 });
+    await setSidebarGrouping(page, "folder");
     await trial.waitForHost();
 
     await page.getByRole("button", { name: /No folder/ }).click();
@@ -161,7 +177,7 @@ try {
     if (sections.join(",") !== "folder,home,builtin") throw new Error(`Plugins stacks the sections ${sections.join(", ")}`);
     const sectionCounts = async () => Object.fromEntries(await page.locator("[data-plugin-section-count]").evaluateAll((counts) => counts.map((count) => [count.getAttribute("data-plugin-section-count"), count.textContent.trim()])));
     let counts = await sectionCounts();
-    if (counts.folder !== "8" || counts.home !== "7" || counts.builtin !== "2") {
+    if (counts.folder !== "8" || counts.home !== "7" || counts.builtin !== "3") {
         throw new Error(`Plugins counts ${JSON.stringify(counts)}`);
     }
     const folderSection = page.locator(".plugin-section[data-section=\"folder\"]");
@@ -191,6 +207,15 @@ try {
         throw new Error("The Built in chevron does not say it is open.");
     }
     if (await rowCount(folderSection) !== 6) throw new Error("Opening Built in changed In this folder.");
+    await builtinSection.locator('.plugin-row[data-name="sail"] .plugin-row-main').click();
+    const pluginSkillSheet = page.locator('[data-overlay="plugin-detail"]');
+    await pluginSkillSheet.locator("[data-plugin-menu]").click();
+    if (await page.getByRole("menuitem", { name: "Open in editor" }).getAttribute("aria-disabled") !== "true") {
+        throw new Error("A plugin skill can be opened for editing.");
+    }
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await pluginSkillSheet.waitFor({ state: "detached", timeout: 5_000 });
 
     const folderSeeMore = folderSection.locator("[data-plugin-see-more=\"folder\"]");
     const folderMore = (await folderSeeMore.innerText()).trim();
@@ -218,6 +243,10 @@ try {
     }
     if (await page.locator(".plugin-section").count() !== 0) throw new Error("A section stayed while nothing matched.");
     await search.fill("");
+
+    await page.locator('.plugins-kinds button[data-kind="plugins"]').click();
+    await page.locator('[data-plugin-section-toggle="builtin"]').click();
+    await page.locator('.plugin-row[data-kind="plugins"][data-name="crow-pack"] svg').first().waitFor({ timeout: 10_000 });
 
     // Instructions show the file's name, and the path is the meta line.
     await page.locator(".plugins-kinds button[data-kind=\"instructions\"]").click();

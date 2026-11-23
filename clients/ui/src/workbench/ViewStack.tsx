@@ -5,7 +5,7 @@ import { LAYOUT_COMMANDS } from "../commands/layout-commands.ts";
 import { ChevronRightIcon, MoreIcon } from "../components/Icons.tsx";
 import type { ResolvedContainer, ResolvedView } from "../layout/resolve.ts";
 import { GENERIC_PAGE_KIND } from "../pagepane/kinds.ts";
-import { renderView } from "../views/registry.tsx";
+import { renderView, renderViewHeaderAction } from "../views/registry.tsx";
 import { useWorkbench } from "./context.tsx";
 import { useDrag, useDropTarget } from "./drag.tsx";
 
@@ -81,6 +81,7 @@ function ViewPane({ container, view, active, merged }: ViewPaneProps) {
                         <ChevronRightIcon className="view-chevron" />
                     </button>
                 )}
+                {renderViewHeaderAction(view.id)}
                 <button
                     type="button"
                     className="icon-button view-actions"

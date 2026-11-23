@@ -90,7 +90,7 @@ export function ProvidersSection() {
                 />
             ) : null}
             <h2 className="settings-sec">Fallback</h2>
-            <SettingRow name="Fall back after failures" description="Not available in this window." />
+            <SettingRow id="providers.fallback" name="Fall back after failures" description="Not available in this window." />
             {wizard !== undefined ? (
                 <ProviderWizard
                     onClose={closeWizard}

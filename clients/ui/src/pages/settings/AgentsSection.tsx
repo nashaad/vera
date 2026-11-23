@@ -63,6 +63,7 @@ export function AgentsSection() {
         <>
             <h1>Agents</h1>
             <SettingRow
+                id="agents.notes-offer"
                 name="Suggest keeping notes"
                 description="New sessions offer once to keep notes when a conversation produces something worth keeping. Sessions already started are not changed."
             >

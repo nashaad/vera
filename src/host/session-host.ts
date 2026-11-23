@@ -22,6 +22,7 @@ import {
 import { defaultEventLogPath, eventLogRoot } from "../engine/events.ts";
 import { createReviewLogger, defaultReviewLogPath } from "../engine/review-log.ts";
 import { workerExtensionConfigs } from "../extensions/host-set.ts";
+import { readPluginSnapshot, workerPluginSnapshot } from "../plugins/catalog.ts";
 import { createExtensionConfigWatch } from "./extension-config-watch.ts";
 import { adapterCacheFingerprint } from "../providers/routing.ts";
 import { ModelFailureLedger } from "../store/model-failures.ts";
@@ -61,12 +62,19 @@ import type { ExtensionSessionServices, SessionHost, StartSessionHostOptions } f
 
 export type { SessionHost, StartSessionHostOptions } from "./session-host/types.ts";
 
-export async function startSessionHost(options: StartSessionHostOptions): Promise<SessionHost> {
+export interface StartedSessionHost extends SessionHost {
+    readonly startupConfig: VeraConfig;
+    readonly currentConfig: () => VeraConfig;
+}
+
+export async function startSessionHost(options: StartSessionHostOptions): Promise<StartedSessionHost> {
     const {
         home, configPath, cacheDirectory, sessionDirectory, sessionIdentityReservationRoot,
-        blockedDirectory, modelFailureLedgerPath, authStorage, currentConfig, currentReachability,
+        blockedDirectory, modelFailureLedgerPath, authStorage, currentReachability,
         hostLog, startupFindings, timed, eventLogDirectory,
     } = options;
+    let applyHostPaths = (config: VeraConfig): VeraConfig => config;
+    const currentConfig = () => applyHostPaths(options.currentConfig());
     const logDirectory = eventLogRoot(home);
     const reviewLog = createReviewLogger({ path: defaultReviewLogPath(home) });
     const storedPreferences = options.workerGlobals?.permissionPreferences
@@ -87,12 +95,65 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
             return removed;
         },
     };
-    const { extensions, sessionIdentity, extensionLoadFailures } = await startSessionExtensions(options);
+    let startupConfig = options.config;
+    if (options.sessionWorker !== true) {
+        try {
+            const { createMigratedHostPathMapper, hasLegacyExtensionStores } = await import("../plugins/migrate-startup.ts");
+            if (hasLegacyExtensionStores(home)) {
+                const { migratePluginsIn } = await import("../plugins/migrate.ts");
+                const { report, host_paths } = migratePluginsIn(home);
+                for (const failure of report.failures) {
+                    options.startupLog({
+                        type: "host_startup_plugin_migration", outcome: "failed",
+                        message: `Plugin migration: ${failure}`,
+                    });
+                }
+                if (report.migrated.length > 0 || report.rollback.length > 0) {
+                    options.startupLog({
+                        type: "host_startup_plugin_migration",
+                        outcome: report.failures.length === 0 ? "completed" : "partial",
+                        message: `Plugin migration copied ${report.migrated.length} package(s); ${report.failures.length} problem(s).`,
+                    });
+                }
+                if (host_paths.length > 0) {
+                    applyHostPaths = createMigratedHostPathMapper(host_paths);
+                    let current = applyHostPaths(options.config);
+                    try { current = currentConfig(); } catch (error) {
+                        options.startupLog({
+                            type: "host_startup_plugin_migration", outcome: "failed",
+                            message: `Plugin migration could not refresh config: ${error instanceof Error ? error.message : String(error)}`,
+                        });
+                    }
+                    startupConfig = current;
+                }
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const skipped = message.startsWith("Another operation is using ");
+            options.startupLog({
+                type: "host_startup_plugin_migration", outcome: skipped ? "skipped" : "failed",
+                message: `Plugin migration ${skipped ? "skipped" : "failed"}: ${message}`,
+            });
+        }
+    }
+    // A session worker is handed its extension configs; only the host process reads the plugin registry.
+    const pluginSnapshot = options.sessionWorker === true
+        ? workerPluginSnapshot(home, options.pluginWorkerExtensions)
+        : readPluginSnapshot({ veraHome: home });
+    for (const warning of pluginSnapshot.warnings) {
+        hostLog({ type: "host_startup_plugin_warning", message: warning });
+    }
+    const { extensions, sessionIdentity, extensionLoadFailures, pluginWorkerExtensions } = await startSessionExtensions({
+        ...options,
+        config: startupConfig,
+        pluginSnapshot,
+    });
     const extensionConfigWatch = options.sessionWorker === true || options.poolHost !== true
         ? createExtensionConfigWatch({
             configPath,
-            config: options.config,
+            config: startupConfig,
             currentConfig,
+            pluginSnapshot,
         })
         : undefined;
     const hasModelRequestHooks = extensions.modelRequestHooks().length > 0;
@@ -270,8 +331,8 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
             store: new TrustNoticeStore(defaultTrustNoticePath(home)),
         },
         workerExtensions: () => options.poolHost === true
-            ? withoutHostExtensions(workerExtensionConfigs(currentConfig()))
-            : workerExtensionConfigs(currentConfig()),
+            ? withoutHostExtensions(workerExtensionConfigs(currentConfig(), pluginSnapshot))
+            : workerExtensionConfigs(currentConfig(), pluginSnapshot),
         registeredAgents: extensions.agents(),
         sessionIdentity,
         reserveSessionIdentity: (sessionId, key) =>
@@ -349,7 +410,8 @@ export async function startSessionHost(options: StartSessionHostOptions): Promis
         }
     };
     return {
-        registry, extensions, handlers, createAdapter, localExtensionSessions, inboxDelivery: services.inboxDelivery,
+        registry, extensions, pluginWorkerExtensions, handlers, createAdapter, localExtensionSessions,
+        startupConfig, currentConfig, inboxDelivery: services.inboxDelivery,
         ...(processObservations === undefined ? {} : { processObservations, observationExecutorId }),
         setExtensionSessions(services) {
             extensionSessions = services;

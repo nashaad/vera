@@ -4,6 +4,9 @@ import {
     workerAdapterWithMiddleware,
 } from "../../src/host/worker/middleware.ts";
 import { startWorkerExtensions } from "../../src/host/worker/extensions.ts";
+import { hostExtensionConfigs } from "../../src/extensions/host-set.ts";
+import { canonicalExtensionPath, withoutPluginExtensionPaths } from "../../src/extensions/plugin-paths.ts";
+import { readPluginExtensionSnapshot } from "../../src/extensions/plugin-parts.ts";
 import { veraProfileDirectory } from "../../src/profile-paths.ts";
 import {
     defaultRunAdapterFactory,
@@ -23,7 +26,15 @@ export interface PrintExtensions {
 export async function startPrintExtensions(): Promise<PrintExtensions> {
     const home = veraProfileDirectory();
     const config = homeConfig(home);
-    const started = await startWorkerExtensions(config.extensions, home);
+    const configured = config.extensions ?? [];
+    const regular = withoutPluginExtensionPaths(configured, home);
+    const regularEntries = new Set(regular);
+    const paths = new Set(configured.filter((entry) => !regularEntries.has(entry))
+        .map((entry) => canonicalExtensionPath(entry.path)));
+    const plugins = paths.size === 0 ? [] : hostExtensionConfigs(config, readPluginExtensionSnapshot(home))
+        .filter((entry) => paths.has(canonicalExtensionPath(entry.path)));
+    const extensions = [...regular, ...plugins];
+    const started = await startWorkerExtensions(extensions, home);
     const failure = started.startFailure === undefined
         ? started.activationFailure
         : started.startFailure.message.trim() || "Print run stopped unexpectedly";

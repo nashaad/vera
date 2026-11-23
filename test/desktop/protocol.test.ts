@@ -62,6 +62,25 @@ test("@core list_agents serializes overlapping pages and carries each cursor", a
     await second;
 });
 
+test("a lost list reply releases queued requests and overlapping polls are dropped", async () => {
+    const { client, frames } = connected();
+    const first = client.listAgents({ limit: 50 });
+    const firstFailure = first.catch((error: unknown) => error);
+    const second = client.listAgents({ limit: 100, cursor: "crow-100" });
+    expect(client.pollAgents()).toBeUndefined();
+    expect(frames).toHaveLength(1);
+    expect(await firstFailure).toBeInstanceOf(Error);
+    expect((await firstFailure as Error).message).toContain("did not answer agent_list in time");
+    await Bun.sleep(0);
+    expect(frames.map((frame) => JSON.parse(frame))).toEqual([
+        { type: "list_agents", limit: 50 },
+        { type: "list_agents", limit: 100, cursor: "crow-100" },
+    ]);
+    expect(client.pollAgents()).toBeUndefined();
+    client.feed("{\"type\":\"agent_list\",\"agents\":[]}\n");
+    expect((await second).agents).toEqual([]);
+}, 7_000);
+
 test("@core the page request carries its size and order, and the count comes from total", async () => {
     const { client, frames } = connected();
     const page = client.listAgents({ limit: 25, order: "recent" });

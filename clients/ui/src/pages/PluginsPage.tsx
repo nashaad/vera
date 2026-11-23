@@ -43,7 +43,7 @@ type FailureState =
 
 type PluginsMode = "yours" | "discover";
 
-const KIND_TABS: readonly CustomizeKind[] = ["skills", "agents", "extensions", "instructions", "memory"];
+const KIND_TABS: readonly CustomizeKind[] = ["skills", "agents", "extensions", "instructions", "memory", "plugins"];
 const FIRST_ROWS = 6;
 
 function desktopBridge(): DesktopBridge | undefined {

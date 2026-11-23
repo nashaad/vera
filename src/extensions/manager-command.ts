@@ -1,5 +1,8 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+
+import { tokenizeCommandArguments } from "../command-arguments.ts";
+import { renderPluginInstallPreview } from "../plugins/command.ts";
 import type {
     ExtensionInstallPreview,
     ExtensionListEntry,
@@ -21,52 +24,7 @@ export type ExtensionManagerCommand =
 export function tokenizeExtensionManagerArguments(
     text: string,
 ): { readonly words: readonly string[] } | { readonly error: string } {
-    const words: string[] = [];
-    let current = "";
-    let quoted: "'" | '"' | undefined;
-    let escaped = false;
-    let started = false;
-    for (const character of text) {
-        if (escaped) {
-            current += character;
-            escaped = false;
-            started = true;
-            continue;
-        }
-        if (character === "\\" && quoted !== "'") {
-            escaped = true;
-            started = true;
-            continue;
-        }
-        if (quoted !== undefined) {
-            if (character === quoted) {
-                quoted = undefined;
-            } else {
-                current += character;
-            }
-            started = true;
-            continue;
-        }
-        if (character === "'" || character === '"') {
-            quoted = character;
-            started = true;
-        } else if (/\s/.test(character)) {
-            if (started) {
-                words.push(current);
-                current = "";
-                started = false;
-            }
-        } else {
-            current += character;
-            started = true;
-        }
-    }
-    if (escaped) current += "\\";
-    if (quoted !== undefined) {
-        return { error: "Unclosed quote in extension command" };
-    }
-    if (started) words.push(current);
-    return { words };
+    return tokenizeCommandArguments(text, "extension command");
 }
 
 export function parseExtensionManagerCommand(
@@ -113,14 +71,14 @@ export function parseExtensionManagerCommand(
 }
 
 export function extensionManagerUsage(): string {
-    return "Usage: vera extension list|install|enable|disable|remove <…>";
+    return "Usage: vera extension list|install|enable|disable|remove|reload <…>";
 }
 
 export function renderExtensionList(entries: readonly ExtensionListEntry[]): string {
     if (entries.length === 0) return "No extensions installed.\n";
     const lines = ["Extensions", ""];
     for (const entry of entries) {
-        const state = entry.managed
+        const state = entry.managed || entry.included
             ? entry.enabled ? "enabled" : "disabled"
             : "unmanaged";
         const version = entry.version === undefined ? "?" : `v${entry.version}`;
@@ -140,6 +98,9 @@ export function renderExtensionList(entries: readonly ExtensionListEntry[]): str
 export function renderExtensionInstallPreview(
     preview: ExtensionInstallPreview,
 ): string {
+    if (preview.plugin !== undefined) {
+        return `Extension folders install as plugins.\n${renderPluginInstallPreview(preview.plugin)}`;
+    }
     return [
         preview.dryRun ? "Extension install plan (dry run)" : "Extension install",
         "",
@@ -158,9 +119,17 @@ export function renderExtensionInstallPreview(
 
 export function renderExtensionMutation(
     operation: "enable" | "disable" | "remove",
-    record: { readonly id: string },
+    record: { readonly id: string; readonly plugin?: string; readonly data_directory?: string; readonly legacy_removed?: readonly string[] },
 ): string {
     if (operation === "remove") {
+        if (record.plugin !== undefined) {
+            return [
+                `Removed plugin ${record.plugin} (extension ${record.id}).`,
+                ...(record.legacy_removed ?? []).map((path) => `Removed legacy extension at ${path}.`),
+                `Plugin data kept at ${record.data_directory}.`,
+                "",
+            ].join("\n");
+        }
         return `Removed ${record.id}.\n`;
     }
     return `${operation === "enable" ? "Enabled" : "Disabled"} ${record.id}.\n`;

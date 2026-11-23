@@ -37,6 +37,13 @@ export type { RoutedSession, SessionEndpoint, SessionResumeOptions, SessionSnaps
 
 export class SessionTransferReservationsChanged extends Error {}
 
+export const ROSTER_ENDPOINT_DEADLINE_MS = 500;
+
+export interface RoutedAgentList {
+    readonly agents: RegisteredAgentSummary[];
+    readonly unavailableWorkers: readonly string[];
+}
+
 interface WaitForOperation {
     readonly wait: Promise<void>;
 }
@@ -1128,19 +1135,47 @@ export class HostRouter implements ExtensionSessionServices, PeerSessionServices
     }
 
     list(): Promise<RegisteredAgentSummary[]> {
+        return this.listWithAvailability().then((result) => result.agents);
+    }
+
+    listWithAvailability(): Promise<RoutedAgentList> {
         return this.serial(async () => {
             const owners = this.activeEndpoints();
-            const [rosters, residents] = await Promise.all([
-                Promise.all(owners.map(([, endpoint]) => endpoint.list())),
-                this.allResidents(),
-            ]);
+            const results = await Promise.all(owners.map(async ([owner, endpoint]) => {
+                const reads = Promise.all([endpoint.list(), endpoint.residents()]);
+                if (owner === "host") return { owner, result: await reads };
+                let timer: ReturnType<typeof setTimeout> | undefined;
+                try {
+                    const result = await Promise.race([
+                        reads.then((value) => ({ status: "ok" as const, value })),
+                        new Promise<{ status: "timeout" }>((resolve) => {
+                            timer = setTimeout(() => resolve({ status: "timeout" }), ROSTER_ENDPOINT_DEADLINE_MS);
+                        }),
+                    ]);
+                    return result.status === "timeout"
+                        ? { owner, timedOut: true as const }
+                        : { owner, result: result.value };
+                } finally {
+                    if (timer !== undefined) clearTimeout(timer);
+                }
+            }));
+            const available = results.filter((entry): entry is typeof entry & { result: [RegisteredAgentSummary[], RoutedSession[]] } =>
+                "result" in entry);
             const residentOwners = new Map<string, SessionOwner>();
-            for (const entry of residents) {
-                if (residentOwners.has(entry.session.id)) throw new Error("Session is resident on multiple hosts");
-                residentOwners.set(entry.session.id, entry.owner);
+            for (const { owner, result: [, residents] } of available) {
+                for (const session of residents) {
+                    if (residentOwners.has(session.id)) throw new Error("Session is resident on multiple hosts");
+                    residentOwners.set(session.id, owner);
+                }
             }
-            return mergeRosters(owners.map(([owner], index) => [owner, rosters[index]!] as const),
-                (id) => residentOwners.get(id) ?? this.owners.get(id));
+            return {
+                agents: mergeRosters(available.map(({ owner, result: [roster] }) => [owner, roster] as const),
+                    (id) => residentOwners.get(id) ?? this.owners.get(id)),
+                unavailableWorkers: [...new Set([
+                    ...results.flatMap((entry) => "timedOut" in entry ? [entry.owner] : []),
+                    ...this.workers.filter((worker) => !worker.ready()).map((worker) => worker.id),
+                ])],
+            };
         });
     }
 

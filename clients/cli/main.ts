@@ -188,7 +188,7 @@ import {
 } from "../tmux-socket-doctor.ts";
 import {
     installExtension,
-    listExtensions,
+    listIncludedExtensions,
     removeExtension,
     setAnyExtensionEnabled,
     type ExtensionManagerOperations,
@@ -199,6 +199,20 @@ import {
     renderExtensionList,
     renderExtensionMutation,
 } from "../../src/extensions/manager-command.ts";
+import {
+    pluginManager,
+    type PluginManagerOperations,
+} from "../../src/plugins/manager.ts";
+import {
+    parsePluginManagerCommand,
+    renderPluginInstallPreview,
+    renderPluginInstallResult,
+    renderPluginList,
+    renderPluginMutation,
+    renderPluginRemoval,
+    renderPluginShow,
+} from "../../src/plugins/command.ts";
+import { migratePlugins, renderPluginMigration } from "../../src/plugins/migrate.ts";
 const PROVIDER_CHECK_FLAG = "--check-providers";
 const CONFIG_ONLY_FLAG = "--config";
 
@@ -376,6 +390,7 @@ export interface CliDependencies {
     ) => Promise<PoolAdmissionOutcome>;
     readonly removePoolModel?: (workspace: string, ref: string) => Promise<void>;
     readonly extensionManager?: Partial<ExtensionManagerOperations>;
+    readonly pluginManager?: Partial<PluginManagerOperations>;
     readonly version?: string;
     readonly dispatchToHostRelease?: (
         argv: readonly string[],
@@ -539,6 +554,63 @@ export async function runCli(
         return 0;
     }
 
+    const pluginRequest = parsePluginManagerCommand(args);
+    if (pluginRequest !== undefined) {
+        if ("error" in pluginRequest) {
+            errorOutput.write(`${pluginRequest.error}\n`);
+            return 1;
+        }
+        const command = pluginRequest.command;
+        const manager: PluginManagerOperations = {
+            install: dependencies.pluginManager?.install ?? pluginManager.install,
+            list: dependencies.pluginManager?.list ?? pluginManager.list,
+            show: dependencies.pluginManager?.show ?? pluginManager.show,
+            setEnabled: dependencies.pluginManager?.setEnabled
+                ?? pluginManager.setEnabled,
+            remove: dependencies.pluginManager?.remove ?? pluginManager.remove,
+        };
+        try {
+            if (command.operation === "migrate") {
+                const report = migratePlugins();
+                output.write(renderPluginMigration(report));
+                return report.failures.length === 0 ? 0 : 1;
+            }
+            if (command.operation === "list") {
+                output.write(renderPluginList(manager.list()));
+                return 0;
+            }
+            if (command.operation === "show") {
+                output.write(renderPluginShow(manager.show(command.name)));
+                return 0;
+            }
+            if (command.operation === "install") {
+                const result = manager.install({
+                    source: command.source,
+                    dry_run: command.dry_run,
+                });
+                output.write(command.dry_run
+                    ? renderPluginInstallPreview(result.preview)
+                    : renderPluginInstallResult(result.preview, result.noop));
+                return 0;
+            }
+            if (command.operation === "enable" || command.operation === "disable") {
+                const record = manager.setEnabled(
+                    command.name,
+                    command.operation === "enable",
+                );
+                output.write(renderPluginMutation(command.operation, record));
+                return 0;
+            }
+            output.write(renderPluginRemoval(manager.remove(command.name, {
+                purge: command.purge,
+            })));
+            return 0;
+        } catch (error) {
+            errorOutput.write(`Plugin operation failed: ${renderCliFailure(error)}\n`);
+            return 1;
+        }
+    }
+
     const extensionRequest = parseExtensionManagerCommand(args);
     if (extensionRequest !== undefined) {
         if ("error" in extensionRequest) {
@@ -554,7 +626,7 @@ export async function runCli(
         const command = extensionRequest.command;
         const manager: ExtensionManagerOperations = {
             install: dependencies.extensionManager?.install ?? installExtension,
-            list: dependencies.extensionManager?.list ?? listExtensions,
+            list: dependencies.extensionManager?.list ?? listIncludedExtensions,
             setEnabled: dependencies.extensionManager?.setEnabled
                 ?? setAnyExtensionEnabled,
             remove: dependencies.extensionManager?.remove ?? removeExtension,

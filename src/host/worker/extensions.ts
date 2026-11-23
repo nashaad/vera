@@ -19,6 +19,10 @@ export interface WorkerExtensionStart {
 export async function startWorkerExtensions(
     extensions: readonly VeraExtensionConfig[] | undefined,
     home: string | undefined,
+    onHostLossCloseReady?: (
+        close: () => Promise<void>,
+        hasPendingActivation: () => boolean,
+    ) => void,
 ): Promise<WorkerExtensionStart> {
     const failures: ExtensionRegistryFailure[] = [];
     let registry: ExtensionRegistry | undefined;
@@ -27,6 +31,7 @@ export async function startWorkerExtensions(
         try {
             registry = await startExtensionRegistry({
                 extensions,
+                ...(onHostLossCloseReady === undefined ? {} : { onHostLossCloseReady }),
                 ...(home === undefined
                     ? {}
                     : {

@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
+import { setSidebarGrouping } from "./sidebar.mjs";
 import { MODIFIER, press, startTrial } from "./trial.mjs";
 
 const REPLY = "The crow has counted the doubloons.";
@@ -51,6 +52,7 @@ try {
     const app = await trial.launch();
     page = await app.firstWindow();
     await page.waitForSelector('.app[data-sessions="0"]', { timeout: 45_000 });
+    await setSidebarGrouping(page, "folder");
     hostPid = await trial.waitForHost();
     const input = page.locator(".composer-input");
     await input.fill("Count the doubloons");

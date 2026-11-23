@@ -133,11 +133,11 @@ window.
   `Vera needs a restart to read what this folder loads.` with Retry.
   The toolbar has a search box, a kind control with a count on each kind, the
   folder menu and Reload. Reload reads again while the current list stays on
-  screen. Scope pills filter by Your home, the folder's name and Built in, with
-  a count on each. The first six items show in two columns; a line naming the
-  next items opens the rest. A row shows the kind's icon, the name, a one-line
-  description and the scope with the command. A check marks an item that
-  loaded, and the three-dot button opens the row menu.
+  screen. Items are grouped under In this folder, Your home and Built in, with
+  a count on each section. The first six items in each section show in two
+  columns; a line naming the next items opens the rest. A row shows the kind's
+  icon, the name, a one-line description and the command or path. A check marks
+  an item that is present, and the three-dot button opens the row menu.
   Picking a row opens a sheet. Overview shows the file rendered as Markdown
   beside Location, Scope, Loads in, Command and Files. Files shows the one file
   that was read, with a switch between the rendered file and its numbered
@@ -146,8 +146,10 @@ window.
   opens a new chat with the skill's command in the composer and does not send
   it.
   Extensions included with Vera are not listed; their skills and agents are. An
-  extension the host could not load shows its error. Plugins does not add,
-  remove, install or edit those items. The Extensions kind lists the desktop
+  extension the host could not load shows its error. The Plugins kind lists
+  installed plugin packages. Packages and their skills and agents are listed
+  under Built in, although they do not ship with Vera, and are read-only.
+  The Extensions kind lists the desktop
   extensions you installed, and a disabled one shows Off with a dimmed icon.
   An extension's sheet has a switch that turns it on or off and an Uninstall
   button. Add on this kind opens a menu with Install from file; see Desktop
@@ -168,14 +170,29 @@ window.
   it because the host does not serve it, with a note naming where to do it
   instead. A bar and a percentage sum it up, and pills filter by status.
   Tour and Coverage each have a button beside the title that opens the other.
-- Settings has a list of sections on the left with a search box that filters
-  them by name and keywords, and the chosen section on the right. It opens on
-  Appearance. The sections sit under two headings: Settings, and Desktop for
-  what the window keeps itself. When the page is narrow the list shows only
-  each section's icon, with its name on hover, and the search box becomes a
-  search icon. Clicking that icon opens the whole list over the section;
-  Escape, a click outside or picking a section closes it again. A setting's
-  control moves under its description when there is no room beside it.
+- Settings has a list of sections on the left with a search box, and the chosen
+  section on the right. It opens on Appearance. The sections sit under two
+  headings: Settings, and Desktop for what the window keeps itself. Typing in
+  the search box opens a list under it of matching settings and sections; a
+  setting shows its name with its section under it, and a section shows its
+  name alone. Every word you type must appear in the setting's name,
+  description or keywords or its section's name, in any order. Up and Down
+  move through the list, Enter or a click picks one, and Escape clears the box
+  and closes the list. Picking a setting opens its section, scrolls the row to
+  the middle, and gives it an accent outline and a light accent shade while a
+  soft band of accent-tinted light sweeps across the row once, left to right.
+  The row stays in the middle while its section finishes loading, until you
+  scroll. The outline and shade stay until another result or section is picked
+  or Settings is left; picking the same setting again repeats the sweep. With
+  Reduce motion on or the system's reduced motion setting on, the outline and
+  shade appear without the sweep. Picking a section opens it. The full list
+  always stays under the search box, so no section is hidden while you type.
+  When the page is narrow the list shows only each section's icon, with its
+  section's icon, with its name on hover, and the search box becomes a search
+  icon. Clicking that icon opens the whole list over the section, where search
+  works the same way; Escape, a click outside or picking a section closes it
+  again. A setting's control moves under its description when there is no room
+  beside it.
   - Appearance picks the theme, imports a VS Code theme, and sets text size, code size and density (each
     Small or Compact, Default, Large or Comfortable), and has two switches. Reduce
     motion stops the status line's dots and sweep and the fade on new words. Past
@@ -214,7 +231,15 @@ window.
   - Data, under Desktop, counts the sessions the host lists, shows the
     desktop's folder `machine/desktop` in the home with Show in Finder (Open
     folder on other platforms), and has Reset for the appearance and for the
-    layout.
+    layout. Its Storage row opens a Storage dialog with the space Vera uses on
+    this computer, split into Sessions, Scratch, Logs, Caches, Extensions,
+    Browser and Other, each with its size, a summary and its largest items;
+    Old scratch outside the home is shown apart from the total. Refresh checks
+    again, and Open folder reveals the home. Scratch, Logs and Old scratch
+    have Free up space…, which shows what would be removed after a chosen idle
+    age, then removes it after you tick the box. Session files are never
+    removed. The row needs a host that knows the request: an older host shows
+    Needs a newer Vera host and Manage is disabled.
 
 The sidebar's top rows are the page rows: New Chat, Search, Work and Plugins.
 New Chat is always there; the others show when their part of the window is shown.
@@ -344,30 +369,49 @@ page its limit, a notice opens nothing and shows no dot.
 Seven views ship with the app:
 
 - Sessions, in the sidebar, lists the first 50 sessions of the home, most recent
-  first, in groups by folder. A group's heading is the last segment of the folder
-  path, or `No folder` when a session has none. Hovering the heading shows the
-  full path. Chats, which are sessions with no folder of their own, share one
-  group headed `Chats`; its heading opens no workspace page. Groups are in the
-  order of their most recent session, and rows keep
-  the host's order inside a group. A subagent is listed indented under the
-  session that started it, in that session's group, including under a chat; a
-  subagent of a chat does not get a group named after the chat's folder. A
-  subagent of a subagent is listed under the same top parent. A pinned session's
-  subagents are listed under it in Pinned, and a pinned subagent is listed in
-  Pinned on its own. Subagents start collapsed beneath their parent. A count such
-  as `2 nested` shows how many are listed, with `· 1 working` when one is working.
-  Click the count or the chevron beside the parent title to show the nested rows;
-  click the chevron again to collapse them. A group and a parent collapse and
-  expand while the window stays open; neither state is kept across launches.
+  first. It opens as one plain list under Group by None. The filter button at the
+  right of the view's header opens a menu with `Group by` and the current choice,
+  then `Folder` and `None`; the chosen one has a check. Folder groups the list by
+  folder. The choice is kept per home in `machine/desktop/sidebar.json` and
+  survives a restart.
+
+  Under Folder, a group's heading is the last segment of the folder path, or
+  `No folder` when a session has none. Hovering the heading shows the full path.
+  Chats, which are sessions with no folder of their own, share one group headed
+  `Chats`; its heading opens no workspace page. Under None, chats sit in the
+  plain list. Groups are in the order of their most recent session, and rows keep
+  the host's order inside a group. A workspace with one top-level session whose
+  title matches the folder name shows as one folder row with a folder icon and
+  no separate heading; the row opens the session. Any other group draws its
+  heading over its session rows, and the heading opens the workspace page.
+
+  A subagent is listed under its direct parent at any depth, in that session's
+  place in the list or group. A subagent of a chat does not get a group named
+  after the chat's folder. A pinned session carries its whole subtree into
+  Pinned; a stale pin on a subagent does not list it on its own. Subagents start
+  collapsed beneath their parent. The number after a parent's title counts its
+  direct children, and the chevron beside it shows or hides them. A group and a
+  parent collapse and expand while the window stays open; neither state is kept
+  across launches.
+
   Archived sessions and their subagents leave Pinned, Chats and their folder
   groups for an `Archived` group at the bottom. It starts collapsed. Opening an
   archived session from that group or Go to Session does not unarchive it. Each
-  row shows the session's title and its status at the right. A working session
-  has a rotating indicator, a session waiting on you has a filled dot, and the
-  other rows have an outlined dot and the time since their last activity, written
-  short (`now`, `5m`, `3h`, `2d`, `1mo`, `1y`). Reduce motion stops the rotating
-  indicator. Picking a row opens that session, and the row of the open session is
-  filled.
+  top-level row shows the session's title, its time since the last activity
+  (`now`, `5m`, `3h`, `2d`, `1mo`, `1y`) and a Pin or Unpin button. A working
+  session has a rotating indicator in the time's place, and a session waiting on
+  you has a filled dot there. Reduce motion stops the rotating indicator. A
+  nested row shows its title, with the working spinner or waiting dot, and no
+  time or Pin. Picking a row opens that session, and the row of the
+  open session is filled. The Pin or Unpin button on a top-level row does the
+  same as the menu item. With a row focused, Up and Down move through the
+  visible rows, Right expands a row or moves into its children, and Left
+  collapses it or moves to its parent.
+
+  While the first list loads, the window can show the last saved rows for this
+  home, dimmed until the host answers. The saved rows may be out of date. If no
+  saved list is available, the view says `Loading sessions.` The host can return
+  a list with last-known rows when a session process does not answer in time.
 
   A session's title is its name, whether you gave it or Vera's automatic titles
   did, or else the start of its first prompt, the same as in the terminal UI.
@@ -380,11 +424,12 @@ Seven views ship with the app:
   on the row open the row's menu:
 
   - Rename… opens the session and its rename sheet.
-  - Pin Session moves the row into a `Pinned` group at the top of the list, in
-    the order the sessions were pinned, and Unpin Session puts it back under its
-    folder. Pins are kept per home in `machine/desktop/pins.json`, at most 50; a
-    newer pin past that drops the oldest. The terminal UI keeps its own pins. A
-    pinned session shows only while it is among the sessions the list has loaded.
+  - Pin Session is offered on a top-level row, and moves it and its subagents
+    into a `Pinned` group at the top of the list, in the order the sessions were
+    pinned. Unpin Session puts it back in the plain list or under its folder.
+    Pins are kept per home in `machine/desktop/pins.json`, at most 50; a newer pin
+    past that drops the oldest. The terminal UI keeps its own pins. A pinned
+    session shows only while it is among the sessions the list has loaded.
   - Archive Session moves the session and its subagents into Archived; Unarchive
     Session returns them to their groups, including Pinned when still pinned.
     Either action on a subagent's row applies to its parent session family,
@@ -1053,8 +1098,11 @@ The Models browser has four tabs:
 - `Help` explains the marks.
 
 Settings > Providers groups connected providers and providers you can add.
-Select a connected provider to manage its credential. `Forget` asks first, then
-removes the provider's saved connection and what Vera learned about its models.
+Select a connected provider to manage its credential. `Turn off` keeps its
+connection and settings but stops using it; the card shows `Off` and the button
+becomes `Turn on`. A session already running on its models finishes. `Forget`
+asks first, then removes the provider's saved connection and what Vera learned
+about its models.
 Select an available provider or `Custom provider` to connect with a key or
 browser sign-in. Choose a model and select `Check and use` to check it and make
 it the default. Escape and the back arrow return to the previous setup screen,
@@ -1577,8 +1625,9 @@ A desktop extension adds to the desktop app itself. Extensions can add themes;
 installed extensions can also add worker commands and keybindings. An extension
 included with the app can add tasks, page scripts, file preview types, and menu
 entries for its commands in Settings, the View menu and the Browser toolbar. It
-is a folder with a `vera.desktop.json` manifest. The terminal UI does not use
-desktop extensions and keeps its own themes.
+is a folder with a `vera.desktop.json` manifest. A plugin can also contain a
+desktop extension. The terminal UI does not use desktop extensions and keeps
+its own themes.
 
 The Extensions kind on Plugins lists them. A row shows the extension's id and
 version and the themes it adds. Selecting it opens
@@ -1589,25 +1638,49 @@ preview also say
 The list note `More extension folders exist than are loaded.` and folder
 diagnostics such as an invalid folder name, a missing or invalid manifest, or a
 folder name that differs from the manifest id reach the window but are not
-shown in this version. Turning an
-extension off hides its themes at once; a window using one of them falls back to
+shown in this version. Turning a separately installed extension off hides its
+themes at once; a window using one of them falls back to
 the built-in theme of the same type. Turning it on shows them again. Remove
-deletes an installed extension's folder. An extension included with the app is
-always on, cannot be removed, and is not listed. Installed extensions' task and
+deletes a separately installed extension's folder. An extension included with
+the app is always on, cannot be removed, and is not listed. Installed extensions' task and
 page-script commands do not run, and their `menus` entries are ignored; only
 included extensions run tasks and page scripts or contribute menu entries.
 
 Add on the Extensions kind opens a menu with Install from file, which opens a
 file picker for a package. The window first shows what
 the package holds: its id, its version, its themes, and `Replaces version <v>.`
-when an installed extension has the same id. Install puts the extension in
-place; Cancel throws the package away and installs nothing. Installing a
-package with the id of an installed extension replaces it. The web client has no
-install; it shows none of these controls.
+when a separately installed extension has the same id. Install puts the
+extension in place; Cancel throws the package away and installs nothing.
+Installing a package with the id of a separately installed extension replaces
+it. The web client has no install; it shows none of these controls.
 
-Extensions are kept in `machine/desktop/extensions/<id>` under the home, and
-which of them are off in `machine/desktop/extensions.json`. Included extensions
-ship in the app and are not copied there; an included id in that file is ignored.
+Separately installed extensions are kept in `machine/desktop/extensions/<id>`
+under the home, and which of them are off in `machine/desktop/extensions.json`.
+Included extensions ship in the app and are not copied there; an included id
+in that file is ignored.
+
+Plugin desktop extensions stay in the plugin folder and follow the plugin's
+on or off state. Their row's switch and Remove refuse and name the plugin
+command to use instead. Use `/plugin enable <name>` or `/plugin disable <name>`
+in the terminal, and `vera plugin remove <name>` to remove the plugin. A new
+extension list reads the current plugin state; reload the desktop extensions or
+restart the app to replace running extension code. A plugin desktop extension
+has the same worker commands, keybindings and themes as a separately installed
+extension, while tasks, page commands and menu entries remain included-only.
+After the desktop store is migrated, desktop extension installs and VS Code
+theme imports stay separately installed, with their own switch and Remove.
+An included extension takes precedence over a plugin extension with the same
+id. A plugin extension takes precedence over a separately installed extension
+with the same id, including while the plugin is off.
+
+The plugin record names its desktop extension id. If the installed manifest
+names a different id, the desktop skips the part and records a diagnostic with
+both ids. Reinstall the plugin from its source to restore the part. If existing
+plugins share a desktop id, the first plugin by name keeps it and the others
+are reported.
+
+When a plugin declares a desktop folder outside its package, discovery reports
+the path and uses `dev.vera/desktop/` if that folder is present.
 
 ### The manifest
 

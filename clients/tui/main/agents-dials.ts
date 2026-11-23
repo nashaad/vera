@@ -265,9 +265,7 @@ export async function openAgentPicker(rt: TuiRuntime, selectedName?: string): Pr
                 "Switching agents re-reads the prefix, so the next turn is slower once.",
             rows: current.agents.map((agent) => ({
                 id: agent.name,
-                label: agent.scope === "extension" && agent.name !== "default"
-                    ? `${agent.name} (ext)`
-                    : agent.name,
+                label: agentPickerLabel(agent),
                 description: describeAgentRow(rt, agent),
                 current: agent.name === current.selected,
             })),
@@ -294,7 +292,9 @@ export async function openAgentPicker(rt: TuiRuntime, selectedName?: string): Pr
         if (!agent.writable) {
             rt.state = appendTuiNotice(
                 rt.state,
-                `${agent.name} is registered by an extension, so its file cannot be written.`,
+                agent.scope === "plugin"
+                    ? `${agent.name} is provided by a plugin, so its file cannot be written.`
+                    : `${agent.name} is registered by an extension, so its file cannot be written.`,
             );
             renderState(rt);
             continue;
@@ -332,6 +332,17 @@ export async function openAgentPicker(rt: TuiRuntime, selectedName?: string): Pr
         );
         renderState(rt);
     }
+}
+
+export function agentPickerLabel(agent: TuiAgentCatalogRow): string {
+    if (agent.scope === "plugin") {
+        return agent.plugin === undefined
+            ? `${agent.name} (plugin)`
+            : `${agent.name} (plugin ${agent.plugin})`;
+    }
+    return agent.scope === "extension" && agent.name !== "default"
+        ? `${agent.name} (ext)`
+        : agent.name;
 }
 
 export function describeAgentRow(rt: TuiRuntime, agent: TuiAgentCatalogRow): string {

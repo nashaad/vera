@@ -15,7 +15,7 @@ import { removeScratchDirectories, scratchDirectory, writeText } from "./theme-f
 afterEach(removeScratchDirectories);
 
 function storeFor(home: string, included?: string): ExtensionStore {
-    return new ExtensionStore(extensionsDirectory(home), new ExtensionStateStore(extensionStatePath(home)), included);
+    return new ExtensionStore(home, new ExtensionStateStore(extensionStatePath(home)), included);
 }
 
 // Unpacks the package into a new staging folder the way the install task does.

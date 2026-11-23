@@ -1,13 +1,15 @@
 import { selectOnboardingModel } from "../providers/select-onboarding-model.ts";
 import { createProviderSignInService } from "../providers/provider-sign-in.ts";
 import { accessSync, constants, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, basename } from "node:path";
 import { configuredModelAssignments as modelOperationAssignments } from "../config.ts";
 import { derivedModelName } from "../config/model-catalog.ts";
 import { effectiveCatalog } from "../model/catalog.ts";
 import { applyModelOperation } from "../model/model-operations.ts";
 import { connectedProviderCatalogs, modelsFromConnectedCatalogs } from "../providers/catalog-state.ts";
 import { forgetProviderConnection } from "../providers/forget-provider.ts";
+import { providerDisableRefusal } from "../providers/provider-disable-refusal.ts";
+import { providerEnabled } from "../providers/provider-enabled.ts";
 import { readModelCatalog } from "../providers/read-model-catalog.ts";
 
 import {
@@ -52,6 +54,7 @@ import {
     veraMachineDirectoryIn,
 } from "../profile-paths.ts";
 import { sessionScratchRoot } from "../session-scratch.ts";
+import { defaultReviewLogPath } from "../engine/review-log.ts";
 import { createRequestOptionsSnapshotAdapter } from "../providers/routing.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 import { defaultModelFailureLedgerPath } from "../store/model-failures.ts";
@@ -93,7 +96,14 @@ import {
     pruneScratch,
     SCRATCH_PRUNE_INTERVAL_MS,
     scratchMaxAgeMs,
+    type GuardedScratchDetach,
 } from "./scratch-retention.ts";
+import { createStorageMeasurer } from "./storage-measure.ts";
+import {
+    previewStorageCleanup,
+    runStorageCleanup,
+    type StorageCleanupOptions,
+} from "./storage-cleanup.ts";
 import { recoverCrashedTurns } from "./restart-scan.ts";
 import { checkpointOpenStores } from "./store-checkpoint.ts";
 
@@ -153,6 +163,7 @@ import { normalizeOllamaHost } from "../providers/ollama-openai.ts";
 import { OPENAI_CODEX_PROVIDER_ID } from "../providers/openai-codex-oauth.ts";
 import {
     configuredProviders,
+    findConfiguredProvider,
     type ProviderDescriptor,
 } from "../providers/registry.ts";
 import { prepareStopForTarget, updateTargetProblem } from "../release/handoff.ts";
@@ -199,7 +210,7 @@ import { subagentPoolPolicy } from "./subagent-policy.ts";
 
 import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "./session-host.ts";
 import type { SessionHostServices } from "./session-host/types.ts";
-import { inProcessWorkerSocket, prepareInProcessWorker, type InProcessWorker } from "./pool/in-process.ts";
+import { inProcessWorkerSocket, prepareInProcessWorker, workerSessionOptions, type InProcessWorker } from "./pool/in-process.ts";
 import type { SessionShard } from "./shard.ts";
 import { prepareProcessWorker } from "./pool/process-worker.ts";
 import { controlSocketPath } from "./pool/supervisor.ts";
@@ -217,6 +228,7 @@ const MAX_SCHEDULE_WORK_ROWS = 50;
 
 export interface StartResidentHostOptions {
     readonly config: VeraConfig;
+    readonly pluginWorkerExtensions?: import("../plugins/catalog.ts").PluginWorkerExtensions;
     readonly onHostClaimed?: () => void | Promise<void>;
     readonly inProcessWorker?: boolean;
     readonly processWorker?: boolean;
@@ -772,6 +784,9 @@ async function startHostRuntime(
     const sessionOptions: StartSessionHostOptions = {
         sessions: "all",
         ...(workerReservations === undefined ? {} : { sessionWorker: true }),
+        ...(workerReservations === undefined || options.pluginWorkerExtensions === undefined
+            ? {}
+            : { pluginWorkerExtensions: options.pluginWorkerExtensions }),
         ...(options.processWorker === true ? { disableTurnWorker: true } : {}),
         ...(workerGlobals === undefined ? {} : { workerGlobals }),
         ...(processObservations === undefined ? {} : { processObservations }),
@@ -862,6 +877,121 @@ async function startHostRuntime(
                     ? {}
                     : { url: options.config.model_feed_url },
             );
+            const refreshProviderCatalogNow = async (
+                provider: string,
+            ): Promise<readonly SuggestedModel[] | undefined> => {
+                const config = currentConfig();
+                try {
+                    if (!providerEnabled(config, provider)) return undefined;
+                    const descriptor = configuredProviders(config)
+                        .find((entry) => entry.id === provider);
+                    if (descriptor !== undefined && descriptor.baseUrl !== undefined && descriptor.protocol !== undefined
+                        && (descriptor.protocol === "anthropic-messages" || descriptor.behaviorId === "openrouter")) {
+                        const stored = authStorage.getCredential(provider);
+                        const key = stored?.type === "api_key" ? stored.key : descriptor.envVar === undefined ? undefined : process.env[descriptor.envVar];
+                        const catalog = await readModelCatalog({
+                            provider, baseUrl: descriptor.baseUrl, protocol: descriptor.protocol, apiKey: key,
+                            ...(descriptor.behaviorId === "openrouter" ? { normalize: normalizeOpenRouterModels } : {})
+                        })
+                            .catch(() => undefined);
+                        if (catalog === undefined) return undefined;
+                        writeProviderCatalogSnapshot(catalog, {
+                            cacheDir: cacheDirectory,
+                        });
+                        models = modelsFromConnectedCatalogs(config, models, {
+                            authStorage,
+                            cacheDir: cacheDirectory,
+                        });
+                        return models;
+                    }
+                    if (provider === OPENAI_CODEX_PROVIDER_ID) {
+                        if (!hasCodexCredential(authStorage)) return undefined;
+                        const outcome = await refreshCodexCatalog(authStorage, {
+                            log: hostLog,
+                            cacheDir: cacheDirectory,
+                            ...(codexAuthorization === undefined ? {} : { authorization: codexAuthorization }),
+                            ...(options.catalogFetch === undefined ? {} : { fetch: options.catalogFetch }),
+                        });
+                        if (outcome?.failure !== undefined) return undefined;
+                        const rows = discoveredCodexModels(config, {
+                            authStorage,
+                            cacheDir: cacheDirectory,
+                        });
+                        models = withProviderRefreshability(
+                            replaceProviderRows(models, provider, rows),
+                            config,
+                        );
+                        return models;
+                    }
+                    if (!isRefreshableProvider(provider, config)) return undefined;
+                    if (descriptor?.behaviorId === "ollama") {
+                        const discovered = await discoverOllamaModelCatalog({
+                            log: hostLog,
+                            ...(config.provider_endpoints?.ollama === undefined
+                                ? {}
+                                : { host: config.provider_endpoints.ollama }),
+                        });
+                        if (!discovered.available) {
+                            return undefined;
+                        }
+                        models = replaceProviderRows(
+                            models,
+                            provider,
+                            discovered.models,
+                            config.provider === provider
+                                ? {
+                                    provider,
+                                    model: config.model,
+                                    label: config.model,
+                                    description: "configured model",
+                                }
+                                : undefined,
+                        );
+                        return models;
+                    }
+                    const before = readProviderCatalogSnapshot(provider).fetched_at;
+                    const standard = descriptor?.behaviorId === "openrouter"
+                        ? undefined
+                        : await standardProviderModels(
+                            descriptor,
+                            config,
+                            authStorage,
+                            { maxAgeMs: 0 },
+                        );
+                    const rows = standard === undefined
+                        ? await discoveredOpenRouterModels(config, { maxAgeMs: 0 })
+                        : standard.models;
+                    if (
+                        standard?.failure !== undefined
+                        ||
+                        readProviderCatalogSnapshot(provider).fetched_at === before
+                    ) {
+                        return undefined;
+                    }
+                    models = withProviderRefreshability(
+                        descriptor?.behaviorId === "openrouter"
+                            ? withProviderRows(models, provider, rows)
+                            : replaceProviderRows(
+                                models,
+                                provider,
+                                rows,
+                                config.provider === provider
+                                    ? {
+                                        provider,
+                                        model: config.model,
+                                        label: config.model,
+                                        description: "configured model",
+                                    }
+                                    : undefined,
+                            ),
+                        config,
+                    );
+                    return models;
+                } finally {
+                    refreshWebDevArenaInBackground(0);
+                    announceGlobalChange("catalog");
+                }
+            };
             return sharedServices = {
                 inboxDelivery,
                 models: {
@@ -879,132 +1009,24 @@ async function startHostRuntime(
                     refreshableProviders: () => {
                         const config = currentConfig();
                         return connectedProviderCatalogs(config, { authStorage })
+                            .filter((provider) => providerEnabled(config, provider.id))
                             .filter((provider) => isRefreshableProvider(provider.id, config)
                                 || (provider.id === OPENAI_CODEX_PROVIDER_ID && hasCodexCredential(authStorage))
                                 || configuredProviders(config).find((row) => row.id === provider.id)?.protocol === "anthropic-messages")
                             .map((provider) => provider.id);
                     },
                     refreshCatalog: (provider) => {
-                        const refreshed = catalogRefreshes.then(async () => {
-                            const config = currentConfig();
-                            try {
-
-                                const descriptor = configuredProviders(config)
-                                    .find((entry) => entry.id === provider);
-                                if (descriptor !== undefined && descriptor.baseUrl !== undefined && descriptor.protocol !== undefined
-                                    && (descriptor.protocol === "anthropic-messages" || descriptor.behaviorId === "openrouter")) {
-                                    const stored = authStorage.getCredential(provider);
-                                    const key = stored?.type === "api_key" ? stored.key : descriptor.envVar === undefined ? undefined : process.env[descriptor.envVar];
-                                    const catalog = await readModelCatalog({
-                                        provider, baseUrl: descriptor.baseUrl, protocol: descriptor.protocol, apiKey: key,
-                                        ...(descriptor.behaviorId === "openrouter" ? { normalize: normalizeOpenRouterModels } : {})
-                                    })
-                                        .catch(() => undefined);
-                                    if (catalog === undefined) return undefined;
-                                    writeProviderCatalogSnapshot(catalog, {
-                                        cacheDir: cacheDirectory,
-                                    });
-                                    models = modelsFromConnectedCatalogs(config, models, {
-                                        authStorage,
-                                        cacheDir: cacheDirectory,
-                                    });
-                                    return models;
-                                }
-                                if (provider === OPENAI_CODEX_PROVIDER_ID) {
-                                    if (!hasCodexCredential(authStorage)) return undefined;
-                                    const outcome = await refreshCodexCatalog(authStorage, {
-                                        log: hostLog,
-                                        cacheDir: cacheDirectory,
-                                        ...(codexAuthorization === undefined ? {} : { authorization: codexAuthorization }),
-                                        ...(options.catalogFetch === undefined ? {} : { fetch: options.catalogFetch }),
-                                    });
-                                    if (outcome?.failure !== undefined) return undefined;
-                                    const rows = discoveredCodexModels(config, {
-                                        authStorage,
-                                        cacheDir: cacheDirectory,
-                                    });
-                                    models = withProviderRefreshability(
-                                        replaceProviderRows(models, provider, rows),
-                                        config,
-                                    );
-                                    return models;
-                                }
-                                if (!isRefreshableProvider(provider, config)) return undefined;
-                                if (descriptor?.behaviorId === "ollama") {
-                                    const discovered = await discoverOllamaModelCatalog({
-                                        log: hostLog,
-                                        ...(config.provider_endpoints?.ollama === undefined
-                                            ? {}
-                                            : { host: config.provider_endpoints.ollama }),
-                                    });
-                                    if (!discovered.available) {
-                                        return undefined;
-                                    }
-                                    models = replaceProviderRows(
-                                        models,
-                                        provider,
-                                        discovered.models,
-                                        config.provider === provider
-                                            ? {
-                                                provider,
-                                                model: config.model,
-                                                label: config.model,
-                                                description: "configured model",
-                                            }
-                                            : undefined,
-                                    );
-                                    return models;
-                                }
-                                const before = readProviderCatalogSnapshot(provider).fetched_at;
-                                const standard = descriptor?.behaviorId === "openrouter"
-                                    ? undefined
-                                    : await standardProviderModels(
-                                        descriptor,
-                                        config,
-                                        authStorage,
-                                        { maxAgeMs: 0 },
-                                    );
-                                const rows = standard === undefined
-                                    ? await discoveredOpenRouterModels(config, { maxAgeMs: 0 })
-                                    : standard.models;
-                                if (
-                                    standard?.failure !== undefined
-                                    ||
-                                    readProviderCatalogSnapshot(provider).fetched_at === before
-                                ) {
-                                    return undefined;
-                                }
-                                models = withProviderRefreshability(
-                                    descriptor?.behaviorId === "openrouter"
-                                        ? withProviderRows(models, provider, rows)
-                                        : replaceProviderRows(
-                                            models,
-                                            provider,
-                                            rows,
-                                            config.provider === provider
-                                                ? {
-                                                    provider,
-                                                    model: config.model,
-                                                    label: config.model,
-                                                    description: "configured model",
-                                                }
-                                                : undefined,
-                                        ),
-                                    config,
-                                );
-                                return models;
-                            } finally {
-                                refreshWebDevArenaInBackground(0);
-                                announceGlobalChange("catalog");
-                            }
-                        });
+                        const refreshed = catalogRefreshes.then(() => refreshProviderCatalogNow(provider));
                         // The queue carries the turn, not its failure: one refresh that throws must not leave every later one rejected.
                         catalogRefreshes = refreshed.then(() => undefined, () => undefined);
                         return refreshed;
                     },
-                    readPool: (projectRoot) => pooledModels(models, {
-                        ...scoped(projectRoot), ...(options.processWorker === true ? { userPath: join(home, "pool.json") } : {}),
-                    }),
+                    readPool: (projectRoot) => {
+                        const config = currentConfig();
+                        return pooledModels(models, {
+                            ...scoped(projectRoot), ...(options.processWorker === true ? { userPath: join(home, "pool.json") } : {}),
+                        }).filter((entry) => providerEnabled(config, entry.provider));
+                    },
                     createEffortPool: (projectRoot) => {
                         const pool = createPoolEffortPool({
                             ...scoped(projectRoot),
@@ -1020,10 +1042,14 @@ async function startHostRuntime(
                             },
                         } : pool;
                     },
-                    readPolicy: (projectRoot) => ({
-                        ...subagentPoolPolicy({ ...scoped(projectRoot), config: currentConfig() }),
-                        candidates: pooledModels(models, { ...scoped(projectRoot), includeUncurated: true }),
-                    }),
+                    readPolicy: (projectRoot) => {
+                        const config = currentConfig();
+                        return {
+                            ...subagentPoolPolicy({ ...scoped(projectRoot), config }),
+                            candidates: pooledModels(models, { ...scoped(projectRoot), includeUncurated: true })
+                                .filter((entry) => providerEnabled(config, entry.provider)),
+                        };
+                    },
                     admitToPool: (entry, onStep, admissionOptions) => {
                         const config = currentConfig();
                         return admitToPool(entry, onStep, {
@@ -1137,15 +1163,21 @@ async function startHostRuntime(
                         providerCatalogs: () => workerGlobals.providerCatalogs(),
                         refreshableProviders: () => workerGlobals.refreshableProviders(),
                         refreshCatalog: (provider: string) => workerGlobals.refreshCatalog(provider),
-                        readPool: (projectRoot?: string) => pooledModels(workerGlobals.models(), {
-                            ...scoped(projectRoot), userPath: join(home, "pool.json"),
-                        }),
-                        readPolicy: (projectRoot?: string) => ({
-                            ...subagentPoolPolicy({ ...scoped(projectRoot), config: currentConfig(), userPath: join(home, "pool.json") }),
-                            candidates: pooledModels(workerGlobals.models(), {
-                                ...scoped(projectRoot), userPath: join(home, "pool.json"), includeUncurated: true,
-                            }),
-                        }),
+                        readPool: (projectRoot?: string) => {
+                            const config = currentConfig();
+                            return pooledModels(workerGlobals.models(), {
+                                ...scoped(projectRoot), userPath: join(home, "pool.json"),
+                            }).filter((entry) => providerEnabled(config, entry.provider));
+                        },
+                        readPolicy: (projectRoot?: string) => {
+                            const config = currentConfig();
+                            return {
+                                ...subagentPoolPolicy({ ...scoped(projectRoot), config, userPath: join(home, "pool.json") }),
+                                candidates: pooledModels(workerGlobals.models(), {
+                                    ...scoped(projectRoot), userPath: join(home, "pool.json"), includeUncurated: true,
+                                }).filter((entry) => providerEnabled(config, entry.provider)),
+                            };
+                        },
                         createEffortPool: (projectRoot: string) => ({
                             ...createPoolEffortPool({ ...scoped(projectRoot), userPath: join(home, "pool.json") }),
                             recordLearned: () => {},
@@ -1179,6 +1211,16 @@ async function startHostRuntime(
     };
     const sessionHost = await startSessionHost(sessionOptions);
     const { registry, extensions, createAdapter } = sessionHost;
+    const removeScratchIfUnowned = (
+        id: string,
+        detach: GuardedScratchDetach,
+    ): boolean | Promise<boolean> => inProcessWorker?.removeScratchIfUnowned !== undefined
+        ? inProcessWorker.removeScratchIfUnowned(id, detach)
+        : (() => {
+            const unowned = () => !registry.agents.has(id) && !registry.startingIds.has(id)
+                && !registry.trashingIds.has(id);
+            return unowned() ? detach(unowned) : false;
+        })();
     if (workerReservations !== undefined) {
         sessionHost.startStorage();
         sessionHost.setParkIdle(async () => {});
@@ -1204,8 +1246,10 @@ async function startHostRuntime(
     // Codex model until the daily scan. Fetch once here, after the host serves.
     const fetchCodexModelsAtStart = (): void => {
         if (!discoversModelsAtStartup) return;
+        if (!providerEnabled(currentConfig(), OPENAI_CODEX_PROVIDER_ID)) return;
         const fetched = catalogRefreshes.then(async () => {
             if (catalogScanStopped) return;
+            if (!providerEnabled(currentConfig(), OPENAI_CODEX_PROVIDER_ID)) return;
             try {
                 const outcome = await fetchCodexCatalogAtStart({
                     authStorage,
@@ -1318,7 +1362,7 @@ async function startHostRuntime(
         sessionHost.startStorage(workerSocket === undefined ? undefined : { scan: false });
         if (workerSocket !== undefined) {
             const workerOptions = {
-                host: sessionHost, sessionOptions, hostSocket: socketPath,
+                host: sessionHost, sessionOptions: workerSessionOptions(sessionOptions, sessionHost), hostSocket: socketPath,
                 workerSocket, lockPath, buildId: options.buildId ?? thisProcessBuildId(),
                 capabilities: HOST_CAPABILITIES,
             };
@@ -1371,11 +1415,50 @@ async function startHostRuntime(
             : new SchedulerRuntime(schedulerOptions);
         const providerGenerations = new Map<string, number>();
         const providerSignIn = createProviderSignInService({ configPath, cacheDir: cacheDirectory, authStorage });
+        const storageMeasurer = createStorageMeasurer({
+            home,
+            sessionDirectory,
+            logDirectory,
+            scratchDirectory: () => sessionScratchRoot(home),
+        });
+        const storageCleanupOptions = (): StorageCleanupOptions => {
+            let scratchDirectory: string | undefined;
+            try {
+                scratchDirectory = sessionScratchRoot(home);
+            } catch {
+                scratchDirectory = undefined;
+            }
+            return {
+                sessionDirectory,
+                scratchDirectory,
+                logDirectory,
+                removeIfUnowned: removeScratchIfUnowned,
+                keepLog: (path) => {
+                    const resolved = resolve(path);
+                    // The running host and its reviewer append to these files by path.
+                    if (resolved === resolve(defaultHostLogPath(home))) return true;
+                    if (resolved === resolve(defaultReviewLogPath(home))) return true;
+                    if (openSidecarLogPaths(sidecars?.statuses() ?? []).has(resolved)) return true;
+                    const name = basename(resolved);
+                    if (!name.endsWith(".jsonl")) return false;
+                    const id = name.slice(0, -".jsonl".length);
+                    if (registry.agents.has(id) || registry.startingIds.has(id) || registry.trashingIds.has(id)) {
+                        return true;
+                    }
+                    return inProcessWorker?.hasSession(id) ?? false;
+                },
+            };
+        };
         server = await timed(
             "server_listen_and_lockfile",
             () => startHostServer({
                 ...sessionHost.handlers,
                 ...inProcessWorker?.hostHandlers,
+                storageMeasure: (refresh) => storageMeasurer.measure(refresh),
+                storageCleanupPreview: (area, maxAgeDays) =>
+                    previewStorageCleanup(area, maxAgeDays, storageCleanupOptions()),
+                storageCleanup: (area, maxAgeDays) =>
+                    runStorageCleanup(area, maxAgeDays, storageCleanupOptions()),
                 capabilities: HOST_CAPABILITIES,
                 socketPath,
                 lockPath,
@@ -1482,6 +1565,68 @@ async function startHostRuntime(
                     registry.defaultReasoningEffort = undefined;
                     announceGlobalChange("config");
                     announceGlobalChange("pool");
+                },
+                setProviderEnabled: async (provider, enabled, workspace) => {
+                    let changed = false;
+                    const change = async () => {
+                        const config = currentConfig();
+                        if (findConfiguredProvider(provider, config) === undefined) {
+                            throw new Error("Provider is no longer configured");
+                        }
+                        if (providerEnabled(config, provider) === enabled) return;
+                        if (!enabled) {
+                            const refusal = providerDisableRefusal(config, provider, { authStorage });
+                            if (refusal !== undefined) throw new Error(refusal);
+                        }
+                        const write = () => updateVeraConfigDefaults({
+                            provider_enabled: { id: provider, enabled },
+                        }, { path: configPath });
+                        if (credentials === undefined) write();
+                        else await credentials.withProviderMutation(provider, write);
+                        changed = true;
+                        providerGenerations.set(provider, (providerGenerations.get(provider) ?? 0) + 1);
+                        if (enabled) {
+                            // Restore the cached catalog now; the refresh below replaces it if the provider answers.
+                            models = modelsFromConnectedCatalogs(currentConfig(), models, {
+                                authStorage,
+                                cacheDir: cacheDirectory,
+                            });
+                        }
+                        announceGlobalChange("config");
+                        if (!enabled) {
+                            models = models.filter((model) => model.provider !== provider);
+                            announceGlobalChange("catalog");
+                        }
+                    };
+                    const queued = catalogRefreshes.then(change);
+                    catalogRefreshes = queued.then(() => undefined, () => undefined);
+                    await queued;
+                    if (!enabled || !changed) return { settings: registry.readHostModelSettings(workspace) };
+                    let warning: string | undefined;
+                    // The queue is free now, so the normal per-provider refresh can run without waiting on itself.
+                    if (sharedServices !== undefined) {
+                        const refresh = sharedServices.models.refreshCatalog;
+                        const refreshableProviders = sharedServices.models.refreshableProviders;
+                        if (refresh !== undefined) {
+                            let refreshable = false;
+                            if (refreshableProviders !== undefined) {
+                                try {
+                                    refreshable = refreshableProviders().includes(provider);
+                                } catch {
+                                    refreshable = false;
+                                }
+                            }
+                            const refreshed = await refresh(provider).catch(() => undefined);
+                            if (refreshable && refreshed === undefined) {
+                                const label = findConfiguredProvider(provider, currentConfig())?.label ?? provider;
+                                warning = `${label} is on, but its model list could not be refreshed. The saved list stands.`;
+                            }
+                        }
+                    }
+                    return {
+                        settings: registry.readHostModelSettings(workspace),
+                        ...(warning === undefined ? {} : { warning }),
+                    };
                 },
                 forgetProvider: async (provider, workspace) => {
                     const forget = async () => {
@@ -1685,13 +1830,7 @@ async function startHostRuntime(
         const pending = pruneScratch(scratchDirectory, sessionDirectory, {
             maxAgeMs: scratchMaxAgeMs(currentConfig()),
             isStopped: () => scratchPruneStopped,
-            removeIfUnowned: (id, detach) => inProcessWorker?.removeScratchIfUnowned !== undefined
-                ? inProcessWorker.removeScratchIfUnowned(id, detach)
-                : (() => {
-                    const unowned = () => !registry.agents.has(id) && !registry.startingIds.has(id)
-                        && !registry.trashingIds.has(id);
-                    return unowned() ? detach(unowned) : false;
-                })(),
+            removeIfUnowned: removeScratchIfUnowned,
         }).then(() => {}, () => {});
         scratchPruning = pending;
         void pending.then(() => { scratchPruning = undefined; });
@@ -1829,14 +1968,19 @@ export async function refreshProviderCatalogListings(
         : { cacheDir: options.cacheDir };
     const authStorage = options.authStorage ?? createAuthStorage();
     const descriptors = standardProviderDescriptors(config);
+    const ollamaEnabled = providerEnabled(config, "ollama");
+    const openrouterEnabled = providerEnabled(config, "openrouter");
+    const codexEnabled = providerEnabled(config, OPENAI_CODEX_PROVIDER_ID);
     const [ollama, openrouter, standard, codex] = await Promise.all([
-        discoverOllamaModelCatalog({
-            ...cacheOptions,
-            ...(config.provider_endpoints?.ollama === undefined
-                ? {}
-                : { host: config.provider_endpoints.ollama }),
-        }),
-        hasOpenRouterCredential(config)
+        ollamaEnabled
+            ? discoverOllamaModelCatalog({
+                ...cacheOptions,
+                ...(config.provider_endpoints?.ollama === undefined
+                    ? {}
+                    : { host: config.provider_endpoints.ollama }),
+            })
+            : undefined,
+        openrouterEnabled && hasOpenRouterCredential(config)
             ? discoveredOpenRouterModelsResult(config, {
                 ...cacheOptions,
                 maxAgeMs: 0,
@@ -1848,27 +1992,31 @@ export async function refreshProviderCatalogListings(
                 maxAgeMs: 0,
             })
         )),
-        refreshCodexCatalog(authStorage, {
-            ...cacheOptions,
-            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-            ...(options.authorization === undefined ? {} : { authorization: options.authorization }),
-        }),
+        codexEnabled
+            ? refreshCodexCatalog(authStorage, {
+                ...cacheOptions,
+                ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+                ...(options.authorization === undefined ? {} : { authorization: options.authorization }),
+            })
+            : undefined,
     ]);
     const listings: CatalogRefreshListing[] = [];
-    if (ollama.available) {
+    if (ollama !== undefined && ollama.available) {
         const models = ollama.models.map((model) => model.model);
         listings.push({
             provider: "ollama",
             outcome: { provider: "ollama", models: models.length },
             ...(models.length === 0 ? {} : { listed: models }),
         });
-    } else {
+    } else if (ollama !== undefined) {
         listings.push({
             provider: "ollama",
             outcome: { provider: "ollama", failure: "unavailable" },
         });
     }
-    if (openrouter === undefined) {
+    if (!openrouterEnabled) {
+        // Off providers get no listing, so the daily scan records no miss for them.
+    } else if (openrouter === undefined) {
         listings.push({
             provider: "openrouter",
             outcome: { provider: "openrouter", failure: "missing_credential" },
@@ -1987,6 +2135,7 @@ function standardProviderDescriptors(
     config: VeraConfig,
 ): readonly ProviderDescriptor[] {
     return configuredProviders(config).filter((provider) =>
+        providerEnabled(config, provider.id) &&
         provider.protocol === "openai-chat"
         && provider.behaviorId === undefined
         && provider.discovery?.mode === "models"
@@ -2104,14 +2253,18 @@ async function discoverAvailableModels(
     const catalog = catalogModels(config);
     const cacheOptions = cacheDir === undefined ? {} : { cacheDir };
     const [ollama, openrouter, standard] = await Promise.all([
-        discoveredOllamaModels({
-            log,
-            ...cacheOptions,
-            ...(config.provider_endpoints?.ollama === undefined
-                ? {}
-                : { host: config.provider_endpoints.ollama }),
-        }),
-        discoveredOpenRouterModels(config, { ...cacheOptions, maxAgeMs }),
+        providerEnabled(config, "ollama")
+            ? discoveredOllamaModels({
+                log,
+                ...cacheOptions,
+                ...(config.provider_endpoints?.ollama === undefined
+                    ? {}
+                    : { host: config.provider_endpoints.ollama }),
+            })
+            : Promise.resolve([] as readonly SuggestedModel[]),
+        providerEnabled(config, "openrouter")
+            ? discoveredOpenRouterModels(config, { ...cacheOptions, maxAgeMs })
+            : Promise.resolve([] as readonly SuggestedModel[]),
         Promise.all(standardProviderDescriptors(config).map((descriptor) =>
             standardProviderModels(descriptor, config, authStorage, {
                 ...cacheOptions,
@@ -2135,7 +2288,9 @@ async function discoverAvailableModels(
     }));
     catalog.push(...discoveredCodexModels(config, cacheOptions));
     catalog.push(...cachedProviderModels(
-        configuredProviders(config).map((provider) => provider.id),
+        configuredProviders(config)
+            .filter((provider) => providerEnabled(config, provider.id))
+            .map((provider) => provider.id),
         catalog,
         cacheOptions,
     ));
@@ -2150,7 +2305,10 @@ async function discoverAvailableModels(
         });
     }
     return withProviderRefreshability(
-        withCachedWindows(catalog, readCachedWindowIndex(cacheOptions)),
+        withCachedWindows(
+            catalog.filter((model) => providerEnabled(config, model.provider)),
+            readCachedWindowIndex(cacheOptions),
+        ),
         config,
     );
 }
@@ -2191,6 +2349,7 @@ export async function discoveredCerebrasModels(
     config: VeraConfig,
     options: CerebrasDiscoveryOptions = {},
 ): Promise<readonly SuggestedModel[]> {
+    if (!providerEnabled(config, "cerebras")) return [];
     if (!hasCerebrasCredential(config, options.authStorage)) {
         return [];
     }
@@ -2320,6 +2479,7 @@ export function discoveredCodexModels(
     config: VeraConfig,
     options: CodexDiscoveryOptions = {},
 ): readonly SuggestedModel[] {
+    if (!providerEnabled(config, OPENAI_CODEX_PROVIDER_ID)) return [];
     if (
         config.provider !== "openai-codex"
         && !hasCodexCredential(options.authStorage)
@@ -2687,7 +2847,7 @@ export function configuredCatalog(
             description: "configured model",
         }, ...catalog];
     return withCachedWindows(
-        complete,
+        complete.filter((model) => providerEnabled(config, model.provider)),
         readCachedWindowIndex(cacheDir === undefined ? {} : { cacheDir }),
     );
 }
@@ -2721,6 +2881,7 @@ export function discoveredDeepSeekModels(
     config: VeraConfig,
     options: DeepSeekDiscoveryOptions = {},
 ): readonly SuggestedModel[] {
+    if (!providerEnabled(config, "deepseek")) return [];
     if (!hasDeepSeekCredential(config, options.authStorage)) {
         return [];
     }
@@ -2794,6 +2955,9 @@ export async function discoveredOpenRouterModelsResult(
     config: VeraConfig,
     options: OpenRouterDiscoveryOptions = {},
 ): Promise<OpenRouterDiscoveryResult> {
+    if (!providerEnabled(config, "openrouter")) {
+        return { models: [], keptModels: 0 };
+    }
     if (!hasOpenRouterCredential(config)) {
         return { models: [], keptModels: 0 };
     }

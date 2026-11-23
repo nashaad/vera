@@ -109,6 +109,7 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "declare_provider",
     "edit_endpoint",
     "forget_provider",
+    "toggle_provider_enabled",
     "reveal_all_models",
     "switch_tab",
     "preview_session",

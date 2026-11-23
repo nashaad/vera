@@ -76,6 +76,11 @@ export function pluginCommand(item: PluginItem): string | undefined {
     return item.kind === "skills" ? `/${item.name}` : undefined;
 }
 
+export function pluginEditorPath(item: PluginItem): string | undefined {
+    if (item.kind === "plugins" || item.source?.plugin !== undefined || item.skill?.plugin !== undefined || item.agent?.plugin !== undefined) return undefined;
+    return item.source?.path;
+}
+
 // Paths read from the folder lose it, and home paths read with `~`, as they do in the manual.
 export function pluginPathLabel(path: string, scope: PluginScope, folder: string | undefined, home: string | undefined): string {
     if (scope === "folder" && folder !== undefined) {

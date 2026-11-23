@@ -7,8 +7,8 @@ import type { ModelEntry, ModelSettings } from "../../clients/ui/src/models/sett
 import type { ProviderStatus } from "../../clients/ui/src/protocol/bridge.ts";
 
 const providers: readonly ProviderStatus[] = [
-    { id: "openai", name: "OpenAI", methods: ["key"], connected: true, catalog_connected: true, custom: false },
-    { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: false, catalog_connected: false, custom: false },
+    { id: "openai", name: "OpenAI", methods: ["key"], connected: true, catalog_connected: true, enabled: true, custom: false },
+    { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: false, catalog_connected: false, enabled: true, custom: false },
 ];
 
 function entry(provider: string, index: number): ModelEntry {

@@ -207,6 +207,12 @@ The `▌` bar marks the level Enter will select. Use Up/Down to move it.
 Switching to a model with effort levels always asks which level to run, with
 your current level highlighted when the new model has it.
 
+When a new conversation starts on a model that does not offer the saved level,
+it starts on the model's own default level. If the model names no default, it
+starts on the nearest level it offers, never `off` while another level is
+available. Your saved level stays as it is, so a model that offers it still
+starts there.
+
 Choosing a level saves it as the default for new conversations, except `max`.
 `max` applies to the current conversation only, and new conversations keep the
 level they had before. Vera says which of the two happened when you choose.
@@ -240,6 +246,8 @@ one `model_dropped` line to `runtime/logs/host.jsonl`. The scan does not change
 your favorites, assignments, current model, or a running conversation. A full
 manual refresh holds the next background scan off for an hour. Miss history is
 in `runtime/model-availability.json`; deleting that file only loses the history.
+A provider you turned off is skipped by manual refresh, the daily scan, and
+the start fetch; turn it on again to read its catalog.
 
 Vera retries rate-limit, server, and dropped-connection failures up to six
 times, waiting about 1, 2, 4, 8, 15, and 30 seconds. Other transient request
@@ -253,7 +261,11 @@ available. The lower level lasts only for this request; the next request uses
 the turn's effort again.
 Once answer text has appeared, Vera keeps it and shows the error instead. If a
 model sends nothing for 5 minutes, Vera treats that as a timeout and retries.
-Retry activity shows the attempt and total attempt count, the time left before
+One model's retries stop about 10 minutes after its first failure: a retry
+whose wait would run past that point does not start, and an attempt's 5-minute
+silence limit is shortened to the time left. The request ends with the last
+failure. A fallback model gets its own 10-minute window. Retry activity shows
+the attempt and total attempt count, the time left before
 the next attempt, and a short name for the failure. Once the next attempt runs
 without a reply, it shows how long it has been silent instead. The TUI keeps
 the turn's elapsed time on the same line. Press Escape to cancel at any point,

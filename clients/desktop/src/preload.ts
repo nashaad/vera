@@ -5,6 +5,7 @@ import type { AssignAllResult, AssignmentChange, AssignmentsResult, AssignmentWr
 import type { IncludedExtensionsResult } from "../../ui/src/protocol/included-extensions.ts";
 import type { SavedPins } from "../../ui/src/protocol/pins.ts";
 import type { MoveSessionOutcome } from "../../ui/src/protocol/sessionMove.ts";
+import type { SidebarSettings } from "../../ui/src/protocol/sidebarSettings.ts";
 import type { DesktopFlags, FlagPatch } from "../../ui/src/state/desktopFlags.ts";
 import type {
     AnnexPagesResult,
@@ -38,6 +39,12 @@ import type { CatalogListResult, CatalogPreviewResult } from "../../ui/src/proto
 import type { ExtensionChangeResult, ExtensionPreviewResult } from "../../ui/src/protocol/extensions.ts";
 import type { ExtensionCommandResult } from "../../ui/src/protocol/extension-commands.ts";
 import type { ExtensionLogLevel, ExtensionMainResult } from "../../ui/src/protocol/desktop-extensions.ts";
+import type {
+    StorageCleaned,
+    StorageCleanupArea,
+    StorageMeasured,
+    StoragePreviewed,
+} from "../../ui/src/protocol/storage.ts";
 import type { ThemeChoice } from "../../ui/src/theme/tokens.ts";
 import type { BrowserBounds, BrowserHandoffAnswer, BrowserState, BrowserToolsApproval } from "../../ui/src/browser/native-types.ts";
 import { CHANNELS } from "./channels.ts";
@@ -98,6 +105,8 @@ const bridge: DesktopBridge = {
     saveLayout: (layout: LayoutState) => ipcRenderer.send(CHANNELS.layoutSave, layout),
     loadPins: async () => (await ipcRenderer.invoke(CHANNELS.pinsLoad)) as SavedPins,
     savePins: (pins: SavedPins) => ipcRenderer.send(CHANNELS.pinsSave, pins),
+    loadSidebarSettings: async () => (await ipcRenderer.invoke(CHANNELS.sidebarSettingsLoad)) as SidebarSettings,
+    saveSidebarSettings: (settings: SidebarSettings) => ipcRenderer.send(CHANNELS.sidebarSettingsSave, settings),
     loadFlags: async () => (await ipcRenderer.invoke(CHANNELS.flagsLoad)) as DesktopFlags,
     saveFlags: async (patch: FlagPatch) => ((await ipcRenderer.invoke(CHANNELS.flagsSave, patch)) ?? undefined) as DesktopFlags | undefined,
     reportHiddenCommands: (ids: readonly string[]) => ipcRenderer.send(CHANNELS.flagsHidden, ids),
@@ -163,6 +172,8 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.catalogRefresh, provider, workspace)) as HostModelsResult,
     forgetProvider: async (provider: string, workspace?: string) =>
         (await ipcRenderer.invoke(CHANNELS.providerForget, provider, workspace)) as HostModelsResult,
+    setProviderEnabled: async (provider: string, enabled: boolean, workspace?: string) =>
+        (await ipcRenderer.invoke(CHANNELS.providerSetEnabled, provider, enabled, workspace)) as HostModelsResult,
     operateModel: async (operation: ModelOperationKind, provider: string, model: string, workspace?: string) =>
         (await ipcRenderer.invoke(CHANNELS.modelOperate, operation, provider, model, workspace)) as ModelOperationResult,
     readAssignments: async () => (await ipcRenderer.invoke(CHANNELS.assignmentsRead)) as AssignmentsResult,
@@ -175,6 +186,12 @@ const bridge: DesktopBridge = {
         (await ipcRenderer.invoke(CHANNELS.sessionsSearch, request)) as SessionSearchResult,
     readExtensionFailures: async () =>
         (await ipcRenderer.invoke(CHANNELS.extensionFailures)) as ExtensionFailuresResult,
+    measureStorage: async (refresh: boolean) =>
+        (await ipcRenderer.invoke(CHANNELS.storageMeasure, refresh)) as StorageMeasured,
+    previewStorageCleanup: async (area: StorageCleanupArea, maxAgeDays: number) =>
+        (await ipcRenderer.invoke(CHANNELS.storageCleanupPreview, area, maxAgeDays)) as StoragePreviewed,
+    runStorageCleanup: async (area: StorageCleanupArea, maxAgeDays: number) =>
+        (await ipcRenderer.invoke(CHANNELS.storageCleanup, area, maxAgeDays)) as StorageCleaned,
     readNewSessionAgents: async (workspace: string | undefined) =>
         (await ipcRenderer.invoke(CHANNELS.newSessionAgents, workspace)) as NewSessionAgentsResult,
     readFolderCustomizations: async (workspace: string | undefined) =>

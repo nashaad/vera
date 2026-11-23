@@ -4,6 +4,7 @@ export interface HostIdentityFacts {
     readonly pid: number;
     readonly protocol_version: number;
     readonly build_id?: string | null;
+    readonly capabilities?: readonly string[];
 }
 
 export interface AgentListFacts {
@@ -61,6 +62,11 @@ export class HostProtocolClient {
             "host_identity",
             isHostIdentity,
         );
+    }
+
+    pollAgents(options: ListAgentsOptions = {}): Promise<AgentListFacts> | undefined {
+        if (this.listAgentsBusy) return undefined;
+        return this.listAgents(options);
     }
 
     // One page, most recently updated first. The host reports the whole listing's size as total.
@@ -173,7 +179,10 @@ function isHostIdentity(value: unknown): value is HostIdentityFacts {
     return identity.type === "host_identity"
         && typeof identity.pid === "number"
         && Number.isSafeInteger(identity.pid)
-        && typeof identity.protocol_version === "number";
+        && typeof identity.protocol_version === "number"
+        && (identity.capabilities === undefined
+            || (Array.isArray(identity.capabilities)
+                && identity.capabilities.every((entry) => typeof entry === "string")));
 }
 
 function isAgentList(value: unknown): value is AgentListFacts {

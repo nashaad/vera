@@ -116,7 +116,8 @@ export function ContextMenu({ entries, x, y, onRun, onClose }: ContextMenuProps)
                         <span className="menu-check">
                             {entry.checked === true ? <CheckIcon /> : null}
                         </span>
-                        {entry.label}
+                        <span className="menu-label">{entry.label}</span>
+                        {entry.hint === undefined ? null : <span className="menu-hint">{entry.hint}</span>}
                     </div>
                 );
             })}

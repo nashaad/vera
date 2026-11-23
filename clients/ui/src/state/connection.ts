@@ -29,6 +29,7 @@ export interface UiState {
     readonly sessions?: number;
     // The first page of the host's listing; `sessions` is the size of the whole listing.
     readonly sessionRows?: readonly SessionRow[];
+    readonly sessionRowsStale?: boolean;
     readonly question?: UiQuestion;
     readonly failure?: string;
     readonly checked?: readonly string[];
@@ -44,6 +45,7 @@ export type UiAction =
         readonly count: number | undefined;
         readonly rows: readonly SessionRow[];
     }
+    | { readonly type: "cached-sessions"; readonly home: string; readonly rows: readonly SessionRow[] }
     | { readonly type: "notice"; readonly message: string }
     | { readonly type: "lost"; readonly reason: string }
     | { readonly type: "reconnecting" }
@@ -59,7 +61,10 @@ export function reduceConnection(state: UiState, action: UiAction): UiState {
         case "identity":
             return { ...state, identity: action.identity, notice: undefined };
         case "sessions":
-            return { ...state, sessions: action.count, sessionRows: action.rows, notice: undefined };
+            return { ...state, sessions: action.count, sessionRows: action.rows, sessionRowsStale: false, notice: undefined };
+        case "cached-sessions":
+            if (state.phase !== "attached" || state.ready?.home !== action.home || state.sessionRows !== undefined) return state;
+            return { ...state, sessionRows: action.rows, sessionRowsStale: true };
         case "notice":
             return { ...state, notice: action.message };
         case "lost":

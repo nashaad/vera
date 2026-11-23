@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 
 import {
     AgentIcon,
+    BlocksIcon,
     BoltIcon,
     ClockIcon,
     FileIcon,
@@ -18,6 +19,7 @@ const KIND_ICONS: Readonly<Record<CustomizeKind, KindIconComponent>> = {
     extensions: LayersIcon,
     instructions: FileIcon,
     memory: ClockIcon,
+    plugins: BlocksIcon,
 };
 
 export function KindIcon({ kind, className }: IconProps & { readonly kind: CustomizeKind }) {

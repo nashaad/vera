@@ -6,9 +6,9 @@ description: "Run, write, and turn off reusable instructions for recurring tasks
 # Use and write skills
 
 A skill packages instructions for a recurring task in a directory containing
-`SKILL.md`. Vera discovers bundled skills, skills from enabled extensions, and
-skills you write for your home or a project. The current definition determines
-which skills are available.
+`SKILL.md`. Vera discovers bundled skills, skills from enabled extensions and
+plugins, and skills you write for your home or a project. The current
+definition determines which skills are available.
 
 ## Run a skill
 
@@ -77,10 +77,15 @@ The project root is the folder Vera runs in, the same folder it reads
 `AGENTS.md` from. In a git worktree, that is the worktree. See
 [Files in a project](config-reference.md#files-in-a-project).
 
-Skills load in this order: bundled with Vera, enabled extensions, your home,
-then the project. When two skills share a name, the later one replaces the
-earlier one and Vera reports the replacement as a warning. A project
-`loot-ledger` replaces your home `loot-ledger` in that project.
+An enabled plugin's own `skills/` directory is read too, and a plugin's host
+extension can add more skill directories. Plugin skills use the same
+`SKILL.md` format and names, and they are read-only. Install, inspect and
+switch a plugin with [Plugins](plugins.md).
+
+Skills load in this order: bundled with Vera, enabled extensions, enabled
+plugins, your home, then the project. When two skills share a name, the later
+one replaces the earlier one and Vera reports the replacement as a warning. A
+project `loot-ledger` replaces your home `loot-ledger` in that project.
 
 To ship skills with an extension, see
 [Contribute skills](extension-apis.md#contribute-skills).
@@ -157,7 +162,7 @@ names to turn off. The change applies the same way as an edited skill.
 
 A trailing `*` matches every name that starts with the text before it, and
 `["*"]` turns off every skill. A `*` anywhere else makes the config invalid.
-This works for bundled and extension skills too.
+This works for bundled, plugin and extension skills too.
 
 To turn skills off in one project, put the same list in the project's
 `.vera/config.json`. Vera adds it to the home list, and it applies to skills

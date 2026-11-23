@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import type { TuiAgentClient } from "../../clients/tui/agent-client.ts";
-import { focusedAgentClient } from "../../clients/tui/main/agents-dials.ts";
+import { agentPickerLabel, focusedAgentClient } from "../../clients/tui/main/agents-dials.ts";
 import { requestExtensionPicker } from "../../clients/tui/main/extension-bridge.ts";
 import {
     captureExtensionInvocation,
@@ -128,6 +128,21 @@ test("dropsLateResult keeps handled results and drops other results only after t
     expect(dropsLateResult(rt, invocation, "text")).toBe(true);
     expect(dropsLateResult(rt, invocation, "client_action")).toBe(true);
     expect(dropsLateResult(rt, invocation, "handled")).toBe(false);
+});
+
+test("the agent picker names a plugin after the plugin, not the scope only", () => {
+    expect(agentPickerLabel({
+        name: "reviewer",
+        scope: "plugin",
+        writable: false,
+        plugin: "sample-plugin",
+    })).toBe("reviewer (plugin sample-plugin)");
+    expect(agentPickerLabel({ name: "reviewer", scope: "plugin", writable: false }))
+        .toBe("reviewer (plugin)");
+    expect(agentPickerLabel({ name: "reviewer", scope: "extension", writable: false }))
+        .toBe("reviewer (ext)");
+    expect(agentPickerLabel({ name: "reviewer", scope: "user", writable: true }))
+        .toBe("reviewer");
 });
 
 test("a stale invocation's picker is cancelled without opening", async () => {

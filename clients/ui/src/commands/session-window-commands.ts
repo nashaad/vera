@@ -6,8 +6,10 @@ import { CORE_CONTAINERS } from "../registry/core.ts";
 import { activeSession, whenSessionActive } from "../session/activeSession.ts";
 import { renameSession } from "../session/rename.ts";
 import { openSessionSheet } from "../session/sessionSheets.ts";
+import { setSidebarGrouping } from "../state/useSidebarGrouping.ts";
 import { toggleSessionPin } from "../state/usePins.ts";
 import { LAYOUT_COMMANDS } from "./layout-commands.ts";
+import { SIDEBAR_COMMANDS } from "./sidebar-commands.ts";
 import type { CommandRegistry } from "./registry.ts";
 import { SESSION_COMMANDS } from "./session-commands.ts";
 
@@ -184,6 +186,18 @@ export function registerSessionWindowCommands(registry: CommandRegistry, deps: S
                 open(target);
                 registry.execute(LAYOUT_COMMANDS.containerActivate, { container: CORE_CONTAINERS.files });
             }),
+        }),
+        registry.register({
+            id: SIDEBAR_COMMANDS.groupFolder,
+            title: "Group Sessions by Folder",
+            paletteHidden: true,
+            run: () => setSidebarGrouping("folder"),
+        }),
+        registry.register({
+            id: SIDEBAR_COMMANDS.groupNone,
+            title: "Group Sessions by None",
+            paletteHidden: true,
+            run: () => setSidebarGrouping("none"),
         }),
         registry.register({ id: SESSION_ROW_COMMANDS.clone, title: "Clone Session", needsArgs: true, run: withBridge(clone) }),
         registry.register({

@@ -18,6 +18,7 @@ import { isHomeClient } from "../home-client.ts";
 import { loadExtensionCommands } from "./extension-bridge.ts";
 import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, requestCreateSession, beginSessionResume, disconnectedRecoveryHint, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openModelPicker, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, toggleWorkspaceSidebar, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestFocusedPaneClose, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
 import { openExtensionsList, refreshOpenExtensionsList } from "./extensions-ops.ts";
+import { runPluginCommand } from "./plugin-ops.ts";
 import { importSessionFromTui, openImportPicker } from "./import-ops.ts";
 import { runUpdateCommand } from "./update-ops.ts";
 import { holdHomeSessionName } from "./home-session-name.ts";
@@ -28,7 +29,7 @@ import {
     noReasoningEffortSettingNotice,
 } from "./model-pickers.ts";
 import { openOnboardingWizard } from "./onboarding-wizard-ops.ts";
-import { focusedAgentClient, focusedAgentState, hostOwnsPromptQueue, releaseFocusedQueuedPrompts, selectAgent } from "./agents-dials.ts";
+import { focusedAgentClient, focusedAgentState, hostOwnsPromptQueue, releaseFocusedQueuedPrompts, requestAgentCatalog, selectAgent } from "./agents-dials.ts";
 import { captureExtensionInvocation, conversationChanged, dropsLateResult } from "./extension-invocation.ts";
 import { requestSkillCommands } from "./extension-bridge.ts";
 import { adoptFallbackSessionTitle, clearSearchLanding, coreHelpCommands, readStandingNudgeRules, workerFreeAction } from "../main/chrome.ts";
@@ -255,7 +256,12 @@ export function submitPrompt(rt: TuiRuntime,
                 text += "\nThe TUI side reloads now; restart the host for the host side.\n";
             }
             if (command.operation === "install") {
-                rt.extensionsDialog = { text, copyReady: true };
+                rt.extensionsDialog = {
+                    text,
+                    title: "Extensions",
+                    footerText: "Managed installs stay outside the Vera release.",
+                    copyReady: true,
+                };
             } else {
                 rt.state = appendTuiNotice(rt.state, text.trimEnd());
                 refreshOpenExtensionsList(rt);
@@ -269,6 +275,49 @@ export function submitPrompt(rt: TuiRuntime,
             rt.state = appendTuiError(
                 rt.state,
                 `Extension operation failed: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            renderState(rt);
+        }
+        return;
+    }
+    if (commandAction?.type === "manage_plugins") {
+        rt.composer.rememberSubmittedText(prompt);
+        rt.composer.clearComposer();
+        renderCommandSuggestions(rt);
+        const command = commandAction.command;
+        try {
+            const outcome = runPluginCommand(command);
+            const changed = (command.operation === "install" && !command.dry_run)
+                || command.operation === "enable"
+                || command.operation === "disable"
+                || command.operation === "remove"
+                || command.operation === "migrate";
+            if (changed) {
+                requestSkillCommands(rt);
+                rt.agentCatalog = undefined;
+                const target = focusedAgentClient(rt);
+                if (target.viewOnly !== true && target.failed !== true) {
+                    void requestAgentCatalog(rt, target);
+                }
+            }
+            if (outcome.surface === "dialog") {
+                rt.extensionsDialog = {
+                    text: outcome.text,
+                    title: "Plugins",
+                    footerText: "",
+                    copyReady: true,
+                };
+            } else {
+                rt.state = appendTuiNotice(rt.state, outcome.text);
+            }
+            renderState(rt);
+            focusActiveSurface(rt);
+        } catch (error) {
+            rt.state = appendTuiError(
+                rt.state,
+                `Plugin operation failed: ${
                     error instanceof Error ? error.message : String(error)
                 }`,
             );

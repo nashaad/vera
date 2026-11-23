@@ -3,6 +3,8 @@ export interface Command {
     readonly title: string;
     // Set on commands that do nothing without arguments, so the palette leaves them out.
     readonly needsArgs?: true;
+    // A command the palette leaves out even though it runs without arguments.
+    readonly paletteHidden?: true;
     readonly paletteSearchOnly?: true;
     readonly paletteSearchText?: string;
     run(args?: unknown): void;

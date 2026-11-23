@@ -3,6 +3,7 @@ import type { AgentInfo, AgentScope } from "../../customize/wire.ts";
 export function scopeLabel(scope: AgentScope): string {
     if (scope === "project") return "This folder";
     if (scope === "user") return "Your home";
+    if (scope === "plugin") return "Plugin";
     return "Extension";
 }
 

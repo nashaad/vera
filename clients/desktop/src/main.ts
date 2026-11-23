@@ -26,6 +26,7 @@ import type {
     SyncSidekickResult,
 } from "../../ui/src/protocol/bridge.ts";
 import { NO_PINS } from "../../ui/src/protocol/pins.ts";
+import { DEFAULT_SIDEBAR_SETTINGS } from "../../ui/src/protocol/sidebarSettings.ts";
 import type { MoveSessionOutcome } from "../../ui/src/protocol/sessionMove.ts";
 import type { ExtensionCommandResult } from "../../ui/src/protocol/extension-commands.ts";
 import { BROWSER_STATE_CHANGED } from "../../ui/src/browser/native-types.ts";
@@ -72,19 +73,24 @@ import {
     operationArgument,
     readModels,
     refreshProvider,
+    setProviderEnabled,
     workspaceArgument,
 } from "./model-requests.ts";
 import { pastedImageDirectory, savePastedImage } from "./pasted-image.ts";
 import { PinStore, pinsPath } from "./pin-store.ts";
+import { SidebarSettingsStore, sidebarSettingsPath } from "./sidebar-settings-store.ts";
 import { EXTENSION_FRAME_FILE } from "./extension-frame-file.ts";
 import { ExtensionLogs, extensionLogsDir } from "./extension-logs.ts";
 import { isFolderName } from "./extension-files.ts";
 import { readExtensionFailures } from "./extension-requests.ts";
 import { readNewSessionAgents } from "./agent-requests.ts";
+import { measureStorage, previewStorageCleanup, runStorageCleanup } from "./storage-requests.ts";
+import { isStorageAgeDays, isStorageCleanupArea } from "../../ui/src/protocol/storage.ts";
 import { readFolderCustomizations } from "./customization-requests.ts";
 import { searchArgument, searchSessions } from "./search-requests.ts";
 import { moveSessionToFolder } from "./session-move.ts";
 import { SessionPanes } from "./session-panes.ts";
+import { SessionCacheStore, SessionCacheWriter } from "./session-cache-store.ts";
 import { branchSession, cloneSession, closeSession, idArgument } from "./session-requests.ts";
 import { openSidekick, syncSidekick } from "./sidekick-requests.ts";
 import { shortcutCommand } from "./shortcuts.ts";
@@ -143,19 +149,21 @@ const relaunch = new DesktopRelaunch({
 let sessionToReopen = relaunch.takeReopen();
 const PACKAGE_SETTLE_MS = 500;
 let stopPackageWatch: (() => void) | undefined;
-const pipe = new HostPipe(sendEvent);
+const sessionCache = new SessionCacheWriter(new SessionCacheStore(selectedVeraHome()));
+const pipe = new HostPipe(sendEvent, (request, reply) => sessionCache.accept(request, reply));
 const flagsStore = new FlagsStore(flagsPath(selectedVeraHome()), app.isPackaged);
 // With Reasoning off the window asks the host for a character count in place of the reasoning text.
 const hidesReasoning = (): boolean => flagsStore.read().showReasoning !== "on";
 const sessionPanes = new SessionPanes(sendEvent, hidesReasoning);
 const layoutStore = new LayoutStore(layoutPath(selectedVeraHome()));
 const pinStore = new PinStore(pinsPath(selectedVeraHome()));
+const sidebarSettingsStore = new SidebarSettingsStore(sidebarSettingsPath(selectedVeraHome()));
 // Until the window reports, the menus hide every part the flags file does not turn on.
 let hiddenCommands: ReadonlySet<string> = hiddenCommandsFor(flagsStore.read());
 const assignmentTasks = new TaskRunner(() => startTaskProcess<AssignmentTask>(ASSIGNMENT_TASK_FILE, ASSIGNMENT_TASK_SERVICE), parseAssignmentTaskReply);
 const assignments = new AssignmentService(selectedVeraHome(), (task) => assignmentTasks.run(task));
 const extensionStore = new ExtensionStore(
-    extensionsDirectory(selectedVeraHome()),
+    selectedVeraHome(),
     new ExtensionStateStore(extensionStatePath(selectedVeraHome())),
     includedExtensionsDirectory(import.meta.dirname),
 );
@@ -293,6 +301,7 @@ function shutdown(): void {
     boot = undefined;
     hostSocketPath = undefined;
     pipe.close();
+    sessionCache.flush();
     sessionPanes.close();
     void extensionLogs.close();
 }
@@ -479,6 +488,10 @@ ipcMain.on(CHANNELS.layoutSave, (event, layout: unknown) => {
 ipcMain.handle(CHANNELS.pinsLoad, (event) => (fromWindow(event) ? pinStore.load() ?? NO_PINS : NO_PINS));
 ipcMain.on(CHANNELS.pinsSave, (event, pins: unknown) => {
     if (fromWindow(event)) pinStore.save(pins);
+});
+ipcMain.handle(CHANNELS.sidebarSettingsLoad, (event) => (fromWindow(event) ? sidebarSettingsStore.load() ?? DEFAULT_SIDEBAR_SETTINGS : DEFAULT_SIDEBAR_SETTINGS));
+ipcMain.on(CHANNELS.sidebarSettingsSave, (event, settings: unknown) => {
+    if (fromWindow(event)) sidebarSettingsStore.save(settings);
 });
 ipcMain.handle(CHANNELS.feedbackCapture, async (event): Promise<string | undefined> => {
     if (!fromWindow(event) || window === undefined) return undefined;
@@ -709,6 +722,13 @@ ipcMain.handle(CHANNELS.providerForget, (event, provider: unknown, workspace: un
     if (!fromWindow(event) || id === undefined) return { ok: false, reason: "That is not a provider Vera knows." };
     return forgetProvider(hostSocketPath, id, workspaceArgument(workspace));
 });
+ipcMain.handle(CHANNELS.providerSetEnabled, (event, provider: unknown, enabled: unknown, workspace: unknown) => {
+    const id = providerArgument(provider);
+    if (!fromWindow(event) || id === undefined || typeof enabled !== "boolean") {
+        return { ok: false, reason: "That is not a provider Vera knows." };
+    }
+    return setProviderEnabled(hostSocketPath, id, enabled, workspaceArgument(workspace));
+});
 ipcMain.handle(CHANNELS.modelOperate, (event, operation: unknown, provider: unknown, model: unknown, workspace: unknown) => {
     const kind = operationArgument(operation);
     const id = providerArgument(provider);
@@ -748,6 +768,22 @@ ipcMain.handle(CHANNELS.fileOpen, async (event, path: unknown): Promise<boolean>
 });
 ipcMain.handle(CHANNELS.extensionFailures, (event) =>
     fromWindow(event) ? readExtensionFailures(hostSocketPath) : { ok: false, reason: "The host is not running." });
+ipcMain.handle(CHANNELS.storageMeasure, (event, refresh: unknown) => {
+    if (!fromWindow(event) || typeof refresh !== "boolean") return { ok: false, reason: "That is not a storage request." };
+    return measureStorage(hostSocketPath, refresh);
+});
+ipcMain.handle(CHANNELS.storageCleanupPreview, (event, area: unknown, maxAgeDays: unknown) => {
+    if (!fromWindow(event) || !isStorageCleanupArea(area) || !isStorageAgeDays(maxAgeDays)) {
+        return { ok: false, reason: "That is not a storage request." };
+    }
+    return previewStorageCleanup(hostSocketPath, area, maxAgeDays);
+});
+ipcMain.handle(CHANNELS.storageCleanup, (event, area: unknown, maxAgeDays: unknown) => {
+    if (!fromWindow(event) || !isStorageCleanupArea(area) || !isStorageAgeDays(maxAgeDays)) {
+        return { ok: false, reason: "That is not a storage request." };
+    }
+    return runStorageCleanup(hostSocketPath, area, maxAgeDays);
+});
 ipcMain.handle(CHANNELS.newSessionAgents, (event, workspace: unknown) => {
     if (!fromWindow(event)) return { ok: false, reason: "The host is not running." };
     if (workspace !== undefined && workspaceArgument(workspace) === undefined) return { ok: false, reason: "That is not a folder." };

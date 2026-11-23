@@ -22,7 +22,7 @@ definitions, skills, and extensions.
 | Connect a provider or change credentials | [Configure providers](first-run-setup.md) |
 | Choose or assign a model | [Models and defaults](models.md) |
 | Edit a home or project setting | [Configuration files](configuration-files.md) |
-| Inspect instructions or a skill | [Plugins](plugins.md) |
+| Inspect instructions or a skill | [Plugins](customize.md) |
 | Change keyboard shortcuts | [Keybindings](keybindings.md) |
 | Return to saved work | [Saved conversations](sessions.md) |
 

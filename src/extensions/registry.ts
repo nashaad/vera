@@ -157,6 +157,10 @@ export interface StartExtensionRegistryOptions {
     readonly disposeTimeoutMs?: number;
     readonly onFailure?: (failure: ExtensionRegistryFailure) => void;
     readonly onLiteralSecret?: (finding: LiteralSecretFinding) => void;
+    readonly onHostLossCloseReady?: (
+        close: () => Promise<void>,
+        hasPendingActivation: () => boolean,
+    ) => void;
     readonly onActivationTiming?: (timing: {
         readonly extensionId: string;
         readonly durationMs: number;
@@ -304,8 +308,30 @@ export async function startExtensionRegistry(
     const contributions = createHostContributionSet();
     const host = new ExtensionHostSlot();
     let closing: Promise<void> | undefined;
+    let hostLossClosing: Promise<void> | undefined;
+    const pendingActivations = new Set<Promise<unknown>>();
+    const trackActivation = (execution: Promise<unknown>): void => {
+        pendingActivations.add(execution);
+        void execution.finally(() => pendingActivations.delete(execution)).catch(() => undefined);
+    };
+    options.onHostLossCloseReady?.(
+        () => {
+            if (hostLossClosing !== undefined) return hostLossClosing;
+            const previous = closing;
+            const urgent = close(true);
+            if (previous === undefined) {
+                closing = urgent;
+                hostLossClosing = urgent;
+            } else {
+                hostLossClosing = Promise.allSettled([previous, urgent]).then(() => {});
+            }
+            return hostLossClosing;
+        },
+        () => pendingActivations.size > 0,
+    );
 
     for (const configured of options.extensions) {
+        if (closing !== undefined) break;
         if (!configured.enabled) {
             continue;
         }
@@ -357,7 +383,19 @@ export async function startExtensionRegistry(
                 host,
                 options.storageRoots,
                 options.onToolDescriptionChanged,
+                trackActivation,
+                () => hostLossClosing !== undefined,
             );
+            if (closing !== undefined) {
+                contributions.withdraw(extension.id);
+                searchProviders.withdraw(extension.id);
+                admitted = false;
+                const activated = extension;
+                extension = undefined;
+                activationOutcome = "skipped";
+                await disposeExtension(activated, disposeTimeoutMs);
+                break;
+            }
             validateCommandOwnership(extension, commands);
             validateToolOwnership(extension, tools);
             for (const hook of extension.modelRequestHooks) {
@@ -690,12 +728,12 @@ export async function startExtensionRegistry(
         },
     };
 
-    async function close(): Promise<void> {
+    async function close(parallel = false): Promise<void> {
         host.close();
         commands.clear();
         tools.clear();
         const failures: string[] = [];
-        for (const extension of loaded.toReversed()) {
+        const dispose = async (extension: LoadedRegistryExtension): Promise<void> => {
             contributions.withdraw(extension.id);
             searchProviders.withdraw(extension.id);
             try {
@@ -703,6 +741,11 @@ export async function startExtensionRegistry(
             } catch (error) {
                 failures.push(`${extension.id}: ${errorMessage(error)}`);
             }
+        };
+        if (parallel) {
+            await Promise.all(loaded.toReversed().map(dispose));
+        } else {
+            for (const extension of loaded.toReversed()) await dispose(extension);
         }
         loaded.length = 0;
         owners.clear();
@@ -725,6 +768,8 @@ async function activateExtension(
     host: ExtensionHostSlot,
     storageRoots: ExtensionStorageRoots | undefined,
     onToolDescriptionChanged: StartExtensionRegistryOptions["onToolDescriptionChanged"],
+    trackActivation: (execution: Promise<unknown>) => void,
+    hostLost: () => boolean,
 ): Promise<LoadedRegistryExtension> {
     const commands: RegisteredExtensionCommand[] = [];
     const commandNames = new Set<string>();
@@ -1308,6 +1353,7 @@ async function activateExtension(
                     `Extension ${loaded.manifest.id} activation was cancelled`,
                 onExecutionStart(execution) {
                     activationCompletion = execution;
+                    trackActivation(execution);
                 },
             },
         );
@@ -1343,7 +1389,7 @@ async function activateExtension(
         };
     } catch (error) {
         phase = "failed";
-        const cleanupOnTimeout = loaded.manifest.id === "vera.mcp";
+        const cleanupOnTimeout = loaded.manifest.id === "vera.mcp" && !hostLost();
         const cleanupFailures = activationSettled || cleanupOnTimeout
             ? await runDisposers(disposers, disposeTimeoutMs)
             : [];

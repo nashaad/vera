@@ -12,7 +12,7 @@ import type { ContextualContributionContext, PromptContribution } from "../engin
 import type { PoolAdmissionVerdict } from "../engine/events.ts";
 import { BUILT_IN_PERMISSION_MODE_NAMES, type ApprovalMode } from "../engine/permissions.ts";
 import { ProviderUnavailableError, UserFacingError } from "../user-facing-error.ts";
-import { isModelReasoningEffort, type ModelSettingsPatch, type ModelTurnSettings } from "../engine/model-settings.ts";
+import { isModelReasoningEffort, startingReasoningEffort, type ModelSettingsPatch, type ModelTurnSettings } from "../engine/model-settings.ts";
 import type { EffectiveCatalogOptions } from "../model/catalog.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
 import { sessionScratchDir } from "../session-scratch.ts";
@@ -52,6 +52,7 @@ import {
     type ExtensionConfigChange,
 } from "./extension-config-watch.ts";
 import { loadCustomizationCatalog } from "../customize/catalog.ts";
+import { readPluginCatalog, type PluginCatalog } from "../plugins/catalog.ts";
 import type { SessionIdentity, SessionIdentityProvider, VeraInvestigateResult, VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../sdk/extensions.ts";
 import { preCompactPayload } from "./agent-registry/pre-compact.ts";
 import { contextSizeLevelBaseline, createContextSizeLevelTracker } from "./agent-registry/context-size-levels.ts";
@@ -580,8 +581,9 @@ export class AgentRegistry {
 
     async agentCatalogFor(
         entry: RegisteredAgentEntry,
+        pluginCatalog?: PluginCatalog,
     ): Promise<AgentCatalog> {
-        return registrySelect.agentCatalogFor(this, entry);
+        return registrySelect.agentCatalogFor(this, entry, pluginCatalog);
     }
 
     async selectAgentFor(id: string, name: string): Promise<{
@@ -992,7 +994,15 @@ export class AgentRegistry {
                         model: this.defaultModel,
                         ...(this.defaultReasoningEffort === undefined
                             ? {}
-                            : { reasoningEffort: this.defaultReasoningEffort }),
+                            : {
+                                reasoningEffort: startingReasoningEffort(
+                                    this.defaultProvider,
+                                    this.defaultModel,
+                                    this.defaultReasoningEffort,
+                                    this.options.readPool?.(store.header.cwd),
+                                    this.catalog,
+                                ),
+                            }),
                     }
                     : {
                         ...storedSettings,
@@ -1506,11 +1516,18 @@ export class AgentRegistry {
                         this.updateSessionPermissionMode(agent.id, mode),
                     selectAgent: (name) => this.selectAgentFor(agent.id, name),
                     listAgents: () => this.listAgentsFor(agent.id),
-                    listCustomizationSources: async () => loadCustomizationCatalog({
-                        workspace: store.header.cwd,
-                        instructionRoot,
-                        agents: await this.agentCatalogFor(this.agents.get(agent.id)!),
-                    }),
+                    listCustomizationSources: async () => {
+                        const pluginCatalog = readPluginCatalog();
+                        return loadCustomizationCatalog({
+                            workspace: store.header.cwd,
+                            instructionRoot,
+                            agents: await this.agentCatalogFor(
+                                this.agents.get(agent.id)!,
+                                pluginCatalog,
+                            ),
+                            pluginCatalog,
+                        });
+                    },
                     listSkills: () => this.listSkillsFor(agent.id),
                     invokeSkill: (name) =>
                         this.decideSkillInvocationFor(agent.id, name),

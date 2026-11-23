@@ -327,6 +327,10 @@ export class ManagedProcessRegistry {
             return { kind: "rejected", reason: preparation.refusal };
         }
         const prepared = preparation.prepared;
+        if (this.closed) {
+            if (prepared !== undefined) this.sandbox?.commandEnded(prepared);
+            return { kind: "rejected", reason: "Process registry is closed." };
+        }
         if (options.observation !== undefined
             && (this.unsettledObservations.get(ownerId) ?? 0) >= this.maxRetainedPerOwner) {
             if (prepared !== undefined) this.sandbox?.commandEnded(prepared);
@@ -1206,6 +1210,12 @@ function stopProcessTree(pid: number, startedAt: string): string | undefined {
 
 function processGroupAlive(pid: number): boolean {
     if (process.platform === "win32") return false;
+    try {
+        process.kill(-pid, 0);
+        return true;
+    } catch (error) {
+        if (isMissingProcess(error)) return false;
+    }
     const result = Bun.spawnSync(["ps", "-axo", "pgid="], { stdout: "pipe", stderr: "pipe" });
     if (result.exitCode !== 0) throw new Error(result.stderr.toString().trim() || "ps failed");
     return result.stdout.toString().split("\n").some((line) => Number(line.trim()) === pid);

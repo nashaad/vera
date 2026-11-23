@@ -2,7 +2,8 @@ import { useState } from "react";
 
 import { ChevronRightIcon, PlusIcon } from "../components/Icons.tsx";
 import type { DesktopBridge } from "../protocol/bridge.ts";
-import { folderName, groupSessions } from "../protocol/sessionGroups.ts";
+import { folderName } from "../protocol/sessionGroups.ts";
+import { buildSidebarTree, sidebarRowEntries } from "../protocol/sidebarTree.ts";
 import { relativeTime, type SessionRow, type SessionStatus } from "../protocol/sessions.ts";
 import { useBranch } from "../composer/useBranch.ts";
 import { useViewEnvironment } from "../views/env.tsx";
@@ -94,7 +95,7 @@ export function WorkspacePage({ route }: { readonly route: WorkspaceRoute }) {
     const more = connection.sessions !== undefined && connection.sessions > rows.length;
     const now = Date.now();
     const stats = workspaceStats(folderRows, more, now);
-    const entries = groupSessions(folderRows).flatMap((group) => group.entries);
+    const entries = sidebarRowEntries(buildSidebarTree(folderRows));
     const lede = [route.folder, branch, deviceLabel(bridge?.platform ?? "")].filter((part) => part !== undefined && part !== "").join(" · ");
     const revealLabel = bridge?.platform === "darwin" ? "Show in Finder" : "Open folder";
 

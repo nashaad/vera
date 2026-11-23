@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { ProviderWizard } from "../../ui/src/pages/settings/ProviderWizard.tsx";
 import type { ProviderStatus } from "../../ui/src/protocol/bridge.ts";
 
-const provider: ProviderStatus = { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: false, catalog_connected: false, custom: false };
+const provider: ProviderStatus = { id: "deepseek", name: "DeepSeek", methods: ["key"], connected: false, catalog_connected: false, enabled: true, custom: false };
 let resolveList: ((result: unknown) => void) | undefined;
 const bridge = {
     readModelSettings: async () => ({ ok: false, reason: "unavailable" }),

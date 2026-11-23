@@ -953,6 +953,8 @@ export function startTuiProviderPicker(
             searchText: provider.id,
             group: provider.group,
             hasCredential: provider.hasCredential,
+            ...(provider.connected === true ? { connected: true } : {}),
+            ...(provider.enabled === false ? { enabled: false } : {}),
             ...(provider.answerState === undefined
                 ? {}
                 : { answerState: provider.answerState }),
@@ -969,10 +971,10 @@ export function startTuiProviderPicker(
     );
     const allOptions = [
         ...rows,
-        ...(rows.some((row) => row.refreshable === true) ? [{
+        ...(rows.some((row) => row.refreshable === true && row.enabled !== false) ? [{
             value: TUI_REFRESH_PROVIDERS_VALUE,
             label: "Refresh providers",
-            description: "read model catalogs from all connected providers",
+            description: "read model catalogs from all providers that are on",
             action: true,
         }] : []),
         TUI_DECLARE_PROVIDER_OPTION,

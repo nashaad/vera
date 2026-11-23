@@ -81,6 +81,31 @@ interface WorkerSlot {
     restarting?: Promise<void>;
 }
 
+export function processWorkerStartOptions(
+    hostOptions: StartResidentHostOptions,
+    sessionOptions: Pick<InProcessWorkerOptions["sessionOptions"],
+        "config" | "home" | "configPath" | "blockedDirectory" | "modelFailureLedgerPath">,
+    pluginWorkerExtensions: InProcessWorkerOptions["host"]["pluginWorkerExtensions"],
+): WorkerStartOptions {
+    return {
+        config: sessionOptions.config,
+        pluginWorkerExtensions,
+        home: sessionOptions.home,
+        configPath: sessionOptions.configPath,
+        blockedDirectory: sessionOptions.blockedDirectory,
+        modelFailureLedgerPath: sessionOptions.modelFailureLedgerPath,
+        ...(hostOptions.sessionDirectory === undefined ? {} : { sessionDirectory: hostOptions.sessionDirectory }),
+        ...(hostOptions.projectRoot === undefined ? {} : { projectRoot: hostOptions.projectRoot }),
+        ...(hostOptions.permissionPreferencesPath === undefined ? {} : { permissionPreferencesPath: hostOptions.permissionPreferencesPath }),
+        ...(hostOptions.eventLogDirectory === undefined ? {} : { eventLogDirectory: hostOptions.eventLogDirectory }),
+        ...(hostOptions.importRoots === undefined ? {} : { importRoots: hostOptions.importRoots }),
+        ...(hostOptions.inboxPath === undefined ? {} : { inboxPath: hostOptions.inboxPath }),
+        ...(hostOptions.inboxUserConfigPath === undefined ? {} : { inboxUserConfigPath: hostOptions.inboxUserConfigPath }),
+        ...(hostOptions.schedulePath === undefined ? {} : { schedulePath: hostOptions.schedulePath }),
+        ...(hostOptions.arcConfigPath === undefined ? {} : { arcConfigPath: hostOptions.arcConfigPath }),
+    };
+}
+
 function workerExecutor(id: string, worker: Pick<SessionWorkerSupervisor, "pid" | "startedAt">): string {
     return `worker:${id}:${worker.pid}:${worker.startedAt}`;
 }
@@ -206,23 +231,11 @@ export function prepareProcessWorker(options: ProcessWorkerOptions): InProcessWo
         for (const summary of value.summaries) knownSessions.add(summary.id);
         ControlPeer.broadcastEvent(slots.flatMap((slot) => slot.peer === undefined ? [] : [slot.peer]), "snapshot", value);
     });
-    const hostOptions = options.hostOptions;
-    const childOptions: WorkerStartOptions = {
-        config: hostOptions.config,
-        home: options.sessionOptions.home,
-        configPath: options.sessionOptions.configPath,
-        blockedDirectory: options.sessionOptions.blockedDirectory,
-        modelFailureLedgerPath: options.sessionOptions.modelFailureLedgerPath,
-        ...(hostOptions.sessionDirectory === undefined ? {} : { sessionDirectory: hostOptions.sessionDirectory }),
-        ...(hostOptions.projectRoot === undefined ? {} : { projectRoot: hostOptions.projectRoot }),
-        ...(hostOptions.permissionPreferencesPath === undefined ? {} : { permissionPreferencesPath: hostOptions.permissionPreferencesPath }),
-        ...(hostOptions.eventLogDirectory === undefined ? {} : { eventLogDirectory: hostOptions.eventLogDirectory }),
-        ...(hostOptions.importRoots === undefined ? {} : { importRoots: hostOptions.importRoots }),
-        ...(hostOptions.inboxPath === undefined ? {} : { inboxPath: hostOptions.inboxPath }),
-        ...(hostOptions.inboxUserConfigPath === undefined ? {} : { inboxUserConfigPath: hostOptions.inboxUserConfigPath }),
-        ...(hostOptions.schedulePath === undefined ? {} : { schedulePath: hostOptions.schedulePath }),
-        ...(hostOptions.arcConfigPath === undefined ? {} : { arcConfigPath: hostOptions.arcConfigPath }),
-    };
+    const childOptions = processWorkerStartOptions(
+        options.hostOptions,
+        options.sessionOptions,
+        options.host.pluginWorkerExtensions,
+    );
     const bootstrap: WorkerBootstrap = {
         options: childOptions, hostSocket: options.hostSocket, lockPath: options.lockPath,
         buildId: options.buildId, capabilities: options.capabilities,

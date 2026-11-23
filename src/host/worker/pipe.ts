@@ -34,6 +34,7 @@ export function createJsonPipe(
     const pending = new Map<number, Pending>();
     let nextId = 1;
     let closedByUs = false;
+    let outputFailed = false;
     let closeError: Error | undefined;
     let resolveClosed: () => void = () => {};
     const closed = new Promise<void>((resolve) => {
@@ -41,7 +42,7 @@ export function createJsonPipe(
     });
 
     const write = (frame: Record<string, unknown>): void => {
-        if (closedByUs) {
+        if (closedByUs || outputFailed) {
             return;
         }
         streams.output.write(`${JSON.stringify(frame)}\n`);
@@ -58,6 +59,10 @@ export function createJsonPipe(
         resolveClosed();
     };
 
+    streams.output.on("error", (error: Error) => {
+        outputFailed = true;
+        fail(error);
+    });
     readLines(streams.input, (line) => {
         if (closeError !== undefined) return;
         let frame: Record<string, unknown>;

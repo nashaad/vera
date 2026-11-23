@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
     pluginDetail,
+    pluginEditorPath,
     pluginExtensionOff,
     pluginFacts,
     pluginLoaded,
@@ -194,6 +195,29 @@ test("a bare extension scope and a skill with no source stay Built in", () => {
     expect(orphan.scope).toBe("builtin");
     expect(pluginRowMeta(orphan, FOLDER, HOME)).toEqual({ detail: "/orphan" });
     expect(pluginSheetMeta(orphan, "work")).toEqual(["Included with Vera"]);
+});
+
+test("plugin packages and their skills and agents stay visible and read-only", () => {
+    const pluginPath = `${HOME}/plugins/crow`;
+    const items = pluginItems({
+        ...READING,
+        skills: [{ name: "sail", description: "Sail", manualOnly: false, plugin: "crow" }],
+        agents: [{ name: "captain", description: "Captain", scope: "plugin", writable: false, plugin: "crow" }],
+        sources: [
+            { id: "plugins:crow", category: "plugins", name: "crow", description: "1 skill", scope: "plugin", plugin: "crow", content: "", editable: false },
+            { id: "skills:sail", category: "skills", name: "sail", description: "Sail", scope: "plugin crow", plugin: "crow", path: `${pluginPath}/SKILL.md`, content: "", editable: false },
+            { id: "agents:captain", category: "agents", name: "captain", description: "Captain", scope: "plugin", plugin: "crow", path: `${pluginPath}/captain.md`, content: "", editable: false },
+        ],
+    }, [], []);
+
+    expect(pluginKindCounts(items).plugins).toBe(1);
+    for (const [name, kind] of [["crow", "plugins"], ["sail", "skills"], ["captain", "agents"]] as const) {
+        const entry = items.find((candidate) => candidate.name === name)!;
+        expect(entry.scope).toBe("builtin");
+        expect(pluginSections(items, kind, "").find((section) => section.scope === "builtin")?.items).toContain(entry);
+        expect(pluginEditorPath(entry)).toBeUndefined();
+    }
+    expect(pluginEditorPath(pluginItems(READING, [], [])[0]!)).toBe(DEPLOY_SOURCE.path);
 });
 
 test("a skill the host marks disabled is off rather than loaded", () => {

@@ -106,8 +106,19 @@
     top: calc(var(--vera-space) * 3.25);
 }
 
+/* The filter and actions float over the first heading, which keeps room for both. */
 .view[data-merged="true"] .sessions-view > .session-group:first-child .group-head {
-    padding-right: calc(var(--vera-space) * 7);
+    padding-right: calc(var(--vera-space) * 12);
+}
+
+/* A first section with no heading starts with a row, so the floating header takes its own
+   height above that row rather than shifting the row's controls out of column. */
+.view[data-merged="true"] .sessions-view > .session-group:first-child[data-heading="false"] {
+    padding-top: calc(var(--vera-space) * 6.5);
+}
+
+.sessions-filter {
+    opacity: 1;
 }
 
 .view[data-merged="true"]:hover .view-actions {
@@ -184,8 +195,18 @@
 
 /* sessions */
 
+.sessions-view[data-stale="true"] {
+    opacity: 0.75;
+}
+
 .session-group {
     margin-bottom: calc(var(--vera-space) * 1.5);
+}
+
+/* A rule separates Pinned from the ordinary list. */
+.session-group[data-group="pinned"] {
+    padding-bottom: calc(var(--vera-space) * 1.5);
+    border-bottom: thin solid var(--vera-border);
 }
 
 .group-head {
@@ -195,6 +216,40 @@
     padding: 0 calc(var(--vera-space) * 2) 0 calc(var(--vera-space) / 2);
     color: var(--vera-text-disabled);
     font-size: var(--vera-font-size-label);
+}
+
+.group-head[data-kind="pinned"] {
+    padding-left: 0;
+}
+
+/* A folder heading is full size, bold, and starts a column in from the edge. */
+.group-head[data-kind="folder"] {
+    height: calc(var(--vera-space) * 7);
+    padding-left: 0;
+    color: var(--vera-text);
+    font-size: var(--vera-font-size);
+    font-weight: 600;
+}
+
+.group-folder-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 4);
+    height: calc(var(--vera-space) * 4);
+    margin: 0 calc(var(--vera-space) * 1.5) 0 calc(var(--vera-space) * 0.5);
+    color: var(--vera-text-muted);
+}
+
+.group-title[data-kind="folder"] {
+    padding: 0;
+    color: var(--vera-text);
+    font-size: var(--vera-font-size);
+    font-weight: 600;
+}
+
+.group-title[data-kind="pinned"] {
+    padding-left: 0;
+    color: var(--vera-text);
+    font-weight: 600;
 }
 
 /* The caret's slot is always there so the title never shifts; it only draws on hover or while shut. */
@@ -250,6 +305,10 @@
     cursor: pointer;
 }
 
+.group-title:not(button) {
+    cursor: default;
+}
+
 .group-title:hover {
     color: var(--vera-text-muted);
     background: var(--vera-surface-hover);
@@ -277,13 +336,18 @@
     background: none;
     border: 0;
     cursor: pointer;
-    gap: calc(var(--vera-space) * 2.25);
+    gap: calc(var(--vera-space) * 2);
     align-items: center;
     height: calc(var(--vera-row-height) - var(--vera-space) / 2);
-    padding: 0 calc(var(--vera-space) * 2);
+    padding: 0;
     color: var(--vera-text-muted);
     font-size: var(--vera-font-size);
     border-radius: var(--vera-radius);
+}
+
+.session-row:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
 }
 
 .session-row:hover {
@@ -312,18 +376,47 @@
 .session-line:hover { background: var(--vera-surface-hover); }
 .session-line-spacer { flex: 1 1 auto; }
 
-.session-row[data-nested="true"] {
-    padding-left: calc(var(--vera-space) * 7);
+/* The folder guide and the tree's branch columns, drawn at the left of a row. */
+.session-branch {
+    position: relative;
+    flex: 0 0 calc(var(--vera-space) * 4);
+    align-self: stretch;
+}
+
+.session-branch[data-guide="true"]::before,
+.session-branch[data-continue="true"]::before,
+.session-branch[data-current="true"]::before {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(var(--vera-space) * 2);
+    border-left: thin solid var(--vera-border);
+    content: "";
+}
+
+.session-branch[data-current="true"][data-last="true"]::before {
+    bottom: 50%;
+    border-bottom: thin solid var(--vera-border);
+    border-bottom-left-radius: var(--vera-radius);
+}
+
+.session-branch[data-current="true"]::after {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    left: calc(var(--vera-space) * 2);
+    border-top: thin solid var(--vera-border);
+    content: "";
 }
 
 .session-fold {
     flex: 0 0 auto;
     display: inline-flex;
+    gap: calc(var(--vera-space) / 2);
     align-items: center;
     justify-content: center;
-    width: calc(var(--vera-space) * 4);
     height: calc(var(--vera-space) * 5);
-    padding: 0;
+    padding: 0 calc(var(--vera-space) / 2);
     color: var(--vera-text-muted);
     background: transparent;
     border: 0;
@@ -331,8 +424,42 @@
     cursor: pointer;
 }
 
+.session-count {
+    color: var(--vera-text-disabled);
+    font-size: var(--vera-font-size-label);
+}
+
 .session-fold:hover {
     color: var(--vera-text);
+}
+
+.session-pin {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--vera-space) * 5);
+    height: calc(var(--vera-space) * 5);
+    padding: 0;
+    color: var(--vera-text-disabled);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+}
+
+.session-pin:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-selected);
+}
+
+.session-pin[data-pinned="true"] {
+    color: var(--vera-link);
+}
+
+.session-pin:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
 }
 
 .session-fold:focus-visible {
@@ -363,54 +490,31 @@
     border-color: var(--vera-link);
 }
 
+/* The dot sits in the time slot, with the age's right gap. */
+.session-line > .session-dot {
+    margin-right: calc(var(--vera-space) * 2);
+}
+
 .session-name {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.session-summary {
-    position: relative;
-    display: block;
-    width: 100%;
-    height: calc(var(--vera-row-height) - var(--vera-space) / 2);
-    padding: 0 0 0 calc(var(--vera-space) * 7);
+.session-name[data-folder="true"] {
+    color: var(--vera-text);
+    font-weight: 600;
+}
+
+.session-folder-icon {
+    flex: 0 0 auto;
+    width: calc(var(--vera-space) * 4);
+    height: calc(var(--vera-space) * 4);
+    /* The shared row's icon lines up with a folder heading's icon without moving its title. */
+    margin: 0 calc(var(--vera-space) * -0.5) 0 calc(var(--vera-space) * 0.5);
     color: var(--vera-text-muted);
-    font: inherit;
-    text-align: left;
-    background: transparent;
-    border: 0;
-    cursor: pointer;
-}
-
-.session-summary::before,
-.session-item[data-nested="true"]::before {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: calc(var(--vera-space) * 3.5);
-    width: calc(var(--vera-space) * 2);
-    border-left: thin solid var(--vera-border);
-    content: "";
-    pointer-events: none;
-}
-
-.session-summary::before,
-.session-item[data-last="true"]::before {
-    bottom: 50%;
-    border-bottom: thin solid var(--vera-border);
-    border-bottom-left-radius: var(--vera-radius);
-}
-
-.session-item[data-nested="true"]:not([data-last="true"])::after {
-    position: absolute;
-    top: 50%;
-    left: calc(var(--vera-space) * 3.5);
-    width: calc(var(--vera-space) * 2);
-    border-top: thin solid var(--vera-border);
-    content: "";
 }
 
 .session-spinner {
@@ -444,11 +548,17 @@
     position: relative;
 }
 
+/* A fixed slot keeps Pin still while the menu button replaces the time on hover. */
+.session-more-slot {
+    display: inline-flex;
+    flex: 0 0 calc(var(--vera-space) * 5);
+    align-items: center;
+    justify-content: center;
+    height: calc(var(--vera-space) * 5);
+}
+
 /* Opacity, not visibility, so the button stays in the tab order while hidden. */
 .session-more {
-    position: absolute;
-    top: 50%;
-    right: calc(var(--vera-space) * 1);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -461,7 +571,6 @@
     border-radius: var(--vera-radius-sm);
     cursor: pointer;
     opacity: 0;
-    transform: translateY(-50%);
 }
 
 .session-line:hover .session-spinner,

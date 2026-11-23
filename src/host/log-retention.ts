@@ -35,7 +35,10 @@ export interface LogPruneOptions {
     readonly now?: Date;
     readonly maxAgeMs?: number;
     // Asked just before each unlink, so a writer that opened the file mid-walk is still seen.
-    readonly keep?: (path: string) => boolean;
+    readonly keep?: (path: string) => boolean | Promise<boolean>;
+    // Counts what would be removed without unlinking it; used for a cleanup preview.
+    readonly dryRun?: boolean;
+    readonly onStale?: (path: string, bytes: number) => void;
 }
 
 export async function pruneLogs(
@@ -45,14 +48,14 @@ export async function pruneLogs(
     const cutoff = (options.now ?? new Date()).getTime()
         - (options.maxAgeMs ?? LOG_RETENTION_MS);
     const totals = { removedFiles: 0, removedBytes: 0 };
-    await pruneDirectory(root, cutoff, options.keep ?? (() => false), totals);
+    await pruneDirectory(root, cutoff, options, totals);
     return totals;
 }
 
 async function pruneDirectory(
     directory: string,
     cutoff: number,
-    keep: (path: string) => boolean,
+    options: LogPruneOptions,
     totals: { removedFiles: number; removedBytes: number },
 ): Promise<void> {
     let names: string[];
@@ -72,19 +75,26 @@ async function pruneDirectory(
         if (stats.isDirectory()) {
             // Read before pruning: removing children bumps the directory's mtime.
             const staleBefore = stats.mtimeMs < cutoff;
-            await pruneDirectory(path, cutoff, keep, totals);
-            if (staleBefore) {
+            await pruneDirectory(path, cutoff, options, totals);
+            if (staleBefore && options.dryRun !== true) {
                 await rmdir(path).catch(() => {});
             }
             continue;
         }
         if (!stats.isFile() || HELD_OPEN_LOGS.has(name)) continue;
-        if (stats.mtimeMs >= cutoff || keep(path)) continue;
+        if (stats.mtimeMs >= cutoff || await options.keep?.(path) === true) continue;
+        options.onStale?.(path, stats.size);
+        if (options.dryRun === true) {
+            totals.removedFiles += 1;
+            totals.removedBytes += stats.size;
+            continue;
+        }
         try {
             await unlink(path);
             totals.removedFiles += 1;
             totals.removedBytes += stats.size;
         } catch {
+            // A file removed concurrently was a stale file all the same.
         }
     }
 }

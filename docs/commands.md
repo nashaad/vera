@@ -71,14 +71,16 @@ compaction controls.
 | `/configure` | Choose a configuration file to open in your editor. |
 | `/themes` | Choose a terminal theme. |
 | `/nudges` | Manage standing preferences. |
-| `/extensions` | Inspect and manage extension copies. |
+| `/extensions` | Inspect included and plugin-owned extensions, and switch included extensions on or off. |
+| `/extension` | Install a folder as a plugin or change an included extension. |
+| `/plugin` | Install, show, enable, disable, remove, or migrate plugins. |
 | `/diagnostics` | Inspect the current session or resident host. |
 | `/usage` | Open recorded usage and cost. |
 | `/update` | Install the latest Vera and restart into it. Progress shows above the composer, and Escape cancels until the switch starts. |
 | `/feedback` | Save a bug report or feature request on this computer. |
 | `/failure-report` | Write a report of recorded model failures. |
 
-Installed skills and extensions contribute commands too. Their availability
+Skills from enabled plugins and installed extensions contribute commands too. Their availability
 depends on the active definition and enabled extensions. Use `/help` for the
 commands currently loaded, or read [Included extensions](included-extensions.md).
 On the TUI Home screen and desktop New Chat, the slash list includes the

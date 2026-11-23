@@ -333,8 +333,9 @@ export interface InboundCommandRouterOptions {
         readonly agents: readonly {
             readonly name: string;
             readonly description?: string;
-            readonly scope: "project" | "user" | "extension";
+            readonly scope: "project" | "user" | "extension" | "plugin";
             readonly writable: boolean;
+            readonly plugin?: string;
             readonly tools?: readonly string[];
             readonly skills?: readonly string[];
             readonly posture?: string;

@@ -1,7 +1,8 @@
 import { realpath } from "node:fs/promises";
 
 import { loadCustomizationCatalog } from "../../customize/catalog.ts";
-import type { CustomizationCatalog } from "../../customize/types.ts";
+import type { CustomizationCatalog, CustomizationSource } from "../../customize/types.ts";
+import { readPluginCatalog } from "../../plugins/catalog.ts";
 import { loadSkillCommandCatalog, type SkillCommandCatalog } from "../../skills/commands.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 import { loadAgentCatalogFor, newSessionAgentsOf, type NewSessionAgents } from "./select.ts";
@@ -26,12 +27,17 @@ export async function listFolderCustomizations(
 ): Promise<FolderCustomizations> {
     // A session opens in the resolved folder, and a folder that is gone still reads as the home's items alone.
     const folder = workspace === undefined ? undefined : await realpath(workspace).catch(() => workspace);
-    const agentCatalog = await loadAgentCatalogFor(reg, folder);
+    const pluginCatalog = readPluginCatalog();
+    const agentCatalog = await loadAgentCatalogFor(reg, folder, pluginCatalog);
     const [skills, sources] = await Promise.all([
-        loadSkillCommandCatalog(folder === undefined ? {} : { projectRoot: folder }),
+        loadSkillCommandCatalog({
+            ...(folder === undefined ? {} : { projectRoot: folder }),
+            pluginCatalog,
+        }),
         loadCustomizationCatalog({
             ...(folder === undefined ? {} : { workspace: folder, instructionRoot: resolveInstructionRoot(folder) }),
             agents: agentCatalog,
+            pluginCatalog,
         }),
     ]);
     const agents = newSessionAgentsOf(agentCatalog);
@@ -46,11 +52,26 @@ export async function listFolderCustomizations(
             notices: agents.notices.slice(0, FOLDER_CUSTOMIZATIONS_MAX_WARNINGS),
         },
         sources: {
-            sources: sources.sources.slice(0, FOLDER_CUSTOMIZATIONS_MAX_ENTRIES).map((source) =>
+            sources: limitSources(sources.sources, FOLDER_CUSTOMIZATIONS_MAX_ENTRIES).map((source) =>
                 source.content.length > FOLDER_CUSTOMIZATIONS_MAX_CONTENT_CHARS
                     ? { ...source, content: source.content.slice(0, FOLDER_CUSTOMIZATIONS_MAX_CONTENT_CHARS) }
                     : source),
             warnings: sources.warnings.slice(0, FOLDER_CUSTOMIZATIONS_MAX_WARNINGS),
         },
     };
+}
+
+// Plugin rows are few and the page has no way to say a category was cut, so
+// they are kept whole and the other rows fill the rest of the page.
+function limitSources(
+    sources: readonly CustomizationSource[],
+    limit: number,
+): readonly CustomizationSource[] {
+    if (sources.length <= limit) return sources;
+    const plugins = sources.filter((source) => source.category === "plugins");
+    const others = sources.filter((source) => source.category !== "plugins");
+    return [
+        ...others.slice(0, Math.max(0, limit - plugins.length)),
+        ...plugins,
+    ].slice(0, limit);
 }

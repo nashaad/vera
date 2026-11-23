@@ -20,10 +20,15 @@ export interface ScratchPruneOptions {
     readonly isStopped?: () => boolean;
     readonly removeIfUnowned: (id: string, detach: GuardedScratchDetach) => boolean | Promise<boolean>;
     readonly removeDirectory?: (path: string) => Promise<void>;
+    // Measures a folder that is about to be removed, so the caller can report the bytes freed.
+    readonly measureRemoved?: (path: string) => Promise<number>;
+    // Reports eligible folders instead of removing them; used for a cleanup preview.
+    readonly collect?: (id: string, path: string) => void | Promise<void>;
 }
 
 export interface ScratchPruneResult {
     readonly removedDirectories: number;
+    readonly removedBytes: number;
 }
 
 interface ScratchAge {
@@ -45,9 +50,10 @@ export async function pruneScratch(
     try {
         directory = await opendir(scratchRoot);
     } catch {
-        return { removedDirectories: 0 };
+        return { removedDirectories: 0, removedBytes: 0 };
     }
     let removedDirectories = 0;
+    let removedBytes = 0;
     try {
         for await (const item of directory) {
             if (options.isStopped?.() === true) break;
@@ -60,6 +66,12 @@ export async function pruneScratch(
                 const leftover = id.startsWith(".removing-") && await sessionMissing(sessionPath);
                 if (!leftover && await scratchAge(scratchPath, sessionPath, cutoff) === undefined) continue;
                 if (options.isStopped?.() === true) break;
+                if (options.collect !== undefined) {
+                    if (await options.removeIfUnowned(id, async () => true)) {
+                        await options.collect(id, scratchPath);
+                    }
+                    continue;
+                }
                 const detached = await options.removeIfUnowned(id, async (stillUnowned) => {
                     const age = leftover
                         ? await leftoverAge(scratchPath, sessionPath)
@@ -73,14 +85,18 @@ export async function pruneScratch(
                     return true;
                 });
                 if (!detached || detachedPath === undefined) continue;
+                const bytes = options.measureRemoved === undefined
+                    ? 0
+                    : await options.measureRemoved(detachedPath).catch(() => 0);
                 await (options.removeDirectory ?? ((path) => rm(path, { recursive: true, force: true })))(detachedPath);
                 removedDirectories += 1;
+                removedBytes += bytes;
             } catch {
             }
         }
     } catch {
     }
-    return { removedDirectories };
+    return { removedDirectories, removedBytes };
 }
 
 async function scratchAge(scratchPath: string, sessionPath: string, cutoff: number): Promise<ScratchAge | undefined> {

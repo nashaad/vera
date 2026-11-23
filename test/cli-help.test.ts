@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { runCli } from "../clients/cli/main.ts";
-import { CLI_COMMANDS, DOCS_DIR } from "../clients/cli/help.ts";
+import { CLI_COMMANDS, DOCS_DIR, renderCliHelp, renderCommandHelp } from "../clients/cli/help.ts";
 
 function capture() {
     const out: string[] = [];
@@ -25,6 +25,11 @@ function capture() {
         },
     };
 }
+
+test("CLI help lists plugin migrate in both references", () => {
+    expect(renderCliHelp(160)).toContain("vera plugin list|show|install|enable|disable|remove|migrate");
+    expect(renderCommandHelp("plugin", 160)).toContain("vera plugin list|show|install|enable|disable|remove|migrate");
+});
 
 test("--help and -h render one overview with a docs pointer", async () => {
     const run = capture();

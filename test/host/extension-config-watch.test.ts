@@ -7,11 +7,15 @@ import {
     activeExtensionConfigWatches,
     createExtensionConfigWatch,
     diffExtensionConfigEntries,
+    extensionConfigEntries,
     extensionConfigNoticeText,
     type ExtensionConfigChange,
     type ExtensionConfigEntry,
 } from "../../src/host/extension-config-watch.ts";
 import { EXTENSION_MANIFEST_FILENAME } from "../../src/extensions/manifest.ts";
+import { emptyPluginSnapshot, readPluginSnapshot, workerPluginSnapshot } from "../../src/plugins/catalog.ts";
+import { installPlugin, setPluginEnabled } from "../../src/plugins/manager.ts";
+import { AGENT_PLUGIN_SCHEMA } from "../../src/plugins/naming.ts";
 import type { VeraConfig } from "../../src/config.ts";
 
 const homes: string[] = [];
@@ -104,6 +108,7 @@ test("the watch reads config only after the stamp changes and stops with the hos
             reads += 1;
             return config;
         },
+        pluginSnapshot: emptyPluginSnapshot(),
         intervalMs: 5,
     });
     watch.start((changes) => deltas.push([...changes]));
@@ -150,11 +155,81 @@ test("a worker that starts after the edit already holds the drift", () => {
         configPath,
         config: { extensions: [{ path: extension, enabled: true, config: {} }] },
         currentConfig: () => ({ extensions: [] }),
+        pluginSnapshot: emptyPluginSnapshot(),
     });
     expect(watch.drift()).toEqual([
         { operation: "disable", id: "acme.notes", needsRestart: true },
     ]);
     watch.stop();
+});
+
+test("@core plugin changes do not become extension config drift", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-extwatch-plugin-"));
+    homes.push(root);
+    const home = join(root, ".vera");
+    const source = join(root, "source");
+    const host = join(source, "dev.vera", "host");
+    writeExtension(host, "crow.original");
+    writeFileSync(join(source, "plugin.json"), JSON.stringify({
+        $schema: AGENT_PLUGIN_SCHEMA,
+        name: "sea-chest",
+    }));
+    installPlugin(source, { home: root });
+    const snapshot = readPluginSnapshot({ veraHome: home });
+    const directory = snapshot.host_extensions[0]!.directory;
+    const configPath = join(home, "config.json");
+    writeFileSync(configPath, "{}\n");
+    let config: Pick<VeraConfig, "extensions"> = {
+        extensions: [{ path: directory, enabled: false, config: {} }],
+    };
+    const startup = extensionConfigEntries(config, snapshot);
+    const workerSnapshot = workerPluginSnapshot(home, {
+        entries: snapshot.host_extensions.map(({ plugin, id, directory, enabled, package_identity }) => ({
+            plugin, id, directory, enabled, package_identity, config: {},
+        })),
+        owners: snapshot.host_extension_owners,
+    });
+    let reads = 0;
+    let workerReads = 0;
+    const changes: ExtensionConfigChange[] = [];
+    const workerChanges: ExtensionConfigChange[] = [];
+    const watch = createExtensionConfigWatch({
+        configPath,
+        config,
+        currentConfig: () => { reads += 1; return config; },
+        pluginSnapshot: snapshot,
+        intervalMs: 5,
+    });
+    const workerWatch = createExtensionConfigWatch({
+        configPath,
+        config,
+        currentConfig: () => { workerReads += 1; return config; },
+        pluginSnapshot: workerSnapshot,
+        intervalMs: 5,
+    });
+    watch.start((next) => changes.push(...next));
+    workerWatch.start((next) => workerChanges.push(...next));
+    try {
+        setPluginEnabled("sea-chest", false, { home: root });
+        writeFileSync(join(directory, EXTENSION_MANIFEST_FILENAME), JSON.stringify({
+            id: "crow.changed", version: "1.0.0", sdk: "1", entrypoint: "./extension.ts", capabilities: [],
+        }));
+        config = { extensions: [{ path: directory, enabled: true, config: {} }] };
+        writeFileSync(configPath, "{\"changed\":true}\n");
+        await until(() => reads > 1 && workerReads > 1);
+        expect(changes).toEqual([]);
+        expect(workerChanges).toEqual([]);
+        expect(watch.drift()).toEqual([]);
+        expect(workerWatch.drift()).toEqual([]);
+        expect(extensionConfigEntries(config, snapshot).get("crow.original"))
+            .toEqual(startup.get("crow.original"));
+        expect(extensionConfigEntries(config, snapshot).has("crow.changed")).toBe(false);
+        expect(extensionConfigEntries(config, workerSnapshot).get("crow.original"))
+            .toEqual(startup.get("crow.original"));
+    } finally {
+        watch.stop();
+        workerWatch.stop();
+    }
 });
 
 function writeExtension(directory: string, id: string): string {

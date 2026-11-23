@@ -337,6 +337,226 @@ test("engine recovery stops after its retry budget", async () => {
     expect(delays).toEqual([500, 1_000]);
 });
 
+test("@core a model request stops at its retry time budget", async () => {
+    const clock = manualClock(1_000);
+    let calls = 0;
+    const adapter = scriptedAdapter(Array.from({ length: 7 }, () =>
+        (stream: ModelEventStream) => {
+            calls += 1;
+            fail(stream, overloadFailure);
+        }
+    ));
+    const events: ModelStreamEvent[] = [];
+    const retries: ModelRetryScheduled[] = [];
+    const delays: number[] = [];
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [] },
+        {
+            policy: {
+                delaysMs: [1_000, 2_000, 4_000, 8_000, 15_000, 30_000],
+                budgetMs: 10_000,
+            },
+            onEvent: (event) => events.push(event),
+            onRetry: (retry) => retries.push(retry),
+            onFallback: () => {},
+            random: () => 0.5,
+            now: clock.now,
+            wait: async (delayMs) => {
+                delays.push(delayMs);
+                clock.advance(delayMs);
+            },
+        },
+    );
+
+    expect(calls).toBe(4);
+    expect(delays).toEqual([1_000, 2_000, 4_000]);
+    expect(retries.map((retry) => retry.nextAttempt)).toEqual([2, 3, 4]);
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toBe(overloadFailure.message);
+    expect(events.map((event) => event.type)).toEqual(["start", "error"]);
+});
+
+test("a request that recovers inside the retry budget is unaffected", async () => {
+    const clock = manualClock();
+    const adapter = scriptedAdapter([
+        (stream) => fail(stream, transientFailure),
+        (stream) => fail(stream, transientFailure),
+        (stream) => succeed(stream, "complete"),
+    ]);
+    const delays: number[] = [];
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [] },
+        {
+            policy: { delaysMs: [1_000, 2_000], budgetMs: 5_000 },
+            onEvent: () => {},
+            onRetry: () => {},
+            onFallback: () => {},
+            random: () => 0.5,
+            now: clock.now,
+            wait: async (delayMs) => {
+                delays.push(delayMs);
+                clock.advance(delayMs);
+            },
+        },
+    );
+
+    expect(result.content).toEqual([{ type: "text", text: "complete" }]);
+    expect(delays).toEqual([1_000, 2_000]);
+});
+
+test("a later request gets a new retry budget after an answer", async () => {
+    const clock = manualClock();
+    const options = {
+        policy: { delaysMs: [1_000, 2_000, 4_000], budgetMs: 5_000 },
+        onEvent: () => {},
+        onFallback: () => {},
+        random: () => 0.5,
+        now: clock.now,
+        wait: async (delayMs: number) => {
+            clock.advance(delayMs);
+        },
+    };
+    const answered = await requestModelWithRecovery(
+        scriptedAdapter([
+            (stream) => fail(stream, transientFailure),
+            (stream) => fail(stream, transientFailure),
+            (stream) => succeed(stream, "complete"),
+        ]),
+        { model: "test", messages: [] },
+        { ...options, onRetry: () => {} },
+    );
+
+    expect(answered.content).toEqual([{ type: "text", text: "complete" }]);
+
+    let calls = 0;
+    const retries: ModelRetryScheduled[] = [];
+    const result = await requestModelWithRecovery(
+        scriptedAdapter(Array.from({ length: 4 }, () =>
+            (stream: ModelEventStream) => {
+                calls += 1;
+                fail(stream, transientFailure);
+            }
+        )),
+        { model: "test", messages: [] },
+        { ...options, onRetry: (retry) => retries.push(retry) },
+    );
+
+    // A shared clock would leave this request only the first request's leftovers.
+    expect(calls).toBe(3);
+    expect(retries.map((retry) => retry.nextAttempt)).toEqual([2, 3]);
+    expect(result.stopReason).toBe("error");
+});
+
+test("a fallback model gets its own retry budget", async () => {
+    const clock = manualClock();
+    const models: string[] = [];
+    const attempt = () =>
+        (stream: ModelEventStream, request: ModelRequest) => {
+            models.push(request.model);
+            fail(stream, overloadFailure);
+        };
+    const adapter = scriptedAdapter([
+        attempt(),
+        attempt(),
+        attempt(),
+        attempt(),
+        attempt(),
+        attempt(),
+        attempt(),
+    ]);
+    const fallbacks: ModelFallbackSelected[] = [];
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        { model: "primary", messages: [] },
+        {
+            policy: { delaysMs: [1_000, 2_000, 4_000], budgetMs: 5_000 },
+            fallback: { model: "backup", afterFailures: 3 },
+            onEvent: () => {},
+            onRetry: () => {},
+            onFallback: (fallback) => fallbacks.push(fallback),
+            random: () => 0.5,
+            now: clock.now,
+            wait: async (delayMs) => {
+                clock.advance(delayMs);
+            },
+        },
+    );
+
+    // The primary spent 3s of its budget before the fallback; the fallback
+    // then spends its own 5s and gets a third attempt a shared budget denies.
+    expect(models).toEqual([
+        "primary", "primary", "primary",
+        "backup", "backup", "backup",
+    ]);
+    expect(fallbacks).toHaveLength(1);
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toBe(overloadFailure.message);
+});
+
+test("the silence limit is capped by the retry budget left", async () => {
+    const startedAt = Date.now();
+    const adapter = scriptedAdapter([
+        (stream) => fail(stream, transientFailure),
+        (stream, request) => {
+            request.signal?.addEventListener("abort", () => {
+                stream.push({ type: "done", message: assistant("late", "stop") });
+            });
+        },
+    ]);
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [] },
+        {
+            policy: { delaysMs: [0], budgetMs: 100 },
+            idleTimeoutMs: 60_000,
+            onEvent: () => {},
+            onRetry: () => {},
+            onFallback: () => {},
+            now: () => 0,
+            wait: async () => {},
+        },
+    );
+
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toBe("No response from test for 0s");
+}, 3_000);
+
+test("aborting during a retry wait still ends the turn at once", async () => {
+    const controller = new AbortController();
+    const adapter = scriptedAdapter([
+        (stream) => fail(stream, transientFailure),
+    ]);
+    const retries: ModelRetryScheduled[] = [];
+    const startedAt = Date.now();
+
+    const result = requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [], signal: controller.signal },
+        {
+            policy: { delaysMs: [60_000], budgetMs: 600_000 },
+            onEvent: () => {},
+            onRetry: (retry) => retries.push(retry),
+            onFallback: () => {},
+            now: () => 0,
+        },
+    );
+    setTimeout(() => controller.abort(new Error("stop now")), 10);
+
+    await expect(result).resolves.toMatchObject({
+        stopReason: "aborted",
+        errorMessage: "stop now",
+    });
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(retries).toHaveLength(1);
+});
+
 for (const kind of ["server", "rate_limit"] as const) {
     for (const recovers of [true, false]) {
         test(`engine recovery handles ${kind} after six retries (recovers: ${recovers})`, async () => {
@@ -1065,6 +1285,16 @@ test("abort ends a request whose adapter never settles", async () => {
     expect(events.map((event) => event.type)).toEqual(["start", "error"]);
     expect(Date.now() - started).toBeLessThan(3_000);
 });
+
+function manualClock(start = 0): { now: () => number; advance: (ms: number) => void } {
+    let current = start;
+    return {
+        now: () => current,
+        advance: (ms) => {
+            current += ms;
+        },
+    };
+}
 
 function scriptedAdapter(
     attempts: Array<(

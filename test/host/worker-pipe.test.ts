@@ -96,6 +96,18 @@ test("@core a cancelled worker request releases its listener and ignores a late 
     }
 });
 
+test("@core worker requests reject when output fails", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const pipe = createJsonPipe({ input, output });
+    const pending = pipe.request("pending");
+    output.destroy(new Error("Output lost"));
+    await expect(pending).rejects.toThrow("Output lost");
+    await pipe.closed;
+    expect(() => pipe.notify("late")).not.toThrow();
+    input.destroy();
+});
+
 test("worker requests reject on close and do not accept new work", async () => {
     const input = new PassThrough();
     const output = new PassThrough();

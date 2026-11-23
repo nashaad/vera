@@ -48,6 +48,12 @@ import {
     type UnblockSessionRequest,
 } from "./protocol.ts";
 import type { StopWaitEvent, StopWhenIdleControl } from "./stop-when-idle.ts";
+import type {
+    StorageCleanupArea,
+    StorageCleanupPreview,
+    StorageCleanupResult,
+    StorageMeasurement,
+} from "./storage-protocol.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 import type {
     CreateRegisteredAgentOptions,
@@ -145,6 +151,12 @@ export type UnblockSessionOutcome =
     }
     | { readonly status: "rejected"; readonly reason: "not_found" | "failed" };
 
+export interface ProviderEnabledOutcome {
+    readonly settings?: ModelTurnSettings;
+    /** The change landed but the provider's model list could not be read. */
+    readonly warning?: string;
+}
+
 export type ExtensionRequestHandler = (
     extensionId: string,
     name: string,
@@ -177,12 +189,16 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "provider_sign_in":
         case "provider_sign_in_cancel":
         case "provider_forget":
+        case "provider_set_enabled":
         case "model_operation":
         case "model_settings":
         case "catalog_refresh":
         case "refresh_catalogs":
         case "annex_url":
         case "extension_load_failures":
+        case "storage_measure":
+        case "storage_cleanup_preview":
+        case "storage_cleanup":
         case "new_session_agents":
         case "folder_customizations":
         case "list_extension_commands":
@@ -247,6 +263,10 @@ export interface StartHostServerOptions {
     readonly listAgents?: () =>
         | readonly RegisteredAgentSummary[]
         | Promise<readonly RegisteredAgentSummary[]>;
+    readonly listAgentsWithAvailability?: () => Promise<{
+        readonly agents: readonly RegisteredAgentSummary[];
+        readonly unavailableWorkers: readonly string[];
+    }>;
     readonly readModelSettings?: (
         workspace?: string,
     ) => ModelTurnSettings | undefined;
@@ -259,6 +279,7 @@ export interface StartHostServerOptions {
     readonly providerSignIn?: ProviderSignInService;
     readonly selectProviderModel?: (provider: string, model: string) => Promise<void>;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
+    readonly setProviderEnabled?: (provider: string, enabled: boolean, workspace?: string) => Promise<ProviderEnabledOutcome>;
     readonly stopWhenIdle?: StopWhenIdleControl;
     readonly stopWaitObserver?: Pick<StopWhenIdleControl, "observe">;
     readonly restartRecords?: RestartRecordsPort;
@@ -268,6 +289,15 @@ export interface StartHostServerOptions {
         | { readonly unavailable: string }
         | undefined;
     readonly readExtensionLoadFailures?: () => readonly ExtensionLoadFailure[];
+    readonly storageMeasure?: (refresh: boolean) => Promise<StorageMeasurement>;
+    readonly storageCleanupPreview?: (
+        area: StorageCleanupArea,
+        maxAgeDays: number,
+    ) => Promise<StorageCleanupPreview>;
+    readonly storageCleanup?: (
+        area: StorageCleanupArea,
+        maxAgeDays: number,
+    ) => Promise<StorageCleanupResult>;
     readonly readNewSessionAgents?: (workspace: string | undefined) => Promise<NewSessionAgents>;
     readonly readFolderCustomizations?: (workspace: string | undefined) => Promise<FolderCustomizations>;
     readonly checkpointStores?: (
@@ -573,6 +603,7 @@ async function startListener(
             options.forwardHostRequest,
             options.routeRequest,
             options.listAgents ?? (() => []),
+            options.listAgentsWithAvailability,
             options.readSessionFacts ?? ((sessions) => Promise.resolve(sessions)),
             options.listBackgroundAgents ?? (() => {
                 const agents = options.listAgents?.();
@@ -633,10 +664,14 @@ async function startListener(
             options.refreshCatalogs,
             options.operateModels,
             options.forgetProvider,
+            options.setProviderEnabled,
             providerSignIn,
             options.selectProviderModel,
             options.readAnnex,
             options.readExtensionLoadFailures,
+            options.storageMeasure,
+            options.storageCleanupPreview,
+            options.storageCleanup,
             options.readNewSessionAgents,
             options.readFolderCustomizations,
             options.checkpointStores,
@@ -854,6 +889,7 @@ function receiveConnection(
     listAgents: () =>
         | readonly RegisteredAgentSummary[]
         | Promise<readonly RegisteredAgentSummary[]>,
+    listAgentsWithAvailability: StartHostServerOptions["listAgentsWithAvailability"],
     readSessionFacts: (
         sessions: readonly RegisteredAgentSummary[],
         include: readonly SessionFactName[],
@@ -942,6 +978,7 @@ function receiveConnection(
     refreshCatalogs: (() => Promise<readonly CatalogRefreshOutcome[]>) | undefined,
     operateModels: StartHostServerOptions["operateModels"],
     forgetProvider: StartHostServerOptions["forgetProvider"],
+    setProviderEnabled: StartHostServerOptions["setProviderEnabled"],
     providerSignIn: ProviderSignInCoordinator | undefined,
     selectProviderModel: StartHostServerOptions["selectProviderModel"],
     readAnnex: (() =>
@@ -949,6 +986,9 @@ function receiveConnection(
         | { readonly unavailable: string }
         | undefined) | undefined,
     readExtensionLoadFailures: StartHostServerOptions["readExtensionLoadFailures"],
+    storageMeasure: StartHostServerOptions["storageMeasure"],
+    storageCleanupPreview: StartHostServerOptions["storageCleanupPreview"],
+    storageCleanup: StartHostServerOptions["storageCleanup"],
     readNewSessionAgents: StartHostServerOptions["readNewSessionAgents"],
     readFolderCustomizations: StartHostServerOptions["readFolderCustomizations"],
     checkpointStores: ((
@@ -1516,6 +1556,7 @@ function receiveConnection(
                 ...(identity.worker_index === undefined ? {} : { worker_index: identity.worker_index }),
                 ...(identity.worker_count === undefined ? {} : { worker_count: identity.worker_count }),
                 ...(readWorkersReady === undefined ? {} : { workers_ready: readWorkersReady() }),
+                capabilities,
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
@@ -1686,6 +1727,24 @@ function receiveConnection(
             })();
             return;
         }
+        if (request?.type === "provider_set_enabled") {
+            clearDeadline(); finished = true;
+            const operationClosed = operationOpened();
+            void (async () => {
+                try {
+                    if (setProviderEnabled === undefined) throw new Error("This host does not support turning providers off.");
+                    const outcome = await setProviderEnabled(request.provider, request.enabled, request.workspace);
+                    await send({
+                        type: "model_operation_complete",
+                        settings: outcome.settings,
+                        ...(outcome.warning === undefined ? {} : { warning: outcome.warning }),
+                    });
+                } catch (error) {
+                    await send({ type: "model_operation_complete", error: error instanceof Error ? error.message : String(error) }).catch(() => {});
+                } finally { operationClosed(); socket.end(); }
+            })();
+            return;
+        }
         if (request?.type === "model_operation") {
             const operationClosed = operationOpened();
             clearDeadline();
@@ -1833,6 +1892,50 @@ function receiveConnection(
             ).then(() => socket.end(), () => socket.destroy());
             return;
         }
+        if (request?.type === "storage_measure") {
+            clearDeadline();
+            finished = true;
+            if (storageMeasure === undefined) {
+                void send({
+                    type: "protocol_error",
+                    reason: "unsupported_or_invalid_command",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            void storageMeasure(request.refresh).then(
+                (measurement) => send({ type: "storage_measured", measurement }),
+                () => send({
+                    type: "storage_failed",
+                    operation: "measure",
+                    reason: "failed",
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "storage_cleanup_preview" || request?.type === "storage_cleanup") {
+            clearDeadline();
+            finished = true;
+            const operation = request.type === "storage_cleanup_preview" ? "preview" : "cleanup";
+            const cleanupOptions = { area: request.area, maxAgeDays: request.max_age_days };
+            if (storageCleanupPreview === undefined || storageCleanup === undefined) {
+                void send({
+                    type: "protocol_error",
+                    reason: "unsupported_or_invalid_command",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            void (operation === "preview"
+                ? storageCleanupPreview(cleanupOptions.area, cleanupOptions.maxAgeDays)
+                    .then((preview) => send({ type: "storage_cleanup_previewed", preview }))
+                : storageCleanup(cleanupOptions.area, cleanupOptions.maxAgeDays)
+                    .then((result) => send({ type: "storage_cleaned", result }))
+            ).catch(() => send({
+                type: "storage_failed",
+                operation,
+                reason: "failed",
+            })).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
         if (request?.type === "new_session_agents") {
             clearDeadline();
             finished = true;
@@ -1904,7 +2007,10 @@ function receiveConnection(
             clearDeadline();
             finished = true;
             const listRequest = request;
-            void Promise.resolve().then(listAgents).then(async (agents) => {
+            void Promise.resolve().then(async () => {
+                if (listAgentsWithAvailability !== undefined) return await listAgentsWithAvailability();
+                return { agents: await listAgents(), unavailableWorkers: readUnavailableWorkers?.() ?? [] };
+            }).then(async ({ agents, unavailableWorkers }) => {
                 const archive = createSessionArchiveIndex(agents);
                 const page = pageSessionListing(agents, listRequest);
                 const pageAgents = page.agents.map((agent) => ({
@@ -1914,7 +2020,6 @@ function receiveConnection(
                 const rows = listRequest.include === undefined
                     ? pageAgents
                     : await readSessionFacts(pageAgents, listRequest.include);
-                const unavailableWorkers = readUnavailableWorkers?.() ?? [];
                 return send({
                     type: "agent_list",
                     agents: rows,

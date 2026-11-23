@@ -5,6 +5,7 @@ import type { DesktopFlags, FlagPatch } from "../state/desktopFlags.ts";
 import type { SessionPane } from "./panes.ts";
 import type { SavedPins } from "./pins.ts";
 import type { MoveSessionOutcome } from "./sessionMove.ts";
+import type { SidebarSettings } from "./sidebarSettings.ts";
 import type { ImportedThemeSummary } from "../theme/imported.ts";
 import type { ThemeChoice } from "../theme/tokens.ts";
 import type { CatalogListResult, CatalogPreviewResult } from "./extension-catalog.ts";
@@ -14,6 +15,12 @@ import type { ExtensionLogLevel, ExtensionMainResult } from "./desktop-extension
 import type { BrowserBounds, BrowserHandoffAnswer, BrowserState, BrowserToolsApproval } from "../browser/native-types.ts";
 import type { AgentInfo, SkillInfo, SourceInfo } from "../customize/wire.ts";
 import type { UpdateAction, UpdateState } from "./updates.ts";
+import type {
+    StorageCleaned,
+    StorageCleanupArea,
+    StorageMeasured,
+    StoragePreviewed,
+} from "./storage.ts";
 
 export type DesktopPhase = "starting" | "waiting" | "attached";
 
@@ -113,6 +120,8 @@ export interface HostModelsAnswer {
     readonly ok: true;
     // The host's `model_settings`; the page parses it.
     readonly settings: unknown;
+    // The change landed but the provider's model list could not be read.
+    readonly warning?: string;
 }
 
 export type HostModelsResult = HostModelsAnswer | HostRequestFailure;
@@ -265,6 +274,7 @@ export interface ProviderStatus {
     readonly methods: readonly ("key" | "browser")[];
     readonly connected: boolean;
     readonly catalog_connected: boolean;
+    readonly enabled: boolean;
     readonly connected_by?: "key" | "browser" | "environment" | "none";
     readonly endpoint?: string;
     readonly protocol?: "openai-chat" | "anthropic-messages";
@@ -340,6 +350,8 @@ export interface DesktopBridge {
     refreshCatalog(provider: string, workspace?: string): Promise<HostModelsResult>;
     // Removes a provider's saved connection and what Vera learned about its models.
     forgetProvider(provider: string, workspace?: string): Promise<HostModelsResult>;
+    // Keeps a provider's setup but stops new use, or uses it again and reads its models.
+    setProviderEnabled(provider: string, enabled: boolean, workspace?: string): Promise<HostModelsResult>;
     // Adds a model to the shortlist, removes it, or probes it with a live request.
     operateModel(operation: ModelOperationKind, provider: string, model: string, workspace?: string): Promise<ModelOperationResult>;
     // The home's model assignments, read from its config.json by the shell rather than the host.
@@ -360,6 +372,12 @@ export interface DesktopBridge {
     // What a session created in a folder would load, or in a chat when there is no folder, read without a session.
     // A host that predates the request answers with a failure.
     readFolderCustomizations(workspace: string | undefined): Promise<FolderCustomizationsResult>;
+    // Measures the home now, or answers with the last measurement unless refresh is true.
+    measureStorage(refresh: boolean): Promise<StorageMeasured>;
+    // What cleaning one area would remove, counting only items idle at least this many days.
+    previewStorageCleanup(area: StorageCleanupArea, maxAgeDays: number): Promise<StoragePreviewed>;
+    // Removes those items; the host re-checks each one is still stale and unowned.
+    runStorageCleanup(area: StorageCleanupArea, maxAgeDays: number): Promise<StorageCleaned>;
     // The host's annex address and the pages it serves.
     readAnnexPages(): Promise<AnnexPagesResult>;
     // Opens an annex path in the system browser; false when there is no annex to open it on.
@@ -428,6 +446,9 @@ export interface DesktopBridge {
     // Pinned sessions from the desktop's own directory under the home; none when there is no file.
     loadPins(): Promise<SavedPins>;
     savePins(pins: SavedPins): void;
+    // The sidebar's own settings, beside pins and the layout; the build's default when there is no file.
+    loadSidebarSettings(): Promise<SidebarSettings>;
+    saveSidebarSettings(settings: SidebarSettings): void;
     // The desktop's flags from its own directory under the home, each at the file's value or the build default.
     loadFlags(): Promise<DesktopFlags>;
     // Writes the chosen flags and resolves to every flag after the change; undefined when the change was not saved.

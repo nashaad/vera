@@ -9,6 +9,7 @@ import { OutputView } from "./OutputView.tsx";
 import { GenericPageView, PageView } from "./PageView.tsx";
 import { PlanView } from "./PlanView.tsx";
 import { ReviewView } from "./ReviewView.tsx";
+import { SessionsFilterButton } from "./SessionsFilterButton.tsx";
 import { SessionsView } from "./SessionsView.tsx";
 import { SubagentsView } from "./SubagentsView.tsx";
 import type { ViewProps } from "./env.tsx";
@@ -23,6 +24,14 @@ const CORE_RENDERERS: Readonly<Record<string, (props: ViewProps) => ReactNode>> 
     [CORE_VIEWS.chat]: (props) => <ChatView {...props} />,
     [CORE_VIEWS.subagents]: (props) => <SubagentsView {...props} />,
 };
+
+const CORE_HEADER_ACTIONS: Readonly<Record<string, () => ReactNode>> = {
+    [CORE_VIEWS.sessions]: () => <SessionsFilterButton />,
+};
+
+export function renderViewHeaderAction(viewId: string): ReactNode {
+    return CORE_HEADER_ACTIONS[viewId]?.() ?? null;
+}
 
 // A registered view with no renderer in this client shows nothing. A view an extension page's pane
 // registered is drawn as that page.

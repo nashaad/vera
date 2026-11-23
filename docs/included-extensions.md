@@ -204,6 +204,9 @@ replaces the included copy, even when that entry is disabled. It keeps its own
 configuration. An installed extension with the same ID also replaces the
 included copy.
 
+A plugin host extension cannot be installed with an ID used by an included or
+core extension.
+
 Restart the host for command-hook changes. Restart the client for BTW
 changes.
 

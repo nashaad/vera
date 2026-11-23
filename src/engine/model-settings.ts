@@ -3,6 +3,8 @@ import {
     effectiveCatalog,
     type EffectiveCatalogOptions,
 } from "../model/catalog.ts";
+import { deepSeekCatalogModels } from "../model/deepseek-catalog.ts";
+import { startingEffort } from "../model/effort-ladder.ts";
 import {
     loadSupportedModelsCatalog,
     verifiedReasoningEfforts,
@@ -270,6 +272,37 @@ export function publishedReasoningLevels(
 export interface PublishedReasoningLevels {
     readonly efforts: readonly ModelReasoningEffort[];
     readonly defaultLevel?: string;
+}
+
+export function startingReasoningEffort(
+    provider: string | undefined,
+    model: string,
+    saved: ModelReasoningEffort | undefined,
+    pooled: readonly PooledModel[] = [],
+    options: EffectiveCatalogOptions = {},
+): ModelReasoningEffort | undefined {
+    if (provider === undefined || saved === undefined) return saved;
+    const published = publishedReasoningLevels(provider, model, pooled, options);
+    return startingEffort(saved, published.efforts, published.defaultLevel);
+}
+
+// The SDK classifier test pins bundled levels, so this must not read a discovery cache.
+export function bundledStartingReasoningEffort(
+    provider: string | undefined,
+    model: string,
+    saved: ModelReasoningEffort | undefined,
+): ModelReasoningEffort | undefined {
+    if (provider === undefined || saved === undefined) return saved;
+    const bundled = provider === "deepseek"
+        ? deepSeekCatalogModels().find((candidate) => candidate.id === model)
+        : undefined;
+    const efforts = bundled?.levels?.map((level) => level.id)
+        ?? verifiedReasoningEfforts(provider, model);
+    return startingEffort(
+        saved,
+        efforts,
+        bundled?.default_level,
+    );
 }
 
 function discoveredReasoningEfforts(

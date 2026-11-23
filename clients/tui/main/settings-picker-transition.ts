@@ -13,7 +13,7 @@ import { focusActiveSurface } from "../main/focus-switch.ts";
 import { bindModelAssignmentFromPicker, bindModelToAllAssignments, connectProvider, homeNeedsProvider, isModelShortlisted, modelLevelFacts, modelPickerActionOptions, openConfigureEditor, openAssignAllPicker, openModelAssignmentPicker, openProviderEditForm, openProviderPicker } from "../main/model-pickers.ts";
 import { enterWizardInstallStep, enterWizardModelStep } from "../main/onboarding-wizard-ops.ts";
 import { openSettingsMenuTarget } from "../main/palette-jump.ts";
-import { MODEL_DEFAULTS_TITLE, finishConfigurationPicker, forgetProvider, modelDefaultsOptions, openProviderEndpointForm, openRequestOptionsEditor, openSettingsDestination } from "../main/provider-forms.ts";
+import { MODEL_DEFAULTS_TITLE, finishConfigurationPicker, forgetProvider, modelDefaultsOptions, openProviderEndpointForm, openRequestOptionsEditor, openSettingsDestination, setProviderEnabled } from "../main/provider-forms.ts";
 import { renderState } from "../main/render-state.ts";
 import { importSessionFromTui, openImportPicker } from "../main/import-ops.ts";
 import { openNamePrompt } from "../main/workspace-ops.ts";
@@ -39,6 +39,15 @@ function browsePreferenceState(
 ): TuiSettingsPickerState | undefined {
     const state = picker?.kind === "model_menu" ? picker.parent : picker;
     return state?.kind === "model" && state.modelBrowse === "browse" ? state : undefined;
+}
+
+export function catalogRefreshSweepProviders(
+    picker: TuiSettingsPickerState | undefined,
+): readonly string[] {
+    if (picker?.kind !== "provider") return [];
+    return picker.allOptions
+        .filter((row) => row.refreshable === true && row.enabled !== false)
+        .map((row) => row.value);
 }
 
 export function applySettingsPickerTransition(rt: TuiRuntime, 
@@ -228,6 +237,17 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         return;
     }
     if (
+        "toggleProviderEnabled" in transition
+        && transition.toggleProviderEnabled !== undefined
+    ) {
+        setProviderEnabled(rt,
+            transition.toggleProviderEnabled.provider,
+            transition.toggleProviderEnabled.enabled,
+            previousPicker?.kind === "provider" ? previousPicker : undefined,
+        );
+        return;
+    }
+    if (
         "editProvider" in transition
         && transition.editProvider !== undefined
     ) {
@@ -310,9 +330,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         return;
     }
     if ("refreshAllCatalogs" in transition && transition.refreshAllCatalogs) {
-        startCatalogRefreshSweep(rt, previousPicker?.kind === "provider"
-            ? previousPicker.allOptions.filter((row) => row.refreshable === true).map((row) => row.value)
-            : []);
+        startCatalogRefreshSweep(rt, catalogRefreshSweepProviders(
+            previousPicker?.kind === "provider" ? previousPicker : undefined,
+        ));
         return;
     }
     if ("poolBulk" in transition && transition.poolBulk !== undefined) {

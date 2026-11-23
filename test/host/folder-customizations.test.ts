@@ -7,6 +7,8 @@ import { readFolderCustomizations } from "../../clients/desktop/src/customizatio
 import { connectHost } from "../../src/host/connection.ts";
 import { parseHostRequest, type FolderCustomizationsResponse } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
+import { installPlugin } from "../../src/plugins/manager.ts";
+import { AGENT_PLUGIN_SCHEMA } from "../../src/plugins/naming.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { socketTest } from "../support/socket-probe.ts";
 
@@ -58,7 +60,11 @@ interface Setup {
     readonly close: () => Promise<void>;
 }
 
-async function startHost(prefix: string): Promise<Setup> {
+async function startHost(
+    prefix: string,
+    withPlugin = false,
+    corruptRegistry = false,
+): Promise<Setup> {
     const root = await mkdtemp(join(tmpdir(), prefix));
     const home = join(root, "home");
     const folder = join(root, "crow-nest");
@@ -72,6 +78,25 @@ async function startHost(prefix: string): Promise<Setup> {
     await writeFile(join(folder, "AGENTS.md"), "Caw before you commit.\n");
     const previousHome = process.env.VERA_HOME;
     process.env.VERA_HOME = home;
+    if (withPlugin) {
+        const source = join(root, "plugin-source");
+        await mkdir(join(source, "dev.vera", "agents"), { recursive: true });
+        await writeFile(join(source, "plugin.json"), JSON.stringify({
+            $schema: AGENT_PLUGIN_SCHEMA,
+            name: "fixture-plugin",
+            version: "1.0.0",
+        }));
+        await writeSkill(join(source, "skills"), "plugin-skill", "Ships with the plugin");
+        await writeFile(
+            join(source, "dev.vera", "agents", "plugin-agent.md"),
+            "---\ndescription: Sails with the plugin\n---\nSail with the plugin.\n",
+        );
+        installPlugin(source);
+    }
+    if (corruptRegistry) {
+        await mkdir(join(home, "machine"), { recursive: true });
+        await writeFile(join(home, "machine", "plugins.json"), "{ not json");
+    }
     const host = await startResidentHost({
         config: { schema_version: 1, provider: "openrouter", model: "faux/test", approval_mode: "auto" },
         createAdapter: () => new FauxAdapter([]),
@@ -124,6 +149,69 @@ socketTest("@core a real host reads a folder's skills, agents and instruction fi
         expect([await treeOf(setup.home), await treeOf(setup.folder), await treeOf(setup.sessions)]).toEqual(before);
         const stored = await readdir(setup.sessions).catch(() => []);
         expect(stored.filter((name) => name.endsWith(".jsonl"))).toEqual([]);
+    } finally {
+        await setup.close();
+    }
+});
+
+socketTest("@core a real host names the plugin behind each skill, agent and source", async () => {
+    const setup = await startHost("vera-folder-customizations-plugin-", true);
+    try {
+        const read = await ask(setup.socketPath, { type: "folder_customizations" });
+        expect(read.skills.skills).toContainEqual(expect.objectContaining({
+            name: "plugin-skill",
+            plugin: "fixture-plugin",
+        }));
+        expect(read.agents.agents).toContainEqual(expect.objectContaining({
+            name: "plugin-agent",
+            scope: "plugin",
+            plugin: "fixture-plugin",
+            writable: false,
+        }));
+        expect(read.sources.sources).toContainEqual(expect.objectContaining({
+            id: "skills:plugin-skill",
+            category: "skills",
+            plugin: "fixture-plugin",
+        }));
+        expect(read.sources.sources).toContainEqual(expect.objectContaining({
+            id: "agents:plugin-agent",
+            category: "agents",
+            plugin: "fixture-plugin",
+        }));
+        expect(read.sources.sources).toContainEqual(expect.objectContaining({
+            id: "plugins:fixture-plugin",
+            category: "plugins",
+            scope: "plugin",
+            plugin: "fixture-plugin",
+            status: "enabled",
+        }));
+    } finally {
+        await setup.close();
+    }
+});
+
+socketTest("a corrupt plugin registry is reported once in a folder read", async () => {
+    const setup = await startHost("vera-folder-customizations-corrupt-", true);
+    try {
+        await writeFile(join(setup.home, "machine", "plugins.json"), "{ not json");
+        const read = await ask(setup.socketPath, { type: "folder_customizations" });
+        expect(read.sources.warnings.filter((warning) => warning.startsWith("Plugins:")))
+            .toHaveLength(1);
+        expect(read.sources.sources.some((source) => source.category === "plugins"))
+            .toBe(false);
+    } finally {
+        await setup.close();
+    }
+});
+
+socketTest("@core a corrupt plugin registry does not stop the host from booting", async () => {
+    const setup = await startHost("vera-folder-customizations-boot-", true, true);
+    try {
+        const read = await ask(setup.socketPath, { type: "folder_customizations" });
+        expect(read.sources.warnings.filter((warning) => warning.startsWith("Plugins:")))
+            .toHaveLength(1);
+        expect(read.sources.sources.some((source) => source.category === "plugins"))
+            .toBe(false);
     } finally {
         await setup.close();
     }

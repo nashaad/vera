@@ -12,6 +12,8 @@ export type MenuEntry =
         readonly args?: unknown;
         readonly checked?: boolean;
         readonly disabled?: boolean;
+        // A right-hand note, such as a setting's current value.
+        readonly hint?: string;
     };
 
 const SEPARATOR: MenuEntry = { kind: "separator" };

@@ -110,8 +110,13 @@
     flex: 1;
 }
 
-.provider-card-entry [role="alert"] {
+.provider-card-entry [role="alert"],
+.provider-card-entry [role="status"] {
     margin: 0;
     padding: 0 calc(var(--vera-space) * 3.5) calc(var(--vera-space) * 2);
+}
+
+.provider-card-entry [role="status"] {
+    color: var(--vera-text-muted);
 }
 

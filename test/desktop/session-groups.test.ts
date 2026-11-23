@@ -1,183 +1,136 @@
 import { expect, test } from "bun:test";
 
-import { CHATS_TITLE, folderName, groupSessions, PINNED_TITLE, rowFolderName, rowFolderPath, type SessionGroup, waitingCount } from "../../clients/ui/src/protocol/sessionGroups.ts";
+import { CHATS_TITLE, folderName, rowFolderName, rowFolderPath, waitingCount } from "../../clients/ui/src/protocol/sessionGroups.ts";
 import type { SessionRow } from "../../clients/ui/src/protocol/sessions.ts";
+import { buildSidebarTree, sidebarRowEntries, type SidebarNode, type SidebarTree } from "../../clients/ui/src/protocol/sidebarTree.ts";
 
 function row(id: string, workspace: string, extra: Partial<SessionRow> = {}): SessionRow {
     return { id, name: id, workspace, status: "idle", live: false, chat: false, ...extra };
 }
 
-test("@core sessions group by folder in order of their most recent session", () => {
-    const groups = groupSessions([
-        row("a", "/p/crow"),
-        row("b", "/p/parrot/"),
-        row("c", "/p/crow"),
-        row("d", ""),
-    ]);
-    expect(groups.map((group) => [group.title, group.entries.map((entry) => entry.row.id)])).toEqual([
-        ["crow", ["a", "c"]],
-        ["parrot", ["b"]],
-        ["No folder", ["d"]],
-    ]);
-});
-
-function shape(group: SessionGroup | undefined): unknown {
-    return group?.entries.map((entry) => [entry.row.id, entry.nested, entry.nestedCount]);
+function nodeShape(node: SidebarNode): unknown {
+    return [node.row.id, node.children.map(nodeShape)];
 }
 
-test("a child follows its parent, one level deep, in host order", () => {
-    const groups = groupSessions([
-        row("grandchild", "/p", { parentId: "child" }),
-        row("parent", "/p"),
-        row("child", "/p", { parentId: "parent" }),
-        row("orphan", "/p", { parentId: "gone" }),
+function shape(tree: SidebarTree): unknown {
+    return tree.sections.map((section) => [section.title, section.kind, section.folderRow, section.nodes.map(nodeShape)]);
+}
+
+test("@core grouping follows the folder, flat and single-row table", () => {
+    const rows = [
+        row("a", "/p/crow"),
+        row("b", "/p/crow"),
+        row("match", "/p/parrot", { name: "parrot" }),
+        row("named", "/p/heron", { name: "Trace the reef" }),
+    ];
+    expect(shape(buildSidebarTree(rows, [], "none"))).toEqual([
+        ["", "flat", false, [["a", []], ["b", []], ["match", []], ["named", []]]],
     ]);
-    expect(groups).toHaveLength(1);
-    expect(shape(groups[0])).toEqual([
-        ["parent", false, 2],
-        ["grandchild", true, 0],
-        ["child", true, 0],
-        ["orphan", false, 0],
+    expect(shape(buildSidebarTree(rows, [], "folder"))).toEqual([
+        ["crow", "folder", false, [["a", []], ["b", []]]],
+        ["parrot", "folder", true, [["match", []]]],
+        ["heron", "folder", false, [["named", []]]],
     ]);
 });
 
-test("a child in another folder is listed under its parent, not in a group of its own", () => {
-    const groups = groupSessions([
+test("@core every subagent sits under its direct parent at any depth", () => {
+    const rows = [
+        row("grandchild", "/elsewhere", { parentId: "child" }),
+        row("parent", "/p"),
         row("other", "/q", { parentId: "parent" }),
-        row("parent", "/p"),
+        row("child", "/p", { parentId: "parent" }),
+        row("great", "/x", { parentId: "grandchild" }),
+        row("orphan", "/p", { parentId: "gone" }),
+    ];
+    const tree = buildSidebarTree(rows, [], "folder");
+    expect(tree.sections.map((section) => [section.title, section.nodes.map(nodeShape)])).toEqual([
+        ["p", [["parent", [["other", []], ["child", [["grandchild", [["great", []]]]]]]], ["orphan", []]]],
     ]);
-    expect(groups.map((group) => group.title)).toEqual(["p"]);
-    expect(shape(groups[0])).toEqual([["parent", false, 1], ["other", true, 0]]);
+    expect(sidebarRowEntries(tree).map((entry) => [entry.row.id, entry.nested])).toEqual([
+        ["parent", false],
+        ["other", true],
+        ["child", true],
+        ["grandchild", true],
+        ["great", true],
+        ["orphan", false],
+    ]);
 });
 
-test("@core a subagent of a chat is nested under it in Chats, not in a group named by the chat folder", () => {
+test("@core only top-level sessions are pinned, in pin order, with their descendants", () => {
+    const rows = [
+        row("a", "/p"),
+        row("parent", "/p"),
+        row("kid", "/q", { parentId: "parent" }),
+        row("b", "/r"),
+    ];
+    const tree = buildSidebarTree(rows, ["b", "kid", "gone", "parent", "b"], "folder");
+    expect(tree.sections.map((section) => [section.title, section.nodes.map(nodeShape)])).toEqual([
+        ["Pinned", [["b", []], ["parent", [["kid", []]]]]],
+        ["p", [["a", []]]],
+    ]);
+});
+
+test("@core a stale pin stays in the file and is ignored when rendering", () => {
+    const rows = [row("a", "/p"), row("b", "/p")];
+    const pins = ["gone", "b"];
+    expect(shape(buildSidebarTree(rows, pins, "none"))).toEqual([
+        ["Pinned", "pinned", false, [["b", []]]],
+        ["", "flat", false, [["a", []]]],
+    ]);
+    expect(pins).toEqual(["gone", "b"]);
+});
+
+test("unpinning returns a root to the host's order", () => {
+    const rows = [row("first", "/p"), row("second", "/p"), row("third", "/p")];
+    expect(shape(buildSidebarTree(rows, ["second"], "none"))).toEqual([
+        ["Pinned", "pinned", false, [["second", []]]],
+        ["", "flat", false, [["first", []], ["third", []]]],
+    ]);
+    expect(shape(buildSidebarTree(rows, [], "none"))).toEqual([
+        ["", "flat", false, [["first", []], ["second", []], ["third", []]]],
+    ]);
+});
+
+test("pinning one of two sessions keeps the folder heading and the sibling's own name", () => {
+    const rows = [row("one", "/p/crow"), row("two", "/p/crow", { name: "Two crows" })];
+    const tree = buildSidebarTree(rows, ["one"], "folder");
+    expect(shape(tree)).toEqual([
+        ["Pinned", "pinned", false, [["one", []]]],
+        ["crow", "folder", false, [["two", []]]],
+    ]);
+});
+
+test("a folder heading disappears when all its sessions are pinned", () => {
+    const tree = buildSidebarTree([row("only", "/p/crow")], ["only"], "folder");
+    expect(shape(tree)).toEqual([["Pinned", "pinned", false, [["only", []]]]]);
+});
+
+test("a pinned child does not leave its parent", () => {
+    const rows = [row("parent", "/p"), row("kid", "/p", { parentId: "parent" })];
+    const tree = buildSidebarTree(rows, ["kid"], "none");
+    expect(shape(tree)).toEqual([
+        ["", "flat", false, [["parent", [["kid", []]]]]],
+    ]);
+});
+
+test("@core chats keep one Chats heading under Folder and join the flat list under None", () => {
     const folder = "/h/sessions/c1.jsonl.files";
-    const groups = groupSessions([
+    const rows = [
+        row("c1", folder, { chat: true }),
         row("kid", folder, { parentId: "c1" }),
         row("a", "/p/crow"),
-        row("c1", folder, { chat: true }),
+        row("c2", folder, { chat: true }),
+    ];
+    expect(shape(buildSidebarTree(rows, [], "folder"))).toEqual([
+        [CHATS_TITLE, "chats", false, [["c1", [["kid", []]]], ["c2", []]]],
+        ["crow", "folder", false, [["a", []]]],
     ]);
-    expect(groups.map((group) => [group.title, group.chats])).toEqual([[CHATS_TITLE, true], ["crow", false]]);
-    expect(groups.some((group) => group.workspace === folder)).toBe(false);
-    expect(shape(groups[0])).toEqual([["c1", false, 1], ["kid", true, 0]]);
-    expect(shape(groups[1])).toEqual([["a", false, 0]]);
-});
-
-test("a grandchild of a chat sits under the chat, whatever folders the rows report", () => {
-    const groups = groupSessions([
-        row("c1", "/h/c1.files", { chat: true }),
-        row("kid", "/h/c1.files", { parentId: "c1" }),
-        row("grandkid", "/elsewhere", { parentId: "kid" }),
-    ]);
-    expect(groups).toHaveLength(1);
-    expect(shape(groups[0])).toEqual([["c1", false, 2], ["kid", true, 0], ["grandkid", true, 0]]);
-});
-
-test("a parent whose rows were paged out leaves its child as a root in its own group", () => {
-    const groups = groupSessions([row("a", "/p"), row("child", "/q", { parentId: "gone" })]);
-    expect(groups.map((group) => [group.title, shape(group)])).toEqual([
-        ["p", [["a", false, 0]]],
-        ["q", [["child", false, 0]]],
+    expect(shape(buildSidebarTree(rows, [], "none"))).toEqual([
+        ["", "flat", false, [["c1", [["kid", []]]], ["a", []], ["c2", []]]],
     ]);
 });
 
-test("a loop in parent links keeps every row", () => {
-    const groups = groupSessions([row("a", "/p", { parentId: "b" }), row("b", "/p", { parentId: "a" })]);
-    expect(groups[0]?.entries.map((entry) => entry.row.id).sort()).toEqual(["a", "b"]);
-    expect(groups[0]?.entries.every((entry) => !entry.nested)).toBe(true);
-});
-
-test("a child of a loop lists on its own and every row appears once", () => {
-    const groups = groupSessions([
-        row("a", "/p", { parentId: "b" }),
-        row("b", "/p", { parentId: "a" }),
-        row("c", "/q", { parentId: "a" }),
-    ]);
-    const ids = groups.flatMap((group) => group.entries.map((entry) => entry.row.id));
-    expect(ids.sort()).toEqual(["a", "b", "c"]);
-});
-
-test("@core chats share one Chats group that opens no workspace, ordered by its newest session", () => {
-    const groups = groupSessions([
-        row("a", "/p/crow"),
-        row("c1", "/h/sessions/c1.jsonl.files", { chat: true }),
-        row("b", "/p/parrot"),
-        row("c2", "/h/sessions/c2.jsonl.files", { chat: true }),
-    ]);
-    expect(groups.map((group) => [group.title, group.chats, group.workspace, group.entries.map((entry) => entry.row.id)])).toEqual([
-        ["crow", false, "/p/crow", ["a"]],
-        [CHATS_TITLE, true, "", ["c1", "c2"]],
-        ["parrot", false, "/p/parrot", ["b"]],
-    ]);
-    expect(new Set(groups.map((group) => group.key)).size).toBe(3);
-});
-
-test("a chat group sits first when its session is the newest, and a folder called chats is not a chat", () => {
-    const groups = groupSessions([row("c1", "/h/c1.jsonl.files", { chat: true }), row("x", "chats"), row("y", "")]);
-    expect(groups.map((group) => [group.title, group.chats])).toEqual([[CHATS_TITLE, true], ["chats", false], ["No folder", false]]);
-});
-
-test("@core pinned sessions sit first in pin order and leave their own group", () => {
-    const groups = groupSessions([
-        row("a", "/p/crow"),
-        row("c1", "/h/c1.jsonl.files", { chat: true }),
-        row("b", "/p/crow"),
-        row("kid", "/p/crow", { parentId: "b" }),
-    ], ["kid", "gone", "c1"]);
-    expect(groups.map((group) => [group.title, group.workspace, group.entries.map((entry) => [entry.row.id, entry.nested])])).toEqual([
-        [PINNED_TITLE, "", [["kid", false], ["c1", false]]],
-        ["crow", "/p/crow", [["a", false], ["b", false]]],
-    ]);
-    expect(groups[0]?.key).not.toBe(groups[1]?.key);
-    expect(groupSessions([row("a", "/p")], ["gone"]).map((group) => group.title)).toEqual(["p"]);
-});
-
-test("a pinned parent takes its children into Pinned in host order, whatever their folder", () => {
-    const groups = groupSessions([
-        row("a", "/p"),
-        row("kid2", "/q", { parentId: "parent" }),
-        row("parent", "/p"),
-        row("kid1", "/p", { parentId: "parent" }),
-        row("grandkid", "/p", { parentId: "kid1" }),
-    ], ["parent"]);
-    expect(groups.map((group) => [group.title, shape(group)])).toEqual([
-        [PINNED_TITLE, [["parent", false, 3], ["kid2", true, 0], ["kid1", true, 0], ["grandkid", true, 0]]],
-        ["p", [["a", false, 0]]],
-    ]);
-});
-
-test("a pinned child shows in Pinned on its own and not again under its parent", () => {
-    const groups = groupSessions([
-        row("parent", "/p"),
-        row("kid1", "/p", { parentId: "parent" }),
-        row("kid2", "/p", { parentId: "parent" }),
-    ], ["kid2"]);
-    expect(groups.map((group) => [group.title, shape(group)])).toEqual([
-        [PINNED_TITLE, [["kid2", false, 0]]],
-        ["p", [["parent", false, 1], ["kid1", true, 0]]],
-    ]);
-});
-
-test("a pinned parent and its pinned child are both rows in Pinned, and the child keeps its own subagents", () => {
-    const groups = groupSessions([
-        row("parent", "/p"),
-        row("kid", "/p", { parentId: "parent" }),
-        row("grandkid", "/p", { parentId: "kid" }),
-    ], ["parent", "kid"]);
-    expect(groups).toHaveLength(1);
-    expect(shape(groups[0])).toEqual([["parent", false, 0], ["kid", false, 1], ["grandkid", true, 0]]);
-});
-
-test("a chat names itself Chat and has no folder path to show", () => {
-    const chat = row("c", "/h/sessions/c.jsonl.files", { chat: true });
-    expect(rowFolderName(chat)).toBe("Chat");
-    expect(rowFolderPath(chat)).toBeUndefined();
-    expect(rowFolderName(row("a", "/p/crow"))).toBe("crow");
-    expect(rowFolderPath(row("a", "/p/crow"))).toBe("/p/crow");
-    expect(rowFolderPath(row("a", ""))).toBeUndefined();
-});
-
-test("@core archived families leave pins, chats and folders and restore their pin order", () => {
+test("@core archived families sit last, keep their nesting and their pins wait in the file", () => {
     const rows = [
         row("folder", "/p"),
         row("parent", "/chat.files", { chat: true, archived: true }),
@@ -185,28 +138,68 @@ test("@core archived families leave pins, chats and folders and restore their pi
         row("grandchild", "/q", { parentId: "child", status: "waiting" }),
     ];
     const pins = ["child", "parent"];
-    const groups = groupSessions(rows, pins);
-    expect(groups.map((group) => group.title)).toEqual(["p", "Archived"]);
-    expect(shape(groups[1])).toEqual([["parent", false, 2], ["child", true, 0], ["grandchild", true, 0]]);
-    expect(groups[1]?.entries.map((entry) => entry.archiveRoot?.id)).toEqual(["parent", "parent", "parent"]);
-    expect(waitingCount(rows)).toBe(1);
-    const restored = groupSessions(rows.map((entry) => ({ ...entry, archived: false })), pins);
-    expect(restored.map((group) => group.title)).toEqual(["Pinned", "p"]);
-    expect(restored[0]?.entries.map((entry) => entry.row.id)).toEqual(["child", "grandchild", "parent"]);
-    expect(pins).toEqual(["child", "parent"]);
-});
-
-test("archived standalone sessions share the last group whatever their folder", () => {
-    const groups = groupSessions([
-        row("a", "/p", { archived: true }),
-        row("b", "/q", { archived: true, chat: true }),
-        row("c", "/r"),
+    const tree = buildSidebarTree(rows, pins, "folder");
+    expect(shape(tree)).toEqual([
+        ["p", "folder", false, [["folder", []]]],
+        ["Archived", "archived", false, [["parent", [["child", [["grandchild", []]]]]]]],
     ]);
-    expect(groups.map((group) => group.title)).toEqual(["r", "Archived"]);
-    expect(groups[1]?.entries.map((entry) => entry.row.id)).toEqual(["a", "b"]);
+    expect(tree.sections[1]?.nodes[0]?.children[0]?.archiveRoot.id).toBe("parent");
+    expect(pins).toEqual(["child", "parent"]);
+    expect(waitingCount(rows)).toBe(1);
+    const restored = buildSidebarTree(rows.map((entry) => ({ ...entry, archived: false })), pins, "folder");
+    expect(shape(restored)).toEqual([
+        ["Pinned", "pinned", false, [["parent", [["child", [["grandchild", []]]]]]]],
+        ["p", "folder", false, [["folder", []]]],
+    ]);
 });
 
-test("folder names and the waiting count", () => {
+test("a descendant marked archived takes its whole family with it", () => {
+    const rows = [row("parent", "/p"), row("kid", "/p", { parentId: "parent", archived: true })];
+    const tree = buildSidebarTree(rows, ["parent"], "none");
+    expect(shape(tree)).toEqual([
+        ["Archived", "archived", false, [["parent", [["kid", []]]]]],
+    ]);
+});
+
+test("archived roots are not promoted to Pinned", () => {
+    const rows = [row("old", "/p", { archived: true }), row("new", "/p")];
+    const tree = buildSidebarTree(rows, ["old"], "folder");
+    expect(shape(tree)).toEqual([
+        ["p", "folder", false, [["new", []]]],
+        ["Archived", "archived", false, [["old", []]]],
+    ]);
+});
+
+test("a child in another folder follows its parent, and an absent parent leaves a root", () => {
+    const tree = buildSidebarTree([
+        row("other", "/q", { parentId: "parent" }),
+        row("parent", "/p"),
+        row("orphan", "/r", { parentId: "gone" }),
+    ], [], "folder");
+    expect(shape(tree)).toEqual([
+        ["p", "folder", false, [["parent", [["other", []]]]]],
+        ["r", "folder", false, [["orphan", []]]],
+    ]);
+});
+
+test("a loop in parent links lists every row once as a root", () => {
+    const rows = [
+        row("a", "/p", { parentId: "b" }),
+        row("b", "/p", { parentId: "a" }),
+        row("c", "/q", { parentId: "a" }),
+    ];
+    const tree = buildSidebarTree(rows, [], "none");
+    const ids = sidebarRowEntries(tree).map((entry) => entry.row.id);
+    expect(ids.sort()).toEqual(["a", "b", "c"]);
+});
+
+test("folder names, chat names and the waiting count", () => {
+    const chat = row("c", "/h/sessions/c.jsonl.files", { chat: true });
+    expect(rowFolderName(chat)).toBe("Chat");
+    expect(rowFolderPath(chat)).toBeUndefined();
+    expect(rowFolderName(row("a", "/p/crow"))).toBe("crow");
+    expect(rowFolderPath(row("a", "/p/crow"))).toBe("/p/crow");
+    expect(rowFolderPath(row("a", ""))).toBeUndefined();
     expect(folderName("/Users/crow/Projects/vera")).toBe("vera");
     expect(folderName("C:\\ships\\brig\\")).toBe("brig");
     expect(folderName("/")).toBe("/");

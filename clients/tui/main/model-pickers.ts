@@ -3,6 +3,7 @@ import type { ProviderSignInStatus } from "../../../src/providers/provider-sign-
 import { isRefreshableProvider } from "../../../src/model/refreshable-providers.ts";
 import { providerCatalogsOf } from "../../../src/host/model-catalog-settings.ts";
 import { connectedProviderCatalogs } from "../../../src/providers/catalog-state.ts";
+import { providerEnabled } from "../../../src/providers/provider-enabled.ts";
 import { createAuthStorage } from "../../../src/providers/auth-storage.ts";
 import { readProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
 import { initialModelBrowseScope, modelBrowse } from "../model-browse.ts";
@@ -660,6 +661,8 @@ export function providerPickerRows(
         readonly declared: ReadonlySet<string>;
         readonly refreshable: (provider: ProviderDescriptor) => boolean;
         readonly hasCredential: (provider: ProviderDescriptor) => boolean;
+        readonly isConnected: (provider: ProviderDescriptor) => boolean;
+        readonly enabled: (provider: ProviderDescriptor) => boolean;
         readonly catalog: (id: string) => { readonly fetched_at?: string; readonly models: readonly unknown[] };
     },
 ): readonly TuiProviderRow[] {
@@ -683,6 +686,8 @@ export function providerPickerRows(
             ),
             hint: `${provider.custom || provider.endpointOverridden ? provider.baseUrl : provider.hint ?? provider.baseUrl ?? ""}${catalogHint}`,
             hasCredential: facts.hasCredential(provider),
+            connected: facts.isConnected(provider),
+            enabled: facts.enabled(provider),
             ...(answerLabel === undefined ? {} : { answerState: answerLabel }),
             ...(facts.refreshable(provider) ? { refreshable: true } : {}),
             ...(facts.declared.has(provider.id) ? { declared: true } : {}),
@@ -739,6 +744,11 @@ function showProviderPicker(rt: TuiRuntime,
             refreshable: (provider) => isRefreshableProvider(provider.id, config) || provider.protocol === "anthropic-messages",
             hasCredential: (provider) => statuses === undefined ? providerHasCredential(rt, provider)
                 : statuses.some((row) => row.id === provider.id && row.connected_by !== undefined && row.connected_by !== "none"),
+            isConnected: (provider) => statuses === undefined ? providerHasCredential(rt, provider)
+                : statuses.some((row) => row.id === provider.id && row.connected),
+            enabled: (provider) => statuses === undefined
+                ? providerEnabled(config, provider.id)
+                : statuses.find((row) => row.id === provider.id)?.enabled !== false,
             catalog: (id) => readProviderCatalogSnapshot(id),
         },
     );

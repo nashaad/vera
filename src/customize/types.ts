@@ -1,4 +1,4 @@
-export type SourceCategory = "agents" | "skills" | "instructions" | "memory" | "extensions";
+export type SourceCategory = "agents" | "skills" | "instructions" | "memory" | "extensions" | "plugins";
 
 export interface CustomizationSource {
     readonly id: string;
@@ -11,6 +11,7 @@ export interface CustomizationSource {
     readonly editable: boolean;
     readonly contextIds: readonly string[];
     readonly status?: string;
+    readonly plugin?: string;
 }
 
 export interface CustomizationCatalog {

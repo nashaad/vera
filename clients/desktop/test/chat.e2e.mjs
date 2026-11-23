@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 
 import { configureFauxHome, streamChunk, until } from "./faux-home.mjs";
+import { setSidebarGrouping } from "./sidebar.mjs";
 import { startTrial } from "./trial.mjs";
 
 const REPLY = "Crows sail past the reef.";
@@ -78,6 +79,7 @@ try {
 
     page = await app.firstWindow();
     await page.waitForSelector(".app[data-sessions=\"0\"]", { timeout: LONG_TIMEOUT });
+    await setSidebarGrouping(page, "folder");
     await trial.waitForHost();
 
     const input = page.locator(".composer-input");

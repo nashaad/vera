@@ -103,7 +103,7 @@ test("an extension failure is not repeated when its manifest is also listed", ()
 
 test("kind counts cover every item and each kind", () => {
     const counts = kindCounts(fixture());
-    expect(counts).toEqual({ all: 8, skills: 2, agents: 2, extensions: 2, instructions: 1, memory: 1 });
+    expect(counts).toEqual({ all: 8, skills: 2, agents: 2, extensions: 2, instructions: 1, memory: 1, plugins: 0 });
 });
 
 test("the query matches names and descriptions and the kind filter narrows the list", () => {
@@ -120,12 +120,43 @@ test("scope groups follow the fixed order and drop empty groups", () => {
     expect(sections[0]?.items.map((item) => item.name)).toEqual(["notes", "planner", "AGENTS.md"]);
 });
 
+test("plugin source rows keep their metadata and sort after existing kinds in Other", () => {
+    const pluginSource = source({
+        id: "plugins:sea-chest",
+        category: "plugins",
+        name: "sea-chest",
+        scope: "plugin",
+        plugin: "sea-chest",
+        status: "enabled",
+    });
+    const items = buildItems(reading({
+        skills: [{ ...skill("plunder"), plugin: "sea-chest" }],
+        agents: [agent("lookout", "plugin", { plugin: "sea-chest" })],
+        sources: [
+            pluginSource,
+            source({ id: "skills:plunder", category: "skills", name: "plunder", scope: "plugin sea-chest", plugin: "sea-chest" }),
+            source({ id: "agents:lookout", category: "agents", name: "lookout", scope: "plugin sea-chest", plugin: "sea-chest" }),
+        ],
+    }), []);
+
+    const plugin = items.find((item) => item.kind === "plugins");
+    expect(plugin).toMatchObject({ kind: "plugins", name: "sea-chest", group: "Other", source: pluginSource });
+    expect(plugin?.source?.plugin).toBe("sea-chest");
+    expect(items.find((item) => item.name === "lookout")).toMatchObject({
+        kind: "agents", group: "Other", agent: { scope: "plugin", plugin: "sea-chest" },
+    });
+    expect(items.find((item) => item.name === "plunder")?.skill?.plugin).toBe("sea-chest");
+    expect(groupByScope(items).find((section) => section.group === "Other")?.items.map((item) => item.kind))
+        .toEqual(["skills", "agents", "plugins"]);
+});
+
 test("scope strings map to readable group names", () => {
     expect(scopeGroup("project")).toBe("This folder");
     expect(scopeGroup("user")).toBe("Your home");
     expect(scopeGroup("extension")).toBe("Extensions");
     expect(scopeGroup("extension demo")).toBe("Extensions");
     expect(scopeGroup("system")).toBe("Built in");
+    expect(scopeGroup("plugin")).toBe("Other");
     expect(scopeGroup(undefined)).toBe("Other");
 });
 

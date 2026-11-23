@@ -92,14 +92,15 @@ export function parseProviderSignInStatus(value: unknown): ProviderSignInStatus 
         || typeof fields.name !== "string" || fields.name.length === 0 || fields.name.length > 512
         || !Array.isArray(fields.methods) || fields.methods.length > 2
         || fields.methods.some((method) => method !== "key" && method !== "browser")
-        || typeof fields.connected !== "boolean" || typeof fields.catalog_connected !== "boolean" || typeof fields.custom !== "boolean"
+        || typeof fields.connected !== "boolean" || typeof fields.catalog_connected !== "boolean"
+        || typeof fields.enabled !== "boolean" || typeof fields.custom !== "boolean"
         || (fields.connected_by !== undefined && !["key", "browser", "environment", "none"].includes(String(fields.connected_by)))
         || (fields.endpoint !== undefined && (typeof fields.endpoint !== "string" || fields.endpoint.length > 4096))
         || (fields.protocol !== undefined && fields.protocol !== "openai-chat" && fields.protocol !== "anthropic-messages")
         || (fields.models_discovered !== undefined && (!Number.isSafeInteger(fields.models_discovered) || (fields.models_discovered as number) < 0))) return undefined;
     return {
         id: fields.id, name: fields.name, methods: fields.methods as ("key" | "browser")[],
-        connected: fields.connected, catalog_connected: fields.catalog_connected, custom: fields.custom,
+        connected: fields.connected, catalog_connected: fields.catalog_connected, enabled: fields.enabled, custom: fields.custom,
         ...(fields.connected_by === undefined ? {} : { connected_by: fields.connected_by as "key" | "browser" | "environment" | "none" }),
         ...(fields.endpoint === undefined ? {} : { endpoint: fields.endpoint as string }),
         ...(fields.protocol === undefined ? {} : { protocol: fields.protocol as "openai-chat" | "anthropic-messages" }),

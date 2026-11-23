@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { signalVerifiedProcess, signalVerifiedProcessGroup } from "../../src/process-group.ts";
+import type { CommandSandbox, SandboxPreparedCommand } from "../../src/sandbox/types.ts";
 import {
     ManagedProcessRegistry,
     MAX_RETAINED_PROCESSES_PER_OWNER,
@@ -11,6 +12,51 @@ import {
 } from "../../src/tools/process-runtime.ts";
 
 const ENV = process.env as Readonly<Record<string, string | undefined>>;
+
+test("@core closing a registry prevents a pending sandbox preparation from spawning", async () => {
+    let resume = (): void => {};
+    const preparation = new Promise<void>((resolve) => { resume = resolve; });
+    const prepared: SandboxPreparedCommand = {
+        argv: ["bash", "-lc", "printf unexpected"],
+        env: ENV,
+        commandId: "pending",
+        sessionId: "pending",
+        toolCallId: "pending",
+        command: "printf unexpected",
+        violationsBefore: 0,
+    };
+    const ended: SandboxPreparedCommand[] = [];
+    const sandbox: CommandSandbox = {
+        async prepare() {
+            await preparation;
+            return { prepared };
+        },
+        async settle() { return { suffix: "", violations: [] }; },
+        settleSync() { return { suffix: "", violations: [] }; },
+        finishUnwrapped() {},
+        release() {},
+        commandEnded(command) { ended.push(command); },
+    };
+    const starts: number[] = [];
+    const registry = new ManagedProcessRegistry({
+        sandbox,
+        onProcessStarted: (pid) => starts.push(pid),
+    });
+    const running = registry.scope("pending").run({
+        command: prepared.command,
+        cwd: process.cwd(),
+        env: ENV,
+        interactive: false,
+    });
+    await registry.close();
+    resume();
+    expect(await running).toEqual({
+        kind: "rejected",
+        reason: "Process registry is closed.",
+    });
+    expect(starts).toEqual([]);
+    expect(ended).toEqual([prepared]);
+});
 
 test("a foreground process is not counted before it exits", async () => {
     const changes: number[] = [];

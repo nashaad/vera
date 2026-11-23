@@ -99,7 +99,7 @@ Open `/context` to inspect that usage and its sources.
 
 You can provide project instructions, reusable skills, standing instructions,
 and extensions. `/plugins` lets you browse their sources. Start with
-[Plugins](plugins.md) and [Vera's files and settings](config-reference.md).
+[Plugins](customize.md) and [Vera's files and settings](config-reference.md).
 
 As the conversation grows, compaction reduces earlier context. Its limits and
 related controls are under `/settings`, then Overrides. See

@@ -5,6 +5,7 @@ import { agentSnapshotDrift, resolveAgentSnapshot, type AgentSnapshot } from "..
 import { writeAgentDefaultPair } from "../../agents/writer.ts";
 import { EngineEventBus, type EngineEvent } from "../../engine/events.ts";
 import type { AgentCatalogUpdate } from "../../engine/protocol.ts";
+import type { PluginCatalog } from "../../plugins/catalog.ts";
 import type { ModelTurnSettings } from "../../engine/model-settings.ts";
 import { PermissionModeSyncError } from "../../engine/inbound-command-router.ts";
 import { BUILT_IN_PERMISSION_MODE_NAMES, builtInPermissionMode, isApprovalMode, type ApprovalMode } from "../../engine/permissions.ts";
@@ -118,6 +119,7 @@ export function listedAgents(catalog: AgentCatalog): readonly ListedAgent[] {
             : { description: agent.definition.description }),
         scope: agent.scope,
         writable: agent.writable,
+        ...(agent.plugin === undefined ? {} : { plugin: agent.plugin }),
         ...(agent.definition.tools === undefined
             ? {}
             : { tools: agent.definition.tools }),
@@ -193,13 +195,22 @@ export async function decideSkillInvocationFor(reg: AgentRegistry, id: string, n
         });
     }
 
-export async function agentCatalogFor(reg: AgentRegistry, entry: RegisteredAgentEntry): Promise<AgentCatalog> {
-        return loadAgentCatalogFor(reg, entry.store.header.cwd);
+export async function agentCatalogFor(
+    reg: AgentRegistry,
+    entry: RegisteredAgentEntry,
+    pluginCatalog?: PluginCatalog,
+): Promise<AgentCatalog> {
+        return loadAgentCatalogFor(reg, entry.store.header.cwd, pluginCatalog);
     }
 
-export async function loadAgentCatalogFor(reg: AgentRegistry, projectRoot: string | undefined): Promise<AgentCatalog> {
+export async function loadAgentCatalogFor(
+    reg: AgentRegistry,
+    projectRoot: string | undefined,
+    pluginCatalog?: PluginCatalog,
+): Promise<AgentCatalog> {
         return loadAgentCatalog({
             ...(projectRoot === undefined ? {} : { projectRoot }),
+            ...(pluginCatalog === undefined ? {} : { pluginCatalog }),
             permissionModes: [
                 ...BUILT_IN_PERMISSION_MODE_NAMES,
                 ...Object.keys(reg.options.permissionModes ?? {}),
@@ -440,7 +451,9 @@ export async function updateAgentDefaultPairFor(reg: AgentRegistry, id: string, 
         const found = findCatalogAgent(catalog, name);
         if (found === undefined) return `No agent named ${name}`;
         if (!found.writable || found.path === undefined) {
-            return `${name} is registered by an extension, so its file cannot be written`;
+            return found.scope === "plugin"
+                ? `${name} is provided by a plugin, so its file cannot be written`
+                : `${name} is registered by an extension, so its file cannot be written`;
         }
         try {
             await writeAgentDefaultPair(found.path, pair);

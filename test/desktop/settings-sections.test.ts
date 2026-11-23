@@ -2,43 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import type { SessionRow } from "../../clients/ui/src/protocol/sessions.ts";
 import { agentMeta, scopeLabel } from "../../clients/ui/src/pages/settings/agents.ts";
-import { filterSettings } from "../../clients/ui/src/pages/settings/filter.ts";
 import { railNarrow } from "../../clients/ui/src/pages/settings/useNarrowRail.ts";
 import { filterShortcutGroups } from "../../clients/ui/src/commands/keys.ts";
 import { THEME_LABELS, themeFromAttribute, themeSwatch } from "../../clients/ui/src/pages/settings/appearance.ts";
 import { FOLDER_LIMIT, folderSummary, workspaceFolders } from "../../clients/ui/src/pages/settings/workspaces.ts";
 import { DEFAULT_THEME, THEME_NAMES } from "../../clients/ui/src/theme/tokens.ts";
-
-const sections = [
-    { id: "approvals", name: "Approvals", terms: "permission approve deny allow mode grant always" },
-    { id: "appearance", name: "Appearance", terms: "theme font density" },
-    { id: "providers", name: "Providers", terms: "model provider api key" },
-];
-
-describe("filterSettings", () => {
-    test("an empty or blank query keeps every section in order", () => {
-        expect(filterSettings(sections, "").map((section) => section.id)).toEqual(["approvals", "appearance", "providers"]);
-        expect(filterSettings(sections, "   ").map((section) => section.id)).toEqual(["approvals", "appearance", "providers"]);
-    });
-
-    test("matches the section name, ignoring case", () => {
-        expect(filterSettings(sections, "APPEAR").map((section) => section.id)).toEqual(["appearance"]);
-    });
-
-    test("matches keyword terms", () => {
-        expect(filterSettings(sections, "api").map((section) => section.id)).toEqual(["providers"]);
-        expect(filterSettings(sections, "theme").map((section) => section.id)).toEqual(["appearance"]);
-    });
-
-    test("every word must match, in any order", () => {
-        expect(filterSettings(sections, "mode permission").map((section) => section.id)).toEqual(["approvals"]);
-        expect(filterSettings(sections, "permission theme")).toEqual([]);
-    });
-
-    test("a query no section matches returns nothing", () => {
-        expect(filterSettings(sections, "zzz")).toEqual([]);
-    });
-});
 
 function row(id: string, workspace: string, updatedAt?: number): SessionRow {
     return { id, name: id, workspace, status: "idle", live: false, chat: false, ...(updatedAt === undefined ? {} : { updatedAt }) };

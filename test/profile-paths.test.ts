@@ -109,6 +109,16 @@ test("the extension registry the installer writes is owned", () => {
     expect(unrecognisedHomeEntries(root)).toEqual([]);
 });
 
+test("the plugin store and registry at the home root are owned", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-home-"));
+    mkdirSync(join(root, ".vera", "plugins", ".data", "sample"), {
+        recursive: true,
+    });
+    mkdirSync(join(root, ".vera", "machine"), { recursive: true });
+    writeFileSync(join(root, ".vera", "machine", "plugins.json"), "{}");
+    expect(unrecognisedHomeEntries(root)).toEqual([]);
+});
+
 test("state written outside the known root names is named", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
     mkdirSync(join(root, ".vera", "machine"), { recursive: true });

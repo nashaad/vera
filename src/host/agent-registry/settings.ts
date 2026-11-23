@@ -1,7 +1,7 @@
 import { isVeraProviderId } from "../../config.ts";
 import { modelSelectionCleared } from "../model-catalog-settings.ts";
 import type { PoolAdmissionVerdict } from "../../engine/events.ts";
-import { isModelReasoningEffort, publishedReasoningLevels, type ModelSettingsPatch, type ModelTurnSettings, type ReviewerModelDefault, type ReviewerSettingsPatch, type SubagentModelDefault } from "../../engine/model-settings.ts";
+import { isModelReasoningEffort, publishedReasoningLevels, startingReasoningEffort, type ModelSettingsPatch, type ModelTurnSettings, type ReviewerModelDefault, type ReviewerSettingsPatch, type SubagentModelDefault } from "../../engine/model-settings.ts";
 import type { ToolReviewerSettings } from "../../engine/reviewer.ts";
 import { admittedEffortIds } from "../../model/catalog-view.ts";
 import { isSessionOnlyEffort } from "../../model/effort-ladder.ts";
@@ -57,18 +57,27 @@ export function isKnownProvider(reg: AgentRegistry, provider: string): boolean {
     }
 
 export function readHostModelSettings(reg: AgentRegistry, workspace?: string): ModelTurnSettings {
+        const pooled = reg.options.readPool?.(workspace);
         return settingsForClient(
             {
                 provider: reg.defaultProvider,
                 model: reg.defaultModel,
                 ...(reg.defaultReasoningEffort === undefined
                     ? {}
-                    : { reasoningEffort: reg.defaultReasoningEffort }),
+                    : {
+                        reasoningEffort: startingReasoningEffort(
+                            reg.defaultProvider,
+                            reg.defaultModel,
+                            reg.defaultReasoningEffort,
+                            pooled,
+                            reg.catalog,
+                        ),
+                    }),
             },
             reg.defaultProvider,
             reg.catalog,
             reg.modelsForClient(),
-            reg.options.readPool?.(workspace),
+            pooled,
             subagentDefault(reg, workspace),
             undefined,
             reg.reviewerDefault(),
