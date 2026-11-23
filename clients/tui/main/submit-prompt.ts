@@ -45,8 +45,8 @@ import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { PromptRejectedError } from "../../../src/host/attached-client.ts";
 
-// Skill files are editable from /customize, so closing it refreshes the catalog.
-const SKILL_CATALOG_EDITING_COMMANDS = new Set(["customize"]);
+// Skill files are editable from /plugins, so closing it refreshes the catalog.
+const SKILL_CATALOG_EDITING_COMMANDS = new Set(["plugins", "customize"]);
 
 export function submitPrompt(rt: TuiRuntime, 
     interceptedText?: string,

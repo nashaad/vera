@@ -33,6 +33,7 @@ import "./styles/devices.css";
 import "./styles/overlays.css";
 import "./styles/palette.css";
 import "./styles/customize.css";
+import "./styles/plugins.css";
 import "./styles/settings-more.css";
 import "./styles/dialogs.css";
 import "./styles/tour.css";

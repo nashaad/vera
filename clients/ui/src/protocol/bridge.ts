@@ -367,6 +367,8 @@ export interface DesktopBridge {
     browser(command: string, value?: string | number | boolean | null | BrowserBounds | BrowserHandoffAnswer | BrowserToolsApproval): Promise<BrowserState>;
     // Opens a folder in the system file manager; false when it could not be opened.
     revealFolder(folder: string): Promise<boolean>;
+    // Opens a file with the system default application; false when it could not be opened.
+    openFile(path: string): Promise<boolean>;
     // The given absolute paths that exist as directories, at most MAX_FOLDER_CHECKS of them.
     existingFolders(folders: readonly string[]): Promise<readonly string[]>;
     // Opens the native folder picker; undefined when cancelled.

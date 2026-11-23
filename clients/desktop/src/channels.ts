@@ -66,6 +66,7 @@ export const CHANNELS = {
     assignmentsAll: "vera:assignments-all",
     sessionsSearch: "vera:sessions-search",
     folderReveal: "vera:folder-reveal",
+    fileOpen: "vera:file-open",
     extensionFailures: "vera:extension-failures",
     newSessionAgents: "vera:new-session-agents",
     folderCustomizations: "vera:folder-customizations",

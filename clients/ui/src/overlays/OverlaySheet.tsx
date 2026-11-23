@@ -3,8 +3,10 @@ import { useEffect, type ComponentType, type ReactNode } from "react";
 import { XIcon } from "../components/Icons.tsx";
 
 export interface OverlaySheetProps {
-    readonly title: string;
-    readonly Icon: ComponentType<{ readonly className?: string }>;
+    readonly title: ReactNode;
+    readonly Icon?: ComponentType<{ readonly className?: string }>;
+    // Replaces the small head icon when a sheet needs a larger mark.
+    readonly lead?: ReactNode;
     readonly onClose: () => void;
     readonly onEscape?: () => void;
     readonly children: ReactNode;
@@ -12,12 +14,14 @@ export interface OverlaySheetProps {
     // Buttons for the bottom row; omitted sheets have no foot.
     readonly foot?: ReactNode;
     readonly wide?: boolean;
+    // Extra sheet class for size or layout overrides.
+    readonly className?: string;
     // Names the sheet for tests and styles, such as "themes".
     readonly name: string;
 }
 
 // The frame every window-wide sheet shares: scrim, head with a close button, body and an optional foot.
-export function OverlaySheet({ title, Icon, onClose, onEscape, children, head, foot, wide = false, name }: OverlaySheetProps) {
+export function OverlaySheet({ title, Icon, lead, onClose, onEscape, children, head, foot, wide = false, className, name }: OverlaySheetProps) {
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
             if (event.key === "Escape") (onEscape ?? onClose)();
@@ -35,7 +39,7 @@ export function OverlaySheet({ title, Icon, onClose, onEscape, children, head, f
             }}
         >
             <div
-                className="sheet session-sheet overlay-sheet"
+                className={`sheet session-sheet overlay-sheet${className === undefined ? "" : ` ${className}`}`}
                 data-overlay={name}
                 data-wide={wide}
                 role="dialog"
@@ -43,7 +47,7 @@ export function OverlaySheet({ title, Icon, onClose, onEscape, children, head, f
                 aria-labelledby={titleId}
             >
                 <div className="sheet-head">
-                    <Icon className="session-sheet-icon" />
+                    {lead ?? (Icon === undefined ? null : <Icon className="session-sheet-icon" />)}
                     <span className="session-sheet-title" id={titleId}>{title}</span>
                     {head}
                     <button type="button" className="sheet-x" onClick={onClose} aria-label="Close">

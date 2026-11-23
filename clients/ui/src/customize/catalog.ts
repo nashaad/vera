@@ -141,7 +141,7 @@ export function kindCounts(items: readonly CustomizeItem[]): Readonly<Record<Kin
 }
 
 // The query matches names and descriptions, ignoring case and outer spaces.
-export function visibleItems(items: readonly CustomizeItem[], kind: KindFilter, query: string): CustomizeItem[] {
+export function visibleItems<T extends CustomizeItem>(items: readonly T[], kind: KindFilter, query: string): T[] {
     const needle = query.trim().toLowerCase();
     return items.filter((item) => {
         if (kind !== "all" && item.kind !== kind) return false;

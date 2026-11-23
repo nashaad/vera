@@ -1,10 +1,10 @@
 // Pages test for the desktop shell. Run with: node clients/desktop/test/pages.e2e.mjs
 // One session says a rare word; Search finds it, Work shows a slow turn finishing
 // while another page is open, the Workspace page counts the folder's sessions,
-// Devices describes this machine, Customize lists what the folder loads,
+// Devices describes this machine, Plugins lists what the folder loads,
 // and the command palette and shortcuts sheet open from their keys.
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 
@@ -82,6 +82,22 @@ try {
     trial.writeFlags({ work: "on" });
     const folder = join(trial.home, "..", "nest");
     mkdirSync(folder, { recursive: true });
+    // Enough folder and home skills that each section shows six rows and its own See-more line.
+    for (let index = 1; index <= 8; index += 1) {
+        const name = `nest-skill-${index}`;
+        const skillFolder = join(folder, ".vera", "skills", name);
+        mkdirSync(skillFolder, { recursive: true });
+        writeFileSync(join(skillFolder, "SKILL.md"), `---\nname: ${name}\ndescription: Checks nest part ${index}\n---\nCount the eggs.\n`);
+    }
+    for (let index = 1; index <= 7; index += 1) {
+        const name = `home-skill-${index}`;
+        const skillFolder = join(trial.home, "skills", name);
+        mkdirSync(skillFolder, { recursive: true });
+        writeFileSync(join(skillFolder, "SKILL.md"), `---\nname: ${name}\ndescription: Checks home part ${index}\n---\nCount the stones.\n`);
+    }
+    // A project rule gives the Instructions kind a row whose meta line is its path.
+    mkdirSync(join(folder, ".vera", "rules"), { recursive: true });
+    writeFileSync(join(folder, ".vera", "rules", "cli.md"), "Help is --help.\n");
 
     const app = await trial.launch();
     await app.evaluate(({ dialog }, path) => {
@@ -138,15 +154,111 @@ try {
     await page.locator(".list-row-title", { hasText: "This Mac" }).click();
     await page.locator(".device-state", { hasText: "Connected" }).waitFor({ timeout: 10_000 });
 
-    // Customize reads the folder from the host; Vera's own help skill is always there.
+    // Plugins reads the folder from the host and stacks what it finds by where it loads.
     await openPage("customize");
-    await page.locator(".customize-card[data-kind=\"skills\"][data-name=\"vera-help\"]").waitFor({ timeout: 20_000 });
-    await page.locator(".customize-card[data-name=\"vera-help\"]").click();
-    await page.waitForSelector("[data-overlay=\"customize-detail\"]", { timeout: 10_000 });
+    await page.locator(".plugin-section").first().waitFor({ timeout: 20_000 });
+    const sections = await page.locator(".plugin-section").evaluateAll((blocks) => blocks.map((block) => block.getAttribute("data-section")));
+    if (sections.join(",") !== "folder,home,builtin") throw new Error(`Plugins stacks the sections ${sections.join(", ")}`);
+    const sectionCounts = async () => Object.fromEntries(await page.locator("[data-plugin-section-count]").evaluateAll((counts) => counts.map((count) => [count.getAttribute("data-plugin-section-count"), count.textContent.trim()])));
+    let counts = await sectionCounts();
+    if (counts.folder !== "8" || counts.home !== "7" || counts.builtin !== "2") {
+        throw new Error(`Plugins counts ${JSON.stringify(counts)}`);
+    }
+    const folderSection = page.locator(".plugin-section[data-section=\"folder\"]");
+    const homeSection = page.locator(".plugin-section[data-section=\"home\"]");
+    const builtinSection = page.locator(".plugin-section[data-section=\"builtin\"]");
+    const note = (await folderSection.locator(".plugin-section-note").innerText()).trim();
+    if (note !== "Loads only in nest") throw new Error(`In this folder says ${note}`);
+    const picker = (await folderSection.locator(".customize-folder button").innerText()).trim();
+    if (picker !== "nest") throw new Error(`The folder picker in In this folder says ${picker}`);
+    await folderSection.locator(".plugin-row[data-name=\"nest-skill-1\"]").waitFor({ timeout: 10_000 });
+
+    // Each section shows six rows; each names the rest in its own See line, which opens only that section.
+    const rowCount = async (section) => section.locator(".plugin-row").count();
+    if (await rowCount(folderSection) !== 6 || await rowCount(homeSection) !== 6) {
+        throw new Error(`The sections show ${await rowCount(folderSection)} and ${await rowCount(homeSection)} rows`);
+    }
+    const folderMeta = (await folderSection.locator(".plugin-row[data-name=\"nest-skill-1\"] .plugin-row-meta").innerText()).trim();
+    if (folderMeta !== "/nest-skill-1") throw new Error(`A folder skill row says ${folderMeta}`);
+    const homeMeta = (await homeSection.locator(".plugin-row[data-name=\"home-skill-1\"] .plugin-row-meta").innerText()).trim();
+    if (homeMeta !== "/home-skill-1") throw new Error(`A home skill row says ${homeMeta}`);
+
+    // Built in starts collapsed and opens from its chevron, leaving the other sections alone.
+    if (await builtinSection.locator(".plugin-row").count() !== 0) throw new Error("Built in starts open.");
+    await builtinSection.locator("[data-plugin-section-toggle=\"builtin\"]").click();
+    await builtinSection.locator(".plugin-row[data-kind=\"skills\"][data-name=\"vera-help\"]").waitFor({ timeout: 10_000 });
+    if (await builtinSection.locator("[data-plugin-section-toggle=\"builtin\"]").getAttribute("aria-expanded") !== "true") {
+        throw new Error("The Built in chevron does not say it is open.");
+    }
+    if (await rowCount(folderSection) !== 6) throw new Error("Opening Built in changed In this folder.");
+
+    const folderSeeMore = folderSection.locator("[data-plugin-see-more=\"folder\"]");
+    const folderMore = (await folderSeeMore.innerText()).trim();
+    if (folderMore !== "See nest-skill-7 and nest-skill-8") throw new Error(`The folder See line says ${folderMore}`);
+    await folderSeeMore.click();
+    await until("the rest of the folder rows", async () => await rowCount(folderSection) === 8);
+    if (await rowCount(homeSection) !== 6) throw new Error("The folder See line opened rows in Your home.");
+    const homeSeeMore = homeSection.locator("[data-plugin-see-more=\"home\"]");
+    const homeMore = (await homeSeeMore.innerText()).trim();
+    if (homeMore !== "See home-skill-7") throw new Error(`The home See line says ${homeMore}`);
+    await homeSeeMore.click();
+    await until("the rest of the home rows", async () => await rowCount(homeSection) === 7);
+
+    // Search filters every section, opens Built in when it matches, and says so when nothing does.
+    const search = page.locator("input[aria-label=\"Search skills\"]");
+    await search.fill("skill-7");
+    await until("the search to keep both matching sections", async () => (await page.locator(".plugin-section").count()) === 2);
+    if (await page.locator(".plugin-section[data-section=\"builtin\"]").count() !== 0) throw new Error("Built in stayed while it had no match.");
+    await search.fill("vera-help");
+    await page.locator(".plugin-section[data-section=\"builtin\"] .plugin-row[data-name=\"vera-help\"]").waitFor({ timeout: 10_000 });
+    await search.fill("albatross");
+    await page.locator("[data-plugin-no-match]").waitFor({ timeout: 10_000 });
+    if ((await page.locator("[data-plugin-no-match]").innerText()).trim() !== "No skills match “albatross”.") {
+        throw new Error(`The no-match line says ${await page.locator("[data-plugin-no-match]").innerText()}`);
+    }
+    if (await page.locator(".plugin-section").count() !== 0) throw new Error("A section stayed while nothing matched.");
+    await search.fill("");
+
+    // Instructions show the file's name, and the path is the meta line.
+    await page.locator(".plugins-kinds button[data-kind=\"instructions\"]").click();
+    await page.locator(".plugin-section[data-section=\"folder\"] .plugin-row[data-name=\".vera/rules/cli.md\"]").waitFor({ timeout: 20_000 });
+    const instructionRow = page.locator(".plugin-row[data-name=\".vera/rules/cli.md\"]");
+    const instructionName = (await instructionRow.locator(".plugin-row-name").innerText()).trim();
+    if (instructionName !== "cli.md") throw new Error(`The instruction row is named ${instructionName}`);
+    const instructionMeta = (await instructionRow.locator(".plugin-row-meta").innerText()).trim();
+    if (instructionMeta !== ".vera/rules/cli.md") throw new Error(`The instruction row says ${instructionMeta}`);
+    if (await page.locator(".plugin-section[data-section=\"builtin\"]").count() !== 0) throw new Error("Instructions shows an empty Built in.");
+    await page.locator(".plugins-kinds button[data-kind=\"skills\"]").click();
+    await builtinSection.locator("[data-plugin-section-toggle=\"builtin\"]").click();
+    await page.locator(".plugin-row[data-kind=\"skills\"][data-name=\"vera-help\"]").waitFor({ timeout: 20_000 });
+
+    // The sheet has the facts, both tabs, the menu and Try now.
+    await page.locator(".plugin-row[data-name=\"vera-help\"] .plugin-row-main").click();
+    const pluginSheet = page.locator("[data-overlay=\"plugin-detail\"]");
+    await pluginSheet.waitFor({ timeout: 10_000 });
+    await pluginSheet.locator("[data-plugin-tab=\"overview\"]").waitFor({ timeout: 5_000 });
+    for (const fact of ["Location", "Scope", "Loads in", "Command", "Files"]) {
+        if (await pluginSheet.locator(".plugin-facts dt").filter({ hasText: fact }).count() !== 1) throw new Error(`The facts do not include ${fact}.`);
+    }
+    await pluginSheet.locator("[data-plugin-tab=\"files\"]").click();
+    await pluginSheet.locator(".plugin-file-path").waitFor({ timeout: 5_000 });
+    await pluginSheet.locator("[data-plugin-file-view=\"source\"]").click();
+    await pluginSheet.locator(".plugin-source").waitFor({ timeout: 5_000 });
+    await pluginSheet.locator("[data-plugin-menu]").click();
+    const menuItems = await page.locator("[role=\"menu\"] .menu-item").allInnerTexts();
+    for (const item of ["Open in editor", process.platform === "darwin" ? "Show in Finder" : "Open folder", "Copy Markdown", "Copy path"]) {
+        if (!menuItems.includes(item)) throw new Error(`The sheet menu does not offer ${item}: ${menuItems.join(", ")}`);
+    }
     await page.keyboard.press("Escape");
-    await page.waitForSelector("[data-overlay=\"customize-detail\"]", { state: "detached", timeout: 10_000 });
+    await page.locator("[role=\"menu\"]").waitFor({ state: "detached", timeout: 5_000 });
+
+    // Try now opens a new chat with the command in the composer, not sent.
+    await pluginSheet.locator("[data-plugin-try]").click();
+    await page.waitForSelector("main[data-page=\"home\"]", { timeout: 10_000 });
+    await until("the command in the new chat composer", async () => (await page.locator(".composer-input").inputValue()) === "/vera-help");
 
     // A build with no catalog address says so in Discover.
+    await openPage("customize");
     await page.locator(".customize-seg button", { hasText: "Discover" }).click();
     await page.locator("[data-catalog-unavailable]", { hasText: "The catalog is not available in this build." }).waitFor({ timeout: 10_000 });
 

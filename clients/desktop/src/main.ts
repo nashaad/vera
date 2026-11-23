@@ -742,6 +742,10 @@ ipcMain.handle(CHANNELS.folderReveal, async (event, folder: unknown): Promise<bo
     if (!fromWindow(event) || typeof folder !== "string" || !isAbsolute(folder)) return false;
     return (await shell.openPath(folder)) === "";
 });
+ipcMain.handle(CHANNELS.fileOpen, async (event, path: unknown): Promise<boolean> => {
+    if (!fromWindow(event) || typeof path !== "string" || !isAbsolute(path)) return false;
+    return (await shell.openPath(path)) === "";
+});
 ipcMain.handle(CHANNELS.extensionFailures, (event) =>
     fromWindow(event) ? readExtensionFailures(hostSocketPath) : { ok: false, reason: "The host is not running." });
 ipcMain.handle(CHANNELS.newSessionAgents, (event, workspace: unknown) => {

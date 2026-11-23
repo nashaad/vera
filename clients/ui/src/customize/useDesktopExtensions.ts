@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { DesktopBridge } from "../protocol/bridge.ts";
 import type { DesktopExtensionEntry, ExtensionChangeResult, ExtensionPreview } from "../protocol/extensions.ts";
@@ -19,6 +19,7 @@ export interface DesktopExtensionsState {
     readonly preview: ExtensionPreview | undefined;
     readonly report: ExtensionReport | undefined;
     readonly busy: boolean;
+    readonly refresh: () => void;
     readonly choose: () => void;
     readonly confirm: () => void;
     readonly cancel: () => void;
@@ -38,19 +39,26 @@ export function useDesktopExtensions(bridge: DesktopBridge | undefined): Desktop
     // The preview the main process is holding, which is dropped when this page goes away.
     const pending = useRef<ExtensionPreview | undefined>(undefined);
     const live = useRef(true);
+    const reads = useRef(0);
+
+    const refresh = useCallback(() => {
+        if (bridge === undefined) return;
+        const read = ++reads.current;
+        void readExtensions(bridge).then((result) => {
+            if (live.current && read === reads.current) setList(listOf(result));
+        });
+    }, [bridge]);
 
     useEffect(() => {
         live.current = true;
         if (bridge === undefined) return undefined;
-        void readExtensions(bridge).then((result) => {
-            if (live.current) setList(listOf(result));
-        });
+        refresh();
         return () => {
             live.current = false;
             if (pending.current !== undefined) bridge.cancelDesktopExtension(pending.current.token);
             pending.current = undefined;
         };
-    }, [bridge]);
+    }, [bridge, refresh]);
 
     function drop(): void {
         if (pending.current !== undefined) bridge?.cancelDesktopExtension(pending.current.token);
@@ -107,5 +115,5 @@ export function useDesktopExtensions(bridge: DesktopBridge | undefined): Desktop
         if (bridge !== undefined) void change(() => removeExtension(bridge, id), `Removed "${id}".`);
     }
 
-    return { list, preview, report, busy, choose, confirm, cancel: drop, toggle, remove };
+    return { list, preview, report, busy, refresh, choose, confirm, cancel: drop, toggle, remove };
 }

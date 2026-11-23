@@ -19,7 +19,7 @@ const PAGES: ReadonlyArray<readonly [string, string, PageKind]> = [
     [NAVIGATION_COMMANDS.newChat, "New Chat", "home"],
     [NAVIGATION_COMMANDS.search, "Search", "search"],
     [NAVIGATION_COMMANDS.work, "Work", "work"],
-    [NAVIGATION_COMMANDS.customize, "Customize", "customize"],
+    [NAVIGATION_COMMANDS.customize, "Plugins", "customize"],
     [NAVIGATION_COMMANDS.settings, "Settings", "settings"],
     [NAVIGATION_COMMANDS.devices, "Devices", "devices"],
     [NAVIGATION_COMMANDS.tour, "Tour", "tour"],

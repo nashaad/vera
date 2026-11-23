@@ -89,7 +89,7 @@ activating.
 ## Inspect an instruction file
 
 1. Press Ctrl+O in the report, or run `/context sources`.
-2. Choose a source and press Enter to preview it in [Customize](customize.md).
+2. Choose a source and press Enter to preview it in [Plugins](plugins.md).
 3. For a writable source, open it in your editor from the preview.
 
 Previews show the file's current saved contents. They are not historical

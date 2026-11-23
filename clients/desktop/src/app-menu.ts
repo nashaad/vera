@@ -59,7 +59,7 @@ export function buildMenuTemplate(
             { type: "separator" },
             plain(NAVIGATION_COMMANDS.search, "Search"),
             plain(NAVIGATION_COMMANDS.work, "Work"),
-            plain(NAVIGATION_COMMANDS.customize, "Customize"),
+            plain(NAVIGATION_COMMANDS.customize, "Plugins"),
             plain(NAVIGATION_COMMANDS.devices, "Devices"),
             settings,
             { type: "separator" },

@@ -10,7 +10,7 @@ import { FLAG_KEYS, type DesktopFlags, type FlagKey } from "./desktopFlags.ts";
 export interface SurfaceEvidence {
     // The most sessions the host has listed.
     readonly sessions: number;
-    // The host has attached, so Customize can read what a new chat loads.
+    // The host has attached, so Plugins can read what a new chat loads.
     readonly hostReady: boolean;
     // The open session has made changes, shown a checklist, reported context use, or has a files folder.
     readonly review: boolean;

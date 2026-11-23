@@ -22,7 +22,7 @@ export function registerSourceBrowser(vera: VeraClientExtensionApi): {
                 const snapshot = vera.context.current();
                 if (category === undefined && !loadedOnly) {
                     const choice = await vera.ui.requestPicker({
-                        title: "Customize",
+                        title: "Plugins",
                         rows: CATEGORIES.map((item) => ({
                             id: item.id, label: item.name,
                             description: `${catalog.sources.filter((source) => source.category === item.id).length} available`,
@@ -37,7 +37,7 @@ export function registerSourceBrowser(vera: VeraClientExtensionApi): {
                 const sources = catalog.sources.filter((source) => loadedOnly
                     ? sourceWasLoaded(source, snapshot) : source.category === category);
                 const title = loadedOnly ? "Context › Loaded sources"
-                    : `Customize › ${CATEGORIES.find((item) => item.id === category)!.name}`;
+                    : `Plugins › ${CATEGORIES.find((item) => item.id === category)!.name}`;
                 const rows = sources.map((source, index) => ({
                     id: `source-${index}`, label: source.name,
                     description: `${source.scope} · ${sourceStatus(source, snapshot)} · ${source.description} ${source.path ?? ""}`,

@@ -124,6 +124,7 @@ export interface ClientExtensionConfig {
 
 export interface ClientExtensionCommandDescriptor {
     readonly name: string;
+    readonly aliases?: readonly string[];
     readonly description: string;
     readonly usage: string;
     readonly source: string;
@@ -1094,13 +1095,18 @@ async function activateClientExtension(
                 requireRegistrationPhase(phase, "commands");
                 requireCapability(CLIENT_COMMAND_CAPABILITY);
                 validateCommandSpec(spec);
-                if (commandNames.has(spec.name)) {
-                    throw new Error(`Duplicate client extension command: ${spec.name}`);
+                for (const name of [spec.name, ...(spec.aliases ?? [])]) {
+                    if (commandNames.has(name)) {
+                        throw new Error(`Duplicate client extension command: ${name}`);
+                    }
+                    commandNames.add(name);
                 }
-                commandNames.add(spec.name);
                 commands.push({
                     descriptor: {
                         name: spec.name,
+                        ...(spec.aliases === undefined
+                            ? {}
+                            : { aliases: [...spec.aliases] }),
                         description: spec.description.trim(),
                         usage: spec.usage.trim(),
                         source: options.id,
@@ -1961,18 +1967,29 @@ function validateOwnership(
             `Client extension status line from ${extension.id} collides with ${statusLine.extension.id}`,
         );
     }
-    for (const command of extension.commands) {
-        const name = command.descriptor.name;
-        if (reservedCommands.has(name)) {
-            throw new Error(
-                `Client extension command /${name} from ${extension.id} is reserved`,
-            );
+    const claimed = new Map<string, string>();
+    for (const owner of commands.values()) {
+        claimed.set(owner.command.descriptor.name, owner.extension.id);
+        for (const alias of owner.command.descriptor.aliases ?? []) {
+            claimed.set(alias, owner.extension.id);
         }
-        const existing = commands.get(name);
-        if (existing !== undefined) {
-            throw new Error(
-                `Client extension command /${name} from ${extension.id} collides with ${existing.extension.id}`,
-            );
+    }
+    for (const command of extension.commands) {
+        for (const name of [
+            command.descriptor.name,
+            ...(command.descriptor.aliases ?? []),
+        ]) {
+            if (reservedCommands.has(name)) {
+                throw new Error(
+                    `Client extension command /${name} from ${extension.id} is reserved`,
+                );
+            }
+            const existing = claimed.get(name);
+            if (existing !== undefined) {
+                throw new Error(
+                    `Client extension command /${name} from ${extension.id} collides with ${existing}`,
+                );
+            }
         }
     }
     const occupiedKeys = new Map<string, string>();
@@ -2011,6 +2028,12 @@ function validateCommandSpec(spec: VeraClientExtensionCommandSpec): void {
         typeof spec !== "object"
         || spec === null
         || !isExtensionCommandName(spec.name)
+        || (spec.aliases !== undefined
+            && (!Array.isArray(spec.aliases)
+                || spec.aliases.length === 0
+                || spec.aliases.some((alias) =>
+                    !isExtensionCommandName(alias) || alias === spec.name
+                )))
         || typeof spec.description !== "string"
         || spec.description.trim().length === 0
         || typeof spec.usage !== "string"

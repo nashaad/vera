@@ -110,12 +110,12 @@ link or the `name` field so the two match.
 A new skill's command appears after the next completed turn, or when you
 attach or switch conversations. Vera does not need a restart. If you add a
 skill while idle, send any message first, then type its command. Closing
-`/customize` reads the list again, so a change made while it was open, such
+`/plugins` reads the list again, so a change made while it was open, such
 as a skill edited from Open in editor or turned off in `config.json`, shows
 in the `/` menu at once. Edits made from `/context sources` show after the
 next completed turn.
 
-Open `/customize` and choose Skills to confirm it loaded. A skill that fails to
+Open `/plugins` and choose Skills to confirm it loaded. A skill that fails to
 load is left out while the others still load, and the reason appears above the
 list, such as a name that does not match the folder name. Replacement warnings
 appear there too.
@@ -167,12 +167,12 @@ If either file stops loading, for example after an edit leaves it invalid,
 skills keep the settings from that file that last loaded since Vera started.
 An invalid `disabled_skills` list counts as a file that does not load. A file
 that has not loaded since Vera started turns every skill off until it loads.
-The reason appears as a warning above the Skills list in `/customize`,
+The reason appears as a warning above the Skills list in `/plugins`,
 starting with `config.json could not be read:` or
 `.vera/config.json could not be read:`.
 
 A disabled skill has no slash command, and the model cannot load it.
-`/customize` still lists it under Skills, marked `disabled by disabled_skills`.
+`/plugins` still lists it under Skills, marked `disabled by disabled_skills`.
 
 ## Create an agent definition
 

@@ -106,7 +106,13 @@ async function themeState(page) {
 async function openCustomize(page) {
     await page.locator("[data-page=\"customize\"]").first().click();
     await page.waitForSelector("main[data-page=\"customize\"]", { timeout: 10_000 });
-    await page.locator("[data-desktop-extension-install]").waitFor({ timeout: 10_000 });
+    await page.locator(".plugins-kinds button[data-kind=\"extensions\"]").click();
+    await page.locator(".plugins-add").waitFor({ timeout: 10_000 });
+}
+
+async function chooseInstallFile(page) {
+    await page.locator(".plugins-add > button").click();
+    await page.locator("[data-desktop-extension-install]").click();
 }
 
 async function openAppearance(app, page) {
@@ -174,7 +180,7 @@ async function report(page, ok) {
 async function previewPackage(app, page, path, started) {
     await chosenFile(app, path);
     const clicked = Date.now();
-    await page.locator("[data-desktop-extension-install]").click();
+    await chooseInstallFile(page);
     await page.locator("[data-desktop-extension-preview]").waitFor({ timeout: 15_000 });
     const seconds = (Date.now() - clicked) / 1000;
     await installProcessGone(app, started);
@@ -196,11 +202,18 @@ try {
 
     await openCustomize(page);
     await page.locator("[data-desktop-extension=\"imported.legacy-crow\"]").waitFor({ timeout: 10_000 });
+    // With no folder picked, the Extensions kind shows In this folder and Your home, and no Built in.
+    const extensionSections = await page.locator(".plugin-section").evaluateAll((blocks) => blocks.map((block) => block.getAttribute("data-section")));
+    expectEqual(extensionSections.join(","), "folder,home", "the sections of the Extensions kind");
+    const folderEmpty = (await page.locator(".plugin-section[data-section=\"folder\"] .plugin-empty-row").innerText()).trim();
+    expectEqual(folderEmpty, "No folder is selected, so there are no extensions here.", "the empty In this folder line");
+    expectEqual((await page.locator("[data-plugin-section-count=\"home\"]").innerText()).trim(), "1", "the count in Your home");
+    expectEqual(await page.locator(".plugin-section[data-section=\"home\"] [data-desktop-extension=\"imported.legacy-crow\"]").count(), 1, "the extension in Your home");
     // The theme importer ships with the app, always on, so the list leaves it out and it has no switch to turn off.
     expectEqual(await page.locator("[data-desktop-extension]").count(), 1, "the extensions listed");
     expectEqual(await page.locator("[data-desktop-extension=\"vera.vscode-theme-import\"]").count(), 0, "the rows of the importer");
     expectEqual(await page.locator("[data-desktop-extension-switch=\"vera.vscode-theme-import\"]").count(), 0, "the switches of the importer");
-    expectEqual((await page.locator("[data-desktop-extensions] .section-count").first().innerText()).trim(), "1", "the count of the extensions listed");
+    expectEqual((await page.locator(".plugins-kinds button[data-kind=\"extensions\"] .customize-count").innerText()).trim(), "1", "the count of the extensions listed");
 
     // A package shows what it holds, and nothing is installed until it is confirmed.
     const previewSeconds = await previewPackage(app, page, packages.one, 1);
@@ -219,6 +232,7 @@ try {
     await previewPackage(app, page, packages.one, 2);
     await page.locator("[data-desktop-extension-confirm]").click();
     await page.locator("[data-desktop-extension=\"crow.pack\"]").waitFor({ timeout: 10_000 });
+    expectEqual((await page.locator("[data-plugin-section-count=\"home\"]").innerText()).trim(), "2", "the count in Your home after the install");
     expectEqual(await report(page, true), "Installed \"crow.pack\".", "the install note");
     expectEqual(extensionFolders(), "crow.pack,imported.legacy-crow", "the extensions after the install");
     expectEqual(stagingFolders(), 0, "the staging folders after the install");
@@ -235,17 +249,27 @@ try {
 
     // Turning the extension off takes its themes away, and the window falls back to the built-in dark theme.
     await openCustomize(page);
+    await page.locator("[data-desktop-extension=\"crow.pack\"] .plugin-row-main").click();
     await page.locator("[data-desktop-extension-switch=\"crow.pack\"]").click();
     await until("the fallback after turning off", async () => (await themeState(page)).theme === "dark");
     expectEqual((await themeState(page)).stored, "dark", "the stored theme after turning off");
     await page.locator("[data-desktop-extension=\"crow.pack\"][data-enabled=\"false\"]").waitFor({ timeout: 5_000 });
+    await page.keyboard.press("Escape");
+    await page.locator("[data-overlay=\"plugin-detail\"]").waitFor({ state: "detached", timeout: 5_000 });
+    const offRow = page.locator("[data-desktop-extension=\"crow.pack\"]");
+    expectEqual((await offRow.locator(".plugin-off").innerText()).trim(), "Off", "the Off tag of a disabled extension");
+    expectEqual(await offRow.locator(".plugin-tile").getAttribute("data-off"), "true", "the dimmed tile of a disabled extension");
     await openAppearance(app, page);
     expectEqual(await page.locator("[data-theme-card=\"imported:crow.pack.crow-night\"]").count(), 0, "the themes of an extension that is off");
 
     // Turning it on offers them again, without choosing one.
     await openCustomize(page);
+    await page.locator("[data-desktop-extension=\"crow.pack\"] .plugin-row-main").click();
     await page.locator("[data-desktop-extension-switch=\"crow.pack\"]").click();
     await page.locator("[data-desktop-extension=\"crow.pack\"][data-enabled=\"true\"]").waitFor({ timeout: 5_000 });
+    await page.keyboard.press("Escape");
+    await page.locator("[data-overlay=\"plugin-detail\"]").waitFor({ state: "detached", timeout: 5_000 });
+    expectEqual(await offRow.locator(".plugin-off").count(), 0, "the Off tag after turning back on");
     await openAppearance(app, page);
     await page.locator("[data-theme-card=\"imported:crow.pack.crow-day\"]").waitFor({ timeout: 10_000 });
     expectEqual((await themeState(page)).theme, "dark", "the theme after turning back on");
@@ -256,12 +280,20 @@ try {
     const replacing = await page.locator("[data-desktop-extension-preview]").innerText();
     if (!replacing.includes("Replaces version 1.0.0.")) throw new Error(`The preview does not name what it replaces: ${replacing}`);
     await page.locator("[data-desktop-extension-confirm]").click();
-    await until("the new version", async () => (await page.locator("[data-desktop-extension=\"crow.pack\"]").innerText()).includes("1.1.0"));
+    await until("the replacement to land", () => {
+        try {
+            return JSON.parse(readFileSync(join(extensionsFolder, "crow.pack", "vera.desktop.json"), "utf8")).version === "1.1.0";
+        } catch {
+            return false;
+        }
+    });
+    const replaced = JSON.parse(readFileSync(join(extensionsFolder, "crow.pack", "vera.desktop.json"), "utf8"));
+    expectEqual(replaced.version, "1.1.0", "the installed version after the replacement");
     expectEqual(extensionFolders(), "crow.pack,imported.legacy-crow", "the extensions after the replacement");
 
     // A file that is not a package is refused, and nothing is left behind.
     await chosenFile(app, packages.bad);
-    await page.locator("[data-desktop-extension-install]").click();
+    await chooseInstallFile(page);
     expectEqual(await report(page, false), "The package is not a gzip tar file.", "the refusal");
     await installProcessGone(app, 4);
     expectEqual(extensionFolders(), "crow.pack,imported.legacy-crow", "the extensions after a refusal");
@@ -271,7 +303,7 @@ try {
     await app.evaluate(({ dialog }) => {
         dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
     });
-    await page.locator("[data-desktop-extension-install]").click();
+    await chooseInstallFile(page);
     await new Promise((resolve) => setTimeout(resolve, 500));
     await installProcessGone(app, 4);
 
@@ -288,8 +320,10 @@ try {
 
     // Removing the extension that owns the theme falls back to the built-in theme of the same type.
     await openCustomize(second.page);
+    await second.page.locator("[data-desktop-extension=\"crow.pack\"] .plugin-row-main").click();
     await second.page.locator("[data-desktop-extension-remove=\"crow.pack\"]").click();
     await second.page.locator("[data-desktop-extension=\"crow.pack\"]").waitFor({ state: "detached", timeout: 10_000 });
+    await second.page.locator("[data-overlay=\"plugin-detail\"]").waitFor({ state: "detached", timeout: 5_000 });
     await until("the fallback after the removal", async () => (await themeState(second.page)).theme === "dark");
     expectEqual(extensionFolders(), "imported.legacy-crow", "the extensions after the removal");
     expectEqual(await report(second.page, true), "Removed \"crow.pack\".", "the removal note");
@@ -302,6 +336,7 @@ try {
     await second.page.locator("[data-theme-card=\"imported:crow.pack.crow-day\"]").click();
     await until("the light extension theme", async () => (await themeState(second.page)).theme === "imported:crow.pack.crow-day");
     await openCustomize(second.page);
+    await second.page.locator("[data-desktop-extension=\"crow.pack\"] .plugin-row-main").click();
     await second.page.locator("[data-desktop-extension-remove=\"crow.pack\"]").click();
     await until("the light fallback", async () => (await themeState(second.page)).theme === "light");
     await installProcessGone(second.app, 1);

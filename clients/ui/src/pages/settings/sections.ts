@@ -109,7 +109,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
         name: "Show",
         group: "Desktop",
         Icon: ViewIcon,
-        terms: "show hide visible auto on off sidebar pane panel page search work customize review plan files output browser reasoning doctor developer tour coverage devices",
+        terms: "show hide visible auto on off sidebar pane panel page search work plugins customize review plan files output browser reasoning doctor developer tour coverage devices",
     },
     {
         id: "data",

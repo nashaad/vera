@@ -599,6 +599,8 @@ export interface VeraClientExtensionCommands {
 
 export interface VeraClientExtensionCommandSpec {
     readonly name: string;
+    /** Older names that run this command. Clients list only `name`. */
+    readonly aliases?: readonly string[];
     readonly description: string;
     readonly usage: string;
     readonly palette?: VeraClientExtensionPaletteEntry;

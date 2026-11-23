@@ -7,7 +7,7 @@ description: "Use side conversations, workspace diffs, artifacts, context inspec
 
 Vera includes extensions for side conversations, workspace diffs,
 context inspection, commentable artifacts, command hooks, and local image viewing.
-They appear in `/extensions`, not in `/customize`; no separate installation is needed.
+They appear in `/extensions`, not in `/plugins`; no separate installation is needed.
 
 Extension code lives in four places in the repository. Vera loads the first
 two on its own:

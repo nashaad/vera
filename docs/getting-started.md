@@ -88,7 +88,7 @@ it, or run `vera -c` to continue the most recent one.
 | Inspect changes | `/diff` |
 | Review usage | `/usage` |
 | Set a $5 conversation budget | `/budget 5` |
-| Browse instructions and skills | `/customize` |
+| Browse instructions and skills | `/plugins` |
 | Diagnose a problem | `/diagnostics` |
 
 Model requests can incur provider charges. A [budget](budgets.md) checks

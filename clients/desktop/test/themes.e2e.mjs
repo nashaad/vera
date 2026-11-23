@@ -143,7 +143,8 @@ async function timed(work) {
 async function openCustomize(page) {
     await page.locator("[data-page=\"customize\"]").first().click();
     await page.waitForSelector("main[data-page=\"customize\"]", { timeout: 10_000 });
-    await page.locator("[data-desktop-extension-install]").waitFor({ timeout: 10_000 });
+    await page.locator(".plugins-kinds button[data-kind=\"extensions\"]").click();
+    await page.locator(".plugins-add").waitFor({ timeout: 10_000 });
 }
 
 function menuItem(app, id) {
@@ -511,8 +512,12 @@ try {
     await page.locator("[data-desktop-extension=\"imported.crow-hold-night\"]").waitFor({ timeout: 10_000 });
     expectEqual(await page.locator("[data-desktop-extension]").count(), 2, "the extensions listed");
     expectEqual(await page.locator(`[data-desktop-extension="${IMPORTER}"]`).count(), 0, "the rows of the importer");
+    await page.locator("[data-desktop-extension=\"imported.pirate-crow\"] .plugin-row-main").click();
+    await page.locator("[data-overlay=\"plugin-detail\"]").waitFor({ timeout: 10_000 });
     expectEqual(await page.locator(`[data-desktop-extension-switch="${IMPORTER}"]`).count(), 0, "the switches of the importer");
     expectEqual(await page.locator("[data-desktop-extension-remove=\"imported.pirate-crow\"]").count(), 1, "the remove button of an imported theme");
+    await page.keyboard.press("Escape");
+    await page.locator("[data-overlay=\"plugin-detail\"]").waitFor({ state: "detached", timeout: 5_000 });
     const refused = await page.evaluate((id) => window.veraDesktop.setDesktopExtensionEnabled(id, false), IMPORTER);
     expectEqual(
         JSON.stringify(refused),

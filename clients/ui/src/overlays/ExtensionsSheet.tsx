@@ -49,7 +49,7 @@ export function ExtensionsSheet({ onClose }: ExtensionsSheetProps) {
                         onClose();
                     }}
                 >
-                    Open Customize
+                    Open Plugins
                 </button>
             )}
         >

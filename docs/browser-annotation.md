@@ -50,7 +50,7 @@ source file.
 ## Execution
 
 The tool is the included desktop extension `vera.browser-annotate`. It is always
-on and not listed in Customize. Its page script runs only after the pointer
+on and not listed in Plugins. Its page script runs only after the pointer
 button is pressed, in an isolated world of the page. It has no Node or file
 access. The app captures the pixels and writes the image through the pasted-image
 path under the current home. No background task process is started.

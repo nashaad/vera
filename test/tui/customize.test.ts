@@ -8,7 +8,7 @@ test("the shared picker searches sources and keeps arrows owned by their section
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface);
     view.surface.visible = true;
-    let state: TuiExtensionPickerState = startTuiExtensionPicker("Customize › Agents", [
+    let state: TuiExtensionPickerState = startTuiExtensionPicker("Plugins › Agents", [
         { id: "default", label: "default", description: "all tools" },
         { id: "explorer", label: "explorer", description: "Read sources" },
     ], undefined, [{ id: "preview", label: "preview", key: "enter" }], undefined, true);
@@ -29,7 +29,7 @@ test("the shared picker searches sources and keeps arrows owned by their section
         expect(state.selectedIndex).toBe(0);
         expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection?.rowId).toBe("explorer");
         paint(); await setup.flush();
-        expect(setup.captureCharFrame()).toContain("Customize › Agents");
+        expect(setup.captureCharFrame()).toContain("Plugins › Agents");
         expect(setup.captureCharFrame()).toContain("explorer");
         expect(handleTuiSettingsPickerKey(state, { name: "escape" }).state).toBeUndefined();
     } finally { setup.renderer.destroy(); }

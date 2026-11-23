@@ -13,6 +13,7 @@ import { pathsOfFiles } from "./files.ts";
 import { ImageChips } from "./ImageChips.tsx";
 import { PageCaptureChip } from "./PageCaptureChip.tsx";
 import { appendPageCaptureText, queuePageCapture, type PageCapture } from "./page-captures.ts";
+import { mergeNewChatPrefill, takeNewChatPrefill, useNewChatPrefill } from "./newChatPrefill.ts";
 import { IMAGE_LIMIT } from "./images.ts";
 import { beginOwnerCreate, failOwnerCreate, observeCreatingDraft, setOwnerCaptureCount, transferOwner } from "./draft-capture-owner.ts";
 import { agentToStart, holdFirstTurn, reconcilePick, shownAgent } from "./newAgent.ts";
@@ -42,6 +43,7 @@ export function NewChatComposer({ bridge, folder: startFolder, active = true, ca
     // The agent picked for the new session; undefined leaves the one the host starts it on.
     const [pick, setPick] = useState<string | undefined>(undefined);
     const [text, setText] = useState("");
+    const prefill = useNewChatPrefill();
     const [images, setImages] = useState<readonly DraftImage[]>([]);
     const imageRef = useRef<readonly DraftImage[]>([]);
     const [captures, setCaptures] = useState<readonly PageCapture[]>([]);
@@ -86,6 +88,12 @@ export function NewChatComposer({ bridge, folder: startFolder, active = true, ca
             setOwnerCaptureCount(captureOwner, capturesRef.current.length);
         });
     }, [captureOwner]);
+    useEffect(() => {
+        if (!active || prefill === undefined) return;
+        const value = takeNewChatPrefill(prefill.id);
+        if (value !== undefined) setText((draft) => mergeNewChatPrefill(draft, value));
+    }, [active, prefill]);
+
     const choosePick = useCallback((name: string) => {
         setPick(name);
         setNotice(undefined);

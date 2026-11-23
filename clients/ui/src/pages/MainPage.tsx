@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { draftCaptureOwner, subscribeDraftCaptureOwner } from "../composer/draft-capture-owner.ts";
 import { CoveragePage } from "./CoveragePage.tsx";
-import { CustomizePage } from "./CustomizePage.tsx";
+import { PluginsPage } from "./PluginsPage.tsx";
 import { DevicesPage } from "./DevicesPage.tsx";
 import { ExtensionPage } from "./ExtensionPage.tsx";
 import { HomePage } from "./HomePage.tsx";
@@ -44,7 +44,7 @@ function OtherPage({ route }: { readonly route: Exclude<Route, { readonly kind: 
         case "devices":
             return <DevicesPage />;
         case "customize":
-            return <CustomizePage />;
+            return <PluginsPage />;
         case "settings":
             return <SettingsPage />;
         case "tour":

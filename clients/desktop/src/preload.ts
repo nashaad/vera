@@ -184,6 +184,7 @@ const bridge: DesktopBridge = {
     browser: async (command: string, value?: string | number | boolean | null | BrowserBounds | BrowserHandoffAnswer | BrowserToolsApproval) =>
         (await ipcRenderer.invoke(CHANNELS.browser, command, value)) as BrowserState,
     revealFolder: async (folder: string) => (await ipcRenderer.invoke(CHANNELS.folderReveal, folder)) === true,
+    openFile: async (path: string) => (await ipcRenderer.invoke(CHANNELS.fileOpen, path)) === true,
     onEvent: (listener: (event: DesktopEvent) => void) => {
         const handler = (_event: unknown, payload: DesktopEvent): void => listener(payload);
         ipcRenderer.on(CHANNELS.event, handler);

@@ -868,10 +868,15 @@ export function registerExtensionTuiCommands(
 ): () => void {
     const names = new Set<string>();
     for (const command of commands) {
-        if (registry.hasCommand(command.name) || names.has(command.name)) {
-            throw new Error(`Duplicate TUI command: /${command.name}`);
+        for (const name of [
+            command.name,
+            ...("aliases" in command ? command.aliases ?? [] : []),
+        ]) {
+            if (registry.hasCommand(name) || names.has(name)) {
+                throw new Error(`Duplicate TUI command: /${name}`);
+            }
+            names.add(name);
         }
-        names.add(command.name);
     }
     const definitions = commands.map((command): TuiCommandDefinition => {
         const palette = "palette" in command ? command.palette : undefined;
@@ -887,6 +892,9 @@ export function registerExtensionTuiCommands(
         });
         return {
             name: command.name,
+            ...("aliases" in command && command.aliases !== undefined
+                ? { aliases: [...command.aliases] }
+                : {}),
             description: command.description,
             usage: command.usage,
             prefixPriority: "extension",
