@@ -90,6 +90,7 @@ import { readFolderCustomizations } from "./customization-requests.ts";
 import { searchArgument, searchSessions } from "./search-requests.ts";
 import { moveSessionToFolder } from "./session-move.ts";
 import { SessionPanes } from "./session-panes.ts";
+import { SessionCacheStore, SessionCacheWriter } from "./session-cache-store.ts";
 import { branchSession, cloneSession, closeSession, idArgument } from "./session-requests.ts";
 import { openSidekick, syncSidekick } from "./sidekick-requests.ts";
 import { shortcutCommand } from "./shortcuts.ts";
@@ -148,7 +149,8 @@ const relaunch = new DesktopRelaunch({
 let sessionToReopen = relaunch.takeReopen();
 const PACKAGE_SETTLE_MS = 500;
 let stopPackageWatch: (() => void) | undefined;
-const pipe = new HostPipe(sendEvent);
+const sessionCache = new SessionCacheWriter(new SessionCacheStore(selectedVeraHome()));
+const pipe = new HostPipe(sendEvent, (request, reply) => sessionCache.accept(request, reply));
 const flagsStore = new FlagsStore(flagsPath(selectedVeraHome()), app.isPackaged);
 // With Reasoning off the window asks the host for a character count in place of the reasoning text.
 const hidesReasoning = (): boolean => flagsStore.read().showReasoning !== "on";
@@ -299,6 +301,7 @@ function shutdown(): void {
     boot = undefined;
     hostSocketPath = undefined;
     pipe.close();
+    sessionCache.flush();
     sessionPanes.close();
     void extensionLogs.close();
 }

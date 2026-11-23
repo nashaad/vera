@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import type { DesktopEvent } from "../protocol/bridge.ts";
 import { SESSIONS_PAGE_SIZE, sessionRows } from "../protocol/sessions.ts";
+import { parseSessionCache, sessionCachePath } from "../protocol/sessionCache.ts";
 import { HostProtocolClient, sessionCount, type AgentListFacts, type ListAgentsOptions } from "../protocol/client.ts";
 import { INITIAL_STATE, reduceConnection, type UiState } from "./connection.ts";
 import { HOST_POLL_MS } from "./frameBudget.ts";
@@ -113,7 +114,15 @@ export function useHostConnection(log: OutputLog): HostConnection {
                 const client = new HostProtocolClient((text) => window.veraDesktop.send(text));
                 clientRef.current = client;
                 dispatch({ type: "event", event });
-                refresh(client, generationRef.current);
+                const generation = generationRef.current;
+                void bridge.readFilePreview(sessionCachePath(event.home)).then((file) => {
+                    if (generationRef.current !== generation || !file.ok || file.cut) return;
+                    try {
+                        const rows = parseSessionCache(JSON.parse(file.text));
+                        if (rows !== undefined) dispatch({ type: "cached-sessions", home: event.home, rows });
+                    } catch {}
+                }).catch(() => {});
+                refresh(client, generation);
                 return;
             }
             if (event.type === "missing_cli" || event.type === "failed" || event.type === "build_changed") {
