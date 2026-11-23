@@ -32,16 +32,26 @@ function fakeTarball(root: string, buildId: string): string {
     return tarball;
 }
 
-function install(prefix: string, tarball: string, path = "/usr/bin:/bin:/usr/sbin") {
+function installEnv(prefix: string, path: string, extra: Record<string, string> = {}) {
+    const env = { ...process.env };
+    delete env.ZDOTDIR;
+    delete env.XDG_CONFIG_HOME;
+    delete env.VERA_NO_MODIFY_PATH;
+    return {
+        ...env,
+        HOME: prefix,
+        SHELL: "/bin/zsh",
+        VERA_HOME: join(prefix, "home"),
+        VERA_INSTALL_PREFIX: prefix,
+        VERA_DESKTOP: "no",
+        PATH: path,
+        ...extra,
+    };
+}
+
+function install(prefix: string, tarball: string, path = "/usr/bin:/bin:/usr/sbin", extra: Record<string, string> = {}) {
     return Bun.spawnSync(["sh", installer, tarball], {
-        env: {
-            ...process.env,
-            HOME: prefix,
-            VERA_HOME: join(prefix, "home"),
-            VERA_INSTALL_PREFIX: prefix,
-            VERA_DESKTOP: "no",
-            PATH: path,
-        },
+        env: installEnv(prefix, path, extra),
         stdout: "pipe",
         stderr: "pipe",
     });
@@ -49,18 +59,12 @@ function install(prefix: string, tarball: string, path = "/usr/bin:/bin:/usr/sbi
 
 function installDownload(prefix: string, path: string, extra: Record<string, string> = {}) {
     return Bun.spawnSync(["sh", installer], {
-        env: {
-            ...process.env,
-            HOME: prefix,
-            VERA_HOME: join(prefix, "home"),
-            VERA_INSTALL_PREFIX: prefix,
-            VERA_DESKTOP: "no",
+        env: installEnv(prefix, path, {
             VERA_VERSION: "",
             VERA_RELEASES_API: "",
             VERA_REPO: "",
-            PATH: path,
             ...extra,
-        },
+        }),
         stdout: "pipe",
         stderr: "pipe",
     });
@@ -117,7 +121,7 @@ test("install.sh activates a release tarball and keeps the previous one as rollb
         const first = install(prefix, fakeTarball(root, "vera-aaaa"));
         expect(first.stderr.toString()).toBe("");
         expect(first.exitCode).toBe(0);
-        expect(first.stdout.toString()).toContain("is not on PATH");
+        expect(first.stdout.toString()).toContain(`Added ${prefix}/bin to PATH in ${prefix}/.zshrc`);
         expect(readlinkSync(join(share, "current"))).toBe("releases/vera-aaaa");
         expect(existsSync(join(share, "rollback"))).toBe(false);
         const launcher = join(prefix, "bin", "vera");
@@ -308,19 +312,13 @@ test("install.sh downloads archive and checksum from VERA_RELEASES_DOWNLOAD_BASE
         writeFileSync(join(bin, "curl"), `#!/bin/sh\nexec /usr/bin/curl --noproxy '*' --max-time 5 "$@"\n`, { mode: 0o755 });
         writeFileSync(join(bin, "uname"), '#!/bin/sh\ncase "$1" in -m) echo arm64 ;; *) echo Darwin ;; esac\n', { mode: 0o755 });
         const child = Bun.spawn(["sh", installer], {
-            env: {
-                ...process.env,
-                HOME: prefix,
-                VERA_HOME: join(prefix, "home"),
-                VERA_INSTALL_PREFIX: prefix,
-                VERA_DESKTOP: "no",
+            env: installEnv(prefix, `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, {
                 VERA_VERSION: "",
                 VERA_RELEASES_API: api,
                 VERA_RELEASES_DOWNLOAD_BASE: base,
-                PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
                 NO_PROXY: "127.0.0.1,localhost",
                 no_proxy: "127.0.0.1,localhost",
-            },
+            }),
             stdout: "pipe",
             stderr: "pipe",
         });
@@ -450,5 +448,225 @@ test("install.sh uses VERA_VERSION without asking the release API", () => {
         expect(urls).toContain("https://github.com/nashaad/vera/releases/download/v1.2.3/vera-darwin-arm64.tar.gz");
     } finally {
         rmSync(root, { recursive: true, force: true });
+    }
+});
+
+const pathMarker = "# Added by the Vera installer";
+const standardPath = "/usr/bin:/bin:/usr/sbin";
+
+function withPathInstall(body: (root: string, prefix: string, tarball: string) => void): void {
+    const root = mkdtempSync(join(tmpdir(), "vera-path-"));
+    try {
+        const prefix = join(root, "prefix [crow]");
+        mkdirSync(prefix);
+        body(root, prefix, fakeTarball(root, "vera-path"));
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+}
+
+test("@core PATH setup: zsh appends once and sourcing twice keeps one literal entry", () => {
+    withPathInstall((_root, prefix, tarball) => {
+        const file = join(prefix, ".zshrc");
+        writeFileSync(file, "# user configuration");
+        const first = install(prefix, tarball);
+        expect(first.exitCode, first.stderr.toString()).toBe(0);
+        const contents = readFileSync(file, "utf8");
+        expect(contents).toStartWith(`# user configuration\n${pathMarker}\n`);
+        expect(first.stdout.toString()).toContain(`source '${file}'`);
+        const sourced = Bun.spawnSync(["sh", "-c", '. "$1"; . "$1"; printf "%s" "$PATH"', "sh", file], {
+            env: { PATH: standardPath },
+        });
+        expect(sourced.exitCode, sourced.stderr.toString()).toBe(0);
+        expect(sourced.stdout.toString()).toBe(`${prefix}/bin:${standardPath}`);
+        const second = install(prefix, tarball);
+        expect(second.exitCode, second.stderr.toString()).toBe(0);
+        expect(second.stdout.toString()).toContain("PATH is already configured");
+        expect(readFileSync(file, "utf8")).toBe(contents);
+        expect(contents.split(pathMarker)).toHaveLength(2);
+    });
+});
+
+test("PATH setup: zsh honors ZDOTDIR", () => {
+    withPathInstall((root, prefix, tarball) => {
+        const zdotdir = join(root, "zsh config");
+        mkdirSync(zdotdir);
+        const result = install(prefix, tarball, standardPath, { SHELL: "/opt/bin/zsh", ZDOTDIR: zdotdir });
+        expect(result.exitCode, result.stderr.toString()).toBe(0);
+        expect(readFileSync(join(zdotdir, ".zshrc"), "utf8")).toContain(pathMarker);
+        expect(existsSync(join(prefix, ".zshrc"))).toBe(false);
+        expect(result.stdout.toString()).toContain(`source '${zdotdir}/.zshrc'`);
+    });
+});
+
+test("PATH setup: macOS bash uses bashrc and the first login file", () => {
+    for (const [existing, selected] of [
+        [[".bash_profile", ".bash_login", ".profile"], ".bash_profile"],
+        [[".bash_login", ".profile"], ".bash_login"],
+        [[".profile"], ".profile"],
+        [[], ".bash_profile"],
+    ] as const) {
+        withPathInstall((root, prefix, tarball) => {
+            const shim = join(root, "darwin-bin");
+            mkdirSync(shim);
+            writeFileSync(join(shim, "uname"), "#!/bin/sh\necho Darwin\n", { mode: 0o755 });
+            for (const name of existing) writeFileSync(join(prefix, name), `# ${name}\n`);
+            const result = install(prefix, tarball, `${shim}:${standardPath}`, { SHELL: "/bin/bash" });
+            expect(result.exitCode, result.stderr.toString()).toBe(0);
+            for (const name of [".bashrc", selected]) {
+                expect(readFileSync(join(prefix, name), "utf8")).toContain(pathMarker);
+                expect(result.stdout.toString()).toContain(join(prefix, name));
+            }
+            for (const name of existing.filter((name) => name !== selected)) {
+                expect(readFileSync(join(prefix, name), "utf8")).toBe(`# ${name}\n`);
+            }
+            const command = selected === ".profile" ? "." : "source";
+            expect(result.stdout.toString()).toContain(`${command} '${join(prefix, selected)}'`);
+        });
+    }
+});
+
+test("PATH setup: Linux bash changes only bashrc", () => {
+    withPathInstall((root, prefix, tarball) => {
+        const shim = join(root, "linux-bin");
+        mkdirSync(shim);
+        writeFileSync(join(shim, "uname"), "#!/bin/sh\necho Linux\n", { mode: 0o755 });
+        writeFileSync(join(prefix, ".bash_profile"), "# login\n");
+        const result = install(prefix, tarball, `${shim}:${standardPath}`, { SHELL: "/bin/bash" });
+        expect(result.exitCode, result.stderr.toString()).toBe(0);
+        expect(readFileSync(join(prefix, ".bashrc"), "utf8")).toContain(pathMarker);
+        expect(readFileSync(join(prefix, ".bash_profile"), "utf8")).toBe("# login\n");
+    });
+});
+
+test("PATH setup: fish uses its default and XDG configuration directories", () => {
+    for (const custom of [false, true]) {
+        withPathInstall((root, prefix, tarball) => {
+            const config = custom ? join(root, "fish config") : join(prefix, ".config");
+            const file = join(config, "fish", "conf.d", "vera.fish");
+            if (custom) {
+                mkdirSync(join(config, "fish", "conf.d"), { recursive: true });
+                writeFileSync(file, "set -g crow parrot");
+            }
+            const result = install(prefix, tarball, standardPath, {
+                SHELL: "/usr/local/bin/fish",
+                ...(custom ? { XDG_CONFIG_HOME: config } : {}),
+            });
+            expect(result.exitCode, result.stderr.toString()).toBe(0);
+            const contents = readFileSync(file, "utf8");
+            if (custom) expect(contents).toStartWith(`set -g crow parrot\n${pathMarker}\n`);
+            expect(contents).toContain(`if not contains -- "${prefix}/bin" $PATH`);
+            expect(contents).toContain(`set -gx PATH "${prefix}/bin" $PATH`);
+            expect(contents).not.toContain("fish_add_path");
+            expect(result.stdout.toString()).toContain(`source '${file}'`);
+            expect(install(prefix, tarball, standardPath, {
+                SHELL: "/usr/local/bin/fish",
+                ...(custom ? { XDG_CONFIG_HOME: config } : {}),
+            }).exitCode).toBe(0);
+            expect(readFileSync(file, "utf8")).toBe(contents);
+        });
+    }
+});
+
+test("PATH setup: unknown and empty login shells use profile", () => {
+    for (const shell of ["/bin/tcsh", ""]) {
+        withPathInstall((_root, prefix, tarball) => {
+            const result = install(prefix, tarball, standardPath, { SHELL: shell });
+            expect(result.exitCode, result.stderr.toString()).toBe(0);
+            expect(readFileSync(join(prefix, ".profile"), "utf8")).toContain(pathMarker);
+            expect(result.stdout.toString()).toContain(`. '${prefix}/.profile'`);
+        });
+    }
+});
+
+test("PATH setup: an existing PATH entry changes and reports nothing", () => {
+    withPathInstall((_root, prefix, tarball) => {
+        const file = join(prefix, ".zshrc");
+        writeFileSync(file, "# unchanged\n");
+        const result = install(prefix, tarball, `${standardPath}:${prefix}/bin`);
+        expect(result.exitCode, result.stderr.toString()).toBe(0);
+        expect(readFileSync(file, "utf8")).toBe("# unchanged\n");
+        expect(result.stdout.toString()).not.toContain("PATH");
+    });
+});
+
+test("PATH setup: opt out prints a manual command and leaves startup files alone", () => {
+    withPathInstall((_root, prefix, tarball) => {
+        const file = join(prefix, ".zshrc");
+        writeFileSync(file, "# unchanged\n");
+        const result = install(prefix, tarball, standardPath, { VERA_NO_MODIFY_PATH: "1" });
+        expect(result.exitCode, result.stderr.toString()).toBe(0);
+        expect(result.stdout.toString()).toEndWith(`  export PATH='${prefix}/bin':"$PATH"\n`);
+        expect(readFileSync(file, "utf8")).toBe("# unchanged\n");
+    });
+});
+
+test("PATH setup: unwritable startup files fall back without failing installation", () => {
+    withPathInstall((_root, prefix, tarball) => {
+        const file = join(prefix, ".zshrc");
+        const rootUser = process.getuid?.() === 0;
+        if (rootUser) mkdirSync(file);
+        else writeFileSync(file, "# locked\n", { mode: 0o444 });
+        const result = install(prefix, tarball);
+        expect(result.exitCode, result.stderr.toString()).toBe(0);
+        expect(result.stdout.toString()).toEndWith(`  export PATH='${prefix}/bin':"$PATH"\n`);
+        if (rootUser) expect(existsSync(file)).toBe(true);
+        else expect(readFileSync(file, "utf8")).toBe("# locked\n");
+        expect(existsSync(join(prefix, "bin", "vera"))).toBe(true);
+    });
+});
+
+test("PATH setup: bash reports a partial write and the manual fallback", () => {
+    withPathInstall((root, prefix, tarball) => {
+        const shim = join(root, "darwin-bin");
+        mkdirSync(shim);
+        writeFileSync(join(shim, "uname"), "#!/bin/sh\necho Darwin\n", { mode: 0o755 });
+        const bashrc = join(prefix, ".bashrc");
+        const rootUser = process.getuid?.() === 0;
+        if (rootUser) mkdirSync(bashrc);
+        else writeFileSync(bashrc, "# locked\n", { mode: 0o444 });
+        const result = install(prefix, tarball, `${shim}:${standardPath}`, { SHELL: "/bin/bash" });
+        expect(result.exitCode, result.stderr.toString()).toBe(0);
+        if (rootUser) expect(existsSync(bashrc)).toBe(true);
+        else expect(readFileSync(bashrc, "utf8")).toBe("# locked\n");
+        expect(readFileSync(join(prefix, ".bash_profile"), "utf8")).toContain(pathMarker);
+        expect(result.stdout.toString()).toContain(`Added ${prefix}/bin to PATH in ${prefix}/.bash_profile`);
+        expect(result.stdout.toString()).toEndWith(`  export PATH='${prefix}/bin':"$PATH"\n`);
+    });
+});
+
+test("PATH setup: unsafe double-quoted paths print a safely quoted manual command", () => {
+    for (const name of ['crow"quote', "crow$dollar", "crow`tick", "crow\\slash", `crow'\"$dollar`, "crow\nnewline"]) {
+        withPathInstall((root, _prefix, tarball) => {
+            const prefix = join(root, name);
+            mkdirSync(prefix);
+            const result = install(prefix, tarball);
+            expect(result.exitCode, result.stderr.toString()).toBe(0);
+            expect(existsSync(join(prefix, ".zshrc"))).toBe(false);
+            const launched = Bun.spawnSync([join(prefix, "bin", "vera")]);
+            expect(launched.exitCode, launched.stderr.toString()).toBe(0);
+            expect(launched.stdout.toString()).toBe("vera-path\n");
+            const manual = result.stdout.toString().trimEnd().split("\n").at(-1)?.trim();
+            expect(manual).toStartWith("export PATH=");
+            const applied = Bun.spawnSync(["sh", "-c", `${manual}; printf '%s' "$PATH"`], { env: { PATH: standardPath } });
+            expect(applied.exitCode, applied.stderr.toString()).toBe(0);
+            expect(applied.stdout.toString()).toBe(`${prefix}/bin:${standardPath}`);
+        });
+    }
+});
+
+test("PATH setup: notice follows desktop skip and desktop failure", () => {
+    for (const desktop of ["ask", "yes"]) {
+        withPathInstall((root, prefix, tarball) => {
+            const shim = join(root, "darwin-bin");
+            mkdirSync(shim);
+            writeFileSync(join(shim, "uname"), "#!/bin/sh\necho Darwin\n", { mode: 0o755 });
+            const result = install(prefix, tarball, `${shim}:${standardPath}`, { VERA_DESKTOP: desktop });
+            expect(result.exitCode).toBe(desktop === "yes" ? 1 : 0);
+            if (desktop === "yes") expect(result.stderr.toString()).toContain("desktop app needs Vera");
+            else expect(result.stdout.toString()).toContain("desktop app needs Vera");
+            expect(result.stdout.toString()).toEndWith(`Open a new terminal window, or run: source '${prefix}/.zshrc'\n`);
+            expect(readFileSync(join(prefix, ".zshrc"), "utf8")).toContain(pathMarker);
+        });
     }
 });

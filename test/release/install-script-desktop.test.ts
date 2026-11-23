@@ -249,6 +249,7 @@ cp '${this.feed}'/"$name" "$out"`,
         }
         const env: Record<string, string> = {
             HOME: this.home,
+            SHELL: "/bin/sh",
             PATH: `${this.bin}:/usr/bin:/bin:/usr/sbin`,
             VERA_INSTALL_TTY: this.ttyFile,
             VERA_INSTALL_APPLICATIONS: this.applicationsFor(options.applications),
@@ -337,6 +338,8 @@ test("install.sh installs the desktop app from the same release when VERA_DESKTO
         expect(readdirSync(scenario.applications)).toEqual(["Vera.app"]);
         expect(scenario.record()).toEqual({ layout_version: 1, app_path: scenario.appPath() });
         expect(scenario.opened()).toEqual([scenario.appPath()]);
+        expect(result.stdout.toString()).toContain(`Installed the Vera desktop app ${DESKTOP_VERSION}`);
+        expect(result.stdout.toString()).toEndWith(`Open a new terminal window, or run: . '${scenario.home}/.profile'\n`);
         const cleared = readFileSync(scenario.xattrLog, "utf8");
         expect(cleared).toContain("-dr com.apple.quarantine");
         expect(cleared).toContain("/desktop/shell/Vera.app");
@@ -523,6 +526,7 @@ test("install.sh stops on a desktop checksum mismatch before writing any desktop
             expect(result.exitCode).toBe(1);
             expect(result.stderr.toString()).toContain("checksum mismatch for vera-desktop");
             expect(result.stderr.toString()).toContain("The vera command is installed.");
+            expect(result.stdout.toString()).toEndWith(`Open a new terminal window, or run: . '${scenario.home}/.profile'\n`);
             expect(scenario.hasCli()).toBe(true);
             assertNothingDesktop(scenario);
         });
@@ -578,6 +582,7 @@ test("install.sh treats an explicit ~/.local prefix, with or without a trailing 
             const result = Bun.spawnSync(["sh", installer], {
                 env: {
                     HOME: scenario.home,
+                    SHELL: "/bin/sh",
                     PATH: `${scenario.bin}:/usr/bin:/bin:/usr/sbin`,
                     VERA_INSTALL_PREFIX: `${scenario.prefix}${suffix}`,
                     VERA_INSTALL_TTY: scenario.ttyFile,
@@ -608,6 +613,7 @@ test("install.sh skips without asking when the release has no desktop app", asyn
         expect(result.exitCode, result.stderr.toString()).toBe(0);
         expect(result.stderr.toString()).toBe("");
         expect(result.stdout.toString()).toContain(NO_DESKTOP_LINE);
+        expect(result.stdout.toString()).toEndWith(`Open a new terminal window, or run: . '${scenario.home}/.profile'\n`);
         expect(result.stdout.toString()).not.toContain("Also install the Vera desktop app?");
         expect(result.stdout.toString()).not.toContain("VERA_DESKTOP=yes");
         expect(scenario.hasCli()).toBe(true);

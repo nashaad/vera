@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
     cpSync,
     existsSync,
+    lstatSync,
     mkdirSync,
     mkdtempSync,
     readFileSync,
@@ -130,6 +131,7 @@ if (args[0] === "-type") {
         writeFileSync(launcher, `#!/bin/sh\n${backupProbe}printf 'vera %s VERA_HOME=%s\\n' "$*" "$VERA_HOME" >> '${this.log}'\necho '${hostOutput}'\n[ '${options.failHost ? "fail" : "ok"}' = ok ]\n`, { mode: 0o755 });
         const env: Record<string, string> = {
             HOME: this.home,
+            SHELL: "/bin/zsh",
             VERA_HOME: options.useDefaults ? "" : this.veraHome,
             VERA_INSTALL_PREFIX: options.useDefaults ? "" : this.prefix,
             VERA_INSTALL_APPLICATIONS: this.applications,
@@ -742,5 +744,176 @@ test("a symlinked home with a trailing slash is not removed", () => {
         expect(scenario.output(result)).toMatch(/symlink/i);
         expect(existsSync(join(target, "settings.json"))).toBe(true);
         expect(existsSync(scenario.launcher)).toBe(true);
+    });
+});
+
+const pathBlock = [
+    "# Added by the Vera installer",
+    'case ":$PATH:" in',
+    '    *":/some/path/bin:"*) ;;',
+    '    *) export PATH="/some/path/bin:$PATH" ;;',
+    "esac",
+    "# End of Vera installer PATH",
+    "",
+].join("\n");
+
+test("PATH removal: all shell startup candidates retain their other bytes", () => {
+    withScenario((scenario) => {
+        const zdotdir = join(scenario.root, "zsh config");
+        const xdg = join(scenario.root, "fish config");
+        mkdirSync(zdotdir);
+        const files = [
+            join(scenario.home, ".zshrc"),
+            join(zdotdir, ".zshrc"),
+            join(scenario.home, ".bashrc"),
+            join(scenario.home, ".bash_profile"),
+            join(scenario.home, ".bash_login"),
+            join(scenario.home, ".profile"),
+        ];
+        const expected = "# user before café\r\n# user after without newline";
+        for (const file of files) {
+            writeFileSync(file, `# user before café\r\n${pathBlock}# user after without newline`);
+        }
+        const fishFiles = [
+            join(scenario.home, ".config", "fish", "conf.d", "vera.fish"),
+            join(xdg, "fish", "conf.d", "vera.fish"),
+        ] as const;
+        for (const file of fishFiles) {
+            mkdirSync(resolve(file, ".."), { recursive: true });
+        }
+        writeFileSync(fishFiles[0], `set -g crow parrot\n${pathBlock}# personal setting`);
+        writeFileSync(fishFiles[1], pathBlock);
+        const result = scenario.run({ automated: true, backup: "no", extraEnv: { ZDOTDIR: zdotdir, XDG_CONFIG_HOME: xdg } });
+        expect(result.exitCode, scenario.output(result)).toBe(0);
+        for (const file of files) {
+            expect(readFileSync(file, "utf8")).toBe(expected);
+            expect(scenario.output(result)).toContain(file);
+        }
+        expect(readFileSync(fishFiles[0], "utf8")).toBe("set -g crow parrot\n# personal setting");
+        expect(existsSync(fishFiles[1])).toBe(false);
+        for (const file of fishFiles) expect(scenario.output(result)).toContain(file);
+    });
+});
+
+test("PATH removal: only current custom shell directories are checked", () => {
+    withScenario((scenario) => {
+        const oldZdotdir = join(scenario.root, "old-zsh");
+        const oldXdg = join(scenario.root, "old-config");
+        const currentZdotdir = join(scenario.root, "current-zsh");
+        const currentXdg = join(scenario.root, "current-config");
+        const oldZsh = join(oldZdotdir, ".zshrc");
+        const oldFish = join(oldXdg, "fish", "conf.d", "vera.fish");
+        const currentZsh = join(currentZdotdir, ".zshrc");
+        const currentFish = join(currentXdg, "fish", "conf.d", "vera.fish");
+        for (const file of [oldZsh, oldFish, currentZsh, currentFish]) {
+            mkdirSync(resolve(file, ".."), { recursive: true });
+            writeFileSync(file, pathBlock);
+        }
+        const result = scenario.run({
+            automated: true,
+            backup: "no",
+            extraEnv: { ZDOTDIR: currentZdotdir, XDG_CONFIG_HOME: currentXdg },
+        });
+        expect(result.exitCode, scenario.output(result)).toBe(0);
+        expect(readFileSync(oldZsh, "utf8")).toBe(pathBlock);
+        expect(readFileSync(oldFish, "utf8")).toBe(pathBlock);
+        expect(readFileSync(currentZsh, "utf8")).toBe("");
+        expect(existsSync(currentFish)).toBe(false);
+    });
+});
+
+test("PATH removal: unrelated fish configuration is left alone", () => {
+    withScenario((scenario) => {
+        const file = join(scenario.home, ".config", "fish", "conf.d", "vera.fish");
+        mkdirSync(resolve(file, ".."), { recursive: true });
+        writeFileSync(file, "set -g crow parrot");
+        const result = scenario.run({ automated: true, backup: "no" });
+        expect(result.exitCode, scenario.output(result)).toBe(0);
+        expect(readFileSync(file, "utf8")).toBe("set -g crow parrot");
+    });
+});
+
+test("PATH removal: empty startup files stay and repeated blocks are removed", () => {
+    withScenario((scenario) => {
+        const empty = join(scenario.home, ".bashrc");
+        const repeated = join(scenario.home, ".profile");
+        writeFileSync(empty, pathBlock);
+        writeFileSync(repeated, `before\n${pathBlock}middle\n${pathBlock}after`);
+        const result = scenario.run({ automated: true, backup: "no" });
+        expect(result.exitCode, scenario.output(result)).toBe(0);
+        expect(existsSync(empty)).toBe(true);
+        expect(readFileSync(empty, "utf8")).toBe("");
+        expect(readFileSync(repeated, "utf8")).toBe("before\nmiddle\nafter");
+    });
+});
+
+function installPathScenario(scenario: Scenario, shell: string): void {
+    const stage = join(scenario.root, "stage");
+    const release = join(stage, "vera-path");
+    mkdirSync(release, { recursive: true });
+    writeFileSync(join(release, "manifest.json"), '{"build_id":"vera-path"}\n');
+    writeFileSync(join(release, "vera"), "#!/bin/sh\necho 'No resident Vera host is running.'\n", { mode: 0o755 });
+    const tarball = join(scenario.root, "release.tar.gz");
+    expect(Bun.spawnSync(["tar", "-czf", tarball, "-C", stage, "vera-path"]).exitCode).toBe(0);
+    const installed = Bun.spawnSync(["sh", resolve(import.meta.dir, "../../scripts/install.sh"), tarball], {
+        env: {
+            HOME: scenario.home,
+            SHELL: shell,
+            PATH: `${scenario.bin}:/usr/bin:/bin:/usr/sbin`,
+            VERA_HOME: scenario.veraHome,
+            VERA_INSTALL_PREFIX: scenario.prefix,
+            VERA_DESKTOP: "no",
+        },
+    });
+    expect(installed.exitCode, installed.stderr.toString()).toBe(0);
+}
+
+test("@core PATH removal: installer round trip restores a file with no final newline", () => {
+    withScenario((scenario) => {
+        const file = join(scenario.home, ".zshrc");
+        const original = "# user settings\r\nexport CROW=parrot";
+        writeFileSync(file, original);
+        installPathScenario(scenario, "/bin/zsh");
+        expect(readFileSync(file, "utf8")).toContain("# Added by the Vera installer");
+        const result = scenario.run({ automated: true, backup: "no" });
+        expect(result.exitCode, scenario.output(result)).toBe(0);
+        expect(readFileSync(file, "utf8")).toBe(original);
+    });
+});
+
+test("PATH removal: fish install round trip preserves existing settings", () => {
+    withScenario((scenario) => {
+        const file = join(scenario.home, ".config", "fish", "conf.d", "vera.fish");
+        const original = "# user fish settings\r\nset -g crow parrot";
+        mkdirSync(resolve(file, ".."), { recursive: true });
+        writeFileSync(file, original);
+        installPathScenario(scenario, "/bin/fish");
+        expect(readFileSync(file, "utf8")).toContain("# Added by the Vera installer");
+        const result = scenario.run({ automated: true, backup: "no" });
+        expect(result.exitCode, scenario.output(result)).toBe(0);
+        expect(readFileSync(file, "utf8")).toBe(original);
+    });
+});
+
+test("PATH removal: a symlinked startup file keeps its link and surrounding bytes", () => {
+    withScenario((scenario) => {
+        const file = join(scenario.home, ".zshrc");
+        const target = join(scenario.root, "real-zshrc");
+        writeFileSync(target, `before\n${pathBlock}after`);
+        symlinkSync(target, file);
+        const result = scenario.run({ automated: true, backup: "no" });
+        expect(result.exitCode, scenario.output(result)).toBe(0);
+        expect(lstatSync(file).isSymbolicLink()).toBe(true);
+        expect(readFileSync(target, "utf8")).toBe("before\nafter");
+    });
+});
+
+test("PATH removal: failed host shutdown leaves the startup block intact", () => {
+    withScenario((scenario) => {
+        const file = join(scenario.home, ".zshrc");
+        writeFileSync(file, pathBlock);
+        const result = scenario.run({ automated: true, backup: "no", failHost: true });
+        expect(result.exitCode).not.toBe(0);
+        expect(readFileSync(file, "utf8")).toBe(pathBlock);
     });
 });

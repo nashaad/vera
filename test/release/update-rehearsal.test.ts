@@ -96,6 +96,7 @@ test("by-hand instructions name the tunnel, both releases and the desktop instal
     const text = otherMacCommands("/tmp/vr.out", "0.0.9", "0.1.0", true);
     expect(text).toContain("ssh -R 127.0.0.1:18765:127.0.0.1:18765 USER@OTHER-MAC");
     expect(text).toContain("serve /tmp/vr.out --port 18765");
+    expect(text).toContain("env -u ZDOTDIR -u XDG_CONFIG_HOME SHELL=/bin/sh VERA_NO_MODIFY_PATH=1");
     expect(text).toContain("VERA_VERSION=0.0.9 VERA_DESKTOP=yes sh");
     expect(text).toContain("export VERA_RELEASES_API=http://127.0.0.1:18765/releases VERA_RELEASES_DOWNLOAD_BASE=http://127.0.0.1:18765");
     expect(text).toContain("update to Vera 0.1.0");

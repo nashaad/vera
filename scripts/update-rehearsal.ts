@@ -46,7 +46,7 @@ export function otherMacCommands(out: string, older: string, newer: string, newe
         "",
         `3. On the other Mac, in that ssh session, install Vera ${older} with the desktop app (this opens Vera.app):`,
         `   export VERA_RELEASES_API=${feed}/releases VERA_RELEASES_DOWNLOAD_BASE=${feed}`,
-        `   curl -fsS ${feed}/install.sh | VERA_VERSION=${older} VERA_DESKTOP=yes sh`,
+        `   curl -fsS ${feed}/install.sh | env -u ZDOTDIR -u XDG_CONFIG_HOME SHELL=/bin/sh VERA_NO_MODIFY_PATH=1 VERA_VERSION=${older} VERA_DESKTOP=yes sh`,
         "   ~/.local/bin/vera --version",
         "",
         `4. In the same session, update to Vera ${newer}:`,

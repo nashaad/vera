@@ -154,6 +154,70 @@ end run
 APPLESCRIPT
 }
 
+remove_path_block() {
+    path_file=$1
+    [ -f "$path_file" ] || return 0
+    while :; do
+        offsets=$(LC_ALL=C awk '
+            BEGIN { position = 0; start = -1 }
+            $0 == "# Added by the Vera installer" && start < 0 { start = position }
+            start >= 0 && ($0 == "# End of Vera installer PATH" ||
+                $0 == "# End of Vera installer PATH (no preceding newline)") {
+                if ($0 == "# End of Vera installer PATH (no preceding newline)" && start > 0) start--
+                printf "%d %d\n", start, position + length($0) + 1
+                exit
+            }
+            { position += length($0) + 1 }
+        ' <"$path_file") || return 1
+        [ -n "$offsets" ] || return 0
+        start=${offsets%% *}
+        end=${offsets#* }
+        path_tmp=$(mktemp "${path_file}.vera.XXXXXX") || return 1
+        if ! cp -p "$path_file" "$path_tmp" || ! (
+            if [ "$start" -gt 0 ]; then
+                dd if="$path_file" bs=1 count="$start" 2>/dev/null || exit 1
+            fi
+            tail -c "+$((end + 1))" "$path_file"
+        ) >"$path_tmp"; then
+            rm -f "$path_tmp"
+            return 1
+        fi
+        if [ -L "$path_file" ]; then
+            if ! cat "$path_tmp" >"$path_file"; then
+                rm -f "$path_tmp"
+                return 1
+            fi
+            rm -f "$path_tmp"
+        elif ! mv -f "$path_tmp" "$path_file"; then
+            rm -f "$path_tmp"
+            return 1
+        fi
+        printf 'Removed Vera PATH block from %s\n' "$path_file"
+    done
+}
+
+remove_fish_file() {
+    path_file=$1
+    [ -f "$path_file" ] || return 0
+    if grep -Fxq '# Added by the Vera installer' "$path_file"; then
+        remove_path_block "$path_file" || return 1
+        if [ ! -s "$path_file" ]; then
+            rm -f "$path_file" || return 1
+            printf 'Removed %s\n' "$path_file"
+        fi
+    fi
+}
+
+remove_path_files() {
+    for file in "$HOME/.zshrc" "${ZDOTDIR:-$HOME}/.zshrc" \
+        "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+        remove_path_block "$file" || printf 'Could not remove Vera PATH block from %s\n' "$file" >&2
+    done
+    for file in "$HOME/.config/fish/conf.d/vera.fish" "${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/vera.fish"; do
+        remove_fish_file "$file" || printf 'Could not remove %s\n' "$file" >&2
+    done
+}
+
 : "${HOME:?HOME is not set}"
 prefix=${VERA_INSTALL_PREFIX:-$HOME/.local}
 share="$prefix/share/vera"
@@ -312,6 +376,7 @@ if [ -n "$app2" ]; then
     rm -rf "$app2" || die "could not remove $app2"
 fi
 if exists "$vera_home"; then rm -rf "$vera_home" || die "could not remove $vera_home"; fi
+remove_path_files
 
 printf 'Vera was uninstalled.\n'
 if [ "$(uname -s)" = Darwin ]; then

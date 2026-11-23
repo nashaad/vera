@@ -8,6 +8,7 @@
 #
 # VERA_VERSION=1.2.3 selects a release; VERA_INSTALL_PREFIX overrides ~/.local.
 # VERA_DESKTOP=ask|yes|no (default ask) controls the macOS desktop app step.
+# VERA_NO_MODIFY_PATH=1 leaves shell startup files unchanged.
 # Test seams: VERA_INSTALL_TTY (default /dev/tty), VERA_INSTALL_APPLICATIONS
 # (default /Applications) and VERA_INSTALL_NO_OPEN (skip opening the app).
 set -eu
@@ -409,6 +410,130 @@ staged_package=""
 staged_app=""
 aside_app=""
 dest_app=""
+launcher_installed=no
+
+quote_path() {
+    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+manual_path() {
+    printf 'Add Vera to PATH manually:\n'
+    case "$bin_dir" in
+        *'
+'*)
+            octets=$(printf '%s' "$bin_dir" | LC_ALL=C od -An -v -t o1 | awk '{ for (i = 1; i <= NF; i++) printf "\\%s", $i }')
+            printf '  export PATH="$(printf '\''%s'\''):$PATH"\n' "$octets"
+            ;;
+        *)
+            printf '  export PATH='
+            quote_path "$bin_dir"
+            printf ':"$PATH"\n'
+            ;;
+    esac
+}
+
+append_path_file() {
+    path_file=$1
+    path_kind=$2
+    if [ -e "$path_file" ] || [ -L "$path_file" ]; then
+        if [ ! -f "$path_file" ] || [ ! -r "$path_file" ]; then
+            path_failed=yes
+            return
+        fi
+        if grep -Fxq '# Added by the Vera installer' "$path_file"; then
+            printf 'PATH is already configured in %s.\n' "$path_file"
+            print_source "$path_file" "$path_kind"
+            return
+        fi
+    fi
+    if [ "$path_kind" = fish ] && ! mkdir -p "$(dirname "$path_file")" 2>/dev/null; then
+        path_failed=yes
+        return
+    fi
+    path_end='# End of Vera installer PATH'
+    if [ -s "$path_file" ] && [ -n "$(tail -c 1 "$path_file")" ]; then
+        path_end='# End of Vera installer PATH (no preceding newline)'
+    fi
+    if {
+        [ "$path_end" = '# End of Vera installer PATH' ] || printf '\n'
+        printf '# Added by the Vera installer\n'
+        if [ "$path_kind" = fish ]; then
+            printf 'if not contains -- "%s" $PATH\n' "$bin_dir"
+            printf '    set -gx PATH "%s" $PATH\n' "$bin_dir"
+            printf 'end\n'
+        else
+            printf 'case ":$PATH:" in\n'
+            printf '    *":%s:"*) ;;\n' "$bin_dir"
+            printf '    *) export PATH="%s:$PATH" ;;\n' "$bin_dir"
+            printf 'esac\n'
+        fi
+        printf '%s\n' "$path_end"
+    } >>"$path_file" 2>/dev/null; then
+        printf 'Added %s to PATH in %s.\n' "$bin_dir" "$path_file"
+        print_source "$path_file" "$path_kind"
+    else
+        path_failed=yes
+    fi
+}
+
+print_source() {
+    printf 'Open a new terminal window, or run: '
+    if [ "$2" = profile ]; then printf '. '; else printf 'source '; fi
+    quote_path "$1"
+    printf '\n'
+}
+
+setup_path() {
+    bin_dir="${prefix%/}/bin"
+    case "$bin_dir" in
+        /*) ;;
+        *) bin_dir=$(cd "$prefix/bin" && pwd -P) || return 0 ;;
+    esac
+    case ":${PATH:-}:" in
+        *":$bin_dir:"*) return 0 ;;
+    esac
+    if [ "${VERA_NO_MODIFY_PATH:-}" = 1 ]; then
+        manual_path
+        return 0
+    fi
+    case "$bin_dir" in
+        *[\"\$\`\\:]* | *'
+'*) manual_path; return 0 ;;
+    esac
+    shell_name=${SHELL:-}
+    shell_name=${shell_name##*/}
+    path_failed=no
+    case "$shell_name" in
+        zsh)
+            append_path_file "${ZDOTDIR:-$HOME}/.zshrc" zsh
+            ;;
+        bash)
+            append_path_file "$HOME/.bashrc" bash
+            if [ "$(uname -s)" = Darwin ]; then
+                login_file="$HOME/.bash_profile"
+                for candidate in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+                    if [ -e "$candidate" ] || [ -L "$candidate" ]; then
+                        login_file=$candidate
+                        break
+                    fi
+                done
+                case "$login_file" in
+                    "$HOME/.profile") append_path_file "$login_file" profile ;;
+                    *) append_path_file "$login_file" bash ;;
+                esac
+            fi
+            ;;
+        fish)
+            append_path_file "${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/vera.fish" fish
+            ;;
+        *)
+            append_path_file "$HOME/.profile" profile
+            ;;
+    esac
+    [ "$path_failed" = no ] || manual_path
+    return 0
+}
+
 cleanup() {
     rm -rf "$work"
     [ -z "$staged_package" ] || rm -rf "$staged_package"
@@ -416,6 +541,7 @@ cleanup() {
     if [ -n "$aside_app" ] && [ -e "$aside_app" ] && [ ! -e "$dest_app" ]; then
         mv "$aside_app" "$dest_app" || echo "Could not restore the previous Vera app. It is at $aside_app." >&2
     fi
+    [ "$launcher_installed" = no ] || setup_path
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -480,7 +606,7 @@ target="$share/current/vera"
 cat >"$launcher.$$.tmp" <<EOF
 #!/bin/sh
 set -eu
-target='$target'
+target=$(quote_path "$target")
 if [ ! -x "\$target" ]; then
   echo "vera: no activated release at \$target. Run the Vera installer again." >&2
   exit 1
@@ -489,6 +615,7 @@ exec "\$target" "\$@"
 EOF
 chmod 755 "$launcher.$$.tmp"
 mv -f "$launcher.$$.tmp" "$launcher"
+launcher_installed=yes
 
 process_executables() {
     case "$(uname -s)" in
@@ -560,13 +687,5 @@ echo "Removed $removed old releases"
 
 echo "Installed $build_id"
 echo "Launcher: $launcher"
-case ":$PATH:" in
-    *":$prefix/bin:"*) ;;
-    *)
-        echo
-        echo "$prefix/bin is not on PATH. Add this to your shell startup file:"
-        echo "  export PATH=\"$prefix/bin:\$PATH\""
-        ;;
-esac
 
 install_desktop
