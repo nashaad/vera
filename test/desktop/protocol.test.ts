@@ -17,6 +17,19 @@ test("@core the client sends host_identity and reads a split reply", async () =>
     expect(await identity).toMatchObject({ pid: 42, protocol_version: 7 });
 });
 
+test("@core list_agents sends the optional query without changing default polling", async () => {
+    const { client, frames } = connected();
+    const list = client.listAgents({ query: "harbor draft", limit: 50, order: "recent" });
+    expect(JSON.parse(frames[0]!)).toEqual({
+        type: "list_agents",
+        limit: 50,
+        query: "harbor draft",
+        order: "recent",
+    });
+    client.feed("{\"type\":\"agent_list\",\"agents\":[],\"total\":0}\n");
+    await list;
+});
+
 test("@core the client reads coalesced replies and counts sessions", async () => {
     const { client, frames } = connected();
     const identity = client.hostIdentity();
