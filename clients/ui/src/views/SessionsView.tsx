@@ -10,7 +10,7 @@ import {
 } from "../components/Icons.tsx";
 import { useRouter } from "../pages/router.tsx";
 import { useWorkbench } from "../workbench/context.tsx";
-import { relativeTime, type SessionRow } from "../protocol/sessions.ts";
+import { canShowMoreSessions, relativeTime, type SessionRow } from "../protocol/sessions.ts";
 import { ARCHIVED_KEY, buildSidebarTree, type SidebarNode, type SidebarSection } from "../protocol/sidebarTree.ts";
 import { takePinFocus, toggleSessionPin, usePinnedSessions } from "../state/usePins.ts";
 import { useSidebarGrouping } from "../state/useSidebarGrouping.ts";
@@ -291,7 +291,7 @@ function Section({ section, open, rows, expanded, pins, now, onToggleSection, on
 }
 
 export function SessionsView({ visible }: ViewProps) {
-    const { connection: state } = useViewEnvironment();
+    const { connection: state, showMoreSessions } = useViewEnvironment();
     const [windowShown, setWindowShown] = useState(true);
     const [documentShown, setDocumentShown] = useState(() => document.visibilityState === "visible");
     useEffect(() => {
@@ -407,8 +407,11 @@ export function SessionsView({ visible }: ViewProps) {
                     onKeyDown={onKeyDown}
                 />
             ))}
-            {total !== undefined && total > rows.length ? (
-                <p className="view-note">Showing the latest {rows.length} of {total}.</p>
+            {canShowMoreSessions(total, rows.length, state.sessionNextCursor) ? (
+                <>
+                    <p className="view-note">Showing the latest {rows.length} of {total}.</p>
+                    <button type="button" className="sessions-show-more" onClick={showMoreSessions}>Show more</button>
+                </>
             ) : null}
         </div>
     );

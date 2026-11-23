@@ -81,12 +81,12 @@ test("a lost list reply releases queued requests and overlapping polls are dropp
     expect((await second).agents).toEqual([]);
 }, 7_000);
 
-test("@core the page request carries its size and order, and the count comes from total", async () => {
+test("@core session page requests remain bounded at 50 rows and count from total", async () => {
     const { client, frames } = connected();
-    const page = client.listAgents({ limit: 25, order: "recent" });
-    expect(JSON.parse(frames[0]!)).toEqual({ type: "list_agents", limit: 25, order: "recent" });
-    client.feed("{\"type\":\"agent_list\",\"agents\":[{}],\"next_cursor\":\"a\",\"total\":12}\n");
-    expect(sessionCount(await page)).toBe(12);
+    const page = client.listAgents({ limit: 50, order: "recent" });
+    expect(JSON.parse(frames[0]!)).toEqual({ type: "list_agents", limit: 50, order: "recent" });
+    client.feed("{\"type\":\"agent_list\",\"agents\":[{}],\"next_cursor\":\"a\",\"total\":612}\n");
+    expect(sessionCount(await page)).toBe(612);
 });
 
 test("@core a page with more rows behind it and no total has no count", () => {

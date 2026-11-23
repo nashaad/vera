@@ -1,7 +1,58 @@
 import type { AgentListFacts } from "./client.ts";
 
-// The sessions list shows one page; the session count comes from the host's total.
 export const SESSIONS_PAGE_SIZE = 50;
+
+export function sessionPageOptions(cursor?: string): { readonly limit: number; readonly order: "recent"; readonly cursor?: string } {
+    return { limit: SESSIONS_PAGE_SIZE, order: "recent", ...(cursor === undefined ? {} : { cursor }) };
+}
+
+export function mergeSessionRows(firstPage: readonly SessionRow[], tail: readonly SessionRow[]): readonly SessionRow[] {
+    const ids = new Set(firstPage.map((row) => row.id));
+    return [...firstPage, ...tail.filter((row) => !ids.has(row.id))];
+}
+
+export function sessionCursor(rows: readonly SessionRow[]): string | undefined {
+    return rows.at(-1)?.id;
+}
+
+export interface SessionTailPage {
+    readonly rows: readonly SessionRow[];
+    readonly nextCursor?: string;
+    readonly pages: number;
+}
+
+export async function loadSessionTailPage(
+    firstPage: readonly SessionRow[],
+    tail: readonly SessionRow[],
+    nextCursor: string | undefined,
+    maxPages: number,
+    list: (cursor: string) => Promise<AgentListFacts>,
+    targetLength?: number,
+): Promise<SessionTailPage> {
+    let nextTail = [...tail];
+    let cursor = nextCursor === undefined ? undefined : sessionCursor(mergeSessionRows(firstPage, nextTail));
+    let pages = 0;
+    while (cursor !== undefined && pages < maxPages) {
+        const response = await list(cursor);
+        pages += 1;
+        const known = new Set(mergeSessionRows(firstPage, nextTail).map((row) => row.id));
+        const received: SessionRow[] = [];
+        for (const row of sessionRows(response)) {
+            if (known.has(row.id)) continue;
+            known.add(row.id);
+            received.push(row);
+        }
+        nextTail = [...nextTail, ...received];
+        cursor = response.next_cursor;
+        if (received.length > 0 && targetLength === undefined) break;
+        if (targetLength !== undefined && nextTail.length >= targetLength) break;
+    }
+    return { rows: nextTail, nextCursor: cursor, pages };
+}
+
+export function canShowMoreSessions(total: number | undefined, shown: number, nextCursor: string | undefined): boolean {
+    return total !== undefined && shown < total && nextCursor !== undefined;
+}
 
 export type SessionStatus = "idle" | "working" | "waiting" | "completed" | "other";
 

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import type { DesktopEvent } from "../protocol/bridge.ts";
-import { SESSIONS_PAGE_SIZE, sessionRows } from "../protocol/sessions.ts";
+import { sessionPageOptions } from "../protocol/sessions.ts";
 import { parseSessionCache, sessionCachePath } from "../protocol/sessionCache.ts";
-import { HostProtocolClient, sessionCount, type AgentListFacts, type ListAgentsOptions } from "../protocol/client.ts";
+import { HostProtocolClient, type AgentListFacts, type ListAgentsOptions } from "../protocol/client.ts";
 import { INITIAL_STATE, reduceConnection, type UiState } from "./connection.ts";
 import { HOST_POLL_MS } from "./frameBudget.ts";
+import { SessionPager } from "./sessionPager.ts";
 import { describeEvent, type OutputLog } from "./outputLog.ts";
 import { PlannedRestartWatch, replacedBuild, type RestartStep } from "./plannedRestart.ts";
 
@@ -15,6 +16,7 @@ export interface HostConnection {
     answer(id: string, yes: boolean): void;
     // Reads the session list now rather than at the next poll.
     refreshSessions(): void;
+    showMoreSessions(): void;
     listAgents(options?: ListAgentsOptions): Promise<AgentListFacts>;
 }
 
@@ -25,9 +27,15 @@ export function useHostConnection(log: OutputLog): HostConnection {
     const generationRef = useRef(0);
     const restartRef = useRef(new PlannedRestartWatch());
     const readyBuildRef = useRef<string | null>(null);
+    const readyHomeRef = useRef<string | undefined>(undefined);
+    const pagerRef = useRef(new SessionPager());
+    const restoreTailLengthRef = useRef(0);
+    const sessionRequestRef = useRef(0);
 
     const dropClient = (reason: string): void => {
         generationRef.current += 1;
+        sessionRequestRef.current += 1;
+        pagerRef.current.invalidate();
         clientRef.current?.failAll(reason);
         clientRef.current = undefined;
     };
@@ -48,7 +56,7 @@ export function useHostConnection(log: OutputLog): HostConnection {
         }
     };
 
-    const refresh = (client: HostProtocolClient, generation: number, poll = false): void => {
+    const refresh = (client: HostProtocolClient, generation: number, poll = false, restoreTailLength = 0): void => {
         const current = (): boolean => generationRef.current === generation;
         client.hostIdentity().then((identity) => {
             if (!current()) return;
@@ -68,12 +76,34 @@ export function useHostConnection(log: OutputLog): HostConnection {
             log.append("warning", `Connection lost: ${messageOf(error)}`);
             dispatch({ type: "lost", reason: messageOf(error) });
         });
-        const options = { limit: SESSIONS_PAGE_SIZE, order: "recent" } as const;
+        const options = sessionPageOptions();
+        if (restoreTailLength > 0) {
+            void pagerRef.current.restoreTail(
+                () => client.listAgents(options),
+                (cursor) => client.listAgents(sessionPageOptions(cursor)),
+                restoreTailLength,
+                (update) => {
+                    if (current()) dispatch({ type: "sessions", ...update });
+                },
+            ).catch((error: unknown) => {
+                if (current()) {
+                    log.append("warning", `Session tail restore failed: ${messageOf(error)}`);
+                    dispatch({ type: "notice", message: messageOf(error) });
+                }
+            }).finally(() => {
+                if (current()) restoreTailLengthRef.current = 0;
+            });
+            return;
+        }
         const listing = poll ? client.pollAgents(options) : client.listAgents(options);
-        listing?.then((list) => {
-            if (current()) dispatch({ type: "sessions", count: sessionCount(list), rows: sessionRows(list) });
+        if (listing === undefined) return;
+        const request = ++sessionRequestRef.current;
+        listing.then((list) => {
+            if (current() && request === sessionRequestRef.current) {
+                dispatch({ type: "sessions", ...pagerRef.current.applyFirstPage(list) });
+            }
         }).catch((error: unknown) => {
-            if (!current()) return;
+            if (!current() || request !== sessionRequestRef.current) return;
             log.append("warning", `Session list failed: ${messageOf(error)}`);
             dispatch({ type: "notice", message: messageOf(error) });
         });
@@ -84,6 +114,22 @@ export function useHostConnection(log: OutputLog): HostConnection {
         const client = clientRef.current;
         if (client !== undefined) refresh(client, generationRef.current);
     }, []);
+
+    const showMoreSessions = useCallback((): void => {
+        const client = clientRef.current;
+        if (client === undefined || pagerRef.current.isBusy) return;
+        const generation = generationRef.current;
+        void pagerRef.current.loadMore((cursor) => client.listAgents(sessionPageOptions(cursor))).then((update) => {
+            if (generationRef.current === generation && update !== undefined) {
+                dispatch({ type: "sessions", ...update });
+            }
+        }).catch((error: unknown) => {
+            if (generationRef.current === generation) {
+                log.append("warning", `Session page failed: ${messageOf(error)}`);
+                dispatch({ type: "notice", message: messageOf(error) });
+            }
+        });
+    }, [log]);
 
     useEffect(() => {
         const bridge = window.veraDesktop;
@@ -109,12 +155,21 @@ export function useHostConnection(log: OutputLog): HostConnection {
             }
             if (event.type === "ready") {
                 restartRef.current.clear();
+                if (readyHomeRef.current !== undefined && readyHomeRef.current !== event.home) {
+                    pagerRef.current.reset();
+                    restoreTailLengthRef.current = 0;
+                }
+                readyHomeRef.current = event.home;
                 readyBuildRef.current = event.buildId;
                 dropClient("Reconnecting.");
                 const client = new HostProtocolClient((text) => window.veraDesktop.send(text));
                 clientRef.current = client;
                 dispatch({ type: "event", event });
                 const generation = generationRef.current;
+                const restoreTailLength = Math.max(pagerRef.current.tailLength, restoreTailLengthRef.current);
+                if (restoreTailLength > 0) {
+                    restoreTailLengthRef.current = restoreTailLength;
+                }
                 void bridge.readFilePreview(sessionCachePath(event.home)).then((file) => {
                     if (generationRef.current !== generation || !file.ok || file.cut) return;
                     try {
@@ -122,7 +177,7 @@ export function useHostConnection(log: OutputLog): HostConnection {
                         if (rows !== undefined) dispatch({ type: "cached-sessions", home: event.home, rows });
                     } catch {}
                 }).catch(() => {});
-                refresh(client, generation);
+                refresh(client, generation, false, restoreTailLength);
                 return;
             }
             if (event.type === "missing_cli" || event.type === "failed" || event.type === "build_changed") {
@@ -153,6 +208,7 @@ export function useHostConnection(log: OutputLog): HostConnection {
     return {
         state,
         refreshSessions,
+        showMoreSessions,
         reconnect: () => {
             restartRef.current.clear();
             reconnect("Reconnect requested.");

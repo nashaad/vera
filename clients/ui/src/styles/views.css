@@ -195,6 +195,31 @@
 
 /* sessions */
 
+.sessions-show-more {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin-top: var(--vera-space);
+    padding: calc(var(--vera-space) * 1.5) calc(var(--vera-space) * 2);
+    color: var(--vera-text-dim);
+    font: inherit;
+    font-size: var(--vera-font-size-label);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+}
+
+.sessions-show-more:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.sessions-show-more:focus-visible {
+    outline: thin solid var(--vera-focus);
+    outline-offset: calc(var(--vera-space) / -2);
+}
+
 .sessions-view[data-stale="true"] {
     opacity: 0.75;
 }

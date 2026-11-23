@@ -45,7 +45,7 @@ export function App() {
         }
     }), []);
     const [log] = useState(() => new OutputLog());
-    const { state, reconnect, answer, refreshSessions, listAgents } = useHostConnection(log);
+    const { state, reconnect, answer, refreshSessions, showMoreSessions, listAgents } = useHostConnection(log);
     useWindowEvidence(state, log);
     const visible = useVisibility();
     const unavailable = useMemo(() => unavailableContainers(visible), [visible]);
@@ -66,8 +66,8 @@ export function App() {
     const flagsLoaded = useDesktopFlagsLoaded();
     const loaded = layoutLoaded && flagsLoaded;
     const environment = useMemo(
-        () => ({ connection: state, log, refreshSessions, listAgents }),
-        [state, log, refreshSessions, listAgents],
+        () => ({ connection: state, log, refreshSessions, showMoreSessions, listAgents }),
+        [state, log, refreshSessions, showMoreSessions, listAgents],
     );
     const platform = window.veraDesktop?.platform ?? "";
 
