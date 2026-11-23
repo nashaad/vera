@@ -47,6 +47,7 @@ export interface InProcessWorker {
     removeScratchIfUnowned?(id: string, detach: GuardedScratchDetach): Promise<boolean>;
     recoverCrashedTurns?(options: PoolCrashScanOptions): Promise<PoolCrashScanResult>;
     cutSession(id: string, reason: string, stopCause?: StopCause): Promise<boolean>;
+    offerWrapUp(id: string, text: string, transcript: string): Promise<boolean>;
     clearProviderSelection(provider: string): Promise<void>;
     notifyModelCatalogChanged(): void;
     notifyToolDescriptionChanged(extensionId: string, name: string, description: string): void;
@@ -179,6 +180,7 @@ export async function prepareInProcessWorker(options: InProcessWorkerOptions): P
         hasSession: (id) => worker.registry.agents.has(id)
             || worker.registry.startingIds.has(id) || worker.registry.trashingIds.has(id),
         cutSession: (id, reason, stopCause) => router.cut(id, reason, stopCause),
+        offerWrapUp: (id, text, transcript) => router.offerWrapUp(id, text, transcript),
         clearProviderSelection: (provider) => worker.clearProviderSelection(provider),
         notifyModelCatalogChanged: () => worker.registry.notifyModelCatalogChanged(),
         notifyToolDescriptionChanged: (extensionId, name, description) => {

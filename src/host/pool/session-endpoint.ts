@@ -115,6 +115,7 @@ export interface SessionEndpoint extends ExtensionSessionServices, PeerSessionSe
     importedSourceHash(id: string, path: string): Promise<string | undefined>;
     suppressCompletion(id: string, suppress: boolean): Promise<void>;
     cut(id: string, reason: string, stopCause?: StopCause): Promise<boolean>;
+    offerWrapUp(id: string, text: string, transcript: string): Promise<boolean>;
     stopWaitTargets(): Promise<readonly StopWaitTarget[]>;
     runningSubagents(parentId: string): Promise<number>;
     parkFacts(): Promise<readonly SessionParkFacts[]>;

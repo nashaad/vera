@@ -205,7 +205,8 @@ import {
     type SidecarRuntime,
 } from "./sidecar-runtime.ts";
 import { StartupFindings } from "./startup-findings.ts";
-import { StopWhenIdle, type CompletedHostStop, type StopWaitTarget } from "./stop-when-idle.ts";
+import { StopWhenIdle, stopWaitWrapUpMessage, type CompletedHostStop, type StopWaitTarget } from "./stop-when-idle.ts";
+import { offerTurnMessage } from "../engine/turn-message-slot.ts";
 import { subagentPoolPolicy } from "./subagent-policy.ts";
 
 import { startSessionHost, type SessionHost, type StartSessionHostOptions } from "./session-host.ts";
@@ -758,6 +759,18 @@ async function startHostRuntime(
         },
         targetProblem: updateTargetProblem,
         prepare: prepareStopForTarget,
+        offerWrapUp: async (sessionId, kind, notes) => {
+            const message = stopWaitWrapUpMessage(kind, notes);
+            if (inProcessWorker?.offerWrapUp !== undefined) {
+                return await inProcessWorker.offerWrapUp(sessionId, message.text, message.transcript);
+            }
+            const entry = registry.agents.get(sessionId);
+            if (entry?.blockHeld?.() === true) return false;
+            if (entry?.worker !== undefined) {
+                return await entry.worker.offerTurnMessage?.(message, 2_000) ?? false;
+            }
+            return entry?.inbound === undefined ? false : offerTurnMessage(entry.inbound, message);
+        },
         cutSession: (sessionId, reason, stopCause) => inProcessWorker === undefined
             ? registry.cutSessionForStop(sessionId, reason, stopCause)
             : inProcessWorker.cutSession(sessionId, reason, stopCause),

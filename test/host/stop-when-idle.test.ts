@@ -5,6 +5,7 @@ import {
     StopWhenIdle,
     type StopWaitTarget,
     type StopWhenIdleEvent,
+    stopWaitWrapUpMessage,
 } from "../../src/host/stop-when-idle.ts";
 
 const working: StopWaitTarget = { session_id: "s1", name: "build", status: "working" };
@@ -456,4 +457,72 @@ test("cutWait records one cut per session per wait, and a new wait after an aban
     coordinator.request(() => undefined);
     await coordinator.cutWait();
     expect(records.map((record) => record.session_id)).toEqual(["s1", "s1"]);
+});
+
+test("@core wrap-up offers exact stop and update messages once to working sessions", async () => {
+    const note = "Leave a short map summary";
+    const offers: Array<{ id: string; kind: string; notes?: string }> = [];
+    let waiting: StopWaitTarget[] = [
+        working,
+        { session_id: "s3", name: "question", status: "waiting" },
+        queued,
+    ];
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => waiting,
+        offerWrapUp: async (id, kind, notes) => { offers.push({ id, kind, notes }); return true; },
+        cutSession: async () => true,
+        onStopped: () => undefined,
+        prepare: () => "stop abandoned",
+        pollIntervalMs: 5,
+    });
+    coordinator.request(() => undefined);
+    expect(await coordinator.askToWrapUp(note)).toEqual({ status: "done", offered: ["s1"] });
+    expect(await coordinator.askToWrapUp(note)).toEqual({ status: "done", offered: [] });
+    expect(offers).toEqual([{ id: "s1", kind: "stop", notes: note }]);
+    expect(stopWaitWrapUpMessage("stop", note).text).toBe("Vera is waiting to stop, and this turn is holding it up. Finish the step you are on, start nothing new, and end your turn with a short note of what is left, so it can be picked up later.\nNote from the user: Leave a short map summary");
+    expect(await coordinator.cutWait()).toMatchObject({ status: "done", cut: ["s1", "s3", "s2"] });
+
+    waiting = [working];
+    const updateOffers: Array<{ id: string; kind: string; notes?: string }> = [];
+    const update = new StopWhenIdle({
+        waitingOn: () => waiting,
+        offerWrapUp: async (id, kind, notes) => { updateOffers.push({ id, kind, notes }); return true; },
+        onStopped: () => undefined,
+    });
+    update.request(() => undefined, "build-42");
+    expect(await update.askToWrapUp()).toEqual({ status: "done", offered: ["s1"] });
+    expect(updateOffers).toEqual([{ id: "s1", kind: "update", notes: undefined }]);
+    expect(stopWaitWrapUpMessage("update").text).toBe("Vera is waiting to restart for an update, and this turn is holding it up. Finish the step you are on, start nothing new, and end your turn with a short note of what is left, so it can be picked up after the restart.");
+});
+
+test("@core wrap-up isolates offer failures without repeating offers", async () => {
+    const second: StopWaitTarget = { session_id: "s2", name: "review", status: "working" };
+    const attempts = new Map<string, number>();
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => [working, second],
+        offerWrapUp: async (id) => {
+            const count = (attempts.get(id) ?? 0) + 1;
+            attempts.set(id, count);
+            if (id === "s1" && count === 1) throw new Error("offer failed");
+            return true;
+        },
+        onStopped: () => undefined,
+    });
+    coordinator.request(() => undefined);
+
+    expect(await coordinator.askToWrapUp()).toEqual({ status: "done", offered: ["s2"] });
+    expect(await coordinator.askToWrapUp()).toEqual({ status: "done", offered: [] });
+    expect(attempts).toEqual(new Map([["s1", 1], ["s2", 1]]));
+});
+
+test("@core wrap-up refuses without a wait and does not report a rejected idle offer", async () => {
+    const coordinator = new StopWhenIdle({
+        waitingOn: () => [working],
+        offerWrapUp: async () => false,
+        onStopped: () => undefined,
+    });
+    expect(await coordinator.askToWrapUp()).toMatchObject({ status: "refused", reason: "no_wait" });
+    coordinator.request(() => undefined);
+    expect(await coordinator.askToWrapUp()).toEqual({ status: "done", offered: [] });
+    expect(await coordinator.askToWrapUp()).toEqual({ status: "done", offered: [] });
 });

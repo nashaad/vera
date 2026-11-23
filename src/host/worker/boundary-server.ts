@@ -34,7 +34,8 @@ export interface WorkerBoundaryServerOptions {
 export type SessionBlockAck =
     | { readonly method: "session.latched"; readonly requestId: string; readonly latched: boolean }
     | { readonly method: "session.released"; readonly requestId: string }
-    | { readonly method: "session.cutAck"; readonly requestId: string; readonly ok: boolean };
+    | { readonly method: "session.cutAck"; readonly requestId: string; readonly ok: boolean }
+    | { readonly method: "session.turnMessageAck"; readonly requestId: string; readonly accepted: boolean };
 
 export interface WorkerBoundaryServer {
     handleRequest(body: unknown): Promise<unknown>;
@@ -561,6 +562,7 @@ export function createWorkerBoundaryServer(
                 message.method === "session.latched"
                 || message.method === "session.released"
                 || message.method === "session.cutAck"
+                || message.method === "session.turnMessageAck"
             ) {
                 options.onBlockAck?.(body as SessionBlockAck);
                 return;

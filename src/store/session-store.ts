@@ -1650,6 +1650,7 @@ export class SessionStore {
         text: string,
         tone: "primary" | "soft" | "error",
         visibleHeadId?: string | null,
+        afterMessageIdOverride?: string | null,
     ): Promise<SessionHarnessMessageEntry> {
         const result = this.pendingAppend.then(async () => {
             this.requireActive();
@@ -1657,10 +1658,12 @@ export class SessionStore {
             if (leafId !== null) await this.ensureMessageIndexed(leafId);
             const leafRecord = leafId === null ? undefined : this.recordIndex.messageRecord(leafId);
             if (leafId !== null && leafRecord === undefined) throw new Error(`Session message ${leafId} is unavailable`);
-            const afterMessageId = leafRecord !== undefined && this.recordIndex.isToolResult(leafRecord)
-                && visibleHeadId !== undefined && leafId !== visibleHeadId
-                ? visibleHeadId
-                : undefined;
+            const afterMessageId = afterMessageIdOverride !== undefined
+                ? afterMessageIdOverride
+                : leafRecord !== undefined && this.recordIndex.isToolResult(leafRecord)
+                    && visibleHeadId !== undefined && leafId !== visibleHeadId
+                    ? visibleHeadId
+                    : undefined;
             return this.commitHarnessMessage(text, tone, { afterMessageId });
         });
         this.pendingAppend = result.then(

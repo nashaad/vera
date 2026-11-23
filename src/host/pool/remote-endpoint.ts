@@ -17,7 +17,7 @@ const METHODS = {
     applyBranchSync: true, facts: true, search: true, searchShard: true, flush: true,
     pumpInbox: true, snapshot: true, workSchedules: true, importSession: true,
     listImportableSessions: true, importedSourceHash: true, suppressCompletion: true,
-    cut: true, stopWaitTargets: true, runningSubagents: true, parkFacts: true,
+    cut: true, offerWrapUp: true, stopWaitTargets: true, runningSubagents: true, parkFacts: true,
     blockHasSession: true, blockTreeShard: true, blockAbort: true, blockConfirm: true,
     blockWrite: true, blockedIds: true, blockRemove: true, blockRelease: true,
 } satisfies Record<keyof SessionEndpoint, true>;

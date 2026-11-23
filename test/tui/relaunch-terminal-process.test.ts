@@ -217,8 +217,14 @@ async function captureRelaunch(successor: Successor): Promise<void> {
         stopCommand = Bun.spawn([process.execPath, "clients/cli/main.ts", "host", "stop", "--yes"], {
             cwd: process.cwd(), env, stdout: "pipe", stderr: "pipe",
         });
-        await until(() => pane().includes("Vera is shutting down") || pane().includes("Vera stops when running turns finish"), "stop card");
-        send("Down"); send("Enter");
+        await until(() => {
+            const card = pane();
+            return card.includes("Vera is shutting down")
+                && card.includes("1. Keep waiting")
+                && card.includes("2. Ask them to wrap up")
+                && card.includes("3. Stop them now");
+        }, "stop card choices");
+        send("3");
         await until(() => pane().includes("host stopped · Ctrl+L restart"), "stopped host");
         expect(await stopCommand.exited).toBe(0);
         unlinkSync(current); symlinkSync("releases/terminal-next", current);

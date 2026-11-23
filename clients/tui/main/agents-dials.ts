@@ -12,7 +12,7 @@ import { abortProviderHealthCheck, displayModeLabel, focusActiveSurface, notifyE
 import { clearSidebarEntryNodes } from "../main/chrome.ts";
 import { mergeTuiModelPickerSettings } from "../settings-picker.ts";
 import { appendTuiNotice, type TuiState } from "../state.ts";
-import { closeStopWaitCard, isStopWaitCardUpdate, stopNow, stopWaitCardChoice, stopWaitCardUpdate } from "../stop-wait.ts";
+import { closeStopWaitCard, isStopWaitCardUpdate, STOP_WAIT_WRAP_UP_CHOICE, STOP_WAIT_WRAP_UP_NOTES_LIMIT, stopNow, stopWaitCardChoice, stopWaitCardUpdate } from "../stop-wait.ts";
 import type { UiResponseCommand } from "../../../src/engine/protocol.ts";
 import type { TuiAgentCatalog, TuiAgentCatalogRow, TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
@@ -524,16 +524,71 @@ export function focusedAgentCanAbort(rt: TuiRuntime): boolean {
     return focused.working || focused.compactingSince !== undefined;
 }
 
-// Answers the local stop-wait card. Only "Stop it now" ends turns; every other answer closes the card.
+// Answers the local stop-wait card without treating the wrap-up request as a cut.
 export function answerStopWaitCard(
     rt: TuiRuntime,
     response: UiResponseCommand | undefined,
 ): void {
-    if (rt.stopWaitCard !== undefined) {
+    const wrapUpSelected = response?.response.type === "user_question"
+        && response.response.outcome === "selected"
+        && response.response.choiceId === STOP_WAIT_WRAP_UP_CHOICE;
+    if (!wrapUpSelected && rt.stopWaitCard !== undefined) {
         rt.stopWaitCard = closeStopWaitCard(rt.stopWaitCard);
     }
     if (response !== undefined && stopWaitCardChoice(response) === "stop") {
         void stopWaitNow(rt).catch(((error: unknown) => reportConnectionError(rt, error)));
+    } else if (
+        wrapUpSelected
+    ) {
+        const card = rt.stopWaitCard;
+        const request = rt.dependencies.askStopWaitWrapUp;
+        if (card?.wrapUpSent !== true && card?.wrapUpPending === true) {
+            showStatusNotice(rt, "The wrap-up request is still being sent");
+        } else if (card?.wrapUpSent !== true && request === undefined) {
+            showStatusNotice(rt, "Could not ask the running turns to wrap up: the resident host does not support it");
+        } else if (card?.wrapUpSent !== true && card !== undefined && request !== undefined) {
+            const notes = response.response.notes;
+            if (notes !== undefined && notes.length > STOP_WAIT_WRAP_UP_NOTES_LIMIT) {
+                if (rt.stopWaitCard !== undefined) {
+                    rt.stopWaitCard = { ...rt.stopWaitCard, open: true };
+                }
+                showStatusNotice(rt, `Notes must be ${STOP_WAIT_WRAP_UP_NOTES_LIMIT} characters or fewer`);
+                renderState(rt);
+            } else {
+                rt.stopWaitCard = { ...card, wrapUpPending: true, wrapUpMessage: undefined };
+                void request(notes)
+                    .then((outcome) => {
+                        const current = rt.stopWaitCard;
+                        if (current?.key !== card.key) return;
+                        if (outcome.type === "ask_stop_wait_wrap_up_done" && outcome.offered.length > 0) {
+                            rt.stopWaitCard = { ...current, wrapUpPending: false, wrapUpSent: true };
+                            showStatusNotice(rt, "Asked the running turns to wrap up");
+                        } else if (outcome.type === "ask_stop_wait_wrap_up_done") {
+                            rt.stopWaitCard = {
+                                ...current,
+                                wrapUpPending: false,
+                                wrapUpMessage: "No running turn took the wrap-up request",
+                            };
+                            showStatusNotice(rt, "No running turn took the wrap-up request");
+                        } else if (outcome.type === "ask_stop_wait_wrap_up_refused") {
+                            rt.stopWaitCard = { ...current, wrapUpPending: false };
+                            showStatusNotice(rt, outcome.message);
+                        } else {
+                            rt.stopWaitCard = { ...current, wrapUpPending: false };
+                            showStatusNotice(rt, "Could not ask the running turns to wrap up: the resident host does not support it");
+                        }
+                        renderState(rt);
+                    })
+                    .catch(((error: unknown) => {
+                        const current = rt.stopWaitCard;
+                        if (current?.key === card.key) {
+                            rt.stopWaitCard = { ...current, wrapUpPending: false };
+                            renderState(rt);
+                        }
+                        reportConnectionError(rt, error);
+                    }));
+            }
+        }
     }
     focusActiveSurface(rt);
 }

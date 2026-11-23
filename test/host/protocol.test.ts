@@ -991,6 +991,13 @@ test("host protocol parses cut_stop_wait and the forced stop_host flag", () => {
         .toBeUndefined();
 });
 
+test("wrap-up requests preserve notes and enforce the notes limit", () => {
+    expect(parseHostRequest(JSON.stringify({ type: "ask_stop_wait_wrap_up", notes: "leave a handoff" })))
+        .toEqual({ type: "ask_stop_wait_wrap_up", notes: "leave a handoff" });
+    expect(parseHostRequest(JSON.stringify({ type: "ask_stop_wait_wrap_up", notes: "x".repeat(2_001) })))
+        .toBeUndefined();
+});
+
 test("host stop requests accept bounded requester identity and preserve legacy requests", () => {
     const identity = { pid: 123, started_at: "2026-11-10T00:00:00.000Z" };
     const requester = { pid: 456, client_kind: "tui", command: "reconnect host", session_id: "a", session_name: "work" };

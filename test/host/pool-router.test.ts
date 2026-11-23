@@ -84,6 +84,7 @@ function endpoint(sessions: Map<string, RoutedSession>): SessionEndpoint {
         importedSourceHash: async () => undefined,
         suppressCompletion: async () => {},
         cut: async () => false,
+        offerWrapUp: async () => false,
         stopWaitTargets: async () => [],
         runningSubagents: async () => 0,
         parkFacts: async () => [],
@@ -1094,6 +1095,35 @@ test("@core a slow worker times out without hiding the host roster", async () =>
     expect(performance.now() - started).toBeLessThan(ROSTER_ENDPOINT_DEADLINE_MS + 300);
     expect(result.agents.map((agent) => agent.id)).toEqual(["responsive"]);
     expect(result.unavailableWorkers).toEqual(["w0"]);
+});
+
+test("@core an idle session route propagates turn-message rejection without starting a turn", async () => {
+    const session = { id: "idle-session", workspace: "/work", sessionPath: "/sessions/idle.jsonl" };
+    const host = endpoint(new Map([[session.id, session]]));
+    let offers = 0;
+    host.offerWrapUp = async () => { offers += 1; return false; };
+    const router = new HostRouter({ host, worker: endpoint(new Map()), hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+
+    expect(await router.offerWrapUp(session.id, "Finish", "Asked to wrap up.")).toBe(false);
+    expect(offers).toBe(1);
+});
+
+test("wrap-up messages route to the owning host or worker endpoint", async () => {
+    const hostSession = { id: "host-session", workspace: "/work", sessionPath: "/sessions/host.jsonl" };
+    const workerSession = { id: "worker-session", workspace: "/work", sessionPath: "/sessions/worker.jsonl" };
+    const host = endpoint(new Map([[hostSession.id, hostSession]]));
+    const worker = endpoint(new Map([[workerSession.id, workerSession]]));
+    const delivered: Array<[string, string, string, string]> = [];
+    host.offerWrapUp = async (id, text, transcript) => { delivered.push(["host", id, text, transcript]); return true; };
+    worker.offerWrapUp = async (id, text, transcript) => { delivered.push(["worker", id, text, transcript]); return true; };
+    const router = new HostRouter({ host, worker, hostSocket: "/host.sock", workerSocket: "/w0.sock", buildId: "test" });
+
+    expect(await router.offerWrapUp(hostSession.id, "Finish", "Asked to wrap up.")).toBe(true);
+    expect(await router.offerWrapUp(workerSession.id, "Finish", "Asked to wrap up.")).toBe(true);
+    expect(delivered).toEqual([
+        ["host", hostSession.id, "Finish", "Asked to wrap up."],
+        ["worker", workerSession.id, "Finish", "Asked to wrap up."],
+    ]);
 });
 
 test("the roster prefers each owner and omits stale copies", () => {

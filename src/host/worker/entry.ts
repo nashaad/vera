@@ -8,6 +8,7 @@ import { clearCutHaltWhenIdle } from "../cut-release.ts";
 import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import { isStopCause, type ModelAdapter } from "../../model/types.ts";
+import { offerTurnMessage } from "../../engine/turn-message-slot.ts";
 import { createJsonPipe, type JsonPipe } from "./pipe.ts";
 import { startWorkerExtensions } from "./extensions.ts";
 import {
@@ -215,7 +216,17 @@ export async function runWorker(
                         readonly requestId: string;
                         readonly reason?: unknown;
                         readonly stopCause?: unknown;
+                        readonly message?: { readonly text?: unknown; readonly transcript?: unknown };
                     };
+                    if (message.method === "session.offerTurnMessage") {
+                        const value = message.message;
+                        const accepted = inbound !== undefined
+                            && typeof value?.text === "string"
+                            && typeof value.transcript === "string"
+                            && offerTurnMessage(inbound, { text: value.text, transcript: value.transcript });
+                        pipe.notify({ method: "session.turnMessageAck", requestId: message.requestId, accepted });
+                        return;
+                    }
                     if (message.method === "session.confirmBlock") {
                         pipe.notify({
                             method: "session.latched",

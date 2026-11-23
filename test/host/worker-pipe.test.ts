@@ -3,6 +3,8 @@ import { getEventListeners } from "node:events";
 import { PassThrough, Readable } from "node:stream";
 
 import { createJsonPipe } from "../../src/host/worker/pipe.ts";
+import { createAckWaiters } from "../../src/host/worker/handle.ts";
+import type { SessionBlockAck } from "../../src/host/worker/boundary-server.ts";
 
 function firstResponse(output: PassThrough): Promise<Record<string, unknown>> {
     return new Promise((resolve) => {
@@ -91,6 +93,46 @@ test("@core a cancelled worker request releases its listener and ignores a late 
         await expect(left.request("next", AbortSignal.timeout(1_000))).resolves.toBe("next");
     } finally {
         release();
+        left.close();
+        right.close();
+    }
+});
+
+test("@core turn-message ack delivery settles the matching in-process waiter", async () => {
+    const leftInput = new PassThrough();
+    const rightInput = new PassThrough();
+    const waiters = createAckWaiters();
+    const left = createJsonPipe({ input: leftInput, output: rightInput }, {
+        onNotification: (body) => waiters.settle(body as SessionBlockAck),
+    });
+    const right = createJsonPipe({ input: rightInput, output: leftInput }, {
+        onNotification: (body) => {
+            const request = body as {
+                method: string;
+                requestId: string;
+                message: { text: string; transcript: string };
+            };
+            expect(request).toMatchObject({
+                method: "session.offerTurnMessage",
+                message: { text: "Finish this turn", transcript: "Asked to wrap up." },
+            });
+            right.notify({
+                method: "session.turnMessageAck",
+                requestId: request.requestId,
+                accepted: true,
+            });
+        },
+    });
+    try {
+        const accepted = await waiters.ask("session.turnMessageAck", 1_000, (requestId) => {
+            left.notify({
+                method: "session.offerTurnMessage",
+                requestId,
+                message: { text: "Finish this turn", transcript: "Asked to wrap up." },
+            });
+        });
+        expect(accepted).toBe(true);
+    } finally {
         left.close();
         right.close();
     }

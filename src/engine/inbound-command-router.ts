@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import { AsyncQueue } from "./async-queue.ts";
 import { TurnWorkClock } from "./turn-work-clock.ts";
+import {
+    closeTurnMessageSlot,
+    openTurnMessageSlot,
+    TURN_MESSAGE_STATE,
+    type TurnMessageState,
+} from "./turn-message-slot.ts";
 import type {
     ConfigurationRequiredUiRequest,
     ConfigurationRequiredUiResponse,
@@ -442,6 +448,7 @@ export interface InboundCommandRouterOptions {
 }
 
 export class InboundCommandRouter {
+    readonly [TURN_MESSAGE_STATE]: TurnMessageState = {};
     private readonly queuedTurns: QueuedTurn[] = [];
     private readonly turnAvailable = new AsyncQueue<true>();
     private readonly pendingApprovals = new Map<string, PendingApproval>();
@@ -623,6 +630,7 @@ export class InboundCommandRouter {
 
         const controller = new AbortController();
         this.activeTurn = controller;
+        openTurnMessageSlot(this, controller.signal);
         this.activeQueueTurn = {
             releaseId: claimedRelease.id,
             final: claimedRelease.mode === "all"
@@ -673,6 +681,7 @@ export class InboundCommandRouter {
     }
 
     finishTurn(outcome?: InboundTurnOutcome): void {
+        closeTurnMessageSlot(this);
         if (this.activeTurn === undefined || this.activeQueueTurn === undefined) {
             throw new Error("No turn is active");
         }

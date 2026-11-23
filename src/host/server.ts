@@ -181,6 +181,7 @@ function isHostOnlyRequest(request: HostRequest): boolean {
         case "shutdown_for_replacement":
         case "stop_host":
         case "cut_stop_wait":
+        case "ask_stop_wait_wrap_up":
         case "restart_records":
         case "restart_record_dismiss":
         case "provider_list":
@@ -1614,6 +1615,22 @@ function receiveConnection(
             ).then((result) => result.status === "done"
                 ? send({ type: "cut_stop_wait_done", cut: result.cut, failed: result.failed })
                 : send({ type: "cut_stop_wait_refused", reason: result.reason, message: result.message })
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "ask_stop_wait_wrap_up") {
+            clearDeadline();
+            finished = true;
+            void (stopWhenIdle === undefined
+                ? Promise.resolve({
+                    status: "refused" as const,
+                    reason: "no_wait" as const,
+                    message: "No stop is waiting, so there is nothing to ask.",
+                })
+                : stopWhenIdle.askToWrapUp(request.notes)
+            ).then((result) => result.status === "done"
+                ? send({ type: "ask_stop_wait_wrap_up_done", offered: result.offered })
+                : send({ type: "ask_stop_wait_wrap_up_refused", reason: result.reason, message: result.message })
             ).then(() => socket.end(), () => socket.destroy());
             return;
         }
