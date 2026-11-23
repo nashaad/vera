@@ -39,6 +39,7 @@ export interface PromptContributionInput {
     readonly notesOffer?: boolean;
     readonly scratchDir?: string;
     readonly date: Date;
+    readonly userInstructions?: ProjectInstructionSnapshot;
     readonly projectInstructions?: ProjectInstructionSnapshot;
     readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;
@@ -69,6 +70,7 @@ export interface StablePromptContributionInput {
 
 export interface ContextualPromptContributionInput {
     readonly date: Date;
+    readonly userInstructions?: ProjectInstructionSnapshot;
     readonly projectInstructions?: ProjectInstructionSnapshot;
     readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;
@@ -241,6 +243,13 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
         }),
     },
     {
+        id: "core.user-instructions",
+        owner: "core",
+        target: "contextual",
+        contribute: (input) =>
+            renderInstructions(input.userInstructions, "User instructions"),
+    },
+    {
         id: "core.user-rules",
         owner: "core",
         target: "contextual",
@@ -250,19 +259,8 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
         id: "core.project-instructions",
         owner: "core",
         target: "contextual",
-        contribute: (input) => {
-            const snapshot = input.projectInstructions;
-            if (
-                snapshot === undefined
-                || (snapshot.files.length === 0 && snapshot.warnings.length === 0)
-            ) {
-                return null;
-            }
-            return {
-                title: "Project instructions",
-                content: renderProjectInstructions(snapshot),
-            };
-        },
+        contribute: (input) =>
+            renderInstructions(input.projectInstructions, "Project instructions"),
     },
     {
         id: "core.project-rules",
@@ -306,8 +304,20 @@ const RETIRED_CONTRIBUTIONS: ReadonlySet<string> = new Set([
     "core.scratchpad-state",
 ]);
 
-function withoutRetired(order: readonly string[]): readonly string[] {
-    return order.filter((id) => !RETIRED_CONTRIBUTIONS.has(id));
+// Ids added after orders were saved, each mapped to the id it renders before.
+// A saved order that leaves one out gets it there instead of being rejected.
+const ADDED_CONTRIBUTIONS: ReadonlyMap<string, string> = new Map([
+    ["core.user-instructions", "core.user-rules"],
+]);
+
+function upgradeSavedOrder(order: readonly string[]): readonly string[] {
+    const kept = order.filter((id) => !RETIRED_CONTRIBUTIONS.has(id));
+    for (const [added, before] of ADDED_CONTRIBUTIONS) {
+        if (kept.includes(added)) continue;
+        const at = kept.indexOf(before);
+        if (at >= 0) kept.splice(at, 0, added);
+    }
+    return kept;
 }
 
 /**
@@ -320,7 +330,7 @@ function withoutRetired(order: readonly string[]): readonly string[] {
 export function validatePromptContributionOrder(
     savedOrder: readonly string[],
 ): void {
-    const order = withoutRetired(savedOrder);
+    const order = upgradeSavedOrder(savedOrder);
     const known = new Map(
         BUILT_IN_PROMPT_CONTRIBUTORS.map((contributor) => [
             contributor.id,
@@ -389,7 +399,7 @@ function orderedContributors(
             contributor,
         ]),
     );
-    return withoutRetired(order).map((id) => byId.get(id)!);
+    return upgradeSavedOrder(order).map((id) => byId.get(id)!);
 }
 
 export function collectBuiltInPromptContributions(
@@ -586,7 +596,20 @@ function renderRules(
     return { title, content: sections.join("\n\n") };
 }
 
-function renderProjectInstructions(
+function renderInstructions(
+    snapshot: ProjectInstructionSnapshot | undefined,
+    title: string,
+): Omit<PromptContribution, "id" | "owner" | "target"> | null {
+    if (
+        snapshot === undefined
+        || (snapshot.files.length === 0 && snapshot.warnings.length === 0)
+    ) {
+        return null;
+    }
+    return { title, content: renderInstructionFiles(snapshot) };
+}
+
+function renderInstructionFiles(
     snapshot: ProjectInstructionSnapshot,
 ): string {
     const sections = snapshot.files.map((file) =>

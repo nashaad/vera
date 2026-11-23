@@ -63,6 +63,7 @@ const CATEGORY_ORDER = [
 ] as const;
 
 const INSTRUCTION_IDS = new Set([
+    "core.user-instructions",
     "core.user-rules",
     "core.project-rules",
     "core.project-instructions",

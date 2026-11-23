@@ -17,6 +17,7 @@ export interface AssembleSystemPromptInput {
     readonly notesOffer?: boolean;
     readonly scratchDir?: string;
     readonly date: Date;
+    readonly userInstructions?: ProjectInstructionSnapshot;
     readonly projectInstructions?: ProjectInstructionSnapshot;
     readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;
@@ -41,6 +42,7 @@ export interface AssembleStableSystemPromptInput {
 
 export interface AssembleContextualSystemPromptInput {
     readonly date: Date;
+    readonly userInstructions?: ProjectInstructionSnapshot;
     readonly projectInstructions?: ProjectInstructionSnapshot;
     readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;

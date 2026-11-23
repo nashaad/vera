@@ -2,7 +2,10 @@ import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentCatalog } from "../agents/catalog.ts";
 import { loadSkillCatalog, type CatalogSkill } from "../skills/catalog.ts";
-import { loadProjectInstructions } from "../engine/project-instructions.ts";
+import {
+    loadProjectInstructions,
+    loadUserInstructions,
+} from "../engine/project-instructions.ts";
 import { loadMemory, MEMORY_ENABLED, type InstructionRoot } from "../engine/memory.ts";
 import { loadRules, ruleDirectories } from "../engine/rules.ts";
 import { listExtensions } from "../extensions/manager.ts";
@@ -21,7 +24,7 @@ function skillScopeLabel(skill: CatalogSkill): string {
     return skill.extensionId === undefined ? skill.scope : `extension ${skill.extensionId}`;
 }
 
-// Without a workspace only what the home holds is listed: its skills, agents, extensions, rules and memory.
+// Without a workspace only what the home holds is listed: its AGENTS.md, skills, agents, extensions, rules and memory.
 export async function loadCustomizationCatalog(options: {
     readonly workspace?: string;
     readonly instructionRoot?: InstructionRoot;
@@ -85,6 +88,16 @@ export async function loadCustomizationCatalog(options: {
             content: row.instructions, contextIds: [],
             ...(row.plugin === undefined ? {} : { plugin: row.plugin }),
             status: "disabled",
+        });
+    }
+    const userInstructions = await loadUserInstructions();
+    warnings.push(...userInstructions.warnings);
+    for (const file of userInstructions.files) {
+        await add({
+            id: `instructions:${file.path}`, category: "instructions",
+            name: file.name, description: "User instructions and imports",
+            scope: "user", path: file.path, editable: true,
+            content: file.content, contextIds: [file.path],
         });
     }
     const instructions = options.workspace === undefined

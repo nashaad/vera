@@ -5,9 +5,9 @@ description: "Browse the instructions, definitions, skills, and extensions avail
 
 # Customize Vera
 
-`/customize` shows the sources that shape Vera's behavior. Use it to find a
-project instruction file, inspect a skill, or open a reusable definition in
-your editor.
+`/customize` shows the sources that shape Vera's behavior. Use it to find
+your `~/.vera/AGENTS.md` or a project instruction file, inspect a skill, or
+open a reusable definition in your editor.
 
 ## Browse a source
 

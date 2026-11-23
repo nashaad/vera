@@ -265,3 +265,27 @@ test("@core without a workspace only what the home holds is listed", async () =>
     expect(catalog.sources.some((source) => source.scope === "project")).toBe(false);
     expect(catalog.warnings).toEqual([]);
 });
+
+test("@core the home AGENTS.md is listed as user instructions, with or without a workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "customize-home-agents-")); roots.push(root);
+    const home = join(root, "home"); const workspace = join(root, "project");
+    process.env.VERA_HOME = home;
+    await mkdir(home, { recursive: true });
+    await mkdir(workspace, { recursive: true });
+    await writeFile(join(home, "AGENTS.md"), "Call me Captain.\n");
+    await writeFile(join(home, "AGENTS.local.md"), "Never listed.\n");
+    await writeFile(join(workspace, "AGENTS.md"), "Project charter.\n");
+    for (const options of [{}, { workspace }]) {
+        const agents = await loadAgentCatalog({ permissionModes: ["readonly"], interactive: true });
+        const catalog = await loadCustomizationCatalog({ ...options, agents });
+        const homeRows = catalog.sources.filter((source) => source.name.startsWith("<home>/AGENTS"));
+        expect(homeRows).toEqual([expect.objectContaining({
+            category: "instructions",
+            name: "<home>/AGENTS.md",
+            description: "User instructions and imports",
+            scope: "user",
+            editable: true,
+            content: "Call me Captain.\n",
+        })]);
+    }
+});

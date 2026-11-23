@@ -214,6 +214,7 @@ The bundled `/create-agent` skill runs only when you invoke its slash command. D
 Skill invocation does not add tools, widen permissions, or replace the selected agent's restrictions.
 Skills come from Vera, enabled extensions (`contributes.skills` in the manifest), the home, then the project; later wins. `disabled_skills` in the home `config.json` or the project's `.vera/config.json` turns skills off by name, a trailing `*` matches a prefix, and `/customize` still lists them as disabled.
 Project instruction files, selected-agent instructions, imports, and standing nudges may contribute context. Memory loading and writing are disabled; saved files may still appear in Customize.
+`~/.vera/AGENTS.md` holds your own instructions for every project and chat, and comes before your rules and the project's `AGENTS.md`; Vera does not read an `AGENTS.local.md` in `~/.vera`. Manual: `docs/config-reference.md`.
 Rules are markdown files kept in the home and in the project. A rule with no frontmatter applies for the whole session; a rule with a `paths:` list arrives when Vera reads a file one of its globs matches, at most once until the conversation compacts.
 `vera rules which <path>` reports which rules a read of that path would bring in. It reads and reports; it changes nothing.
 Standing nudges are short home-level preferences. They can match an agent or workspace and apply every turn or at a chosen frequency.

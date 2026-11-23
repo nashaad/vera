@@ -41,6 +41,7 @@ These paths are inside `~/.vera`:
 | --- | --- |
 | `config.json` | Host, provider, permission, model, extension, skill, and hook settings. |
 | `tui.json` | Display preferences and keybindings. |
+| `AGENTS.md` | Your own instructions, included in every request in every project and chat. |
 | `skills/` | Installed skills. Turn one off with `disabled_skills`; see [Turn a skill off](skills.md#turn-a-skill-off). |
 | `agents/` | Reusable definitions. |
 | `hooks/` | Executables named by the `hooks` list in `config.json`. See [Hooks](hooks.md). |
@@ -71,7 +72,9 @@ These paths are relative to the project root:
 | `.vera/rules/` | [Rules](rules.md) for this project. |
 
 Vera reads `AGENTS.md` and `AGENTS.local.md` from the project root only. It
-does not look for them in parent directories.
+does not look for them in parent directories. Your `~/.vera/AGENTS.md` comes
+before them in the prompt, and before your rules. Vera does not read an
+`AGENTS.local.md` in `~/.vera`.
 
 ## Data Vera manages
 
