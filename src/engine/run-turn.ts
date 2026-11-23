@@ -317,6 +317,7 @@ export interface RunTurnState {
     readonly hooks: ToolHooks;
     readonly approvalMode: ApprovalMode;
     readonly writeRoots?: readonly string[];
+    readonly readRoots?: readonly string[];
     readonly applyToolEffect?: ApplyToolEffect;
     readonly applyCommittedToolEffect?: ApplyCommittedToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
@@ -909,6 +910,7 @@ export async function runHeadlessLoop(
             sessionIsSubagent(store.header),
             scratchDir,
             readApprovalMode,
+            store.header.readRoots,
         ),
         instructionRoot,
         inbound,
@@ -918,6 +920,9 @@ export async function runHeadlessLoop(
         ...(store.header.writeRoots === undefined
             ? {}
             : { writeRoots: store.header.writeRoots }),
+        ...(store.header.readRoots === undefined
+            ? {}
+            : { readRoots: store.header.readRoots }),
         applyToolEffect,
         ...(boundary.applyCommittedToolEffect === undefined ? {} : {
             applyCommittedToolEffect: boundary.applyCommittedToolEffect,
@@ -2895,6 +2900,9 @@ async function executePreparedTool(
             ...(state.writeRoots === undefined
                 ? {}
                 : { writeRoots: state.writeRoots }),
+            ...(state.readRoots === undefined
+                ? {}
+                : { readRoots: state.readRoots }),
             ...(state.scratchDir === undefined
                 ? {}
                 : { scratchDir: state.scratchDir }),

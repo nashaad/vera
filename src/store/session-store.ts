@@ -11,7 +11,7 @@ import { scanSessionLines, readSessionLine, SESSION_SCAN_CHUNK_BYTES } from "./s
 import { SessionRecordIndex, type SessionCompactionAnchor } from "./session-record-index.ts";
 import { scanSessionIndex } from "./session-index-scan.ts";
 import { readSessionArchived, sessionMetadataPath, writeSessionArchived } from "./session-metadata.ts";
-import { isSessionWriteRoots } from "./session-write-roots.ts";
+import { isSessionRoots } from "./session-roots.ts";
 import { contextMeasurementHeader } from "./session-record-header.ts";
 import { measurementComponentsCanonical } from "./session-measurement-fields.ts";
 import { addSessionModelUsage, SessionUsageAccumulator, type SessionModelUsage } from "../model/session-usage.ts";
@@ -106,6 +106,7 @@ export interface SessionHeader {
     readonly importedFrom?: SessionImportProvenance;
     // Canonical absolute directories; fixed at creation.
     readonly writeRoots?: readonly string[];
+    readonly readRoots?: readonly string[];
 }
 
 export function sessionIsSubagent(header: SessionHeader): boolean {
@@ -379,6 +380,7 @@ export interface CreateSessionStoreOptions {
     readonly notesOffer?: true;
     readonly importedFrom?: SessionImportProvenance;
     readonly writeRoots?: readonly string[];
+    readonly readRoots?: readonly string[];
     readonly deferFile?: boolean;
     readonly now?: () => Date;
     readonly createId?: () => string;
@@ -394,6 +396,7 @@ export interface SessionCreationMetadata {
     readonly parentId?: string;
     readonly delegation?: SessionDelegation;
     readonly writeRoots?: readonly string[];
+    readonly readRoots?: readonly string[];
 }
 
 export interface OpenSessionStoreOptions {
@@ -828,7 +831,10 @@ export class SessionStore {
                 : { importedFrom: options.importedFrom }),
             ...(options.writeRoots === undefined || options.writeRoots.length === 0
                 ? {}
-                : { writeRoots: validSessionWriteRoots(options.writeRoots) }),
+                : { writeRoots: validSessionRoots(options.writeRoots, "write") }),
+            ...(options.readRoots === undefined || options.readRoots.length === 0
+                ? {}
+                : { readRoots: validSessionRoots(options.readRoots, "read") }),
         };
 
         await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -4396,7 +4402,9 @@ export function parseHeaderRecord(
         || (value.importedFrom !== undefined
             && !isSessionImportProvenance(value.importedFrom))
         || (value.writeRoots !== undefined
-            && !isSessionWriteRoots(value.writeRoots))
+            && !isSessionRoots(value.writeRoots))
+        || (value.readRoots !== undefined
+            && !isSessionRoots(value.readRoots))
     ) {
         throw invalidSession(path, "line 1 is not a valid session header");
     }
@@ -4439,9 +4447,12 @@ function headerFromRecord(value: Record<string, unknown>): SessionHeader {
     };
 }
 
-function validSessionWriteRoots(roots: readonly string[]): readonly string[] {
-    if (!isSessionWriteRoots(roots)) {
-        throw new Error("Cannot create a session with invalid write roots");
+function validSessionRoots(
+    roots: readonly string[],
+    kind: "write" | "read",
+): readonly string[] {
+    if (!isSessionRoots(roots)) {
+        throw new Error(`Cannot create a session with invalid ${kind} roots`);
     }
     return [...roots];
 }

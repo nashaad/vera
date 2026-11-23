@@ -2,6 +2,7 @@ import { afterEach, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { parsePermissionRules } from "../../src/config/permission-rules.ts";
 import {
     BUILT_IN_PERMISSION_MODES,
     decideToolPermission,
@@ -373,6 +374,200 @@ test("the ask and auto inspections list the write-root rule", () => {
         });
     }
 });
+
+const readOutsideAsks = parsePermissionRules([
+    { when: { verb: "read", path_scope: "outside_workspace" }, then: "ask" },
+])!;
+
+test("@core a read root counts as inside the workspace for reads, under a rule that asks about outside reads", () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const root = join(dirname(repo), "reference-root");
+    const elsewhere = join(dirname(repo), "elsewhere");
+    mkdirSync(root);
+    mkdirSync(elsewhere);
+    const mode: Mode = "auto";
+
+    expect(read(mode, session, join(session, "src", "a.ts"), readOutsideAsks, [root]))
+        .toBe("allow");
+    expect(read(mode, session, join(root, "doc.md"), readOutsideAsks, [root]))
+        .toBe("allow");
+    expect(read(mode, session, join(root, "deep", "doc.md"), readOutsideAsks, [root]))
+        .toBe("allow");
+    expect(read(mode, session, join(elsewhere, "doc.md"), readOutsideAsks, [root]))
+        .toBe("ask");
+    expect(read(mode, session, join(root, "..", "elsewhere", "doc.md"), readOutsideAsks, [root]))
+        .toBe("ask");
+    expect(read(mode, session, join(root, "doc.md"), readOutsideAsks))
+        .toBe("ask");
+});
+
+test("@core an explicit deny rule that names a file under a read root still denies the read", () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const root = join(dirname(repo), "reference-root");
+    mkdirSync(root);
+    const secret = join(root, "secret.txt");
+    const rules = [
+        ...readOutsideAsks,
+        ...parsePermissionRules([{ when: { verb: "read", path: secret }, then: "deny" }])!,
+    ];
+
+    expect(read("auto", session, secret, rules, [root])).toBe("deny");
+    expect(read("ask", session, secret, rules, [root])).toBe("deny");
+    expect(read("auto", session, join(root, "other.txt"), rules, [root])).toBe("allow");
+});
+
+test("a read root gives a write no authority", () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const root = join(dirname(repo), "reference-root");
+    mkdirSync(root);
+    const target = join(root, "notes.txt");
+
+    for (const mode of ["auto", "ask", "readonly"] as const) {
+        expect(writeWithReadRoots(mode, session, target, "write", [root]))
+            .toBe(write(mode, session, target));
+        expect(writeWithReadRoots(mode, session, target, "edit", [root]))
+            .toBe(write(mode, session, target, "edit"));
+    }
+    expect(writeWithReadRoots("auto", session, target, "write", [root])).toBe("review");
+    expect(writeWithReadRoots("ask", session, target, "write", [root])).toBe("ask");
+    expect(shellWithReadRoots("auto", session, `printf x > ${target}`, [root]))
+        .toBe("review");
+});
+
+test("a write root gives a read no outside-workspace exemption", () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const root = join(dirname(repo), "shared-root");
+    mkdirSync(root);
+
+    expect(read("auto", session, join(root, "doc.md"), readOutsideAsks)).toBe("ask");
+    expect(decideToolPermission(
+        "auto",
+        toolCall("read", { path: join(root, "doc.md") }),
+        session,
+        [],
+        { homeDirectory: session, permissionRules: readOutsideAsks, writeRoots: [root] },
+    ).behavior).toBe("ask");
+});
+
+test("a read root inside another worktree counts as inside, a read already did", () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const sibling = addWorktree(repo, "b");
+    const target = join(sibling, "src", "doc.ts");
+
+    expect(read("auto", session, target, readOutsideAsks, [sibling])).toBe("allow");
+    expect(read("auto", session, target, readOutsideAsks)).toBe("ask");
+});
+
+test("a symlink under a read root does not borrow its authority", () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const root = join(dirname(repo), "reference-root");
+    const outside = join(dirname(repo), "outside-root");
+    mkdirSync(root);
+    mkdirSync(outside);
+    symlinkSync(outside, join(root, "escape"));
+
+    expect(read("auto", session, join(root, "escape", "doc.md"), readOutsideAsks, [root]))
+        .toBe("ask");
+    expect(read("auto", session, join(root, "real.md"), readOutsideAsks, [root]))
+        .toBe("allow");
+});
+
+test("a shell read of a path under a read root keeps the decision it had without the root", () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const root = join(dirname(repo), "reference-root");
+    mkdirSync(root);
+    const command = `cat ${join(root, "doc.md")}`;
+
+    expect(shellWithReadRoots("auto", session, command, [root]))
+        .toBe(shell("auto", session, command));
+    expect(shellWithReadRoots("ask", session, command, [root]))
+        .toBe(shell("ask", session, command));
+});
+
+test("reviewer path facts for a read under a read root are unchanged", async () => {
+    const repo = repository();
+    const session = addWorktree(repo, "a");
+    const root = join(dirname(repo), "reference-root");
+    mkdirSync(root);
+    const call = { id: "call_1", name: "read", input: { path: join(root, "doc.md") } };
+    const facts = await collectReviewerPathFacts(
+        session,
+        call,
+        extractPermissionActions({
+            toolCall: call,
+            workspace: session,
+            homeDirectory: session,
+            readRoots: [root],
+        }).map((action) => ({
+            action,
+            outcome: "allow" as const,
+            rule: "routine.read",
+        })),
+    );
+
+    expect(facts[0]?.scope).toBe("outside_workspace");
+});
+
+function read(
+    mode: Mode,
+    workspace: string,
+    path: string,
+    rules: readonly PermissionRule[],
+    readRoots: readonly string[] = [],
+): PermissionOutcome {
+    return decideToolPermission(
+        mode,
+        toolCall("read", { path }),
+        workspace,
+        [],
+        {
+            homeDirectory: workspace,
+            permissionRules: rules,
+            ...(readRoots.length === 0 ? {} : { readRoots }),
+        },
+    ).behavior;
+}
+
+function writeWithReadRoots(
+    mode: Mode,
+    workspace: string,
+    path: string,
+    tool: "write" | "edit",
+    readRoots: readonly string[],
+): PermissionOutcome {
+    const input: HookToolCall["input"] = tool === "write"
+        ? { path, content: "x" }
+        : { path, old_string: "a", new_string: "b" };
+    return decideToolPermission(
+        mode,
+        toolCall(tool, input),
+        workspace,
+        [],
+        { homeDirectory: workspace, readRoots },
+    ).behavior;
+}
+
+function shellWithReadRoots(
+    mode: Mode,
+    workspace: string,
+    command: string,
+    readRoots: readonly string[],
+): PermissionOutcome {
+    return decideToolPermission(
+        mode,
+        toolCall("bash", { command }),
+        workspace,
+        [],
+        { homeDirectory: workspace, readRoots },
+    ).behavior;
+}
 
 function decideWithRules(
     mode: Mode,

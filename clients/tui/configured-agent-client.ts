@@ -35,6 +35,7 @@ export interface ConfiguredTuiAgentClients {
         approvalMode?: string,
         lifetime?: "ephemeral" | "durable",
         writeRoots?: readonly string[],
+        readRoots?: readonly string[],
     ): Promise<TuiAgentClient>;
     branch(
         sourceAgentId: string,
@@ -90,7 +91,7 @@ export function createConfiguredTuiAgentClients(
     return {
         attach,
         attachPaged,
-        async create(workspace, approvalMode, lifetime = "durable", writeRoots) {
+        async create(workspace, approvalMode, lifetime = "durable", writeRoots, readRoots) {
             const ready = await createAgentThroughHost(
                 await pairedSocket(),
                 workspace,
@@ -98,7 +99,7 @@ export function createConfiguredTuiAgentClients(
                 lifetime,
                 "default",
                 undefined,
-                writeRoots,
+                { writeRoots, readRoots },
             );
             return attachPaged(ready.id, ready.location);
         },

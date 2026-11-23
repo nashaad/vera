@@ -15,6 +15,8 @@ export interface SandboxCommandRequest {
     readonly env: Readonly<Record<string, string | undefined>>;
     readonly workspace: string;
     readonly scratchDir?: string;
+    /** The session's read roots, readable when reads are fenced. */
+    readonly readRoots?: readonly string[];
     readonly sessionId: string;
     readonly toolCallId: string;
     /** The session's mode; `full_access` runs the command unwrapped. */

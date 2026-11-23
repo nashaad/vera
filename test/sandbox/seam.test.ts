@@ -134,7 +134,12 @@ class FakeSandbox implements CommandSandbox, SandboxInspector {
 async function run(
     sandbox: CommandSandbox,
     command: string,
-    identity: { readonly sessionId: string; readonly toolCallId: string; readonly approvalMode?: string },
+    identity: {
+        readonly sessionId: string;
+        readonly toolCallId: string;
+        readonly approvalMode?: string;
+        readonly readRoots?: readonly string[];
+    },
 ) {
     const registry = new ManagedProcessRegistry({ sandbox });
     return registry.scope(`${identity.sessionId}-scope`).run({
@@ -165,6 +170,16 @@ test("@core sandbox seam spawns the wrapper and keeps the original command", asy
     });
     // srt's per-command cleanup is released once the child has exited.
     expect(sandbox.ended).toEqual(["cmd-1"]);
+});
+
+test("@core sandbox seam hands the session's read roots to the sandbox", async () => {
+    const sandbox = new FakeSandbox();
+    await run(sandbox, "echo treasure", {
+        sessionId: "session-1",
+        toolCallId: "call-1",
+        readRoots: ["/other/docs"],
+    });
+    expect(sandbox.requests[0]?.readRoots).toEqual(["/other/docs"]);
 });
 
 test("@core sandbox seam covers a command that names no session", async () => {

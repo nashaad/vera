@@ -77,6 +77,9 @@ export async function createSessionBranch(
         ...(options.source.header.writeRoots === undefined
             ? {}
             : { writeRoots: options.source.header.writeRoots }),
+        ...(options.source.header.readRoots === undefined
+            ? {}
+            : { readRoots: options.source.header.readRoots }),
     });
 
     try {

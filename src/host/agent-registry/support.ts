@@ -494,6 +494,8 @@ export interface CreateRegisteredAgentOptions {
     readonly notesOffer?: true;
     /** Absolute directories the session may write to beyond its workspace. Fixed at creation. */
     readonly writeRoots?: readonly string[];
+    /** Absolute directories the session may read as if they were inside its workspace. Fixed at creation. */
+    readonly readRoots?: readonly string[];
     /** The mode this agent starts in, when it must not be the host default. It is written to the session like any other approval-mode change, so a client that resumes the session later… */
     readonly approvalMode?: ApprovalMode;
 }
@@ -800,6 +802,7 @@ export interface InheritedAgentSettings {
     readonly delegation?: SessionDelegation;
     // Copied from the parent header; the child does not revalidate the directories.
     readonly writeRoots?: readonly string[];
+    readonly readRoots?: readonly string[];
 }
 
 export function samePair(

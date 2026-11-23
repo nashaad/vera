@@ -79,6 +79,7 @@ function hostToolRuntime(
         store.header.parentId !== undefined,
     );
     runtime.sessionId = store.header.id;
+    runtime.readRoots = store.header.readRoots;
     return runtime;
 }
 
@@ -688,6 +689,9 @@ export async function spawnAsyncSubagent(reg: AgentRegistry, parentStore: Sessio
                     ...(parentStore.header.writeRoots === undefined
                         ? {}
                         : { writeRoots: parentStore.header.writeRoots }),
+                    ...(parentStore.header.readRoots === undefined
+                        ? {}
+                        : { readRoots: parentStore.header.readRoots }),
                     delegation: {
                         kind: "subagent",
                         parentId: parentStore.header.id,

@@ -852,6 +852,7 @@ export async function runSubagent(
             true,
             options.scratchDir,
             () => options.approvalMode,
+            store.header.readRoots,
         );
         toolRuntime.checkSkillFile = options.checkSkillFile;
         const inbound = new InboundCommandRouter(channel.engine, events);
@@ -911,6 +912,9 @@ export async function runSubagent(
             ...(store.header.writeRoots === undefined
                 ? {}
                 : { writeRoots: store.header.writeRoots }),
+            ...(store.header.readRoots === undefined
+                ? {}
+                : { readRoots: store.header.readRoots }),
             ...(options.selectedAgent === undefined ? {} : {
                 readSelectedAgent: () => options.selectedAgent,
             }),

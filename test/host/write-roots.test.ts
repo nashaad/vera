@@ -11,8 +11,8 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
-import { resolveSessionWriteRoots } from "../../src/host/write-roots.ts";
-import { MAX_SESSION_WRITE_ROOTS } from "../../src/store/session-write-roots.ts";
+import { resolveSessionWriteRoots } from "../../src/host/session-roots.ts";
+import { MAX_SESSION_ROOTS } from "../../src/store/session-roots.ts";
 
 const temporaryDirectories: string[] = [];
 let createdTestHome = false;
@@ -101,7 +101,7 @@ test("@core write roots refuse the filesystem root and paths over Vera's home", 
 test("@core a session has at most sixteen write roots", async () => {
     const directory = temporaryDirectory();
     const roots = Array.from(
-        { length: MAX_SESSION_WRITE_ROOTS + 1 },
+        { length: MAX_SESSION_ROOTS + 1 },
         (_, index) => {
             const root = join(directory, `root-${index}`);
             mkdirSync(root);
@@ -110,10 +110,10 @@ test("@core a session has at most sixteen write roots", async () => {
     );
 
     await expect(resolveSessionWriteRoots(roots)).rejects.toThrow(
-        `A session can have at most ${MAX_SESSION_WRITE_ROOTS} write roots.`,
+        `A session can have at most ${MAX_SESSION_ROOTS} write roots.`,
     );
     await expect(resolveSessionWriteRoots(roots.slice(0, -1))).resolves.toHaveLength(
-        MAX_SESSION_WRITE_ROOTS,
+        MAX_SESSION_ROOTS,
     );
 });
 

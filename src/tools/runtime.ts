@@ -46,6 +46,8 @@ export class ToolRuntime {
     currentToolCallId: string | undefined;
     // The session's live approval mode, which decides the full_access exemption.
     readApprovalMode: (() => string | undefined) | undefined;
+    // The session's read roots; a sandbox that fences reads leaves them readable.
+    readRoots: readonly string[] | undefined;
     // Set by a host that owns skill settings; unset, the read tool checks locally.
     checkSkillFile: CheckSkillFile | undefined;
     private readonly fileSnapshots = new Map<string, string>();
@@ -88,6 +90,7 @@ export class ToolRuntime {
         this.sessionId = undefined;
         this.currentToolCallId = undefined;
         this.readApprovalMode = undefined;
+        this.readRoots = undefined;
         this.checkSkillFile = undefined;
     }
 
@@ -100,6 +103,9 @@ export class ToolRuntime {
             ...(this.scratchDirectory === undefined
                 ? {}
                 : { scratchDir: this.scratchDirectory }),
+            ...(this.readRoots === undefined
+                ? {}
+                : { readRoots: this.readRoots }),
             ...(this.currentToolCallId === undefined
                 ? {}
                 : { toolCallId: this.currentToolCallId }),

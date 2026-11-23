@@ -13,6 +13,7 @@ export function newStashingToolRuntime(
     isSubagent?: boolean,
     scratchDirectory?: string,
     readApprovalMode?: () => string | undefined,
+    readRoots?: readonly string[],
 ): ToolRuntime {
     if (!sweepStarted) {
         sweepStarted = true;
@@ -31,5 +32,6 @@ export function newStashingToolRuntime(
     );
     runtime.sessionId = sessionId;
     runtime.readApprovalMode = readApprovalMode;
+    runtime.readRoots = readRoots;
     return runtime;
 }

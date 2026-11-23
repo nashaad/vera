@@ -412,17 +412,28 @@ export async function runCli(
     const originalArgs = args;
     const assumeYes = args[0] === "--yes" || args[0] === "-y";
     if (assumeYes) args = args.slice(1);
-    const writeRootArgs = parseWriteRootArgs(args);
+    const writeRootArgs = parseRootArgs(args, "--write-root");
     if (writeRootArgs === undefined) {
         errorOutput.write("vera: --write-root needs a directory.\n");
         return 1;
     }
-    args = writeRootArgs.args;
+    const readRootArgs = parseRootArgs(writeRootArgs.args, "--read-root");
+    if (readRootArgs === undefined) {
+        errorOutput.write("vera: --read-root needs a directory.\n");
+        return 1;
+    }
+    args = readRootArgs.args;
     const writeRoots = writeRootArgs.roots;
-    if (writeRoots.length > 0 && !isNewSessionLaunch(args)) {
+    const readRoots = readRootArgs.roots;
+    const rootFlag = writeRoots.length > 0
+        ? "--write-root"
+        : readRoots.length > 0
+        ? "--read-root"
+        : undefined;
+    if (rootFlag !== undefined && !isNewSessionLaunch(args)) {
         errorOutput.write(args[0] === "-p"
-            ? "vera -p does not take --write-root.\n"
-            : "vera: --write-root can only be used when starting a new session.\n");
+            ? `vera -p does not take ${rootFlag}.\n`
+            : `vera: ${rootFlag} can only be used when starting a new session.\n`);
         return 1;
     }
     const tuiOptions: TuiStartOptions = {
@@ -510,9 +521,14 @@ export async function runCli(
     }
 
     if (args.length === 0) {
-        await runTui(writeRoots.length === 0
+        await runTui(rootFlag === undefined
             ? { type: "home", workspace: process.cwd() }
-            : { type: "create", workspace: process.cwd(), writeRoots }, tuiOptions);
+            : {
+                type: "create",
+                workspace: process.cwd(),
+                ...(writeRoots.length === 0 ? {} : { writeRoots }),
+                ...(readRoots.length === 0 ? {} : { readRoots }),
+            }, tuiOptions);
         return 0;
     }
 
@@ -525,6 +541,7 @@ export async function runCli(
             workspace: process.cwd(),
             startupProfile: args[0] === "--bare" ? "bare" : "prompt_only",
             ...(writeRoots.length === 0 ? {} : { writeRoots }),
+            ...(readRoots.length === 0 ? {} : { readRoots }),
         }, tuiOptions);
         return 0;
     }
@@ -2274,13 +2291,14 @@ function isHelpFlag(arg: string | undefined): boolean {
 }
 
 // Repeatable launch input for a new TUI session; the host canonicalizes each directory.
-function parseWriteRootArgs(
+function parseRootArgs(
     args: readonly string[],
+    flag: "--write-root" | "--read-root",
 ): { readonly args: readonly string[]; readonly roots: readonly string[] } | undefined {
     const rest: string[] = [];
     const roots: string[] = [];
     for (let index = 0; index < args.length; index += 1) {
-        if (args[index] !== "--write-root") {
+        if (args[index] !== flag) {
             rest.push(args[index]!);
             continue;
         }

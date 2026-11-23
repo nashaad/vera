@@ -558,3 +558,41 @@ test("@core a create stores canonical write roots in the session header", async 
         createAdapter: () => new FauxAdapter([textResponse("done")]),
     });
 });
+
+test("@core a create stores canonical read roots in the session header and a branch keeps them", async () => {
+    await withChats(async ({ root, registry, path }) => {
+        const target = join(root, "reference");
+        await mkdir(target);
+        const link = join(root, "reference-link");
+        await symlink(target, link);
+        const rooted = await registry.create({
+            id: "rooted",
+            sessionPath: path("rooted"),
+            readRoots: [link],
+        });
+        expect(registry.agents.get("rooted")!.store.header.readRoots).toEqual([target]);
+        await runPrompt(rooted.attach(), "first");
+        expect((await SessionStore.open(path("rooted"))).header.readRoots).toEqual([target]);
+
+        const branched = await registry.branch({ sourceId: "rooted", id: "copy", sessionPath: path("copy"), position: "at" });
+        await runPrompt(branched!.agent.attach(), "in the copy");
+        expect((await SessionStore.open(path("copy"))).header.readRoots).toEqual([target]);
+
+        const plain = await registry.create({ id: "plain", sessionPath: path("plain") });
+        await runPrompt(plain.attach(), "first");
+        expect("readRoots" in (await SessionStore.open(path("plain"))).header).toBe(false);
+    }, {
+        createAdapter: () => new FauxAdapter([textResponse("done"), textResponse("done"), textResponse("done"), textResponse("done")]),
+    });
+});
+
+test("a create with an invalid read root is refused before a session exists", async () => {
+    await withChats(async ({ root, registry, path }) => {
+        await expect(registry.create({
+            id: "bad",
+            sessionPath: path("bad"),
+            readRoots: [join(root, "missing")],
+        })).rejects.toThrow("does not exist");
+        expect(registry.agents.has("bad")).toBe(false);
+    });
+});

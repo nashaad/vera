@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { parseHostRequest } from "../../src/host/protocol.ts";
-import { MAX_SESSION_WRITE_ROOTS } from "../../src/store/session-write-roots.ts";
+import { MAX_SESSION_ROOTS } from "../../src/store/session-roots.ts";
 
 test("@core a create request carries write roots as an additive field", () => {
     const request = parseHostRequest(JSON.stringify({
@@ -37,7 +37,7 @@ test("a create request refuses malformed write roots", () => {
         ["/mnt/with\0nul"],
         [42],
         Array.from(
-            { length: MAX_SESSION_WRITE_ROOTS + 1 },
+            { length: MAX_SESSION_ROOTS + 1 },
             (_, index) => `/mnt/root-${index}`,
         ),
     ]) {
