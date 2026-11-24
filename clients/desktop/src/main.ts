@@ -1,5 +1,5 @@
 import { listProvidersThroughHost, loginProviderThroughHost, saveProviderThroughHost, selectProviderModelThroughHost } from "../../../src/host/provider-sign-in-client.ts";
-import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell, webContents, type WebContents } from "electron";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { extname, isAbsolute, join } from "node:path";
@@ -64,6 +64,8 @@ import { ExtensionStateStore } from "./extensions/state.ts";
 import { ExtensionStore } from "./extensions/store.ts";
 import { existingFolders, folderListArgument } from "./folder-existence.ts";
 import { readFilePreview } from "./file-preview.ts";
+import { BrowserFind } from "./find/browser-find.ts";
+import { finishFocus, rememberFocus, type FocusFrame } from "./find/focus.ts";
 import { LOCAL_PREVIEW_SCHEME, LocalPreviewScopes } from "./local-preview.ts";
 import { listFolder, pathArgument } from "./folder-listing.ts";
 import { readBranch } from "./git-branch.ts";
@@ -138,6 +140,13 @@ let annexReadVersion = 0;
 let browserPane: BrowserPane | undefined;
 let browserGateway: BrowserGateway | undefined;
 let browserHandoff: BrowserHandoff | undefined;
+let browserFindActive = false;
+let browserFindContents: WebContents | undefined;
+let browserFindFrame: FocusFrame | undefined;
+let browserFindRemember: Promise<boolean> | undefined;
+let browserFindToken = 0;
+let browserFindQuery = "";
+const browserFind = new BrowserFind((count) => sendEvent({ type: "browser_find_count", query: browserFindQuery, ...count }));
 
 const relaunch = new DesktopRelaunch({
     shell: runningDesktopShell,
@@ -227,8 +236,62 @@ const extensionCommands = new ExtensionCommandService(
 );
 
 function sendEvent(event: DesktopEvent): void {
-    if (window === undefined || window.isDestroyed()) return;
+    if (window === undefined || window.isDestroyed() || window.webContents.isDestroyed()) return;
     window.webContents.send(CHANNELS.event, event);
+}
+
+function clearBrowserFindFocus(restore: boolean): void {
+    const contents = browserFindContents;
+    const frame = browserFindFrame;
+    const remembered = browserFindRemember;
+    const token = browserFindToken++;
+    browserFindContents = undefined;
+    browserFindFrame = undefined;
+    browserFindRemember = undefined;
+    if (frame === undefined && (!restore || contents === undefined)) return;
+    void (async () => {
+        await remembered;
+        const canRestore = restore && browserFindToken === token + 1
+            && window !== undefined && !window.isDestroyed() && window.isFocused()
+            && contents !== undefined && contents === browserPane?.visibleCurrent() && !contents.isDestroyed();
+        if (canRestore) contents.focus();
+        if (frame !== undefined) await finishFocus(frame, token, canRestore);
+    })();
+}
+
+function followBrowserFind(contents: WebContents | undefined): void {
+    if (!browserFindActive) return;
+    if (browserFindContents !== contents) {
+        clearBrowserFindFocus(false);
+        browserFindContents = contents;
+    }
+    browserFind.setTarget(contents);
+}
+
+function sendCommand(id: string, source?: WebContents): void {
+    if (id === "window.find") {
+        const focused = source ?? webContents.getFocusedWebContents();
+        const browser = focused !== null && focused !== undefined && focused === browserPane?.visibleCurrent() && !focused.isDestroyed();
+        if (browser && window !== undefined && !window.isDestroyed()) {
+            if (browserFindContents !== focused || browserFindFrame === undefined) {
+                clearBrowserFindFocus(false);
+                browserFindContents = focused;
+                const frame = focused.focusedFrame ?? focused.mainFrame;
+                const token = browserFindToken;
+                browserFindFrame = frame;
+                browserFindRemember = rememberFocus(frame, token);
+            }
+            if (window.isFocused() && !window.webContents.isDestroyed()) window.webContents.focus();
+        }
+        sendEvent({ type: "command", id, findTarget: browser ? "browser" : "main" });
+        return;
+    }
+    if (id === "go.search" && !hiddenCommands.has(id)
+        && (source ?? webContents.getFocusedWebContents()) === browserPane?.visibleCurrent()
+        && window !== undefined && !window.isDestroyed() && window.isFocused() && !window.webContents.isDestroyed()) {
+        window.webContents.focus();
+    }
+    sendEvent({ type: "command", id });
 }
 
 function receiveEvent(event: DesktopEvent): void {
@@ -268,7 +331,7 @@ function startBoot(): void {
 // Rebuilt when the page reports a theme or the imported themes change, so the View menu lists and checks them.
 function installMenu(): void {
     Menu.setApplicationMenu(Menu.buildFromTemplate(
-        buildMenuTemplate(process.platform, (id) => sendEvent({ type: "command", id }), activeTheme, themeService.themes(), hiddenCommands, extensionStore.menu("theme")),
+        buildMenuTemplate(process.platform, (id) => sendCommand(id), activeTheme, themeService.themes(), hiddenCommands, extensionStore.menu("theme")),
     ));
 }
 
@@ -304,6 +367,9 @@ function shutdown(): void {
     annexReadVersion += 1;
     annexUrl = undefined;
     browserPane?.setAnnexUrl(undefined);
+    browserFindActive = false;
+    browserFind.close();
+    clearBrowserFindFocus(false);
     browserPane?.dispose();
     browserPane = undefined;
     browserHandoff = undefined;
@@ -322,7 +388,7 @@ async function chooseFolder(parent: BrowserWindow): Promise<string | undefined> 
 }
 
 function fromWindow(event: { readonly sender: WebContents }): boolean {
-    return window !== undefined && event.sender === window.webContents;
+    return window !== undefined && !window.isDestroyed() && !window.webContents.isDestroyed() && event.sender === window.webContents;
 }
 
 function onAnnex(url: string): boolean {
@@ -384,16 +450,38 @@ function createWindow(): BrowserWindow {
         const command = shortcutCommand(input, process.platform);
         if (command === undefined) return;
         event.preventDefault();
-        sendEvent({ type: "command", id: command });
+        sendCommand(command, created.webContents);
     });
     created.on("close", () => { windowClosing = true; });
     created.on("closed", () => {
         shutdown();
-        if (window === created) window = undefined;
+        if (window === created) {
+            window = undefined;
+        }
     });
     void created.loadFile(join(import.meta.dirname, "renderer", "index.html"));
     return created;
 }
+
+ipcMain.on(CHANNELS.browserFindSearch, (event, query: unknown) => {
+    if (!fromWindow(event) || event.senderFrame !== event.sender.mainFrame || typeof query !== "string" || query.length > MAX_SEND_BYTES) return;
+    browserFindQuery = query;
+    if (!browserFindActive) {
+        browserFindActive = true;
+        followBrowserFind(browserPane?.current());
+    }
+    browserFind.search(query);
+});
+ipcMain.on(CHANNELS.browserFindMove, (event, forward: unknown) => {
+    if (fromWindow(event) && event.senderFrame === event.sender.mainFrame && typeof forward === "boolean" && browserFindActive) browserFind.move(forward);
+});
+ipcMain.on(CHANNELS.browserFindClose, (event, restoreFocus: unknown) => {
+    if (!fromWindow(event) || event.senderFrame !== event.sender.mainFrame || typeof restoreFocus !== "boolean") return;
+    browserFindActive = false;
+    browserFindQuery = "";
+    browserFind.close();
+    clearBrowserFindFocus(restoreFocus);
+});
 
 ipcMain.on(CHANNELS.windowClosing, (event) => {
     const closing = fromWindow(event) && windowClosing;
@@ -945,7 +1033,8 @@ app.whenReady().then(() => {
     watchDesktopPackages();
     browserPane = new BrowserPane(window,
         (url, title) => sendEvent({ type: "browser_loaded", url, title }),
-        (id) => sendEvent({ type: "command", id }),
+        (id, source) => sendCommand(id, source),
+        (contents) => followBrowserFind(contents),
     );
     browserHandoff = new BrowserHandoff(browserPane, () => sendEvent({ type: "command", id: BROWSER_STATE_CHANGED }));
     browserGateway = new BrowserGateway(

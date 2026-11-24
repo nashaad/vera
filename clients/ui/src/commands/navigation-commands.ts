@@ -1,5 +1,6 @@
-import type { PageKind, RouterAction } from "../pages/routes.ts";
-import { requestSettingsSearchFocus } from "../pages/settings/focusSearch.ts";
+import type { PageKind, Route, RouterAction } from "../pages/routes.ts";
+import { sessionSearchFocus, settingsSearchFocus } from "../pages/focusSearch.ts";
+import { FIND_CLOSE_COMMAND } from "./keys.ts";
 import type { CommandRegistry } from "./registry.ts";
 
 export const NAVIGATION_COMMANDS = {
@@ -26,6 +27,10 @@ const PAGES: ReadonlyArray<readonly [string, string, PageKind]> = [
     [NAVIGATION_COMMANDS.coverage, "Coverage", "coverage"],
 ];
 
+export function closeFindOnSearchEntry(registry: CommandRegistry, previous: Route["kind"], current: Route["kind"]): void {
+    if (previous !== "search" && current === "search") registry.execute(FIND_CLOSE_COMMAND);
+}
+
 export function registerNavigationCommands(
     registry: CommandRegistry,
     dispatch: (action: RouterAction) => void,
@@ -35,7 +40,11 @@ export function registerNavigationCommands(
             id,
             title,
             run: () => {
-                if (id === NAVIGATION_COMMANDS.settings) requestSettingsSearchFocus();
+                if (id === NAVIGATION_COMMANDS.settings) settingsSearchFocus.request();
+                if (id === NAVIGATION_COMMANDS.search) {
+                    registry.execute(FIND_CLOSE_COMMAND);
+                    sessionSearchFocus.request();
+                }
                 dispatch({ type: "navigate", route: { kind } });
             },
         })),

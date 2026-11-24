@@ -9,6 +9,7 @@ import { ChatSync } from "./chat/ChatSync.tsx";
 import { PageCommands } from "./commands/PageCommands.tsx";
 import { SessionWindowCommands } from "./commands/SessionWindowCommands.tsx";
 import { ExtensionSystemContext, useDesktopExtensions } from "./extensions/useDesktopExtensions.tsx";
+import { WindowFind } from "./find/WindowFind.tsx";
 import { HostBanner } from "./components/HostBanner.tsx";
 import { useLayout } from "./layout/useLayout.ts";
 import { PageLinksProvider } from "./pagepane/PageLinks.tsx";
@@ -101,6 +102,7 @@ export function App() {
                     <BrowserToolsStatus />
                     {firstRun ? <ProviderWizard onClose={() => setFirstRun(false)} /> : null}
                     <Overlays commands={commands} />
+                    <WindowFind commands={commands} />
                     <SessionWindowCommands commands={commands} />
                     <PageCommands commands={commands} />
                     <ChatCommands commands={commands} />

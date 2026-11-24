@@ -13,7 +13,7 @@ import { ModelsSection } from "./settings/ModelsSection.tsx";
 import { ProvidersSection } from "./settings/ProvidersSection.tsx";
 import { RowHighlightContext, useRowHighlight } from "./settings/RowHighlight.tsx";
 import { ShowSection } from "./settings/ShowSection.tsx";
-import { focusAndSelectSettingsSearch, subscribeSettingsSearchFocus, takeSettingsSearchFocus } from "./settings/focusSearch.ts";
+import { focusAndSelectSearch, settingsSearchFocus } from "./focusSearch.ts";
 import { subscribeRequestedSection, takeRequestedSection } from "./settings/requestedSection.ts";
 import { nextActiveIndex, searchSettings, type SettingsSearchHit } from "./settings/rows.ts";
 import { SETTINGS_SECTIONS } from "./settings/sections.ts";
@@ -46,21 +46,21 @@ export function SettingsPage() {
 
     useEffect(() => {
         const focus = (): void => {
-            if (!takeSettingsSearchFocus()) return;
+            if (!settingsSearchFocus.take()) return;
             focusSearch.current = true;
             if (narrow) setSearching(true);
             else {
                 focusSearch.current = false;
-                if (searchInput.current !== null) focusAndSelectSettingsSearch(searchInput.current);
+                if (searchInput.current !== null) focusAndSelectSearch(searchInput.current);
             }
         };
-        return subscribeSettingsSearchFocus(focus);
+        return settingsSearchFocus.subscribe(focus);
     }, [narrow]);
 
     useEffect(() => {
         if (!focusSearch.current || (narrow && !searching)) return;
         focusSearch.current = false;
-        if (searchInput.current !== null) focusAndSelectSettingsSearch(searchInput.current);
+        if (searchInput.current !== null) focusAndSelectSearch(searchInput.current);
     }, [narrow, searching]);
 
     // A section asked for by name, such as the one the Help chat shows.

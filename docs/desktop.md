@@ -91,9 +91,19 @@ window.
   session's title, folder (`Chat` for a chat) and age, and under it the lines
   that matched, with the words you typed marked. Everything searches all sessions; This conversation
   searches only the session last open. A menu limits the search to one folder and
-  lists no chats.
-  Picking a result opens the session. When the host stops at its first 20
-  sessions, a note under the results asks for more words.
+  lists no chats. When Search is shown, Cmd+Shift+F (Ctrl+Shift+F on Windows and
+  Linux) opens it and focuses and selects its current query, even when Search is
+  already open.
+  The shortcut also works from the Browser pane. Opening Search closes window
+  Find and clears its highlights.
+  Picking a result opens the session. For a content match, Find opens with the
+  query after the conversation loads and selects the match in that entry when
+  possible, or the first visible match in the conversation otherwise. Find still
+  counts and highlights matches across the main window. If only other parts of
+  the window match, the count can be nonzero without scrolling away from the
+  conversation. A title-only result does not open Find. Find does not search
+  unloaded history; its usual keys and Escape apply. When the host stops at its
+  first 20 sessions, a note under the results asks for more words.
 - Work lists sessions in three sections: Needs you, for sessions stopped at an
   approval or a question, Running, and Finished since you last looked, for
   sessions whose turn ended while the window was open and that you have not
@@ -256,9 +266,40 @@ the forward pages, as a browser does, and opening the current page adds nothing.
 
 Cmd+N opens New Chat, Cmd+[ goes back, Cmd+] goes forward and Cmd+, opens
 Settings and focuses its search. The Go menu holds New Chat, Back, Forward, Search, Work, Plugins,
-Devices, Settings, Tour and Coverage. Search, Work, Plugins, Devices, Tour and
-Coverage have no shortcut; the command palette reaches them. The menus leave out
+Devices, Settings, Tour and Coverage. Cmd+Shift+F opens Search. Work, Plugins,
+Devices, Tour and Coverage have no shortcut; the command palette reaches them. The menus leave out
 the entries of parts that are off. On other platforms the modifier is Ctrl.
+
+## Find text in the window
+
+Press Cmd+F on macOS or Ctrl+F on Windows and Linux, or choose Edit > Find.
+When invoked from a Browser page, Find searches only that page. When invoked
+elsewhere, it searches the main window, including the transcript, sidebar,
+right pane and file source text, even in off-screen turns. It searches mounted
+content in open shadow roots, including file source, diffs and trees. A virtualized
+viewer can leave lines or rows unmounted; Find does not find those until the
+viewer mounts them. It does not search unloaded conversation history, hidden
+content, input or textarea values, closed shadow roots or iframe contents,
+including file previews, annex pages and sandboxed extension frames. Browser page
+search uses Chromium's native handling of frames. Use the Search page to find
+sessions by their content or title.
+
+Type to highlight matches. The bar shows the current match and total, or `0/0`
+when there are none. Main-window search stops at 1,000 matches and shows
+`1000+` as the total when it reaches that limit. An open main-window search
+updates when displayed text changes. It keeps the current match when it can
+identify it, using bounded surrounding text when needed. Otherwise it selects
+the match closest to the previous position, or the first match if that position
+cannot be placed. With ambiguous identical matches, this can select a different
+occurrence.
+
+Enter, Down or the down-arrow button moves to the next match; Shift+Enter, Up or
+the up-arrow button moves to the previous one. Navigation wraps at either end.
+Press the Find shortcut again to select the query. While Find targets Browser,
+switching tabs searches the active page; navigating searches the new page, with
+the count cleared until it loads when necessary. Invoke Find again outside the
+Browser page to search the main window. Escape or the close button clears the
+search and highlights and returns focus to where it was.
 
 ## Command palette and sheets
 

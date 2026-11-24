@@ -57,7 +57,8 @@ export type DesktopEvent =
     | { readonly type: "disconnected"; readonly reason: string }
     | { readonly type: "failed"; readonly message: string }
     // A native menu item or shortcut asking the page to run one of its commands.
-    | { readonly type: "command"; readonly id: string }
+    | { readonly type: "command"; readonly id: string; readonly findTarget?: "main" | "browser" }
+    | { readonly type: "browser_find_count"; readonly query: string; readonly current: number; readonly total: number }
     | { readonly type: "browser_loaded"; readonly url: string; readonly title: string }
     | {
         readonly type: "missing_cli";
@@ -186,6 +187,7 @@ export type SessionSearchKind = "user_message" | "agent_message" | "tool_command
 export interface SessionSearchHit {
     readonly kind: SessionSearchKind;
     readonly snippet: string;
+    readonly entryId: string | null;
 }
 
 export interface SessionSearchMatch {
@@ -396,6 +398,9 @@ export interface DesktopBridge {
     // Opens an annex path in the system browser; false when there is no annex to open it on.
     openAnnexPage(path: string): Promise<boolean>;
     browser(command: string, value?: string | number | boolean | null | BrowserBounds | BrowserHandoffAnswer | BrowserToolsApproval): Promise<BrowserState>;
+    searchBrowserFind(query: string): void;
+    moveBrowserFind(forward: boolean): void;
+    closeBrowserFind(restoreFocus: boolean): void;
     // Opens a folder in the system file manager; false when it could not be opened.
     revealFolder(folder: string): Promise<boolean>;
     // Opens a file with the system default application; false when it could not be opened.

@@ -212,6 +212,9 @@ const bridge: DesktopBridge = {
     openAnnexPage: async (path: string) => (await ipcRenderer.invoke(CHANNELS.annexOpen, path)) === true,
     browser: async (command: string, value?: string | number | boolean | null | BrowserBounds | BrowserHandoffAnswer | BrowserToolsApproval) =>
         (await ipcRenderer.invoke(CHANNELS.browser, command, value)) as BrowserState,
+    searchBrowserFind: (query: string) => ipcRenderer.send(CHANNELS.browserFindSearch, query),
+    moveBrowserFind: (forward: boolean) => ipcRenderer.send(CHANNELS.browserFindMove, forward),
+    closeBrowserFind: (restoreFocus: boolean) => ipcRenderer.send(CHANNELS.browserFindClose, restoreFocus),
     revealFolder: async (folder: string) => (await ipcRenderer.invoke(CHANNELS.folderReveal, folder)) === true,
     openFile: async (path: string) => (await ipcRenderer.invoke(CHANNELS.fileOpen, path)) === true,
     onEvent: (listener: (event: DesktopEvent) => void) => {

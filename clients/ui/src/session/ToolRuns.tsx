@@ -41,7 +41,7 @@ function WithheldCall({ call }: { readonly call: ToolCall }) {
     const risk = denial === undefined ? "" : denial.riskLevel.charAt(0).toUpperCase() + denial.riskLevel.slice(1);
     const target = isShell(call) ? shellCommand(call) : askTarget(call.tool, call.args);
     return (
-        <div className="run withheld-call">
+        <div className="run withheld-call" data-find-entry={call.entryId}>
             <div className="call-line">
                 <span className="verb">Did not run</span>
                 <span className="arg">{call.tool}{target === "" ? "" : ` ${target}`}</span>
@@ -76,7 +76,7 @@ function CallRow({ call, paths }: { readonly call: ToolCall; readonly paths: rea
     const running = call.state === "running";
     const expandable = !running && hasOutput(call);
     return (
-        <div className="call-row" data-failed={call.state === "failed"}>
+        <div className="call-row" data-failed={call.state === "failed"} data-find-entry={call.entryId}>
             <button type="button" className="call-line" disabled={!expandable} aria-expanded={expandable ? open : undefined} onClick={() => setOpen(!open)}>
                 <span className="verb">{rowVerb(call)}</span>
                 <span className="arg">{callTarget(call, paths)}</span>
@@ -94,7 +94,7 @@ function ShellRow({ call }: { readonly call: ToolCall }) {
     const running = call.state === "running";
     const shown = open && !running;
     return (
-        <div className="call-row" data-failed={call.state === "failed"}>
+        <div className="call-row" data-failed={call.state === "failed"} data-find-entry={call.entryId}>
             <button type="button" className="call-line" disabled={running} aria-expanded={running ? undefined : shown} onClick={() => setOpen(!open)}>
                 <span className="verb">{rowVerb(call)}</span>
                 {shown ? null : <span className="arg cmd">{callTarget(call)}</span>}

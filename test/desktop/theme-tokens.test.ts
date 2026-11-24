@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { themeViolations } from "../../clients/ui/src/lint/theme-lint.ts";
+import { isFixedFindHighlightColor, themeViolations } from "../../clients/ui/src/lint/theme-lint.ts";
 import { themeFile } from "../../clients/ui/src/theme/apply.ts";
 import { TREE_STYLE } from "../../clients/ui/src/session/tree-style.ts";
 import {
@@ -41,6 +41,20 @@ function treeStyleIsLayoutOnly(css: string): boolean {
 test("@core desktop components use theme tokens only", () => {
     const violations = themeViolations(root);
     expect(violations).toEqual([]);
+});
+
+test("@core fixed find highlight colors are narrowly scoped", () => {
+    const file = "clients/ui/src/styles/window-find.css";
+    const css = "::highlight(vera-find-matches) { background-color: #ffff55; color: #000000; }";
+    expect(isFixedFindHighlightColor(file, css, css.indexOf("#ffff55"))).toBe(true);
+    expect(isFixedFindHighlightColor(file, css, css.indexOf("#000000"))).toBe(true);
+    expect(isFixedFindHighlightColor("other.css", css, css.indexOf("#ffff55"))).toBe(false);
+    const otherColor = css.replace("#ffff55", "#ffffff");
+    expect(isFixedFindHighlightColor(file, otherColor, otherColor.indexOf("#ffffff"))).toBe(false);
+    const otherSelector = css.replace("::highlight(vera-find-matches)", ".window-find");
+    expect(isFixedFindHighlightColor(file, otherSelector, otherSelector.indexOf("#ffff55"))).toBe(false);
+    const otherProperty = css.replace("background-color", "border-color");
+    expect(isFixedFindHighlightColor(file, otherProperty, otherProperty.indexOf("#ffff55"))).toBe(false);
 });
 
 test("@core diff styles name only known theme tokens", () => {

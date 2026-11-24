@@ -35,7 +35,10 @@ test("@core a search reply maps session_id to agentId and keeps the host order",
                 title: "Plan",
                 workspace: "/p/crow",
                 updated_at: "2026-11-01T10:00:00Z",
-                hits: [{ kind: "user_message", snippet: "the plan" }],
+                hits: [
+                    { kind: "user_message", snippet: "the plan", entry_id: "entry-1" },
+                    { kind: "tool_command", snippet: "a command", entry_id: null },
+                ],
             },
             { session_id: "s2", title: "Other", workspace: "/p/parrot", updated_at: "not a time", hits: [] },
         ],
@@ -44,7 +47,10 @@ test("@core a search reply maps session_id to agentId and keeps the host order",
     if (parsed?.ok !== true) return;
     expect(parsed.truncated).toBe(true);
     expect(parsed.matches.map((match) => match.agentId)).toEqual(["s1", "s2"]);
-    expect(parsed.matches[0]?.hits).toEqual([{ kind: "user_message", snippet: "the plan" }]);
+    expect(parsed.matches[0]?.hits).toEqual([
+        { kind: "user_message", snippet: "the plan", entryId: "entry-1" },
+        { kind: "tool_command", snippet: "a command", entryId: null },
+    ]);
     expect(Number.isNaN(parsed.matches[1]?.updatedAt)).toBe(true);
 });
 
@@ -56,9 +62,19 @@ test("@core a search reply with an unknown hit kind is refused", () => {
             title: "Plan",
             workspace: "/p",
             updated_at: "2026-11-01T10:00:00Z",
-            hits: [{ kind: "system_prompt", snippet: "x" }],
+            hits: [{ kind: "system_prompt", snippet: "x", entry_id: null }],
         }],
     })).toBeUndefined();
+});
+
+test("@core a search reply requires a string or null entry_id on each hit", () => {
+    const reply = (hit: unknown) => ({
+        truncated: false,
+        results: [{ session_id: "s1", title: "Plan", workspace: "/p", updated_at: "2026-11-01T10:00:00Z", hits: [hit] }],
+    });
+    expect(parseResults(reply({ kind: "user_message", snippet: "x" }))).toBeUndefined();
+    expect(parseResults(reply({ kind: "user_message", snippet: "x", entry_id: 42 }))).toBeUndefined();
+    expect(parseResults(reply({ kind: "user_message", snippet: "x", entry_id: {} }))).toBeUndefined();
 });
 
 test("@core a search reply with more than 20 results is refused", () => {
@@ -98,7 +114,7 @@ test("title matches honour the scope and skip rows without the query", () => {
 
 test("host matches come first and a session already matched is not repeated", () => {
     const host: SessionSearchMatch[] = [
-        { agentId: "b", title: "Host title", workspace: "/p/parrot", updatedAt: 1000, hits: [{ kind: "agent_message", snippet: "x" }] },
+        { agentId: "b", title: "Host title", workspace: "/p/parrot", updatedAt: 1000, hits: [{ kind: "agent_message", snippet: "x", entryId: null }] },
         { agentId: "a", title: "Also host", workspace: "/p/crow", updatedAt: Number.NaN, hits: [] },
     ];
     const merged = mergeMatches(host, [row("a", "Fix the Build", "/p/crow", { updatedAt: 5 }), row("c", "Build", "/p/crow", { updatedAt: 7 })]);

@@ -6,7 +6,7 @@ import type { DesktopMenuItem } from "../../clients/ui/src/protocol/extensions.t
 import { THEME_LABELS } from "../../clients/ui/src/theme/registry.ts";
 import { THEME_NAMES, importedThemeId, type ThemeChoice } from "../../clients/ui/src/theme/tokens.ts";
 import { GO_SHORTCUTS, LAYOUT_SHORTCUTS, shortcutCommand, type ShortcutInput } from "../../clients/desktop/src/shortcuts.ts";
-import { acceleratorKeys, shortcutGroups } from "../../clients/ui/src/commands/keys.ts";
+import { NATIVE_SHORTCUTS, acceleratorKeys, shortcutGroups } from "../../clients/ui/src/commands/keys.ts";
 
 function key(code: string, overrides: Partial<ShortcutInput> = {}): ShortcutInput {
     return {
@@ -44,6 +44,71 @@ test("@core reload shortcuts dispatch only the page command", () => {
     expect(reload?.accelerator).toBe("CmdOrCtrl+R");
     (reload?.click as () => void)();
     expect(commands).toEqual(["page.reload"]);
+});
+
+test("find shortcut uses only the platform modifier", () => {
+    for (const platform of ["darwin", "linux", "win32"]) {
+        const modifier = platform === "darwin" ? { meta: true } : { control: true };
+        const other = platform === "darwin" ? { control: true } : { meta: true };
+        expect(shortcutCommand(key("KeyF", modifier), platform)).toBe("window.find");
+        expect(shortcutCommand(key("KeyF", other), platform)).toBeUndefined();
+        expect(shortcutCommand(key("KeyF", { ...modifier, ...other }), platform)).toBeUndefined();
+        expect(shortcutCommand(key("KeyF", { ...modifier, alt: true }), platform)).toBeUndefined();
+        expect(shortcutCommand(key("KeyF", { ...modifier, shift: true }), platform)).toBe("go.search");
+        expect(shortcutCommand(key("KeyF", { ...modifier, isAutoRepeat: true }), platform)).toBeUndefined();
+        expect(shortcutCommand(key("KeyF", { ...modifier, type: "keyUp" }), platform)).toBeUndefined();
+    }
+});
+
+test("@core Search uses the shifted platform shortcut on every desktop platform", () => {
+    expect(NATIVE_SHORTCUTS.filter((shortcut) => shortcut.code === "KeyF" && !shortcut.alt && shortcut.shift)
+        .map((shortcut) => shortcut.command)).toEqual(["go.search"]);
+    for (const platform of ["darwin", "linux", "win32"]) {
+        const modifier = platform === "darwin" ? { meta: true } : { control: true };
+        const other = platform === "darwin" ? { control: true } : { meta: true };
+        expect(shortcutCommand(key("KeyF", modifier), platform)).toBe("window.find");
+        expect(shortcutCommand(key("KeyF", { ...modifier, shift: true }), platform)).toBe("go.search");
+        expect(shortcutCommand(key("KeyF", { ...other, shift: true }), platform)).toBeUndefined();
+        expect(shortcutCommand(key("KeyF", { ...modifier, ...other, shift: true }), platform)).toBeUndefined();
+        expect(shortcutCommand(key("KeyF", { ...modifier, shift: true, alt: true }), platform)).toBeUndefined();
+        expect(shortcutCommand(key("KeyF", { ...modifier, shift: true, isAutoRepeat: true }), platform)).toBeUndefined();
+        expect(shortcutCommand(key("KeyF", { ...modifier, shift: true, type: "keyUp" }), platform)).toBeUndefined();
+    }
+});
+
+test("Search appears in Go shortcut groups", () => {
+    for (const [platform, chord] of [["darwin", ["⇧", "⌘", "F"]], ["linux", ["Ctrl", "Shift", "F"]], ["win32", ["Ctrl", "Shift", "F"]]] as const) {
+        const go = shortcutGroups(platform).find((group) => group.title === "Go");
+        expect(go?.rows.filter((row) => row.label === "Search")).toEqual([{ label: "Search", chords: [chord] }]);
+    }
+});
+
+test("find shortcut appears in window shortcut groups", () => {
+    for (const [platform, chord] of [["darwin", ["⌘", "F"]], ["linux", ["Ctrl", "F"]], ["win32", ["Ctrl", "F"]]] as const) {
+        const window = shortcutGroups(platform).find((group) => group.title === "Window");
+        expect(window?.rows.filter((row) => row.label === "Find")).toEqual([{ label: "Find", chords: [chord] }]);
+    }
+});
+
+test("find Edit menu dispatch preserves native editing roles", () => {
+    for (const platform of ["darwin", "linux", "win32"]) {
+        const commands: string[] = [];
+        const edit = buildMenuTemplate(platform, (id) => commands.push(id)).find((entry) => entry.label === "Edit");
+        if (!Array.isArray(edit?.submenu)) throw new Error("There is no Edit menu.");
+        expect(edit.submenu.flatMap((entry) => entry.role ? [entry.role] : [])).toEqual(platform === "darwin"
+            ? ["undo", "redo", "cut", "copy", "paste", "pasteAndMatchStyle", "delete", "selectAll"]
+            : ["undo", "redo", "cut", "copy", "paste", "delete", "selectAll"]);
+        if (platform === "darwin") {
+            const substitutions = edit.submenu.find((entry) => entry.label === "Substitutions");
+            const speech = edit.submenu.find((entry) => entry.label === "Speech");
+            expect(Array.isArray(substitutions?.submenu) && substitutions.submenu.map((entry) => entry.role).filter(Boolean)).toEqual(["showSubstitutions", "toggleSmartQuotes", "toggleSmartDashes", "toggleTextReplacement"]);
+            expect(Array.isArray(speech?.submenu) && speech.submenu.map((entry) => entry.role)).toEqual(["startSpeaking", "stopSpeaking"]);
+        }
+        const find = edit.submenu.find((entry) => entry.id === "window.find");
+        expect(find?.accelerator).toBe("CmdOrCtrl+F");
+        (find?.click as () => void)();
+        expect(commands).toEqual(["window.find"]);
+    }
 });
 
 test("history opens on the platform modifier, Shift and Delete", () => {

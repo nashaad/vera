@@ -7,7 +7,7 @@ import { CHAT_COMMANDS } from "../../ui/src/commands/chat-commands.ts";
 import { RELOAD_SHORTCUT, type NativeShortcut } from "../../ui/src/commands/keys.ts";
 import { NAVIGATION_COMMANDS } from "../../ui/src/commands/navigation-commands.ts";
 import { OVERLAY_COMMANDS } from "../../ui/src/commands/overlay-ids.ts";
-import { GO_SHORTCUTS, HELP_SHORTCUTS, LAYOUT_SHORTCUTS } from "./shortcuts.ts";
+import { FIND_SHORTCUT, GO_SHORTCUTS, HELP_SHORTCUTS, LAYOUT_SHORTCUTS } from "./shortcuts.ts";
 import { THEME_LABELS } from "../../ui/src/theme/registry.ts";
 
 export interface ImportedMenuTheme {
@@ -27,7 +27,7 @@ function withoutHidden(items: readonly MenuItemConstructorOptions[], hidden: Rea
     return kept;
 }
 
-// Menu items only ask the page to run a command; the page owns the layout and the theme.
+// Menu items ask the page to run a command, except Find, which the shell handles; the page owns layout and theme.
 // `hidden` names the commands the window has taken out of its menus.
 export function buildMenuTemplate(
     platform: string,
@@ -48,7 +48,7 @@ export function buildMenuTemplate(
     const sheet = (overlay: keyof typeof OVERLAY_COMMANDS, ellipsis = true): MenuItemConstructorOptions =>
         plain(OVERLAY_COMMANDS[overlay].id, `${OVERLAY_COMMANDS[overlay].title}${ellipsis ? "…" : ""}`);
     const layoutItems = LAYOUT_SHORTCUTS.map(item);
-    const [newChat, back, forward, settings] = GO_SHORTCUTS.map(item);
+    const [newChat, back, forward, search, settings] = GO_SHORTCUTS.map(item);
     const go: MenuItemConstructorOptions = {
         label: "Go",
         submenu: withoutHidden([
@@ -57,7 +57,7 @@ export function buildMenuTemplate(
             back,
             forward,
             { type: "separator" },
-            plain(NAVIGATION_COMMANDS.search, "Search"),
+            search,
             plain(NAVIGATION_COMMANDS.work, "Work"),
             plain(NAVIGATION_COMMANDS.customize, "Plugins"),
             plain(NAVIGATION_COMMANDS.devices, "Devices"),
@@ -114,11 +114,39 @@ export function buildMenuTemplate(
             { role: "togglefullscreen" },
         ], hidden),
     };
+    const macEditItems: MenuItemConstructorOptions[] = [
+        { type: "separator" },
+        { label: "Substitutions", submenu: [
+            { role: "showSubstitutions" },
+            { type: "separator" },
+            { role: "toggleSmartQuotes" },
+            { role: "toggleSmartDashes" },
+            { role: "toggleTextReplacement" },
+        ] },
+        { label: "Speech", submenu: [{ role: "startSpeaking" }, { role: "stopSpeaking" }] },
+    ];
     return [
         platform === "darwin"
             ? { role: "appMenu" }
             : { label: "File", submenu: [{ role: "quit" }] },
-        { role: "editMenu" },
+        {
+            label: "Edit",
+            submenu: withoutHidden([
+                { role: "undo" },
+                { role: "redo" },
+                { type: "separator" },
+                { role: "cut" },
+                { role: "copy" },
+                { role: "paste" },
+                ...(platform === "darwin" ? [{ role: "pasteAndMatchStyle" } as const] : []),
+                { role: "delete" },
+                ...(platform === "darwin" ? [] : [{ type: "separator" } as const]),
+                { role: "selectAll" },
+                ...(platform === "darwin" ? macEditItems : []),
+                { type: "separator" },
+                item(FIND_SHORTCUT),
+            ], hidden),
+        },
         view,
         go,
         { role: "windowMenu" },

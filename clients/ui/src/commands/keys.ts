@@ -48,6 +48,7 @@ export const GO_SHORTCUTS = [
     { command: "go.newChat", label: "New Chat", accelerator: "CmdOrCtrl+N", code: "KeyN", alt: false, shift: false },
     { command: "go.back", label: "Back", accelerator: "CmdOrCtrl+[", code: "BracketLeft", alt: false, shift: false },
     { command: "go.forward", label: "Forward", accelerator: "CmdOrCtrl+]", code: "BracketRight", alt: false, shift: false },
+    { command: "go.search", label: "Search", accelerator: "CmdOrCtrl+Shift+F", code: "KeyF", alt: false, shift: true },
     { command: "go.settings", label: "Settings", accelerator: "CmdOrCtrl+,", code: "Comma", alt: false, shift: false },
 ] as const satisfies readonly NativeShortcut[];
 
@@ -56,6 +57,9 @@ export const HELP_SHORTCUTS = [
     { command: "palette.sessions", label: "Go to Session…", accelerator: "CmdOrCtrl+P", code: "KeyP", alt: false, shift: false },
     { command: "help.shortcuts", label: "Keyboard Shortcuts", accelerator: "CmdOrCtrl+/", code: "Slash", alt: false, shift: false },
 ] as const satisfies readonly NativeShortcut[];
+
+export const FIND_SHORTCUT = { command: "window.find", label: "Find", accelerator: "CmdOrCtrl+F", code: "KeyF", alt: false, shift: false } as const satisfies NativeShortcut;
+export const FIND_CLOSE_COMMAND = "window.find.close";
 
 export const RELOAD_SHORTCUT = { command: "page.reload", label: "Reload Page", accelerator: "CmdOrCtrl+R", code: "KeyR", alt: false, shift: false } as const satisfies NativeShortcut;
 
@@ -68,6 +72,7 @@ export const EXTRA_SHORTCUTS = [
 
 export const NATIVE_SHORTCUTS: readonly NativeShortcut[] = [
     ...LAYOUT_SHORTCUTS,
+    FIND_SHORTCUT,
     RELOAD_SHORTCUT,
     ...PANE_SHORTCUTS,
     ...GO_SHORTCUTS,
@@ -160,7 +165,7 @@ export function shortcutGroups(platform: string): readonly ShortcutGroup[] {
         pageRows.set(key.where, rows);
     }
     return [
-        { title: "Window", rows: nativeRows([...LAYOUT_SHORTCUTS, RELOAD_SHORTCUT, ...PANE_SHORTCUTS], platform) },
+        { title: "Window", rows: nativeRows([...LAYOUT_SHORTCUTS, FIND_SHORTCUT, RELOAD_SHORTCUT, ...PANE_SHORTCUTS], platform) },
         { title: "Go", rows: nativeRows(GO_SHORTCUTS, platform) },
         { title: "Help", rows: nativeRows(HELP_SHORTCUTS, platform) },
         ...[...pageRows].map(([title, rows]) => ({ title, rows })),

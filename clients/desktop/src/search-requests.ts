@@ -81,9 +81,10 @@ function parseMatch(value: unknown): SessionSearchMatch | undefined {
     const parsedHits: SessionSearchHit[] = [];
     for (const hit of hits) {
         if (!isFields(hit) || typeof hit.snippet !== "string") return undefined;
+        if (hit.entry_id !== null && typeof hit.entry_id !== "string") return undefined;
         const kind = HIT_KINDS.find((candidate) => candidate === hit.kind);
         if (kind === undefined) return undefined;
-        parsedHits.push({ kind, snippet: hit.snippet });
+        parsedHits.push({ kind, snippet: hit.snippet, entryId: hit.entry_id });
     }
     return { agentId: id, title, workspace, updatedAt: Date.parse(updated), hits: parsedHits };
 }

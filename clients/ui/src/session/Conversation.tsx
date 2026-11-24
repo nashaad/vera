@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, type KeyboardEvent, type ReactNode } from "react";
 
+import { FIND_SHORTCUT } from "../commands/keys.ts";
 import { showTarget } from "../commands/show-target.ts";
 import { Composer } from "../composer/Composer.tsx";
+import { searchResultFindReady } from "../find/search-result.ts";
 import { useNoticePage } from "../pagepane/useNoticePage.ts";
 import type { DesktopBridge, SessionPane } from "../protocol/bridge.ts";
 import { useViewEnvironment } from "../views/env.tsx";
@@ -76,6 +78,11 @@ export function Conversation({ bridge, agentId, pane, title: fallbackTitle, work
     const liveTurn = running && blocks.length > 0;
     const title = watch.title ?? row?.name ?? fallbackTitle;
     const slowOpening = useSlowOpening(watch);
+
+    useLayoutEffect(() => {
+        const ready = searchResultFindReady(agentId, pane, watch, scroller.preservePosition);
+        if (ready !== undefined) run(FIND_SHORTCUT.command, ready);
+    }, [agentId, pane, run, scroller.preservePosition, watch.agentId, watch.loaded]);
 
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
         if (event.defaultPrevented || event.key !== "Escape" || event.ctrlKey || event.metaKey

@@ -141,7 +141,7 @@ export function useLayout(unavailable: ReadonlySet<string>, extraKinds: readonly
     useEffect(() => window.veraDesktop?.onEvent((event) => {
         if (event.type !== "command") return;
         if (event.id === "page.reload.native") commands.execute("page.reload", "native");
-        else if (!commands.isHidden(event.id)) commands.execute(event.id);
+        else if (!commands.isHidden(event.id)) commands.execute(event.id, event.findTarget);
     }), [commands]);
 
     const run = useCallback((command: string, args?: unknown): void => {
