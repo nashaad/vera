@@ -58,6 +58,7 @@ export interface ToolNoticePresentation {
 export type Presentation = DiffPresentation | ChecklistPresentation | ToolNoticePresentation;
 
 export interface ToolCall {
+    readonly entryId?: string;
     readonly tool: string;
     // One line naming the call, such as `Read config.ts` or `bash git status`.
     readonly title: string;
@@ -74,6 +75,7 @@ export interface ToolCall {
 export interface UserBlock {
     readonly kind: "user";
     readonly key: string;
+    readonly entryId?: string;
     readonly text: string;
     readonly at?: number;
 }
@@ -81,6 +83,7 @@ export interface UserBlock {
 export interface ThoughtBlock {
     readonly kind: "thought";
     readonly key: string;
+    readonly entryId?: string;
     readonly text: string;
     // True while this thought is still streaming.
     readonly live: boolean;
@@ -92,6 +95,7 @@ export interface ThoughtBlock {
 export interface TextBlock {
     readonly kind: "text";
     readonly key: string;
+    readonly entryId?: string;
     readonly text: string;
     readonly at?: number;
 }

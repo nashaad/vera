@@ -151,6 +151,12 @@ test("@core the restarting banner ends when the new host is ready or the restart
     expect(bannerFor(outdated)).toMatchObject({ kind: "outdated" });
 });
 
+test("@core a Browser find result leaves connection state unchanged", () => {
+    const state = run(event(READY));
+    const result = event({ type: "browser_find_count", query: "crow", current: 1, total: 2 });
+    expect(reduceConnection(state, result)).toBe(state);
+});
+
 test("a restart notice with no host attached changes nothing", () => {
     expect(run({ type: "restarting", buildId: "build-2" })).toEqual(INITIAL_STATE);
 });

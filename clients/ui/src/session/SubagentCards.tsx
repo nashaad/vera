@@ -86,6 +86,7 @@ function SubagentCard({ call, child, parentId }: {
         <button
             type="button"
             className="subagent-card"
+            data-find-entry={call.entryId}
             data-running={running}
             data-failed={failed}
             title={title}

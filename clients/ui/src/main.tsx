@@ -37,6 +37,7 @@ import "./styles/workspace.css";
 import "./styles/devices.css";
 import "./styles/overlays.css";
 import "./styles/palette.css";
+import "./styles/window-find.css";
 import "./styles/customize.css";
 import "./styles/plugins.css";
 import "./styles/settings-more.css";

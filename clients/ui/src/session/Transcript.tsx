@@ -121,9 +121,9 @@ const TurnView = memo(function TurnView({ turn, sessionId, rollups, runs, folder
     return (
         <div className="turn">
             {turn.user === undefined ? null : first ? (
-                <div className="user-turn">{turn.user.text}</div>
+                <div className="user-turn" data-find-entry={turn.user.entryId}>{turn.user.text}</div>
             ) : (
-                <div className="user-bubble-row"><div className="user-bubble">{turn.user.text}</div></div>
+                <div className="user-bubble-row"><div className="user-bubble" data-find-entry={turn.user.entryId}>{turn.user.text}</div></div>
             )}
             {turn.work.length > 0 && !live ? (
                 <button type="button" className="working-head" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -144,7 +144,7 @@ const TurnView = memo(function TurnView({ turn, sessionId, rollups, runs, folder
                     </Fragment>
                 );
             }) : null}
-            {turn.answer === undefined ? null : <Markdown text={turn.answer.text} fade={live} />}
+            {turn.answer === undefined ? null : <Markdown text={turn.answer.text} entryId={turn.answer.entryId} fade={live} />}
             {checklist === undefined ? null : <TaskCard checklist={checklist} />}
             {live ? (
                 <LiveStatus
@@ -165,11 +165,11 @@ const TurnView = memo(function TurnView({ turn, sessionId, rollups, runs, folder
 const BlockView = memo(function BlockView({ block, next }: { readonly block: Block; readonly next?: Block }) {
     switch (block.kind) {
         case "user":
-            return <div className="user-bubble-row"><div className="user-bubble">{block.text}</div></div>;
+            return <div className="user-bubble-row"><div className="user-bubble" data-find-entry={block.entryId}>{block.text}</div></div>;
         case "thought":
             return <Thought block={block} next={next} />;
         case "text":
-            return <Markdown text={block.text} />;
+            return <Markdown text={block.text} entryId={block.entryId} />;
         case "tools":
             return null;
         case "notice":
@@ -188,7 +188,7 @@ function Thought({ block, next }: { readonly block: ThoughtBlock; readonly next?
     if (block.live) {
         const lines = block.text.trim().split("\n");
         return (
-            <div className="thinking-live">
+            <div className="thinking-live" data-find-entry={block.entryId}>
                 <span className="dots">···</span>
                 <span className="line">{lines[lines.length - 1] ?? ""}</span>
             </div>
@@ -203,7 +203,7 @@ function Thought({ block, next }: { readonly block: ThoughtBlock; readonly next?
                 Thought{seconds === undefined ? null : <span className="dur">{formatSeconds(seconds)}</span>}
                 <ChevronRightIcon className="chev" />
             </button>
-            {open ? <div className="thought-body">{block.text}</div> : null}
+            {open ? <div className="thought-body" data-find-entry={block.entryId}>{block.text}</div> : null}
         </>
     );
 }

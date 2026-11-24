@@ -22,7 +22,8 @@ export class BrowserPane {
     constructor(
         private readonly window: BrowserWindow,
         private readonly loaded: (url: string, title: string) => void = () => {},
-        private readonly shortcut: (command: "page.reload.native" | typeof BROWSER_HISTORY_COMMAND) => void = () => {},
+        private readonly shortcut: (command: "page.reload.native" | typeof BROWSER_HISTORY_COMMAND | "window.find" | "go.search", source: Electron.WebContents) => void = () => {},
+        private readonly targetChanged: (contents: Electron.WebContents | undefined) => void = () => {},
     ) {}
 
     private session(): Electron.Session {
@@ -74,10 +75,10 @@ export class BrowserPane {
         this.tabs.set(id, view);
         view.webContents.on("before-input-event", (event, input) => {
             const command = shortcutCommand(input, process.platform);
-            if (command !== "page.reload" && command !== BROWSER_HISTORY_COMMAND) return;
+            if (command !== "page.reload" && command !== BROWSER_HISTORY_COMMAND && command !== "window.find" && command !== "go.search") return;
             event.preventDefault();
             if (this.active === id && this.bounds !== undefined && this.bounds.width > 0 && this.bounds.height > 0) {
-                this.shortcut(command === "page.reload" ? "page.reload.native" : command);
+                this.shortcut(command === "page.reload" ? "page.reload.native" : command, view.webContents);
             }
         });
         const record = (): void => {
@@ -95,6 +96,7 @@ export class BrowserPane {
             }
             this.tabs.delete(id);
             if (wasActive && this.tabs.size > 0) this.select(this.tabs.keys().next().value ?? null);
+            else if (wasActive) this.targetChanged(undefined);
         });
         view.webContents.setWindowOpenHandler(({ url: target }) => {
             if (this.tabs.size >= BROWSER_TAB_LIMIT || (target !== "about:blank" && !isWebUrl(target))) return { action: "deny" };
@@ -130,6 +132,7 @@ export class BrowserPane {
             this.window.contentView.addChildView(view);
             this.layout(this.bounds);
         }
+        this.targetChanged(view?.webContents);
     }
 
     close(id: number): void {
@@ -152,6 +155,10 @@ export class BrowserPane {
 
     current(): Electron.WebContents | undefined {
         return this.active === null ? undefined : this.tabs.get(this.active)?.webContents;
+    }
+
+    visibleCurrent(): Electron.WebContents | undefined {
+        return this.bounds !== undefined && this.bounds.width > 0 && this.bounds.height > 0 ? this.current() : undefined;
     }
 
     async navigate(value: string): Promise<void> {

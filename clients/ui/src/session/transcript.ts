@@ -35,18 +35,18 @@ function timed(entry: WireEntry): { at?: number } {
 function addEntry(blocks: Block[], entry: WireEntry, key: string, paired: { last?: Paired }): void {
     switch (entry.kind) {
         case "user":
-            blocks.push({ kind: "user", key, text: entry.text, ...timed(entry) });
+            blocks.push({ kind: "user", key, text: entry.text, ...(entry.id === undefined ? {} : { entryId: entry.id }), ...timed(entry) });
             return;
         case "assistant":
-            if (entry.text.trim().length > 0) blocks.push({ kind: "text", key, text: entry.text, ...timed(entry) });
+            if (entry.text.trim().length > 0) blocks.push({ kind: "text", key, text: entry.text, ...(entry.id === undefined ? {} : { entryId: entry.id }), ...timed(entry) });
             return;
         case "reasoning":
             if (entry.text.trim().length > 0) {
-                blocks.push({ kind: "thought", key, text: entry.text, live: false, ...timed(entry) });
+                blocks.push({ kind: "thought", key, text: entry.text, live: false, ...(entry.id === undefined ? {} : { entryId: entry.id }), ...timed(entry) });
             }
             return;
         case "tool":
-            joinOrStartGroup(blocks, key, toolCall(entry.tool, entry.args), timed(entry));
+            joinOrStartGroup(blocks, key, { ...toolCall(entry.tool, entry.args), ...(entry.id === undefined ? {} : { entryId: entry.id }) }, timed(entry));
             return;
         case "tool_result":
             paired.last = pairResult(blocks, entry);

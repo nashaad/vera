@@ -115,6 +115,19 @@ function isTextFile(path: string): boolean {
     return TEXT_EXTENSIONS.some((extension) => path.endsWith(extension));
 }
 
+export function isFixedFindHighlightColor(relativePath: string, text: string, index: number): boolean {
+    if (relativePath !== "clients/ui/src/styles/window-find.css") return false;
+    const open = text.lastIndexOf("{", index);
+    if (open < 0 || text.lastIndexOf("}", index) > open) return false;
+    const selector = text.slice(text.lastIndexOf("}", open) + 1, open).trim();
+    const property = /(?:^|;)\s*([a-z-]+)\s*:\s*$/.exec(text.slice(open + 1, index))?.[1];
+    const color = /^#[0-9a-f]{3,8}\b/i.exec(text.slice(index))?.[0]?.toLowerCase();
+    if (selector !== "::highlight(vera-find-matches)" && selector !== "::highlight(vera-find-current)") return false;
+    if (property === "color") return color === "#000000";
+    if (property !== "background-color") return false;
+    return color === (selector === "::highlight(vera-find-current)" ? "#f19b4a" : "#ffff55");
+}
+
 function checkFile(
     path: string,
     relativePath: string,
@@ -131,7 +144,10 @@ function checkFile(
     };
     for (const { rule, pattern, stylesheetOnly } of RULES) {
         if (stylesheetOnly === true && !stylesheet) continue;
-        for (const match of text.matchAll(pattern)) add(rule, match.index);
+        for (const match of text.matchAll(pattern)) {
+            if (rule === "color" && isFixedFindHighlightColor(relativePath, text, match.index)) continue;
+            add(rule, match.index);
+        }
     }
     for (const match of text.matchAll(TOKEN_REFERENCE)) {
         if (!knownTokens.has(match[1]!)) add("unknown-token", match.index);

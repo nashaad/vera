@@ -116,6 +116,7 @@ function reduceEvent(state: UiState, event: DesktopEvent): UiState {
         case "session_frame":
         case "session_closed":
         case "command":
+        case "browser_find_count":
         case "browser_loaded":
         case "reopen_session":
         case "update_state":

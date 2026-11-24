@@ -1,10 +1,14 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 
+import { FIND_CLOSE_COMMAND, FIND_SHORTCUT } from "../commands/keys.ts";
 import { ChevronRightIcon, SearchIcon } from "../components/Icons.tsx";
+import { searchResultFindRequest } from "../find/search-result.ts";
 import type { SessionSearchResult } from "../protocol/bridge.ts";
 import { rowFolderName, rowFolderPath } from "../protocol/sessionGroups.ts";
 import { relativeTime } from "../protocol/sessions.ts";
 import { useViewEnvironment } from "../views/env.tsx";
+import { useWorkbench } from "../workbench/context.tsx";
+import { focusAndSelectSearch, sessionSearchFocus } from "./focusSearch.ts";
 import { EmptyState, Page } from "./Page.tsx";
 import { useRouter } from "./router.tsx";
 import {
@@ -30,6 +34,7 @@ interface HostAnswer extends SearchKey {
 export function SearchPage() {
     const { connection } = useViewEnvironment();
     const { navigate, lastSession } = useRouter();
+    const { run } = useWorkbench();
     const rows = connection.sessionRows ?? [];
     const choices = workspaceChoices(rows);
     const now = Date.now();
@@ -40,6 +45,11 @@ export function SearchPage() {
     const [chosenWorkspace, setChosenWorkspace] = useState<string | undefined>(undefined);
     const [answer, setAnswer] = useState<HostAnswer | undefined>(undefined);
     const requests = useRef(0);
+    const searchInput = useRef<HTMLInputElement>(null);
+
+    useEffect(() => sessionSearchFocus.subscribe(() => {
+        if (sessionSearchFocus.take() && searchInput.current !== null) focusAndSelectSearch(searchInput.current);
+    }), []);
 
     // The conversation scope needs an open session; without one it falls back to everything.
     const conversationId = scope === "conversation" ? lastSession?.agentId : undefined;
@@ -93,6 +103,7 @@ export function SearchPage() {
                     <input
                         type="search"
                         aria-label="Search sessions"
+                        ref={searchInput}
                         placeholder="Search sessions"
                         autoFocus
                         value={typed}
@@ -167,7 +178,12 @@ export function SearchPage() {
                                     type="button"
                                     className="list-row"
                                     data-session={row.agentId}
-                                    onClick={() => navigate({ kind: "session", agentId: row.agentId, title: row.title })}
+                                    onClick={() => {
+                                        run(FIND_CLOSE_COMMAND);
+                                        const request = searchResultFindRequest(row.agentId, query, row.hits[0]);
+                                        if (request !== undefined) run(FIND_SHORTCUT.command, request);
+                                        navigate({ kind: "session", agentId: row.agentId, title: row.title });
+                                    }}
                                 >
                                     <span className="session-dot" data-running={running} aria-hidden="true" />
                                     <span className="list-row-body">

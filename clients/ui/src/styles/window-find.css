@@ -1,0 +1,97 @@
+.window-find {
+    position: fixed;
+    z-index: 80;
+    top: calc(var(--header-height) + var(--vera-space) * 2);
+    right: calc(var(--vera-space) * 2);
+    display: flex;
+    align-items: center;
+    width: min(calc(var(--vera-space) * 95), calc(100% - var(--vera-space) * 4));
+    height: calc(var(--vera-space) * 10);
+    padding: calc(var(--vera-space) * 1.25);
+    gap: calc(var(--vera-space) * 0.75);
+    color: var(--vera-text);
+    background: var(--vera-surface-raised);
+    border: thin solid var(--vera-border);
+    border-radius: var(--vera-radius);
+    -webkit-app-region: no-drag;
+}
+
+.window-find-slot:empty {
+    display: none;
+}
+
+.window-find-slot:not(:empty) {
+    display: flex;
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    height: calc(var(--vera-space) * 10);
+}
+
+.window-find-slot .window-find {
+    position: static;
+    height: 100%;
+}
+
+.window-find input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: calc(var(--vera-space) * 7);
+    padding: 0 calc(var(--vera-space) * 1.5);
+    color: var(--vera-text);
+    font: inherit;
+    background: var(--vera-surface-input);
+    border: thin solid var(--vera-border-input);
+    border-radius: var(--vera-radius-sm);
+    outline-color: var(--vera-focus);
+}
+
+.window-find-count {
+    flex: 0 0 auto;
+    min-width: calc(var(--vera-space) * 10);
+    color: var(--vera-text-muted);
+    font-size: var(--vera-font-size-label);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.window-find button {
+    display: grid;
+    flex: 0 0 calc(var(--vera-space) * 6.5);
+    width: calc(var(--vera-space) * 6.5);
+    height: calc(var(--vera-space) * 6.5);
+    padding: calc(var(--vera-space) * 1.25);
+    place-items: center;
+    color: var(--vera-text-muted);
+    background: transparent;
+    border: 0;
+    border-radius: var(--vera-radius-sm);
+    cursor: pointer;
+}
+
+.window-find button:hover {
+    color: var(--vera-text);
+    background: var(--vera-surface-hover);
+}
+
+.window-find button:focus-visible {
+    outline: thin solid var(--vera-focus);
+}
+
+.window-find svg {
+    width: calc(var(--vera-space) * 4);
+    height: calc(var(--vera-space) * 4);
+}
+
+.window-find-up {
+    transform: rotate(180deg);
+}
+
+::highlight(vera-find-matches) {
+    background-color: #ffff55;
+    color: #000000;
+}
+
+::highlight(vera-find-current) {
+    background-color: #f19b4a;
+    color: #000000;
+}

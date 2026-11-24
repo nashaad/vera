@@ -2,15 +2,15 @@ import { expect, test } from "bun:test";
 
 import { CommandRegistry } from "../../clients/ui/src/commands/registry.ts";
 import { registerNavigationCommands, NAVIGATION_COMMANDS } from "../../clients/ui/src/commands/navigation-commands.ts";
-import { focusAndSelectSettingsSearch, subscribeSettingsSearchFocus, takeSettingsSearchFocus } from "../../clients/ui/src/pages/settings/focusSearch.ts";
+import { focusAndSelectSearch, settingsSearchFocus } from "../../clients/ui/src/pages/focusSearch.ts";
 import { SETTINGS_SECTIONS } from "../../clients/ui/src/pages/settings/sections.ts";
 
 test("@core Cmd+, requests focused Settings search on each invocation", () => {
     const registry = new CommandRegistry();
     const routes: unknown[] = [];
     let focusRequests = 0;
-    const unsubscribe = subscribeSettingsSearchFocus(() => {
-        if (takeSettingsSearchFocus()) focusRequests += 1;
+    const unsubscribe = settingsSearchFocus.subscribe(() => {
+        if (settingsSearchFocus.take()) focusRequests += 1;
     });
     const dispose = registerNavigationCommands(registry, (action) => routes.push(action));
 
@@ -30,7 +30,7 @@ test("@core Cmd+, requests focused Settings search on each invocation", () => {
 
 test("Cmd+, focuses the rail search and selects its text", () => {
     const calls: string[] = [];
-    focusAndSelectSettingsSearch({
+    focusAndSelectSearch({
         focus: () => calls.push("focus"),
         select: () => calls.push("select"),
     });

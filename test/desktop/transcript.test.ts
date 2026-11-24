@@ -109,18 +109,18 @@ describe("history entries to blocks", () => {
             { kind: "empty" },
         ]);
         expect(blocks).toEqual([
-            { kind: "user", key: "u1", text: "list files", at: 100 },
+            { kind: "user", key: "u1", entryId: "u1", text: "list files", at: 100 },
             {
                 kind: "tools",
                 key: "t1",
                 active: false,
                 calls: [
-                    { tool: "bash", title: "bash ls -la", args: { command: "ls\n -la" }, state: "done", output: "a b", isError: false },
-                    { tool: "read", title: "read a.md", args: { path: "/w/notes/a.md" }, state: "failed", output: "missing", isError: true },
-                    { tool: "bash", title: "bash pwd", args: { command: "pwd" }, state: "done" },
+                    { tool: "bash", entryId: "t1", title: "bash ls -la", args: { command: "ls\n -la" }, state: "done", output: "a b", isError: false },
+                    { tool: "read", entryId: "t2", title: "read a.md", args: { path: "/w/notes/a.md" }, state: "failed", output: "missing", isError: true },
+                    { tool: "bash", entryId: "t3", title: "bash pwd", args: { command: "pwd" }, state: "done" },
                 ],
             },
-            { kind: "text", key: "a1", text: "Done." },
+            { kind: "text", key: "a1", entryId: "a1", text: "Done." },
             { kind: "notice", key: "e1", tone: "info", text: "Stopped." },
             { kind: "notice", key: "h9", tone: "info", text: "Context trimmed" },
             { kind: "notice", key: "h10", tone: "error", text: "Hook blocked" },

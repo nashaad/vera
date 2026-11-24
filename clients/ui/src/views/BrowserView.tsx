@@ -159,6 +159,7 @@ export function BrowserView({ visible }: ViewProps) {
                     <span className="browser-tools-label">Browser tools {native?.toolsEnabled ? "on" : "off"}</span>
                 </label>
             </div>
+            <div className="window-find-slot" data-window-find-slot={visible && !historyOpen && page !== undefined ? "" : undefined} />
             {handoff === undefined ? null : <div className="browser-handoff" role="status">
                 <span>Vera needs you: {handoff.reason}</span>
                 <div className="browser-handoff-actions">
